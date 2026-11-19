@@ -1,0 +1,192 @@
+# 12 Build, release and update
+
+How Marsa is built, packaged, signed, shipped and kept up to date on macOS.
+
+## Toolchain
+
+| Item | Choice | Status |
+|---|---|---|
+| Rust | Stable channel, version pinned in `rust-toolchain.toml` | Proposed |
+| Host target | `aarch64-apple-darwin` | Decided |
+| Guest target | `aarch64-unknown-linux-musl` (static) | Proposed |
+| Task runner | `cargo xtask` (no Makefile, no shell-script sprawl) | Proposed |
+| Protobuf | `prost` and `tonic` with checked-in generated code or build-time generation, decided in M0 | Proposed |
+| Guest build | Containerised, driven by `cargo xtask guest` | Proposed |
+| Lint and format | `rustfmt`, `clippy` with warnings denied in CI | Proposed |
+| Dependency policy | `cargo-deny` (licences, bans, advisories), `cargo-audit` | Proposed |
+
+## Build graph
+
+```mermaid
+flowchart LR
+    subgraph src["Sources"]
+        rs["Rust workspace"]
+        gsrc["guest/ recipes"]
+        loc["locales/"]
+        assets["fonts, icons"]
+    end
+
+    subgraph build["cargo xtask"]
+        bh["build host<br/>marsad, marsa, marsa-gui, marsa-mcp"]
+        bg["build guest bins<br/>marsa-init, marsa-agent (musl)"]
+        gi["guest image<br/>kernel + rootfs + manifest"]
+        up["fetch upstream<br/>docker, compose, buildx, cred helper"]
+        bun["bundle<br/>Marsa.app"]
+        sig["sign + notarize"]
+        dmg["package<br/>DMG + update archive + manifest"]
+    end
+
+    rs --> bh
+    rs --> bg --> gi
+    gsrc --> gi
+    bh --> bun
+    gi --> bun
+    up --> bun
+    loc --> bun
+    assets --> bun
+    bun --> sig --> dmg
+```
+
+## App bundle layout
+
+**Proposed.**
+
+```text
+Marsa.app/
+└── Contents/
+    ├── Info.plist
+    ├── MacOS/
+    │   ├── marsa-gui                  # main executable
+    │   ├── marsad
+    │   └── marsa
+    ├── Resources/
+    │   ├── bin/                       # upstream docker, compose, buildx, credential helper
+    │   ├── guest/
+    │   │   ├── vmlinux
+    │   │   ├── rootfs.img
+    │   │   └── guest-manifest.json
+    │   ├── locales/
+    │   ├── fonts/
+    │   └── licenses/                  # third-party notices and SBOM
+    └── Library/
+        └── LaunchAgents/              # marsad agent definition
+```
+
+## Signing and notarization
+
+| Requirement | Detail |
+|---|---|
+| Apple Developer Program membership | Needed for a Developer ID certificate |
+| Developer ID Application certificate | Signs every Mach-O binary in the bundle, inside-out |
+| Hardened runtime | Enabled on all binaries |
+| Entitlements | `com.apple.security.virtualization` on the binary that creates the VM; `com.apple.security.hypervisor` if the `krun` backend is bundled |
+| Bundled upstream binaries | Re-signed with Marsa's identity as part of the bundle |
+| Notarization | Submit the DMG, wait, staple the ticket |
+| Gatekeeper check | CI verifies the stapled, signed result on a clean machine |
+
+**Verify** the current entitlement requirements for Virtualization.framework and Hypervisor.framework with a Developer ID (outside the Mac App Store) before M10.
+
+The Mac App Store is not a distribution target: the sandbox it requires conflicts with running a VM daemon, a shared socket and bundled CLIs.
+
+## Distribution channels
+
+| Channel | Status |
+|---|---|
+| Signed, notarized DMG from GitHub Releases | Version 1 |
+| Homebrew cask | Version 1 |
+| Direct download from a project site | When a site exists |
+
+## Auto-update
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant D as marsad
+    participant S as Update server (GitHub Releases or CDN)
+    participant U as User
+    participant G as GUI
+
+    D->>S: Fetch manifest for channel
+    S-->>D: Signed manifest
+    D->>D: Verify manifest signature (pinned key)
+    alt newer version available
+        D->>G: Event: update available (version, notes)
+        G->>U: Show notes, offer install now or later
+        U->>G: Install
+        D->>S: Download archive
+        D->>D: Verify hash and code signature
+        D->>D: Stop VM cleanly (containers stopped with notice)
+        D->>D: Swap app bundle atomically, keep previous
+        D->>D: Relaunch marsad and GUI
+        D->>D: Health check: daemon up, VM boots, engine healthy
+        alt healthy
+            D->>G: Event: updated
+        else not healthy
+            D->>D: Roll back to previous bundle
+            D->>G: Event: update failed and was rolled back
+        end
+    end
+```
+
+Rules:
+
+- **Proposed:** implement the updater in `marsad` with a signed manifest, as opposed to adopting a GUI-framework-specific updater, so the CLI-only and headless cases update the same way. Evaluate Sparkle as an alternative in the M10 design task and record the decision.
+- Updates never restart running containers without telling the user first. The user can defer.
+- Channels: `stable` and `beta`.
+- The guest image updates with the app; the data disk is untouched.
+- Security updates may be marked "recommended now" in the manifest and are highlighted, but still never forced silently.
+
+## Versioning
+
+- Semantic versioning for the app: `MAJOR.MINOR.PATCH`.
+- `guest-manifest.json` records the kernel, Alpine, engine and guest-binary versions for each app version.
+- The typed API is versioned separately (`marsa.v1`), as is the guest control protocol; the handshake rejects incompatible pairs with a clear message.
+
+## Continuous integration
+
+Planning flagged that VM code cannot be tested in ordinary cloud CI. The pipeline therefore has two tiers.
+
+```mermaid
+flowchart TB
+    pr["Pull request"] --> t1
+
+    subgraph t1["Tier 1: hosted runners (every PR)"]
+        fmt["fmt, clippy, cargo-deny, audit"]
+        unit["Unit tests (host crates)"]
+        gbuild["Guest image build<br/>+ check-config.sh"]
+        i18n["Locale completeness check"]
+        snap["GUI snapshot tests<br/>4 variants"]
+    end
+
+    t1 --> t2
+
+    subgraph t2["Tier 2: Apple silicon runner with virtualization (PR label and main)"]
+        boot["Boot test: VM to engine healthy"]
+        conf["Docker conformance suite"]
+        net["Network and port tests"]
+        fs["File-sharing tests"]
+        bench["Benchmarks (main only),<br/>results stored and compared"]
+    end
+
+    t2 --> rel["Release workflow (tag)"]
+    rel --> sign2["Sign, notarize, package"]
+    sign2 --> pubr["Publish + signed manifest"]
+```
+
+- **Verify** whether GitHub-hosted Apple silicon runners support nested virtualization for Virtualization.framework guests at implementation time. If they do not, Tier 2 runs on a self-hosted Mac. Plan for the self-hosted option.
+- Secrets (signing identity, notarization credentials, update key) are available only to the release workflow on protected tags.
+
+## Release checklist
+
+1. All Tier 1 and Tier 2 checks green on the release commit.
+2. Benchmarks within thresholds against the previous release.
+3. Guest manifest, SBOM and third-party licence notices generated.
+4. Kernel source reference and config published for GPL compliance.
+5. Changelog written in English and Arabic.
+6. Signed, notarized, stapled DMG verified on a clean machine.
+7. Update from the previous release tested end to end, including rollback.
+8. Signed manifest published to `beta`, then promoted to `stable` after a soak period.
+
+## Uninstall
+
+`marsa reset --factory` followed by removing the app must leave nothing behind. A documented uninstall removes: the app bundle, `~/.marsa`, the launch agent, the Docker context, the optional `/var/run/docker.sock` symlink and any PATH entries Marsa added. An automated test verifies this on a clean machine.

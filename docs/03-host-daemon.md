@@ -1,0 +1,270 @@
+# 03 Host daemon (`marsad`)
+
+`marsad` is the centre of Marsa. It is a headless Rust process that runs in the user's session, without root, and owns everything on the host: the VM, the Docker socket, networking, shared folders, settings and updates.
+
+## Responsibilities
+
+| Area | What `marsad` does |
+|---|---|
+| VM lifecycle | Creates, starts, pauses, stops and monitors the Linux VM through a backend |
+| Docker socket | Serves the Docker Engine API on a host Unix socket and proxies it to dockerd in the guest |
+| Typed API | Serves the Marsa API to the GUI, CLI and MCP server |
+| Networking | Forwards published ports, provides DNS names, switches network mode |
+| File sharing | Enforces the shared-folder allowlist and attaches folders to the VM |
+| Guest control | Talks to `marsa-agent` over vsock: time, ports, certificates, stats, shutdown |
+| Settings | Persists configuration and applies it |
+| Events | Publishes a single event stream that every client subscribes to |
+| Updates | Checks, verifies and applies signed updates |
+| Diagnostics | Collects logs and state into a support bundle |
+
+## Internal structure
+
+```mermaid
+flowchart TB
+    subgraph api["API surface"]
+        grpc["Typed API server<br/>gRPC on marsad.sock"]
+        dsock["Docker socket proxy<br/>docker.sock"]
+    end
+
+    subgraph coreSvc["Core services"]
+        sup["VM supervisor<br/>state machine"]
+        cfg["Settings store"]
+        bus["Event bus"]
+        pol["Policy engine<br/>sharing, agent permissions"]
+    end
+
+    subgraph subsys["Subsystems"]
+        net["Network manager<br/>port forwarder, DNS"]
+        share["Share manager<br/>allowlist, virtiofs tags"]
+        gctl["Guest control client<br/>vsock"]
+        upd["Updater"]
+        diag["Diagnostics"]
+        pwr["Power and network watcher<br/>sleep, wake, network change"]
+    end
+
+    subgraph backends["VM backends"]
+        tr["Hypervisor trait"]
+        vz["vz backend"]
+        kr["krun backend"]
+    end
+
+    grpc --> sup
+    grpc --> cfg
+    grpc --> bus
+    grpc --> pol
+    dsock --> pol
+    dsock --> sup
+    dsock --> gctl
+    sup --> tr
+    tr --> vz
+    tr --> kr
+    sup --> gctl
+    sup --> bus
+    net --> gctl
+    net --> bus
+    share --> tr
+    pwr --> sup
+    pwr --> gctl
+    upd --> sup
+    diag --> gctl
+```
+
+## The Hypervisor trait
+
+**Proposed.** Every VM backend implements one trait in `marsa-vm`. The rest of the daemon knows nothing about Apple frameworks.
+
+```rust
+/// A single Linux VM managed by one backend.
+#[async_trait]
+pub trait Hypervisor: Send + Sync {
+    /// Static facts about this backend (name, features it supports).
+    fn capabilities(&self) -> Capabilities;
+
+    /// Build a VM from a spec. Does not start it.
+    async fn create(&self, spec: VmSpec) -> Result<Box<dyn Vm>, VmError>;
+}
+
+#[async_trait]
+pub trait Vm: Send + Sync {
+    async fn start(&mut self) -> Result<(), VmError>;
+    async fn pause(&mut self) -> Result<(), VmError>;
+    async fn resume(&mut self) -> Result<(), VmError>;
+    /// Ask the guest to shut down, then force after `timeout`.
+    async fn stop(&mut self, timeout: Duration) -> Result<(), VmError>;
+    fn state(&self) -> VmState;
+    /// Stream of state changes, including unexpected exits.
+    fn events(&self) -> BoxStream<'static, VmEvent>;
+    /// Open a vsock connection to a guest port.
+    async fn connect_vsock(&self, port: u32) -> Result<VsockStream, VmError>;
+    /// Set the guest's target memory, if the backend supports ballooning.
+    async fn set_memory_target(&self, bytes: u64) -> Result<(), VmError>;
+    /// Guest network facts (IP, gateway) for the current network mode.
+    fn network_info(&self) -> Option<NetworkInfo>;
+}
+
+pub struct VmSpec {
+    pub cpus: u32,
+    pub memory_bytes: u64,
+    pub kernel: PathBuf,
+    pub initramfs: Option<PathBuf>,
+    pub cmdline: String,
+    pub root_disk: DiskSpec,      // read-only
+    pub data_disk: DiskSpec,      // read-write
+    pub shares: Vec<ShareSpec>,   // virtiofs tags and host paths
+    pub network: NetworkSpec,     // Nat or UserSpace
+    pub console_log: PathBuf,
+}
+
+pub struct Capabilities {
+    pub name: &'static str,
+    pub memory_balloon: bool,
+    pub pause_resume: bool,
+    pub dynamic_shares: bool,     // add a share without restarting
+    pub userspace_network: bool,
+}
+```
+
+The trait is deliberately small. Anything a backend cannot do is reported through `Capabilities`, and the daemon adapts (for example, it restarts the VM to add a share when `dynamic_shares` is false).
+
+## VM lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Stopped
+    Stopped --> Starting: start requested or first Docker call
+    Starting --> Booting: VM created and started
+    Booting --> Ready: agent handshake ok and dockerd healthy
+    Booting --> Failed: timeout or early exit
+    Ready --> Idle: no containers for idle_timeout
+    Idle --> Ready: Docker call arrives
+    Idle --> Stopping: idle stop enabled
+    Ready --> Paused: host sleep
+    Paused --> Ready: host wake, time resynced
+    Ready --> Stopping: stop requested or update
+    Stopping --> Stopped: guest shut down cleanly
+    Stopping --> Stopped: forced after timeout
+    Ready --> Failed: VM exited unexpectedly
+    Failed --> Starting: automatic retry with backoff
+    Failed --> Stopped: retries exhausted
+```
+
+Rules:
+
+- **Start on demand.** The VM starts when the user asks or when the first Docker API call arrives. A call that arrives during `Starting` or `Booting` waits, up to a timeout, and then proceeds.
+- **Ready means usable.** `Ready` requires both the agent handshake and a successful `GET /_ping` to dockerd.
+- **Idle behaviour is a setting.** By default the VM stops after a period with no running containers, so an idle Marsa uses almost no memory.
+- **Failures are visible.** Every transition is published on the event bus with a reason, and `Failed` carries the tail of the guest console log.
+
+## Typed API
+
+**Proposed.** gRPC over `~/.marsa/run/marsad.sock`, defined in `marsa-proto`. The Docker Engine API is not duplicated here; clients use the Docker socket for container data.
+
+| Service | Methods (summary) |
+|---|---|
+| `Engine` | `Status`, `Start`, `Stop`, `Restart`, `Reset` (factory reset with confirmation token) |
+| `Settings` | `Get`, `Update`, `Watch` |
+| `Shares` | `List`, `Add`, `Remove` |
+| `Network` | `Status`, `SetMode`, `ListForwardedPorts` |
+| `Events` | `Subscribe` (server stream of all daemon events) |
+| `Stats` | `VmStats` (server stream: CPU, memory, disk) |
+| `Disk` | `Usage`, `Reclaim`, `PrunePreview` |
+| `Updates` | `Check`, `Download`, `Apply`, `Status` |
+| `Diagnostics` | `Collect` (returns a bundle path), `Logs` (stream) |
+| `Agents` | `ListPendingApprovals`, `Approve`, `Deny`, `ListGrants`, `RevokeGrant` (see [10 MCP](10-mcp-server.md)) |
+| `AgentOps` | Engine operations performed on behalf of MCP clients. Every call names the client, passes through the policy engine and is written to the audit log. `marsad` executes the operation against dockerd itself; the MCP server never touches the Docker socket |
+| `Meta` | `Version`, `Capabilities` |
+
+API rules:
+
+- Versioned package (`marsa.v1`). Additive changes only within a major version.
+- Every mutating call is idempotent or carries a request ID.
+- Every client gets its state from `Events.Subscribe` plus an initial snapshot; clients never poll.
+
+## Docker socket proxy
+
+`marsad` listens on `~/.marsa/run/docker.sock` (mode 0600, owner only) and forwards each connection to dockerd in the guest over vsock.
+
+```mermaid
+sequenceDiagram
+    participant C as Docker client
+    participant P as marsad proxy
+    participant S as VM supervisor
+    participant E as dockerd (guest)
+
+    C->>P: HTTP request on docker.sock
+    P->>S: ensure_ready()
+    S-->>P: Ready (starts VM if needed)
+    P->>P: Inspect request line and, for create, the body
+    alt bind mount outside the allowlist
+        P-->>C: 403 with a clear message and how to share the folder
+    else allowed
+        P->>E: Forward bytes over vsock
+        E-->>P: Response (may upgrade to a raw stream)
+        P-->>C: Response, streamed
+    end
+```
+
+Proxy rules:
+
+- **Transparent by default.** Requests and responses are forwarded unchanged, including connection upgrades used by `attach`, `exec` and BuildKit.
+- **One inspection point only.** `POST /containers/create` is inspected for bind mounts that fall outside the shared-folder allowlist. Agent traffic does not use this socket at all; it goes through the `AgentOps` service of the typed API, where the permission policy applies.
+- **No API emulation.** The proxy never rewrites engine responses. Anything the engine supports works.
+
+## Settings
+
+**Proposed.** Stored as TOML at `~/.marsa/config.toml`. The daemon is the only writer; clients change settings through the API.
+
+| Group | Keys |
+|---|---|
+| `vm` | `cpus`, `memory`, `backend` (`vz` or `krun`), `idle_stop`, `idle_timeout` |
+| `disk` | `data_size_limit`, `auto_reclaim` |
+| `shares` | list of host paths |
+| `network` | `mode` (`auto`, `nat`, `userspace`), `proxy` settings, `dns` overrides |
+| `ui` | `language` (`system`, `en-US`, `ar`), `theme` (`system`, `light`, `dark`) |
+| `updates` | `channel`, `auto_check`, `auto_install` |
+| `agents` | permission defaults for MCP clients |
+| `telemetry` | `enabled` (default false) |
+
+## Filesystem layout on the host
+
+**Proposed.**
+
+```text
+~/.marsa/
+├── config.toml
+├── run/
+│   ├── marsad.sock          # typed API
+│   ├── docker.sock          # Docker Engine API
+│   └── marsad.pid
+├── vm/
+│   ├── data.img             # sparse data disk
+│   └── console.log
+├── logs/
+│   └── marsad.log
+└── state/
+    ├── grants.json          # agent permission grants
+    └── update/
+```
+
+The read-only guest image (kernel and root filesystem) ships inside the app bundle, not in `~/.marsa`, so it is replaced atomically with each update.
+
+## Process supervision
+
+- `marsad` is started at login by a per-user launchd agent (**Verify:** use the modern `SMAppService` registration for login items and agents).
+- The GUI and CLI start `marsad` if it is not running.
+- `marsad` holds a lock file so only one instance runs per user.
+- On crash, launchd restarts it. On restart it reattaches or cleans up any orphaned VM before accepting requests.
+
+## Sleep, wake and network changes
+
+| Event | Action |
+|---|---|
+| Host will sleep | Pause the VM if the backend supports it |
+| Host woke | Resume the VM, send the current time to the agent, re-check network mode, refresh port forwards |
+| Network changed | Re-evaluate `auto` network mode, refresh DNS and proxy settings in the guest |
+
+## Observability
+
+- Structured logs (JSON lines) with levels, written to `~/.marsa/logs/marsad.log` with rotation.
+- The event bus is the user-visible history: VM transitions, port forwards, share changes, update steps, agent approvals.
+- No telemetry leaves the machine unless the user turns it on.

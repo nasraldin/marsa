@@ -1,0 +1,281 @@
+# 08 GUI
+
+The Marsa GUI is a native window rendered on the GPU. It is a client of `marsad` and holds no logic the CLI could not also reach.
+
+## Decisions
+
+| Item | Decision | Status |
+|---|---|---|
+| Framework | GPUI with gpui-component, all Rust | Decided |
+| Gate | A right-to-left spike must pass before feature work starts (task M1-01) | Decided |
+| Fallback | Tauri 2 with a web front end if the spike fails | Decided |
+| Languages | English (US) and Arabic (Modern Standard) | Decided |
+| Directions | Full left-to-right and right-to-left, mirrored layouts | Decided |
+| Themes | Light and dark, following the system by default | Decided |
+| Optional | The window can be closed with nothing left running but the daemon | Decided |
+
+## Why GPUI
+
+The planning comparison, on the criteria that mattered (performance and long-running stability):
+
+| Criterion | Electron | Tauri 2 | GPUI | Three native UIs |
+|---|---|---|---|---|
+| Rendering | Bundled Chromium | System webview | Own GPU renderer | Each OS toolkit |
+| Idle memory | Highest | Lower; near Electron on Windows under load | Lowest: no browser, no JS heap | Low on macOS and Linux; heavier on Windows |
+| Days of uptime with log streams | Stable but heavy | Reports of memory growth on high-rate events | Best: Rust end to end, no garbage collector | Stable; large lists need lower-level controls |
+| Same look on every OS | Yes | No, three engines | Yes | No, three apps |
+| Accessibility | Mature | Mature | New (AccessKit merged upstream in 2026) | Best |
+| Right-to-left | Mature | Mature | **Weakest area; see below** | Mature |
+| Codebases | One | One | One | Three |
+| Verdict | Rejected | Fallback | **Chosen** | Rejected for version 1 |
+
+## The right-to-left risk
+
+Planning research found that right-to-left support is GPUI's weakest area:
+
+- Zed's own tracking issue lists right-to-left languages and input as unsupported, with new reports still being filed in late 2026.
+- Arabic glyph shaping and reordering reportedly work through the platform text stacks; the gaps are paragraph direction, caret and word movement, and selection.
+- GPUI has no global layout-direction flag, so mirroring must be done by the application's own component layer.
+- Upstream fixes were in progress, with unknown merge status.
+
+**Consequence:** Marsa cannot assume the framework handles Arabic. The spike decides, and the component layer is designed for direction from the first line of code.
+
+### Spike pass criteria (task M1-01)
+
+On macOS, with Arabic selected:
+
+1. A sidebar and a container list render fully mirrored.
+2. A text field accepts typed Arabic with correct caret movement, selection and deletion.
+3. A row mixing Arabic labels with English container names, image tags and paths renders in the correct visual order.
+4. Arabic text is shaped correctly (letters join) at every font size and weight used by the design system.
+5. Switching language at runtime re-lays out the window without a restart.
+
+If any criterion fails and cannot be fixed inside Marsa's own component layer or with a small, upstreamable GPUI patch, the GUI moves to the Tauri fallback. The daemon, VM and guest are unaffected by that switch.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph gui["marsa-gui"]
+        shell["App shell<br/>window, sidebar, routing, command palette"]
+        screens["Screens<br/>containers, logs, terminal, images, ..."]
+        store["App store<br/>normalized state, selectors"]
+        svc["Services<br/>daemon client, docker client, streams"]
+    end
+
+    subgraph ui["marsa-ui (design system)"]
+        tokens["Design tokens<br/>colour, type, spacing, radius"]
+        dir["Direction layer<br/>start and end, mirroring"]
+        i18n["i18n<br/>en-US, ar, plurals, formats"]
+        comps["Components<br/>built on gpui-component"]
+    end
+
+    subgraph ext["Outside the GUI"]
+        d["marsad typed API"]
+        ds["Docker socket"]
+    end
+
+    shell --> screens
+    screens --> store
+    screens --> comps
+    comps --> tokens
+    comps --> dir
+    comps --> i18n
+    store --> svc
+    svc -->|events, settings, lifecycle| d
+    svc -->|containers, images, logs, exec| ds
+```
+
+### Data flow
+
+```mermaid
+sequenceDiagram
+    participant D as marsad and dockerd
+    participant S as Services
+    participant ST as App store
+    participant V as Views
+
+    Note over S,ST: Start-up
+    S->>D: Snapshot (engine status, containers, images)
+    D-->>S: Snapshot
+    S->>ST: Replace state
+    S->>D: Subscribe to events
+    loop While the window is open
+        D-->>S: Event (container started, stats tick, log batch)
+        S->>ST: Apply as a state change
+        ST-->>V: Notify only affected views
+        V->>V: Re-render changed rows only
+    end
+    Note over V,D: User action
+    V->>S: Command (stop container)
+    S->>D: API call
+    D-->>S: Event confirms the change
+```
+
+Rules:
+
+- **One-way flow.** Views send commands; state changes arrive only through events. No view mutates shared state directly.
+- **No polling.** Everything is event-driven from the daemon and the engine's event stream.
+- **Batches, not single events.** Logs and stats arrive in batches at a capped rate, so the UI never processes one event per log line.
+- **Window close frees everything.** Streams are cancelled and the process exits; the tray item belongs to `marsad`.
+
+## Design system (`marsa-ui`)
+
+Everything visual goes through `marsa-ui`. Screens never use raw colours, raw pixel values or left and right.
+
+### Design tokens
+
+| Token group | Examples | Notes |
+|---|---|---|
+| Colour (semantic) | `bg.surface`, `bg.elevated`, `text.primary`, `text.muted`, `border.subtle`, `accent`, `status.running`, `status.stopped`, `status.error` | Each has a light and a dark value |
+| Typography | `font.ui.latin`, `font.ui.arabic`, `font.mono`, size and weight scales | One Latin UI face, one Arabic UI face, one monospace face, all bundled |
+| Spacing | 4-point scale | Used for padding, gaps, row heights |
+| Radius, elevation, motion | Small fixed scales | Motion respects the system "reduce motion" setting |
+
+**Proposed fonts:** a bundled Arabic UI font (IBM Plex Sans Arabic or Noto Sans Arabic) so Arabic looks identical everywhere, paired with a matching Latin face, and a monospace face with good Arabic fallback for mixed log lines. **Verify** licences (both candidates are open-licensed) before bundling.
+
+### Themes
+
+```mermaid
+flowchart LR
+    sys["System appearance"] --> sel{"Theme setting"}
+    sel -- system --> follow["Follow macOS light or dark"]
+    sel -- light --> l["Light token set"]
+    sel -- dark --> d["Dark token set"]
+    follow --> l
+    follow --> d
+    l --> comp["Components read semantic tokens"]
+    d --> comp
+```
+
+- The theme switches live, without a restart, and follows the system when set to `system`.
+- Contrast for text and status colours meets WCAG AA in both themes; this is tested, not assumed.
+
+### Direction layer
+
+```mermaid
+flowchart TD
+    lang["Language setting"] --> d{"Direction"}
+    d -- "en-US" --> ltr["LTR"]
+    d -- "ar" --> rtl["RTL"]
+    ltr --> api["Direction-aware layout API"]
+    rtl --> api
+    api --> s["start / end padding, margin, border, alignment"]
+    api --> r["Row order: reversed in RTL"]
+    api --> ic["Directional icons mirrored"]
+    api --> iso["Technical text isolated as LTR"]
+```
+
+Rules, enforced by lint and review:
+
+- **Use `start` and `end`, never `left` and `right`,** for padding, margins, borders, alignment and positioning. `marsa-ui` wraps the framework's styling so this is the only available API in screens.
+- **Row direction follows the language.** Horizontal stacks reverse in right-to-left automatically.
+- **Mirror only directional icons** (back, forward, chevrons, disclosure arrows). Never mirror logos, play and stop, checkmarks or charts' time axes.
+- **Technical text is always left-to-right:** container names and IDs, image references, paths, commands, environment variables, logs and the terminal. These are wrapped in an isolated left-to-right run inside the mirrored layout.
+- **Western digits (0 to 9) everywhere,** so ports, sizes and IDs match the CLI output.
+- **Keyboard shortcuts do not change with language,** but arrow-key navigation follows the visual direction.
+
+### Internationalisation
+
+| Topic | Design | Status |
+|---|---|---|
+| Locales | `en-US` (source), `ar` (Modern Standard Arabic) | Decided |
+| Translation format | Fluent (`.ftl`) files in `locales/` | Proposed |
+| Plurals | Full CLDR rules; Arabic has six plural forms | Decided as a requirement |
+| Library | **Verify:** gpui-component is built on rust-i18n, which may not provide plural rules. Use Fluent for Marsa strings and bridge gpui-component's own strings | Verify |
+| Dates, times, sizes | Locale-aware formatting with Western digits | Proposed |
+| Runtime switching | Language changes apply live | Decided |
+| Missing strings | Build fails if any key exists in one locale and not the other | Proposed |
+| Review | Arabic strings are reviewed by a fluent speaker for terminology consistency; a glossary of technical terms lives in `locales/GLOSSARY.md` | Proposed |
+
+Technical terms policy (**Proposed**): keep established English terms that developers actually use (Docker, container image names, Compose, volume names as typed) in Latin script where an Arabic term would confuse, and translate interface language (actions, labels, messages) fully.
+
+### Four variants, always
+
+Every screen and component is built, reviewed and snapshot-tested in all four variants: English light, English dark, Arabic light, Arabic dark. A feature is not done until all four are correct.
+
+## Screens
+
+```mermaid
+flowchart LR
+    shell["Shell: sidebar + content + status bar"]
+    shell --> ctr["Containers"]
+    shell --> img["Images"]
+    shell --> vol["Volumes"]
+    shell --> net["Networks"]
+    shell --> cmp["Compose projects"]
+    shell --> dsk["Disk and cleanup"]
+    shell --> act["Activity and agent approvals"]
+    shell --> set["Settings"]
+
+    ctr --> cd["Container detail"]
+    cd --> logs["Logs"]
+    cd --> term["Terminal"]
+    cd --> insp["Inspect"]
+    cd --> stats["Stats"]
+    cmp --> cpd["Project detail<br/>services, logs, actions"]
+    img --> imd["Image detail"]
+    set --> s1["General, Resources, Sharing,<br/>Network, Agents, Updates, About"]
+```
+
+Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
+
+## Feature priorities
+
+From the planning whiteboard.
+
+### Must have: version 1
+
+| Feature | Notes |
+|---|---|
+| English (US) and Arabic (MSA), full LTR and RTL | All screens |
+| Light and dark themes | Follow the system by default |
+| Containers | List, start, stop, restart, remove; grouped by Compose project |
+| Live logs | Follow, search, filter, several containers at once |
+| Terminal into any container | One click |
+| Inspect | Environment, ports, mounts, networks |
+| Live stats | CPU, memory, network, disk |
+| Images | List, pull, remove, sizes |
+| Volumes and networks | List, remove |
+| Compose projects | Up, down, restart |
+| Engine control and resource limits | Start, stop, restart; CPU, memory, disk |
+| Disk cleanup with a preview | See [07](07-file-sharing-and-storage.md#disk-cleanup-with-a-preview) |
+| MCP server and agent approvals | See [10](10-mcp-server.md) |
+| Tray icon | Status and quick actions; owned by `marsad` |
+| Command palette and full keyboard use | Every action reachable without a mouse |
+| Auto-update and settings | See [12](12-build-release-update.md) |
+
+### Should have: soon after
+
+File browser for containers and volumes; build view (BuildKit progress and cache); registry sign-in and credentials; Docker contexts for remote engines over SSH; image layer inspector; crash and restart-loop notifications; clickable published ports.
+
+### Later
+
+In-app AI assistant; vulnerability scanning; volume backup, restore and export; local domain names and HTTPS; optional Kubernetes; dev containers; extensions.
+
+## Performance rules
+
+| Screen | Rule |
+|---|---|
+| Lists (containers, images) | Virtualised; only visible rows are built |
+| Logs | Bounded ring buffer per stream; virtualised rendering; search runs off the UI thread; ANSI colours parsed once on ingest |
+| Stats | Sampled at a fixed interval; charts keep a bounded history |
+| Terminal | A real terminal emulator component with a bounded scrollback |
+| Start-up | First frame before any network call completes; data fills in from the snapshot |
+
+Targets are in [01](01-vision-and-scope.md#success-measures) and measured in [13](13-testing-and-benchmarks.md).
+
+## Accessibility
+
+- Full keyboard operation, visible focus, logical focus order in both directions.
+- Screen-reader support through the framework's accessibility tree. **Verify** the state of GPUI's AccessKit integration on macOS at implementation time; planning research found it only merged upstream in 2026.
+- Respect system settings: reduce motion, increase contrast, text size where the framework allows.
+
+## Framework version policy
+
+- gpui-component tracks GPUI from Zed's repository. Pin both to matching revisions in the workspace and upgrade them together in a dedicated task.
+- Keep any GPUI patches in a clearly named fork branch with each patch upstreamed or documented.
+
+## If the fallback is triggered
+
+The Tauri fallback keeps the same structure: `marsa-ui` becomes a web design system with the same tokens and the same start and end rules (CSS logical properties), the screens are rebuilt as web views, and the services layer still talks to `marsad` through `marsa-client`. The plan in [M6](plan/M6-gui-foundation.md) and [M7](plan/M7-gui-features.md) stays valid task for task; only the implementation technology changes. Tauri-specific rules from planning: destroy the webview when the window closes, stream logs in batches over a channel, and keep a capped virtualised log buffer.
