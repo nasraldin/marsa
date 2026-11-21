@@ -124,3 +124,39 @@ async fn rejects_console_symlinks_and_public_logs() {
     ));
     assert_eq!(fs::read(console).unwrap(), b"preserve");
 }
+
+#[tokio::test]
+async fn rejects_share_redirects_and_unapproved_mount_arguments() {
+    use std::os::unix::fs::symlink;
+
+    use marsa_vm::ShareSpec;
+
+    let scratch = tempfile::tempdir().unwrap();
+    let mut spec = write_spec(scratch.path());
+    spec.cmdline
+        .push_str(" marsa.share=unapproved:/Users/project");
+    assert!(matches!(
+        VzHypervisor.create(spec.clone()).await,
+        Err(VmError::InvalidSpec {
+            field: "cmdline",
+            ..
+        })
+    ));
+
+    let share_root = tempfile::tempdir_in("/private/tmp").unwrap();
+    let alias = share_root.path().join("redirect");
+    symlink(scratch.path(), &alias).unwrap();
+    spec.cmdline = "console=hvc0".into();
+    spec.shares.push(ShareSpec {
+        tag: "project".into(),
+        host_path: alias,
+        read_only: true,
+    });
+    assert!(matches!(
+        VzHypervisor.create(spec).await,
+        Err(VmError::InvalidSpec {
+            field: "shares.host_path",
+            ..
+        })
+    ));
+}

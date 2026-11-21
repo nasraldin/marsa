@@ -1,6 +1,6 @@
 //! Publish queue-ordered lifecycle snapshots and events without sharing framework objects.
 
-use marsa_vm::{VmError, VmEvent, VmEventStream, VmState};
+use marsa_vm::{NetworkInfo, VmError, VmEvent, VmEventStream, VmState};
 use tokio::sync::{broadcast, watch};
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
@@ -9,13 +9,18 @@ const EVENT_BUFFER: usize = 32;
 pub(super) struct Lifecycle {
     state: watch::Sender<VmState>,
     events: broadcast::Sender<VmEvent>,
+    network: watch::Sender<Option<NetworkInfo>>,
 }
 
 impl Lifecycle {
     pub(super) fn new() -> Self {
         let (state, _) = watch::channel(VmState::Created);
         let (events, _) = broadcast::channel(EVENT_BUFFER);
-        Self { state, events }
+        Self {
+            state,
+            events,
+            network: watch::channel(None).0,
+        }
     }
 
     pub(super) fn current(&self) -> VmState {
@@ -36,8 +41,22 @@ impl Lifecycle {
         }))
     }
 
+    pub(super) fn network(&self) -> Option<NetworkInfo> {
+        if !matches!(self.current(), VmState::Running | VmState::Paused) {
+            return None;
+        }
+        self.network.borrow().clone()
+    }
+
+    pub(super) fn set_network(&self, facts: Option<NetworkInfo>) {
+        self.network.send_replace(facts);
+    }
+
     // Only the native serial queue publishes transitions.
     pub(super) fn transition(&self, current: VmState) {
+        if !matches!(current, VmState::Running | VmState::Paused) {
+            self.set_network(None);
+        }
         let previous = self.state.send_replace(current);
         if previous != current {
             let _ = self

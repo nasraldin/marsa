@@ -2,15 +2,18 @@
 
 use std::{fs::File, os::fd::IntoRawFd, path::Path};
 
-use marsa_vm::{DiskSpec, VmError};
+use marsa_vm::{DiskSpec, ShareSpec, VmError};
 use objc2::{AnyThread, rc::Retained};
 use objc2_foundation::{NSArray, NSFileHandle, NSString, NSURL};
 use objc2_virtualization::{
-    VZDiskImageCachingMode, VZDiskImageStorageDeviceAttachment, VZDiskImageSynchronizationMode,
+    VZDirectorySharingDeviceConfiguration, VZDiskImageCachingMode,
+    VZDiskImageStorageDeviceAttachment, VZDiskImageSynchronizationMode,
     VZFileHandleSerialPortAttachment, VZLinuxBootLoader, VZNATNetworkDeviceAttachment,
-    VZVirtioBlockDeviceConfiguration, VZVirtioConsoleDeviceSerialPortConfiguration,
-    VZVirtioEntropyDeviceConfiguration, VZVirtioNetworkDeviceConfiguration,
-    VZVirtioSocketDeviceConfiguration, VZVirtualMachine, VZVirtualMachineConfiguration,
+    VZSharedDirectory, VZSingleDirectoryShare, VZVirtioBlockDeviceConfiguration,
+    VZVirtioConsoleDeviceSerialPortConfiguration, VZVirtioEntropyDeviceConfiguration,
+    VZVirtioFileSystemDeviceConfiguration, VZVirtioNetworkDeviceConfiguration,
+    VZVirtioSocketDeviceConfiguration, VZVirtioTraditionalMemoryBalloonDeviceConfiguration,
+    VZVirtualMachine, VZVirtualMachineConfiguration,
 };
 
 use super::{
@@ -28,6 +31,12 @@ pub(super) fn build(
         .as_deref()
         .map(|path| file_url("initramfs", path))
         .transpose()?;
+
+    let shares = spec
+        .shares
+        .iter()
+        .map(share)
+        .collect::<Result<Vec<_>, _>>()?;
 
     // SAFETY: All framework allocations, configuration calls and drops occur on the
     // controller's serial queue. The device setters retain or copy their inputs.
@@ -79,6 +88,10 @@ pub(super) fn build(
             disk_root.into_super(),
             disk_data.into_super(),
         ]));
+        config.setDirectorySharingDevices(&NSArray::from_retained_slice(&shares));
+        config.setMemoryBalloonDevices(&NSArray::from_retained_slice(&[
+            VZVirtioTraditionalMemoryBalloonDeviceConfiguration::new().into_super(),
+        ]));
         config.setSerialPorts(&NSArray::from_retained_slice(&[console.into_super()]));
         config.setSocketDevices(&NSArray::from_retained_slice(&[
             VZVirtioSocketDeviceConfiguration::new().into_super(),
@@ -91,6 +104,31 @@ pub(super) fn build(
             invalid_spec("configuration", error.localizedDescription().to_string())
         })?;
         Ok(config)
+    }
+}
+
+fn share(spec: &ShareSpec) -> Result<Retained<VZDirectorySharingDeviceConfiguration>, VmError> {
+    let url = file_url("shares.host_path", &spec.host_path)?;
+    let tag = NSString::from_str(&spec.tag);
+    // SAFETY: The approved directory and the unique tag passed preflight. All
+    // share objects are constructed, used and released on the VM queue.
+    unsafe {
+        VZVirtioFileSystemDeviceConfiguration::validateTag_error(&tag).map_err(|error| {
+            invalid_spec("shares.tag", error.localizedDescription().to_string())
+        })?;
+        let directory = VZSharedDirectory::initWithURL_readOnly(
+            VZSharedDirectory::alloc(),
+            &url,
+            spec.read_only,
+        );
+        let directory =
+            VZSingleDirectoryShare::initWithDirectory(VZSingleDirectoryShare::alloc(), &directory);
+        let device = VZVirtioFileSystemDeviceConfiguration::initWithTag(
+            VZVirtioFileSystemDeviceConfiguration::alloc(),
+            &tag,
+        );
+        device.setShare(Some(&directory));
+        Ok(device.into_super())
     }
 }
 

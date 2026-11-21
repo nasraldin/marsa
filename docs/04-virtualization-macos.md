@@ -78,8 +78,9 @@ private slot. Delegate and lifecycle completion callbacks assert the queue and
 enqueue a job to avoid reentering the slot. Cancelling a Rust start leaves
 the native completion in charge of the state transition. Dropping the last
 VM handle queues teardown and retains the VM through in-flight start and
-forced-stop calls. The socket connect call releases
-its slot borrow before calling VZ so the completion can retain the connection
+forced-stop calls. Pause and resume publish their state only after native
+completion. Stop or teardown can wait for a cancelled caller’s in-flight
+transition. The socket connect call releases its slot borrow before calling VZ so the completion can retain the connection
 even when invoked inline. Tokio receives a close-on-exec descriptor duplicate,
 which it registers in nonblocking mode, and a Rust lease that releases the
 native connection on the VM queue. The lease also handles cancelled connect
@@ -92,6 +93,13 @@ synchronization, as selected in [M1-03](spikes/M1-03-disk-reclaim.md). The root
 attachment is read-only. The virtio console writes directly to an append-only
 descriptor opened before the VM starts. Marsa opens a private user-owned
 regular file and checks for symbolic links and inode aliases.
+
+The VZ backend creates one virtiofs device per approved share and uses the
+same specification to mount it at its host path in the guest. Read-only
+shares carry that setting on the framework attachment. The backend requires a
+restart to add shares. The balloon accepts whole MiB between the framework
+minimum and the configured guest memory while the VM is running.
+[Apple’s balloon target contract](https://developer.apple.com/documentation/virtualization/vzvirtiotraditionalmemoryballoondevice/targetvirtualmachinememorysize).
 
 With the pinned Linux 7.3.5 kernel, virtio-console discards the kernel's
 initial replay while registering `hvc0`. The messages remain in the kernel

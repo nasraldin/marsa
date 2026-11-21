@@ -103,3 +103,16 @@ fields are additionally bounded as shown. String limits count UTF-8 bytes.
 | Guest → host | `VmStats` | 128 B | Memory and disk usage cannot exceed their corresponding totals. |
 | Guest → host | `TrimResult` | 64 B | Trimmed and used byte counts. |
 | Guest → host | `CommandResult` | 3 KiB | Known status and detail ≤2,048 bytes. |
+
+
+## Guest network facts
+
+AF_VSOCK port 5002 accepts the host CID. The guest sends one nine-byte
+record and closes the connection. The record contains version byte `1`,
+four IPv4 address bytes and four default gateway bytes in network byte
+order. Four zero bytes represent an absent address or gateway. If the
+address is absent, the gateway must also be absent. The host validates the
+record before retaining the facts, and abandons a connection that does
+not respond within its deadline. The guest reads the configured upstream
+interface and its default route from the kernel. The record describes
+guest state and is independent of the guest control session.

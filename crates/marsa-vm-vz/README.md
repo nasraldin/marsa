@@ -15,3 +15,8 @@ They attempt a raw device write and a filesystem write against a disposable copy
 of the root image. The console assertions cover boot, the failed writes, PID 1
 and Docker startup in order. PID 1 replays the messages Linux retained before
 `hvc0` registration in a marked section of the log.
+
+The native-device test verifies read-only access at the original host
+share path, a guest HTTPS request over NAT, the reported address and
+gateway, the requested balloon size, and the pause and resume state events.
+It reaches `example.com` from the guest to exercise outbound networking.

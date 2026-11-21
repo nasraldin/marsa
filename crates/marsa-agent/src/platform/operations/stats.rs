@@ -54,7 +54,7 @@ pub(super) fn disk_usage() -> io::Result<(u64, u64)> {
     Ok((total, used))
 }
 
-pub(super) fn read_bounded(path: &str, limit: usize) -> io::Result<String> {
+pub(in crate::platform) fn read_bounded(path: &str, limit: usize) -> io::Result<String> {
     let mut text = String::new();
     File::open(path)?
         .take(limit as u64 + 1)

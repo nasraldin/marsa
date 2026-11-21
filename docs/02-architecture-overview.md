@@ -227,6 +227,8 @@ flowchart TD
     proto --> core
     vm --> core
     vz --> vm
+    vz --> core
+    vz --> proto
     krun --> vm
     net --> core
     share --> core

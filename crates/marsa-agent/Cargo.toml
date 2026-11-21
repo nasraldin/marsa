@@ -12,7 +12,7 @@ workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 marsa-core = { path = "../marsa-core" }
 marsa-proto = { path = "../marsa-proto", default-features = false }
-nix = { version = "0.32.0", features = ["feature", "fs", "mount", "signal", "socket", "time"] }
+nix = { version = "0.32.0", features = ["feature", "fs", "mount", "net", "signal", "socket", "time"] }
 http-body-util = "=0.1.5"
 hyper = { version = "=1.12.0", features = ["client", "http1"] }
 hyper-util = { version = "=0.1.21", features = ["tokio"] }
