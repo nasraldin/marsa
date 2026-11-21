@@ -2,7 +2,7 @@
 
 **Outcome:** the design system (`marsa-ui`) with tokens, themes, direction and translations; the test harness for four variants; and the app shell.
 
-Design: [08 GUI](../08-gui.md). Starts after gate G1. If the Tauri fallback was chosen in M1-05, the same tasks apply with the technology notes rewritten there.
+Design: [08 GUI](../08-gui.md). [D-023](../15-decisions.md#d-023-choose-gpui-for-the-desktop) closes G1 with GPUI.
 
 Until M4 is done, GUI work runs against the fake backend and, for real container data, any Docker-compatible engine reachable through a socket (a temporary bootstrap; see D-021).
 
@@ -96,10 +96,12 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 - **Depends on:** M6-05
 - **Docs:** [08 Accessibility](../08-gui.md#accessibility), V-11
 - **Do:** Verify the state of GPUI's accessibility support on macOS (V-11). Implement focus management, visible focus, direction-aware arrow navigation, a central shortcut registry, and accessibility labels on every component as far as the framework supports. Honour reduce-motion.
-- **Deliver:** focus and shortcut modules, an updated V-11 entry with what a screen reader can and cannot do.
+- **Deliver:** focus and shortcut modules, the Rust-backed AppKit editor qualified in the product window, and an updated V-11 entry documenting screen reader behavior.
 - **Accept when:**
   - Every component is reachable and operable by keyboard in both directions.
-  - Arrow keys move in the visual direction in right-to-left.
+  - Physical arrow keys move the caret visually in Arabic, and Shift-arrow selects the expected text.
+  - Live IME candidate positioning, selection and commit work in the native editor.
+  - VoiceOver can navigate to the editor from a GPUI control and speak its label, value and editing feedback.
   - The accessibility finding and any gaps are documented, with follow-up tasks created.
 
 ### M6-09 App shell

@@ -56,14 +56,14 @@ Spike code lives under `spikes/` and is never shipped. Each spike ends with a wr
 
 ### M1-05 Spike review and gate decisions
 
-- **Status:** blocked (G1 Arabic editing and G2 owner agreement)
+The [spike review](../spikes/README.md) records both gates. The owner selected GPUI for G1 in [D-023](../15-decisions.md#d-023-choose-gpui-for-the-desktop). G2 requires the owner to confirm the Apple bridge.
+
+- **Status:** blocked (G2 owner agreement)
 - **Depends on:** M1-01, M1-02, M1-03, M1-04
 - **Docs:** [Plan gates](README.md#gates), [15 Decision records](../15-decisions.md)
-- **Do:** Summarise the four reports for the project owner. Record gate G1 (GUI framework) and G2 (Apple bridge) as new decision records. Update every design doc and task that the findings change. If the Tauri fallback is chosen, rewrite the technology notes in M6 and M7 while keeping task IDs and acceptance criteria.
+- **Do:** Summarise the M1 spike reports for the project owner. Record gate G1 (GUI framework) and G2 (Apple bridge) as new decision records. Update the design docs and tasks that the findings change.
 - **Deliver:** new decision records, updated docs and plan, `docs/spikes/README.md` indexing the reports.
 - **Accept when:**
   - G1 and G2 are recorded with the owner's agreement noted.
   - No doc still carries a **Verify** label for V-01, V-02, V-03 or V-05.
   - The plan reflects any changed tasks.
-
-The [spike review](../spikes/README.md) records the owner's Rust UI requirement. G1 needs a Rust UI path that passes the Arabic editing criteria. The owner still needs to confirm the Apple bridge for G2.

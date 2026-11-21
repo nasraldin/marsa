@@ -60,7 +60,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Risk | Likelihood | Impact | Mitigation | Owner milestone |
 |---|---|---|---|---|---|
-| R-01 | GPUI cannot deliver correct Arabic and right-to-left | Medium to high | High: GUI framework change | Spike first (M1-01); Tauri fallback defined (D-005); direction built into the component layer either way | M1 |
+| R-01 | GPUI integration cannot deliver correct Arabic and right-to-left | Medium | High | Build direction into the component layer and qualify the native editor in M6-08 ([D-023](15-decisions.md#d-023-choose-gpui-for-the-desktop)) | M6 |
 | R-02 | GPUI API churn breaks the build on upgrade | High | Medium | Pin GPUI and gpui-component revisions; upgrade in dedicated tasks; keep Marsa's wrapper layer thin and central | M6 |
 | R-03 | Memory is not returned to macOS under `vz` | Medium | Medium | Idle stop as the dependable mechanism; balloon as a bonus; `krun` backend as the long-term answer | M9, M11 |
 | R-04 | File sharing is too slow or semantically off for real projects | Medium | High | Benchmarks and a compatibility suite early (M4); guidance for named volumes; `krun` evaluation | M4, M11 |
