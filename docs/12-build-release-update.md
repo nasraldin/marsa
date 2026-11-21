@@ -66,7 +66,10 @@ Marsa.app/
     ├── Helpers/
     │   └── marsa-net-helper           # signed native ARM64 helper
     ├── Resources/
-    │   ├── bin/                       # upstream docker, compose, buildx, credential helper
+    │   ├── bin/
+    │   │   ├── docker
+    │   │   ├── docker-credential-osxkeychain
+    │   │   └── cli-plugins/           # docker-compose and docker-buildx
     │   ├── guest/
     │   │   ├── Image
     │   │   ├── rootfs.img
@@ -80,6 +83,11 @@ Marsa.app/
 ```
 
 Use `io.github.nasraldin.marsa` as the app's `CFBundleIdentifier` for the checked-in [LaunchAgent template](../packaging/macos/LaunchAgents/io.github.nasraldin.marsa.marsad.plist). If the bundle identifier changes, update the plist filename and its `Label` together.
+
+Copy the verified `bin/` tree from the directory printed by
+[`cargo xtask fetch-upstream`](09-cli-and-docker-compat.md#bundled-upstream-binaries)
+into `Contents/Resources/bin/`. Feed the staging directory’s
+`upstream-sbom-input.json` into the release SBOM.
 
 ## Signing and notarization
 

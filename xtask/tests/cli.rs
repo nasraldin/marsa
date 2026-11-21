@@ -36,14 +36,7 @@ fn help_lists_all_subcommands() {
 
 #[test]
 fn unimplemented_commands_cannot_report_success() {
-    for command in [
-        "guest",
-        "fetch-upstream",
-        "bundle",
-        "sign",
-        "package",
-        "bench",
-    ] {
+    for command in ["guest", "bundle", "sign", "package", "bench"] {
         let output = run(&[command]);
         assert!(!output.status.success(), "{command}");
         let error = str::from_utf8(&output.stderr).expect("UTF-8 error");
@@ -71,5 +64,19 @@ fn guest_help_lists_build_stages() {
 #[test]
 fn guest_rejects_unknown_build_stages() {
     let output = run(&["guest", "unknown"]);
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+fn fetch_upstream_help_describes_staged_output() {
+    let output = run(&["fetch-upstream", "--help"]);
+    assert!(output.status.success());
+    let help = str::from_utf8(&output.stdout).expect("UTF-8 help");
+    assert!(help.contains("target/upstream/"), "{help}");
+}
+
+#[test]
+fn fetch_upstream_rejects_unknown_options() {
+    let output = run(&["fetch-upstream", "--unknown"]);
     assert_eq!(output.status.code(), Some(2));
 }

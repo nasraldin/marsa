@@ -32,7 +32,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-03 Fetch and bundle upstream binaries
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-03
 - **Docs:** [09 Bundled upstream binaries](../09-cli-and-docker-compat.md#bundled-upstream-binaries)
 - **Do:** Implement `cargo xtask fetch-upstream` for the Docker CLI, Compose, Buildx and the macOS keychain credential helper (darwin/arm64), pinned by version and checksum in a versions file. Verify current release locations and layouts before pinning. Record each in the SBOM input.

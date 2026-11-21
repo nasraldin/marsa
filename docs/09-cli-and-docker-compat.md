@@ -42,11 +42,49 @@ flowchart TB
 | Binary | Source | Location |
 |---|---|---|
 | `docker` | Docker CLI, darwin/arm64 | `Marsa.app/Contents/Resources/bin` |
-| `docker-compose` | Compose v2 plugin | CLI plugins directory |
-| `docker-buildx` | Buildx plugin | CLI plugins directory |
+| `docker-compose` | Compose CLI plugin | `Marsa.app/Contents/Resources/bin/cli-plugins` |
+| `docker-buildx` | Buildx plugin | Same `cli-plugins` directory |
 | `docker-credential-osxkeychain` | docker-credential-helpers | Same `bin` directory |
 
-- All are unmodified upstream releases, pinned by version and checksum, and listed in the SBOM.
+M4-03 verified the stable macOS ARM64 assets current on 2026-11-22. The Docker CLI
+archive contains `bin/docker`. Compose, Buildx and the Keychain helper are
+standalone Mach-O executables. The [version pins](../packaging/upstream-versions.toml)
+record the SHA-256 published for each download.
+
+| Binary | Verified release | Published checksum |
+|---|---|---|
+| Docker CLI | 29.10.0 | [Docker static download](https://download.docker.com/mac/static/stable/aarch64/docker-cli_29.10.0.tgz.sha256) |
+| Compose | 5.8.0 | [Compose release checksum](https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-darwin-aarch64.sha256) |
+| Buildx | 0.39.1 | [Buildx macOS checksum list](https://github.com/docker/buildx/releases/download/v0.39.1/checksums-signed.txt) |
+| Keychain helper | 0.9.13 | [Keychain helper checksum list](https://github.com/docker/docker-credential-helpers/releases/download/v0.9.13/checksums.txt) |
+
+From the repository root, run `cargo xtask fetch-upstream` with `curl` and
+`tar` available. Use the printed staging directory under `target/upstream/`.
+Copy its `bin/` tree to the app’s `Contents/Resources/bin/`. Use
+`upstream-sbom-input.json` as input for the release SBOM. The component hashes
+describe the staged binaries before app signing. The distribution hashes
+describe the original upstream downloads, including the Docker CLI archive.
+The build publishes the staging directory only after all downloads match
+their pins. A different pin file produces a different staging path.
+
+For native version checks on an Apple silicon Mac, set `staged` to the printed
+directory and point the Docker CLI at the staged plugins for the test:
+
+```sh
+config="$(mktemp -d)"
+printf '{"cliPluginsExtraDirs":["%s/bin/cli-plugins"]}\n' "$staged" > "$config/config.json"
+"$staged/bin/docker" --version
+"$staged/bin/docker" --config "$config" compose version
+"$staged/bin/docker" --config "$config" buildx version
+"$staged/bin/docker-credential-osxkeychain" version
+rm "$config/config.json"
+rmdir "$config"
+```
+
+The staged executables retain their upstream bytes until app signing.
+Docker CLI 29.10.0 discovers plugins through its Docker config directory or
+`cliPluginsExtraDirs`, as shown in its [plugin manager source](https://github.com/docker/cli/blob/v29.10.0/cli-plugins/manager/manager.go#L35-L56).
+
 - Marsa offers to link them into a directory on `PATH` (**Proposed:** `~/.marsa/bin`, added to the shell profile on request, or `/usr/local/bin` with an administrator prompt).
 - If the user already has a `docker` CLI, Marsa does not replace it; it only adds the context.
 

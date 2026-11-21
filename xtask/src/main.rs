@@ -1,6 +1,7 @@
 //! Build and verification commands used by Marsa contributors.
 
 mod guest;
+mod upstream;
 
 use std::env;
 use std::io;
@@ -38,7 +39,7 @@ const COMMANDS: &[Subcommand] = &[
     },
     Subcommand {
         name: "fetch-upstream",
-        description: "Fetch and verify upstream binaries (pending)",
+        description: "Fetch and verify upstream Apple silicon binaries",
         action: Action::Deferred,
     },
     Subcommand {
@@ -70,6 +71,12 @@ fn main() -> ExitCode {
         .is_some_and(|argument| argument == "guest")
     {
         return guest::run(&arguments[1..]);
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "fetch-upstream")
+    {
+        return upstream::run(&arguments[1..]);
     }
     match arguments.as_slice() {
         [] => print_help(),
