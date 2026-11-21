@@ -3,13 +3,15 @@
 mod api;
 mod files;
 mod logging;
+#[cfg(target_os = "macos")]
+mod login;
 
 use std::{error::Error, io, time::Duration};
 
 use marsa_core::paths::MarsaPaths;
 use nix::{
     sys::stat::{Mode, umask},
-    unistd::geteuid,
+    unistd::{Uid, geteuid},
 };
 use tokio::{
     signal::unix::{Signal, SignalKind, signal},
@@ -21,14 +23,7 @@ type DaemonError = Box<dyn Error + Send + Sync>;
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(super) fn run() -> Result<(), DaemonError> {
-    let uid = geteuid();
-    if uid.is_root() {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "marsad must run as an unprivileged user",
-        )
-        .into());
-    }
+    let uid = require_unprivileged()?;
     // Set the daemon's private file-creation policy before starting worker threads.
     umask(Mode::S_IRWXG | Mode::S_IRWXO);
     let home =
@@ -57,6 +52,26 @@ pub(super) fn run() -> Result<(), DaemonError> {
     cleanup?;
     tracing::info!("daemon stopped");
     Ok(())
+}
+
+fn require_unprivileged() -> io::Result<Uid> {
+    let uid = geteuid();
+    if uid.is_root() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            crate::diagnostics::localized(
+                "marsad must run as an unprivileged user",
+                "يجب تشغيل marsad بحساب مستخدم عادي",
+            ),
+        ));
+    }
+    Ok(uid)
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn login(action: &std::ffi::OsStr) -> io::Result<()> {
+    require_unprivileged()?;
+    login::run(action)
 }
 
 async fn serve(
