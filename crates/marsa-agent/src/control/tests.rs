@@ -14,10 +14,20 @@ use super::*;
 struct FakeState {
     clock: Cell<Option<i64>>,
     ready: Cell<bool>,
+    configured: Cell<bool>,
     shutdown_requested: Cell<bool>,
 }
 
 impl GuestState for FakeState {
+    async fn configure_network(&self, _: ConfigureNetwork) -> io::Result<bool> {
+        self.configured.set(true);
+        Ok(false)
+    }
+
+    async fn install_certificates(&self, _: InstallCertificates) -> io::Result<bool> {
+        Ok(true)
+    }
+
     fn set_time(&self, time: SetTime) -> io::Result<()> {
         self.clock.set(Some(time.unix_seconds));
         Ok(())
@@ -109,6 +119,51 @@ async fn negotiates_and_updates_the_clock_before_readiness() {
         );
         assert_eq!(state.clock.get(), Some(1_700_000_000));
         assert!(state.ready.get());
+        drop(client);
+    };
+    let (result, ()) = tokio::join!(
+        session(server, greeting(), &state, "/nonexistent-marsa-test-engine"),
+        test_client
+    );
+    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
+}
+
+#[tokio::test]
+async fn applies_boot_configuration_before_engine_is_ready() {
+    let (server, mut client) = tokio::io::duplex(1024);
+    let state = FakeState::default();
+    let test_client = async {
+        begin(&mut client).await;
+        send(
+            &mut client,
+            1,
+            host_envelope::Body::ConfigureNetwork(ConfigureNetwork::default()),
+        )
+        .await;
+        let network = receive(&mut client).await;
+        assert_eq!(network.request_id, 1);
+        assert!(matches!(
+            network.body,
+            Some(guest_envelope::Body::CommandResult(command))
+                if command.status == CommandStatus::Ok as i32
+        ));
+        assert!(state.configured.get());
+
+        send(
+            &mut client,
+            2,
+            host_envelope::Body::InstallCertificates(InstallCertificates::default()),
+        )
+        .await;
+        let certificates = receive(&mut client).await;
+        assert_eq!(certificates.request_id, 2);
+        assert!(matches!(
+            certificates.body,
+            Some(guest_envelope::Body::CommandResult(command))
+                if command.status == CommandStatus::Unavailable as i32
+                    && command.detail.contains("controlled restart")
+        ));
+        assert!(!state.ready.get());
         drop(client);
     };
     let (result, ()) = tokio::join!(
