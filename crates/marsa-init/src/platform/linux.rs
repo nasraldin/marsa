@@ -92,13 +92,24 @@ fn boot(mounts: &mut Mounts, supervisor: &mut Supervisor) -> io::Result<()> {
 
 fn configure_network(settings: &Settings) -> io::Result<()> {
     sethostname(&settings.hostname)?;
-    checked_tool("/sbin/ip", &["link", "set", "dev", "lo", "up"])?;
-    if let Some(interface) = &settings.interface {
-        checked_tool("/sbin/ip", &["link", "set", "dev", interface, "up"])?;
-        checked_tool(
-            "/sbin/udhcpc",
-            &["-q", "-n", "-t", "5", "-T", "2", "-i", interface],
-        )?;
+    configure_links(settings.interface.as_deref(), checked_tool)
+}
+
+fn configure_links(
+    interface: Option<&str>,
+    mut run: impl FnMut(&str, &[&str]) -> io::Result<()>,
+) -> io::Result<()> {
+    run("/sbin/ip", &["link", "set", "dev", "lo", "up"])?;
+    if let Some(interface) = interface {
+        let upstream = run("/sbin/ip", &["link", "set", "dev", interface, "up"]).and_then(|()| {
+            run(
+                "/sbin/udhcpc",
+                &["-q", "-n", "-t", "5", "-T", "2", "-i", interface],
+            )
+        });
+        if let Err(error) = upstream {
+            eprintln!("marsa-init: upstream interface {interface} is offline: {error}");
+        }
     }
     Ok(())
 }
@@ -129,4 +140,58 @@ fn record(output: &mut impl Write, name: &str, elapsed: Duration) -> io::Result<
     let millis = elapsed.as_millis();
     eprintln!("marsa-init stage={name} duration_ms={millis}");
     writeln!(output, "{name}={millis}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upstream_errors_keep_the_guest_available() {
+        for failing_call in [2, 3] {
+            let mut calls = 0;
+            let result = configure_links(Some("eth0"), |_, _| {
+                calls += 1;
+                if calls == failing_call {
+                    Err(io::Error::other("no upstream network"))
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(result.is_ok(), "{result:?}");
+            assert_eq!(calls, failing_call);
+        }
+    }
+
+    #[test]
+    fn loopback_failure_stops_network_setup() {
+        let mut calls = 0;
+        let result = configure_links(Some("eth0"), |_, _| {
+            calls += 1;
+            Err(io::Error::other("cannot bring up loopback"))
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn interface_setting_controls_dhcp() {
+        for interface in [Some("eth0"), None] {
+            let mut calls = Vec::new();
+            configure_links(interface, |path, arguments| {
+                calls.push((path.to_owned(), arguments.join(" ")));
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(calls[0].1, "link set dev lo up");
+            if interface.is_some() {
+                assert_eq!(calls[1].1, "link set dev eth0 up");
+                assert_eq!(calls[2].0, "/sbin/udhcpc");
+                assert_eq!(calls[2].1, "-q -n -t 5 -T 2 -i eth0");
+                assert_eq!(calls.len(), 3);
+            } else {
+                assert_eq!(calls.len(), 1);
+            }
+        }
+    }
 }

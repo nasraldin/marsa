@@ -119,14 +119,16 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 ### M4-10 User-space network mode and automatic selection
 
 - **Status:** todo
-- **Depends on:** M4-09
+- **Depends on:** M4-09, M3-14
 - **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection), V-07
-- **Do:** Verify the attachment class for user-space networking and the current gvisor-tap-vsock release and interface. Bundle `gvproxy` as a supervised helper, implement the `userspace` mode including port forwarding through it, and implement the `auto` probe and switch with events. Respect a pinned mode.
+- **Do:** Use the qualified transport and helper from M3-14. Implement `userspace` port forwarding and the `auto` probe and switch with events. Respect a pinned mode.
 - **Deliver:** user-space mode, the probe, `Network.SetMode`.
 - **Accept when:**
   - With NAT egress blocked by a firewall rule in a test, `auto` switches to `userspace` and a pull succeeds.
   - The switch is reported as an event with its reason.
   - A pinned mode is never overridden.
+  - Test no lease, native DNS and TCP failure, filtered and split DNS, invalid TLS, helper denial or exit, and Wi-Fi or VPN changes. Keep the local engine available and preserve host policy.
+  - The authenticated helper control path is private. Guest access to host loopback and metadata services follows explicit policy.
   - V-07 is resolved in the docs.
 
 ### M4-11 Proxy settings and CA certificate import
