@@ -69,8 +69,11 @@ Marsa.app/
     │   ├── fonts/
     │   └── licenses/                  # third-party notices and SBOM
     └── Library/
-        └── LaunchAgents/              # marsad agent definition
+        └── LaunchAgents/
+            └── io.github.nasraldin.marsa.marsad.plist
 ```
+
+Use `io.github.nasraldin.marsa` as the app's `CFBundleIdentifier` for the checked-in [LaunchAgent template](../packaging/macos/LaunchAgents/io.github.nasraldin.marsa.marsad.plist). If the bundle identifier changes, update the plist filename and its `Label` together.
 
 ## Signing and notarization
 

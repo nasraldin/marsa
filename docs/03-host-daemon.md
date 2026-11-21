@@ -265,10 +265,20 @@ The read-only guest image (kernel and root filesystem) ships inside the app bund
 
 ## Process supervision
 
-- `marsad` is started at login by a per-user launchd agent (**Verify:** use the modern `SMAppService` registration for login items and agents).
+- From the signed app, `Contents/MacOS/marsad login status`, `enable` and `disable` read or change the start-at-login setting for the current user. Service Management stores the setting. If macOS requests approval, enable Marsa under **System Settings → General → Login Items & Extensions**.
+- The bundled per-user LaunchAgent uses `SMAppService.agent(plistName:)` from macOS 13 onward. [Apple documents](https://developer.apple.com/documentation/servicemanagement/smappservice/register%28%29?changes=_4) that an approved LaunchAgent starts when registered and on subsequent logins. Unregistering removes the job and terminates the running agent. The plist uses bundle-relative `BundleProgram` to locate `Contents/MacOS/marsad`.
 - The GUI and CLI start `marsad` if it is not running.
 - `marsad` holds an exclusive lock on `marsad.lock` so only one instance runs per user. On SIGINT or SIGTERM it drains the local API, removes its socket and PID file, and releases the lock. The lock file stays in place for the next launch.
-- On crash, launchd restarts it. On restart it reattaches or cleans up any orphaned VM before accepting requests.
+- With start at login enabled, launchd restarts the daemon after a crash or a nonzero exit. The agent stays stopped after a successful exit. On restart the daemon reattaches or cleans up any orphaned VM before accepting requests.
+
+To verify registration, crash recovery and cleanup on a logged-in macOS desktop, build the daemon and run the isolated fixture.
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked -p marsad
+python3 packaging/macos/smoke-login-agent.py target/debug/marsad
+```
+
+The fixture uses an ad-hoc signature, a unique label and a temporary home. On macOS 27.2.1 the 27.0-targeted binary registered without an approval prompt, started in the Aqua session, restarted after SIGKILL and disappeared from launchd after explicit disable. Repeat login behavior follows the Apple registration contract.
 
 ## Sleep, wake and network changes
 
