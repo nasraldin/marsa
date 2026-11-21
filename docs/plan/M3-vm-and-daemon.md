@@ -137,3 +137,15 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 - **Accept when:**
   - After a real sleep and wake, the guest clock is within one second of the host (Tier 2 or manual test recorded).
   - The sequence is covered by tests with injected events.
+
+### M3-12 Compose the packaged VM runtime
+
+- **Status:** todo
+- **Depends on:** M3-03, M3-04, M3-07, M3-08
+- **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [04 Boot sequence](../04-virtualization-macos.md#boot-sequence), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
+- **Do:** Wire the packaged daemon to the native VZ backend, guest artefact validation, guest-control session and typed API. Create the private sparse data disk on first activation. Build each VM spec from the current settings and apply restart-scoped settings on the next activation. Publish health and stats from the active control session.
+- **Deliver:** Runtime composition in `marsad` and an entitled system test through the normal daemon socket.
+- **Accept when:**
+  - A packaged daemon started with a fresh per-user state directory accepts a real `Engine.Start`, reaches Ready through the agent and Docker API, and reports guest health and stats.
+  - Subsequent Stop and Restart use the same data disk. A restart-scoped settings change becomes effective on restart.
+  - Invalid or missing guest files fail cleanly before a VM starts and preserve existing user data.
