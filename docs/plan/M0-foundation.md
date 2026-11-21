@@ -76,7 +76,7 @@
 
 ### M0-07 Add dependency policy checks
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-03
 - **Docs:** [11 Updates and supply chain](../11-security.md#updates-and-supply-chain)
 - **Do:** Configure `cargo-deny` (allowed licences, banned crates, advisory database, duplicate detection) and a scheduled `cargo-audit` run. The allowed-licence list stays permissive-only until Q-01 is answered.
