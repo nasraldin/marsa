@@ -19,7 +19,7 @@ use marsa_vm::NetworkSpec;
 use tokio::sync::{broadcast, watch};
 use tonic::{Request, Response, Status};
 
-use crate::supervisor::{BootNetwork, NetworkResult, State, Transition};
+use crate::supervisor::{AlternateFailure, BootNetwork, NetworkResult, State, Transition};
 
 use super::{TypedApi, engine};
 
@@ -298,6 +298,19 @@ fn network_status(configured: NetworkMode, network: BootNetwork) -> NetworkStatu
             Some(format!("native_{}_userspace_verified", stage_name(stage)))
         }
         NetworkResult::NativeDegraded(stage) => Some(format!("native_{}", stage_name(stage))),
+        NetworkResult::AlternateFailed { native, alternate } => {
+            let alternate = match alternate {
+                AlternateFailure::Boot(stage) => engine::stage_name(stage),
+                AlternateFailure::Egress(stage) => stage_name(stage),
+                AlternateFailure::Transport => "transport_unavailable",
+                AlternateFailure::Inconclusive => "probe_unavailable",
+            };
+            Some(format!(
+                "native_{}_alternate_{alternate}",
+                stage_name(native)
+            ))
+        }
+        NetworkResult::TransportUnavailable => Some("transport_unavailable".into()),
     };
     NetworkStatus {
         configured_mode: mode(configured).into(),

@@ -199,7 +199,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 ### M3-15 Select the network mode before Docker starts
 
 - **Status:** done
-- **Depends on:** M3-06, M3-07, M3-14
+- **Depends on:** M3-06, M3-07, M3-08, M3-14
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection)
 - **Do:** Add versioned guest control to synchronize time and probe HTTPS before allowing Docker to start. Pair guest and host evidence by destination, address family and policy. Select native NAT or one user-space candidate for an automatic boot. Keep configured modes pinned and release the engine even when external connectivity is unavailable. Leave packaged runtime wiring to M3-12 and port forwarding and network-change transitions to M4-10.
 - **Deliver:** Guest control negotiation, typed connectivity results and a boot-only supervisor selector with fake and entitled system tests.

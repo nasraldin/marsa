@@ -348,3 +348,25 @@ async fn repeatedly_crashing_ready_guests_share_one_retry_budget() {
     transition(&mut stream, State::Failed, State::Stopped).await;
     assert_eq!(created.load(Ordering::Relaxed), 2);
 }
+
+#[tokio::test(start_paused = true)]
+async fn cleanup_calls_stop_when_start_timed_out_before_state_publication() {
+    let queued = FakeScenario::default()
+        .with_start_publication_delay(STEP * 50)
+        .with_failed_stops(1);
+    let (supervisor, created) = create(
+        config(),
+        "/fixture/console.log".into(),
+        ready(),
+        Some(queued),
+    );
+    let Err(SupervisorError::Boot(failure)) = supervisor.ensure_ready().await else {
+        panic!("expected queued startup to time out");
+    };
+    assert_eq!(failure.stage, BootStage::Start);
+    assert!(failure.detail.contains("guest cleanup failed"));
+    assert_eq!(created.load(Ordering::Relaxed), 1);
+    supervisor.stop().await.unwrap();
+    supervisor.ensure_ready().await.unwrap();
+    assert_eq!(created.load(Ordering::Relaxed), 2);
+}

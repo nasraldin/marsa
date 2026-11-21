@@ -5,11 +5,14 @@ use std::{future::Future, io, sync::Arc, time::Duration};
 use marsa_vm::{Hypervisor, Vm, VmError, VmEvent, VmEventStream, VmExitCause, VmSpec, VmState};
 use tokio::{
     sync::{oneshot, watch},
-    time::{Instant, timeout_at},
+    time::{Instant, timeout, timeout_at},
 };
 use tokio_stream::StreamExt;
 
-use super::{BootNetwork, BootStage, GuestProbe, GuestSession, NetworkResult, network::Selection};
+use super::{
+    AlternateFailure, BootNetwork, BootStage, GuestProbe, GuestSession, NetworkResult,
+    network::Selection,
+};
 
 mod selection;
 
@@ -18,6 +21,7 @@ pub(super) struct LiveGuest {
     pub session: Option<Box<dyn GuestSession>>,
     pub events: VmEventStream,
     pub network: BootNetwork,
+    network_lost: bool,
 }
 
 pub(super) enum Outcome {
@@ -101,6 +105,7 @@ async fn attach(
         .await
         .map_err(|issue| Failed { vm: None, issue })?;
     let mut events = vm.events();
+    let mut network_lost = false;
     if let Err(issue) = phase(BootStage::Start, deadline, cancel, vm.start()).await {
         return Err(Failed {
             vm: Some(vm),
@@ -112,7 +117,12 @@ async fn attach(
         BootStage::Handshake,
         deadline,
         cancel,
-        during_guest_execution(vm.as_ref(), &mut events, probe.handshake(vm.as_ref())),
+        during_guest_execution(
+            vm.as_ref(),
+            &mut events,
+            &mut network_lost,
+            probe.handshake(vm.as_ref()),
+        ),
     )
     .await;
     match session {
@@ -120,6 +130,7 @@ async fn attach(
             vm,
             session: Some(session),
             events,
+            network_lost,
             network: BootNetwork {
                 active,
                 result: NetworkResult::Unchecked,
@@ -152,17 +163,48 @@ async fn start_engine(
         during_guest_execution(
             guest.vm.as_ref(),
             &mut guest.events,
+            &mut guest.network_lost,
             session.engine_ready(guest.vm.as_ref()),
         ),
     )
     .await;
     match ready {
-        Ok(()) => Ok(guest),
+        Ok(()) => {
+            if guest.network_lost {
+                guest.network.result = match guest.network.result {
+                    NetworkResult::Fallback(native) => NetworkResult::AlternateFailed {
+                        native,
+                        alternate: AlternateFailure::Transport,
+                    },
+                    _ => NetworkResult::TransportUnavailable,
+                };
+            }
+            Ok(guest)
+        }
         Err(issue) => Err(Failed {
             vm: Some(guest.vm),
             issue,
         }),
     }
+}
+
+pub(super) async fn ensure_stopped(vm: &mut dyn Vm, limit: Duration) -> Result<(), VmError> {
+    // A backend can accept start before publishing Starting. Always order a
+    // stop after any submitted work, even if the observed state is Created.
+    let completion = limit.saturating_add(Duration::from_secs(5));
+    timeout(completion, vm.stop(limit))
+        .await
+        .map_err(|_| VmError::Timeout {
+            operation: "stop",
+            limit: completion,
+        })??;
+    if vm.state() != VmState::Stopped {
+        return Err(VmError::Backend {
+            operation: "stop",
+            detail: "guest did not confirm shutdown".into(),
+        });
+    }
+    Ok(())
 }
 
 async fn phase<T, E: std::fmt::Display>(
@@ -174,22 +216,29 @@ async fn phase<T, E: std::fmt::Display>(
     tokio::select! {
         biased;
         _ = cancel => Err(Issue { stage, reason: Reason::Canceled }),
-        result = timeout_at(deadline, work) => match result {
-            Ok(Ok(value)) => Ok(value),
-            Ok(Err(error)) => Err(Issue::failed(stage, error.to_string())),
-            Err(_) => Err(Issue { stage, reason: Reason::Timeout }),
-        }
+        result = async {
+            if Instant::now() >= deadline {
+                return Err(Issue { stage, reason: Reason::Timeout });
+            }
+            match timeout_at(deadline, work).await {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(error)) => Err(Issue::failed(stage, error.to_string())),
+                Err(_) => Err(Issue { stage, reason: Reason::Timeout }),
+            }
+        } => result,
     }
 }
 
 async fn during_guest_execution<T>(
     vm: &dyn Vm,
     events: &mut VmEventStream,
+    network_lost: &mut bool,
     work: impl Future<Output = io::Result<T>>,
 ) -> io::Result<T> {
     tokio::select! {
+        biased;
+        detail = guest_exit_observing(vm, events, || *network_lost = true) => Err(io::Error::other(detail)),
         result = work => result,
-        detail = guest_exit(vm, events) => Err(io::Error::other(detail)),
     }
 }
 
@@ -261,9 +310,18 @@ async fn wait_for_power_off(vm: &dyn Vm, events: &mut VmEventStream) -> Result<(
 }
 
 pub(super) async fn guest_exit(vm: &dyn Vm, events: &mut VmEventStream) -> String {
+    guest_exit_observing(vm, events, || {}).await
+}
+
+async fn guest_exit_observing(
+    vm: &dyn Vm,
+    events: &mut VmEventStream,
+    mut transport_lost: impl FnMut(),
+) -> String {
     loop {
         match events.next().await {
             Some(VmEvent::UnexpectedExit { detail, .. }) => return detail,
+            Some(VmEvent::NetworkUnavailable { .. }) => transport_lost(),
             Some(VmEvent::StateChanged {
                 current: VmState::Stopped,
                 ..

@@ -134,7 +134,7 @@ pub(super) fn wire_state(state: State) -> EngineState {
     }
 }
 
-fn stage_name(stage: BootStage) -> &'static str {
+pub(super) fn stage_name(stage: BootStage) -> &'static str {
     match stage {
         BootStage::Create => "create",
         BootStage::Start => "start",

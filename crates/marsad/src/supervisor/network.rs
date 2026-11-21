@@ -7,7 +7,7 @@ use marsa_vm::{NetworkSpec, async_trait};
 use tokio::time::{Instant, timeout_at};
 
 use super::{
-    GuestSession,
+    BootStage, GuestSession,
     host_egress::{self, Target},
 };
 
@@ -60,6 +60,28 @@ pub enum NetworkResult {
     Fallback(EgressStage),
     /// Native NAT reported this stage and no working alternate path was confirmed.
     NativeDegraded(EgressStage),
+    /// The original native failure and the independent alternate-path failure.
+    AlternateFailed {
+        /// Stage reported by the native guest.
+        native: EgressStage,
+        /// Outcome of the alternate attachment or probe.
+        alternate: AlternateFailure,
+    },
+    /// The configured attachment lost its transport during guest startup.
+    TransportUnavailable,
+}
+
+/// Where the alternate attachment failed during automatic boot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlternateFailure {
+    /// Creating or starting the alternate guest failed.
+    Boot(BootStage),
+    /// The alternate guest reported a failed probe stage.
+    Egress(EgressStage),
+    /// The network helper stopped during activation.
+    Transport,
+    /// The host and alternate guest could not be compared.
+    Inconclusive,
 }
 
 pub(super) enum Decision {
@@ -121,6 +143,32 @@ async fn compare(
     }
     let second = session.probe_egress(target.ip).await.ok()?;
     Some((second, (first == second).then_some(target)))
+}
+
+pub(super) async fn verify_alternate(
+    host: &dyn HostCheck,
+    target: &Target,
+    session: &mut dyn GuestSession,
+    deadline: Instant,
+) -> Result<(), AlternateFailure> {
+    timeout_at(deadline, async {
+        if !session.can_probe_egress() || host.verified_target().await.as_ref() != Some(target) {
+            return Err(AlternateFailure::Inconclusive);
+        }
+        let stage = session
+            .probe_egress(target.ip)
+            .await
+            .map_err(|_| AlternateFailure::Inconclusive)?;
+        if stage != EgressStage::Healthy {
+            return Err(AlternateFailure::Egress(stage));
+        }
+        if host.verified_target().await.as_ref() != Some(target) {
+            return Err(AlternateFailure::Inconclusive);
+        }
+        Ok(())
+    })
+    .await
+    .unwrap_or(Err(AlternateFailure::Inconclusive))
 }
 
 pub(super) fn probe_deadline(boot_deadline: Instant) -> Instant {

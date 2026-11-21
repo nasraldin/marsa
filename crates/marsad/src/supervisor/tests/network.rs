@@ -6,7 +6,7 @@ use marsa_proto::guest::v1::EgressStage;
 
 use super::*;
 use crate::supervisor::{
-    BootNetwork, NetworkResult,
+    AlternateFailure, BootNetwork, NetworkResult,
     host_egress::Target,
     network::{HostCheck, Selection},
 };
@@ -36,6 +36,7 @@ type Trace = Arc<Mutex<Vec<&'static str>>>;
 struct Backend {
     trace: Trace,
     scenario: FakeScenario,
+    userspace: Option<FakeScenario>,
 }
 
 #[async_trait]
@@ -49,9 +50,11 @@ impl Hypervisor for Backend {
             NetworkSpec::Nat => "native",
             NetworkSpec::Userspace => "userspace",
         });
-        FakeHypervisor::new(self.scenario.clone())
-            .create(spec)
-            .await
+        let scenario = match spec.network {
+            NetworkSpec::Userspace => self.userspace.as_ref().unwrap_or(&self.scenario),
+            NetworkSpec::Nat => &self.scenario,
+        };
+        FakeHypervisor::new(scenario.clone()).create(spec).await
     }
 }
 
@@ -89,6 +92,7 @@ impl GuestSession for Session {
 
     async fn engine_ready(&mut self, _: &dyn Vm) -> io::Result<()> {
         self.trace.lock().unwrap().push("engine");
+        tokio::time::sleep(STEP * 2).await;
         Ok(())
     }
 
@@ -108,10 +112,25 @@ async fn boot(
     Option<BootNetwork>,
     Vec<&'static str>,
 ) {
+    boot_with_candidate(host, first_mode, scenario, None, attempts).await
+}
+
+async fn boot_with_candidate(
+    host: Option<Arc<dyn HostCheck>>,
+    first_mode: NetworkSpec,
+    scenario: FakeScenario,
+    userspace: Option<FakeScenario>,
+    attempts: Vec<Option<Vec<EgressStage>>>,
+) -> (
+    Result<(), SupervisorError>,
+    Option<BootNetwork>,
+    Vec<&'static str>,
+) {
     let trace = Trace::default();
     let backend = Arc::new(Backend {
         trace: trace.clone(),
         scenario,
+        userspace,
     });
     let probe = Arc::new(Probe {
         trace: trace.clone(),
@@ -193,7 +212,10 @@ async fn returns_to_native_without_starting_docker_on_an_unverified_candidate() 
     result.unwrap();
     assert_eq!(
         observed.unwrap().result,
-        NetworkResult::NativeDegraded(EgressStage::Tcp)
+        NetworkResult::AlternateFailed {
+            native: EgressStage::Tcp,
+            alternate: AlternateFailure::Egress(EgressStage::Tls),
+        }
     );
     assert_eq!(
         trace,
@@ -285,4 +307,101 @@ async fn failed_stop_never_reuses_the_writable_disk_for_a_candidate() {
     );
     assert_eq!(observed, None);
     assert_eq!(trace, ["native", "probe", "probe", "retire"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_candidate_with_unpublished_start_must_stop_before_native_disk_reuse() {
+    let queued = FakeScenario::default()
+        .with_start_publication_delay(STEP * 50)
+        .with_failed_stops(1);
+    let (result, observed, trace) = boot_with_candidate(
+        Some(Arc::new(AvailableHost)),
+        NetworkSpec::Nat,
+        FakeScenario::default(),
+        Some(queued),
+        vec![Some(vec![EgressStage::Route; 2]), None],
+    )
+    .await;
+    assert!(
+        matches!(result, Err(SupervisorError::Boot(failure)) if failure.stage == BootStage::Network)
+    );
+    assert_eq!(observed, None);
+    assert_eq!(trace, ["native", "probe", "probe", "retire", "userspace"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn helper_exit_during_engine_start_keeps_docker_but_clears_recovery() {
+    let failing = FakeScenario::default().with_network_unavailable_after(STEP);
+    let (result, observed, trace) = boot_with_candidate(
+        Some(Arc::new(AvailableHost)),
+        NetworkSpec::Nat,
+        FakeScenario::default(),
+        Some(failing),
+        vec![
+            Some(vec![EgressStage::Route; 2]),
+            Some(vec![EgressStage::Healthy]),
+        ],
+    )
+    .await;
+    result.unwrap();
+    assert_eq!(
+        observed,
+        Some(BootNetwork {
+            active: NetworkSpec::Userspace,
+            result: NetworkResult::AlternateFailed {
+                native: EgressStage::Route,
+                alternate: AlternateFailure::Transport,
+            },
+        })
+    );
+    assert_eq!(
+        trace,
+        [
+            "native",
+            "probe",
+            "probe",
+            "retire",
+            "userspace",
+            "probe",
+            "engine"
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stalled_alternate_reserves_time_to_restore_local_docker() {
+    let stalled = FakeScenario::default().with_start_publication_delay(STEP * 50);
+    let started = tokio::time::Instant::now();
+    let (result, observed, trace) = boot_with_candidate(
+        Some(Arc::new(AvailableHost)),
+        NetworkSpec::Nat,
+        FakeScenario::default(),
+        Some(stalled),
+        vec![Some(vec![EgressStage::Route; 2]), None],
+    )
+    .await;
+    result.unwrap();
+    assert!(started.elapsed() <= config().boot_timeout);
+    assert_eq!(
+        observed,
+        Some(BootNetwork {
+            active: NetworkSpec::Nat,
+            result: NetworkResult::AlternateFailed {
+                native: EgressStage::Route,
+                alternate: AlternateFailure::Boot(BootStage::Start),
+            },
+        })
+    );
+    assert_eq!(
+        trace,
+        [
+            "native",
+            "probe",
+            "probe",
+            "retire",
+            "userspace",
+            "native",
+            "engine"
+        ]
+    );
 }

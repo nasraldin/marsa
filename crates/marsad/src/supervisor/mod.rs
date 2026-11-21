@@ -13,7 +13,7 @@ mod host_egress;
 mod network;
 mod platform;
 
-pub use network::{BootNetwork, NetworkResult};
+pub use network::{AlternateFailure, BootNetwork, NetworkResult};
 
 #[cfg(test)]
 mod tests;
@@ -100,7 +100,8 @@ pub struct Transition {
 /// Bounded startup, shutdown, retry, and idle behavior.
 #[derive(Debug, Clone)]
 pub struct SupervisorConfig {
-    /// Deadline across VM start, handshake, and Docker health.
+    /// Deadline across VM start, network selection, and Docker health.
+    /// Safe cleanup may continue past this deadline.
     pub boot_timeout: Duration,
     /// Grace period passed to the backend before forced stop.
     pub stop_timeout: Duration,
