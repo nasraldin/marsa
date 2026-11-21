@@ -149,6 +149,7 @@ pub(super) fn verify(stream: &mut (impl Read + Write)) -> io::Result<()> {
             Some(GuestBody::EngineHealth(health)) => {
                 engine_ready |= health.state == EngineHealthState::Ready as i32;
             }
+            Some(GuestBody::Stats(_) | GuestBody::PortEvent(_)) => {},
             _ => return Err(invalid("unexpected guest control result or event")),
         }
         if time_set && engine_ready {
