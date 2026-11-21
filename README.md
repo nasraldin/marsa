@@ -30,6 +30,10 @@ Start with [docs/README.md](docs/README.md). It indexes the architecture, every 
 
 Coding agents: read [AGENTS.md](AGENTS.md) before doing anything.
 
+See the [contribution guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
+
+**Licence pending.** The project owner will publish the licence after deciding [Q-01](docs/16-risks-and-open-questions.md#open-questions-for-the-project-owner).
+
 ## Naming
 
 | Thing | Name |
