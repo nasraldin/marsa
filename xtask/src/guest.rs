@@ -274,7 +274,7 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
         file.write_all(b"\n")?;
     }
     fs::rename(
-        staging.path().join("staged-rootfs.tar"),
+        staging.path().join("image-rootfs.tar"),
         output.join("image-rootfs.tar"),
     )?;
     fs::rename(rootfs_path, output.join("rootfs.img"))?;
