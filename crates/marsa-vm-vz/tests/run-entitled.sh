@@ -12,6 +12,9 @@ features=()
 if [[ ${MARSA_ENTITLED_DAEMON_NETWORK:-0} == 1 ]]; then
     package=marsad
     test_name=network_boot
+elif [[ ${MARSA_ENTITLED_NATIVE_IPV4:-0} == 1 ]]; then
+    features=(--features native-ipv4-system-test)
+    set -- native_ipv4::packaged_guest_nat_address_gateway_and_https --exact "$@"
 elif [[ -n "${MARSA_VZ_NETWORK_HELPER:-}" ]]; then
     features=(--features userspace-system-test)
 fi

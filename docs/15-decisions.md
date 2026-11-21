@@ -35,6 +35,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-025 | Pin the current stable Linux kernel | Accepted |
 | D-026 | Use EROFS for the guest root filesystem | Accepted |
 | D-027 | Apply proxy settings at a controlled engine restart | Accepted |
+| D-028 | Qualify native IPv4 independently of runtime and power management | Accepted |
 
 ---
 
@@ -202,6 +203,14 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** Docker 29.10.0 does not reload daemon proxies or host-gateway IPs. A restart can affect active workloads. Docker also retains system trust in some running clients. [Proxy configuration](https://docs.docker.com/engine/daemon/proxy/) · [Pinned daemon reload source](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/reload.go).
 - **Consequence:** The host tracks desired settings across guest boots. Connect the restart action to the daemon lifecycle and give the user control over any workload impact. M4-08 injects compatibility aliases for standard Docker clients.
 - **Date and task:** 2026-11-21, M2-07.
+
+## D-028 Qualify native IPv4 independently of runtime and power management
+
+- **Decision:** The owner approved proceeding with power management and packaged daemon composition using the qualified user-space fallback. Keep the strict native IPv4 acceptance test independently runnable.
+- **Why:** The same Apple silicon Mac verified VZ pause and resume, guest control, and fallback egress, while native IPv4 repeatedly failed. Pausing, resuming, and synchronizing guest time require VZ lifecycle and vsock support. The packaged runtime can validate its bundled guest and start local Docker using the boot selector.
+- **Consequence:** M3-16 owns common device support. M3-11 and M3-12 depend on those capabilities and M3-12 uses M3-15 for automatic egress selection. M3-04 keeps native DHCP, IPv4 address, default gateway, and verified HTTPS as its own acceptance gate.
+- **Reopen if:** The fallback and native attachments require different stop, pause, resume or guest control semantics.
+- **Date and task:** 2026-11-22, M3-16.
 
 ---
 

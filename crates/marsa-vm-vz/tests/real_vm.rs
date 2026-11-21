@@ -2,6 +2,13 @@
 
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
+#[path = "real_vm/devices.rs"]
+mod devices;
+
+#[cfg(feature = "native-ipv4-system-test")]
+#[path = "real_vm/native_ipv4.rs"]
+mod native_ipv4;
+
 #[cfg(feature = "userspace-system-test")]
 #[path = "real_vm/user_network.rs"]
 mod user_network;
@@ -179,6 +186,10 @@ async fn send_host(stream: &mut VsockStream, request_id: u64, body: HostBody) {
 }
 
 async fn handshake(stream: &mut VsockStream) {
+    negotiate_and_set_time(stream, false).await;
+}
+
+async fn negotiate_and_set_time(stream: &mut VsockStream, defer_engine_start: bool) {
     let greeting = read_guest(stream).await;
     assert_eq!(greeting.request_id, 0);
     let Some(GuestBody::Hello(hello)) = greeting.body else {
@@ -191,7 +202,7 @@ async fn handshake(stream: &mut VsockStream) {
         0,
         HostBody::HelloAck(HelloAck {
             protocol: Some(protocol),
-            defer_engine_start: false,
+            defer_engine_start,
         }),
     )
     .await;
@@ -208,7 +219,7 @@ async fn handshake(stream: &mut VsockStream) {
     .await;
 
     let mut time_acknowledged = false;
-    let mut engine_ready = false;
+    let mut engine_ready = defer_engine_start;
     while !time_acknowledged || !engine_ready {
         let event = read_guest(stream).await;
         match event.body {
@@ -351,4 +362,43 @@ async fn packaged_agent_handshake_read_only_root_and_full_console() {
         "{log}"
     );
     assert_eq!(Sha256::digest(fs::read(test_root).unwrap()), root_digest);
+}
+
+async fn console_with(console: &Path, marker: &str) -> String {
+    timeout(LIMIT, async {
+        loop {
+            let log = fs::read_to_string(console).unwrap();
+            if log.contains(marker) {
+                break log;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "console did not contain {marker:?}: {error}\n{}",
+            fs::read_to_string(console).unwrap()
+        )
+    })
+}
+
+#[cfg(any(feature = "native-ipv4-system-test", feature = "userspace-system-test"))]
+async fn network_with_gateway(vm: &dyn marsa_vm::Vm, console: &Path) -> marsa_vm::NetworkInfo {
+    timeout(LIMIT, async {
+        loop {
+            if let Some(facts) = vm.network_info().filter(|facts| facts.gateway.is_some()) {
+                break facts;
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "the backend did not report a guest address and default gateway: {error}; last snapshot: {:?}\n{}",
+            vm.network_info(),
+            fs::read_to_string(console).unwrap(),
+        )
+    })
 }

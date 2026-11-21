@@ -34,7 +34,7 @@ jobs:
         run: |
           MARSA_NETWORK_HELPER_TEST=1 bash network-helper/build.sh target/network-helper/marsa-net-helper
           python3 network-helper/check.py target/network-helper/marsa-net-helper
-          cargo clippy --locked -p marsa-vm-vz --all-targets --features userspace-system-test -- -D warnings
+          cargo clippy --locked -p marsa-vm-vz --all-targets --all-features -- -D warnings
 
   guest:
     name: Build arm64 guest

@@ -64,7 +64,7 @@ its Apple `vzNAT` interface.
 
 The native qualification is independent of the VZ device and runtime work.
 Run the strict test on Apple silicon with
-`bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest packaged_guest_nat_address_gateway_and_https`.
+`MARSA_ENTITLED_NATIVE_IPV4=1 bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest`.
 
 ### M3-05 `marsad` skeleton
 
@@ -209,7 +209,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 
 ### M3-16 Integrate VZ devices independently of native egress
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-03, M3-14
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [06 Network modes](../06-networking.md#network-modes)
 - **Do:** Integrate the existing native virtiofs, balloon, pause, resume and guest IPv4 facts support with both VZ network attachments. Keep the strict native NAT entitlement test independently selectable.
@@ -218,3 +218,4 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
   - A shared folder mounts at its original path with the configured read-only access.
   - Balloon inflation, pause and resume work on Apple silicon and state changes are published.
   - The user-space attachment still passes HTTPS verification and the strict native test still requires IPv4, gateway and HTTPS through native NAT.
+- **Evidence:** The entitled suite on macOS 27.2.1 passed read-only virtiofs, balloon inflation, pause and resume, guest IPv4 facts, and a TLS-verified registry pull through the user-space attachment. The separately selected native test recorded five DHCP discovers and no IPv4 lease.

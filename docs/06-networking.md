@@ -120,6 +120,13 @@ timed out from the host during the VPN test. Positive qualification against that
 resolver needs a reachable endpoint. The previous native test separately reached
 HTTPS over IPv6 after router advertisement and timed out over IPv4.
 
+For either VZ attachment, the backend reports the guest's current IPv4 address
+and default gateway from its configured upstream interface over a host-only
+vsock. The strict native qualification test compares those facts with the
+guest kernel and runs the IPv4-only registry HTTPS probe through native NAT.
+It runs independently of the device tests and the user-space registry pull.
+[Entitled test commands](../crates/marsa-vm-vz/README.md).
+
 Apple's published XNU source initializes host-wide IPv4 forwarding to zero.
 A live zero is consistent with the default and does not identify the process or
 configuration that last set it. Apple documents its native NAT attachment as the
