@@ -31,18 +31,18 @@ The visible Rust probe embedded the same grapheme-aware AppKit editor in a nativ
 | Check | Observation |
 | --- | --- |
 | Arabic keyboard layout | Passed. macOS reported `com.apple.keylayout.Arabic` and the editor rendered the Arabic letters received from the keyboard driver. |
-| Visual arrow movement | Inconclusive with the desktop driver. Its Left and Right commands inserted U+001C and U+001D into the visible editor. The separate AppKit action probe still passes. Verify with hardware arrow keys and Shift-arrow. |
+| Visual arrow movement | Passed with synthetic native `NSEvent` key-down events dispatched through the visible GPUI window’s `NSWindow.sendEvent`. From the end of `عرب`, Right reached UTF-16 offsets 2, 1, 0 at screen x 1506.7, 1519.3, 1535.0. Left returned to offset 1 and Shift-Left selected `ر`. The desktop driver’s generic arrow commands inserted U+001C and U+001D, so those commands did not provide a physical-keyboard check. |
 | Mouse hit-testing and drag | Passed for the sample. Clicking inside the mixed text moved the caret. A drag across the line selected the full text, which the highlight and AppKit's selection range both confirmed. |
-| Live conversion IME | Pending. The marked-text API previously passed in the hidden probe. A live candidate window and commit still need verification. |
-| VoiceOver | Blocked for direct attachment. VoiceOver was enabled on the host. The native accessibility snapshot contained window chrome and no editable text element after focusing the field. The pinned AccessKit adapter replaces accessibility children, focus and hit-testing on the window's content view. A native sibling outside that view is an integration option to test. Spoken feedback remains unverified. |
+| Live conversion IME | Passed composition, candidate cycling and commit with macOS Japanese – Romaji. Typing `nihon` into the Arabic selection produced marked kana, Space converted to `日本`, a second Space selected `🇯🇵`, and keypad Enter cleared marked state and committed `ع🇯🇵ب`. The desktop driver captures the app window, so candidate panel placement and pointer choice in that separate panel remain unverified. |
+| macOS accessibility and VoiceOver | Direct attachment hid the editor from the native accessibility tree. The alternate layout puts the original AccessKit content view and the native editor in a shared AppKit parent as siblings. With VoiceOver enabled, macOS exposed both the GPUI button and the labelled native editor, reported the editor as focused, and returned its Arabic value. The GPUI button responded to an accessibility activation. The desktop driver delivered a VoiceOver read chord to the text editor as a control character, so spoken output and navigation using the VoiceOver cursor remain unverified. |
 
-Before G1, validate the accessible placement with a labelled native field, a GPUI control in the same window, and real VoiceOver focus and spoken editing. Also verify live IME candidate interaction and physical keyboard movement. Product layout, clipping and bilingual theme review remain part of the GUI foundation tasks.
+Before G1, verify spoken reading and editing with the VoiceOver cursor, physical keyboard movement, and candidate panel positioning and selection. The shared AppKit parent is a working accessibility experiment. Check resizing, overlapping controls, focus handoff and windows that enter or leave full screen before adopting this placement in the product.
 
 ## Keyboard and accessibility
 
 The Metal-backed Controls probe exercised an initial Start focus, forward and reverse tab traversal, disabled-button skipping, Space and Enter activation, dialog focus retention, cancellation and focus restoration. In each of the four variants an empty or incorrect removal token produced no action. The correct token produced exactly one action. Dropdown Escape, arrow-key selection and disabled-item skipping were also checked. These are fixture callbacks.
 
-The Kit accessibility snapshots exposed localized names, roles, disabled state and the confirmation field's value. The pinned GPUI macOS source installs an AccessKit adapter for the native window. This host did not grant the test process external Accessibility access, so native accessibility traversal and spoken VoiceOver output remain to be exercised with a packaged app. [Kit accessibility guide](https://gpui-kit.com/docs/accessibility/).
+The Kit accessibility snapshots exposed localized names, roles, disabled state and the confirmation field's value. The pinned GPUI macOS source installs an AccessKit adapter for the native window. The original control harness lacked external Accessibility permission. The later visible editor test used the desktop driver to verify the native tree. Test spoken VoiceOver output and traversal across the packaged GUI. [Kit accessibility guide](https://gpui-kit.com/docs/accessibility/).
 
 ## Component localization, charts and lifecycle
 
@@ -89,6 +89,7 @@ evidence_dir=$(mktemp -d)
 cargo run --locked --manifest-path "$spike" -- --capture "$evidence_dir/rtl"
 cargo run --locked --manifest-path "$spike" --bin arabic-editing
 cargo run --locked --manifest-path "$spike" --bin arabic-editing -- --visible
+cargo run --locked --manifest-path "$spike" --bin arabic-editing -- --visible --native-container --check-arrows
 cargo run --locked --manifest-path "$spike" --bin controls
 cargo run --locked --manifest-path "$spike" --bin locale-chart -- "$evidence_dir/chart"
 cargo run --locked --manifest-path "$spike" --bin window-lifecycle
@@ -96,10 +97,10 @@ cargo run --locked --manifest-path "$spike" --bin stream-load -- 20
 cargo test --locked --manifest-path "$spike"
 ```
 
-Use disposable sample text with `--visible`. The probe writes the field content, selected range, caret position and current input source to the local terminal on change.
+Use disposable sample text with `--visible`. The probe writes the field content, selected range, caret position and current input source to the local terminal on change. Run with `--native-container` to expose the GPUI button and AppKit editor together. To reproduce conversion, enable Japanese – Romaji temporarily and select it from the macOS Input menu, or pass `--source=com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese`. With `--check-arrows`, the editor starts with the middle letter selected. Type `nihon`, press Space twice, and commit with keypad Enter. Restore the input source and VoiceOver state after the session.
 
 The stream fixture uses the debug profile and opens a native window during its run. Sample RSS with `ps -o rss= -p PID` from a separate shell. Its duration is configurable and the fixed history and cadence histogram remain bounded. All additional Rust bindings and Unicode segmentation are confined to this standalone probe workspace.
 
 ## Decision for discussion
 
-The measured rendering, controls and representative workloads support keeping GPUI as a candidate. Qualify one visible Marsa text field using the embedded native editor before accepting G1. If its remaining validation exposes an integration cost the project cannot carry, compare another Rust UI framework using the same five criteria and native input tests.
+The measured rendering, controls and representative workloads support keeping GPUI as a candidate. The visible native editor now has an accessibility placement that exposes both kinds of control and handles native Arabic key events and live IME conversion. Keep G1 open until the remaining VoiceOver and hardware checks pass. If those checks expose an integration cost the project cannot carry, compare another Rust UI framework using the same criteria and native input tests.
