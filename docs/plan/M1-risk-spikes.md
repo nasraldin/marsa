@@ -20,7 +20,7 @@ Spike code lives under `spikes/` and is never shipped. Each spike ends with a wr
 
 ### M1-02 Boot a Linux VM with Virtualization.framework from Rust
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [04 The vz backend](../04-virtualization-macos.md#the-vz-backend), V-02, V-03
 - **Do:** Verify the framework classes and entitlement against Apple's current documentation for the minimum macOS. Boot a stock arm64 Linux kernel and a small initramfs to a serial console twice: once through Rust bindings and once through a minimal Swift shim with a C ABI. Attach a virtio block device, a vsock device and a console. Deliver VM state-change callbacks to Rust. Compare the two approaches on completeness, code size, build complexity and callback handling.
