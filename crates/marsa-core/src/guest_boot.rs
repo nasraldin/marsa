@@ -82,7 +82,7 @@ fn parse_share(value: &str) -> io::Result<Share> {
     let (tag, encoded) = value
         .split_once(':')
         .ok_or_else(|| bad("share must contain a tag and destination"))?;
-    if !identifier(tag, 36) {
+    if !is_share_tag(tag) {
         return invalid("invalid virtiofs tag");
     }
     let decoded = decode_path(encoded)?;
@@ -122,6 +122,11 @@ fn decode_path(encoded: &str) -> io::Result<String> {
         decoded.push(hex[0] * 16 + hex[1]);
     }
     String::from_utf8(decoded).map_err(|_| bad("share destination must be UTF-8"))
+}
+
+/// Return whether a virtiofs tag follows Marsa's guest boot identifier format.
+pub fn is_share_tag(tag: &str) -> bool {
+    identifier(tag, 36)
 }
 
 fn identifier(value: &str, maximum: usize) -> bool {

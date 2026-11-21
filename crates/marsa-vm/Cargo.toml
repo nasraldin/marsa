@@ -6,8 +6,20 @@ rust-version.workspace = true
 publish.workspace = true
 license.workspace = true
 
+[features]
+fake = ["tokio/rt", "tokio/sync", "tokio/time", "tokio-stream/sync"]
+
 [dependencies]
+async-trait = "=0.1.92"
 marsa-core = { path = "../marsa-core" }
+
+thiserror = "=2.0.21"
+tokio = { version = "=1.54.1", features = ["io-util"] }
+tokio-stream = "=0.1.19"
+
+[dev-dependencies]
+tokio = { version = "=1.54.1", features = ["macros", "rt", "sync", "test-util", "time"] }
+tokio-stream = { version = "=0.1.19", features = ["sync"] }
 
 [lints]
 workspace = true
