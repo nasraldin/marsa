@@ -18,7 +18,7 @@
 
 ### M0-02 Add project governance files
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [16 Open questions](../16-risks-and-open-questions.md) (Q-01, Q-09), [11 Vulnerability response](../11-security.md#vulnerability-response)
 - **Do:** Add `CONTRIBUTING.md`, `SECURITY.md` (private reporting channel placeholder to be filled by the owner), `CODE_OF_CONDUCT.md`, issue and pull-request templates that ask for the task ID. Add the `LICENSE` file **only after Q-01 is answered**; until then leave a clearly marked note in `README.md`.
@@ -40,7 +40,7 @@
 
 ### M0-04 Implement `marsa-core`
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [03 Settings](../03-host-daemon.md#settings), [03 Filesystem layout](../03-host-daemon.md#filesystem-layout-on-the-host)
 - **Do:** Implement shared types: the paths module (all `~/.marsa` locations behind one API, overridable for tests), the settings model with validation and defaults, versioned settings migration, the common error types, and a `platform` trait module with a macOS implementation stub.
@@ -64,15 +64,15 @@
 
 ### M0-06 Set up continuous integration
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-03
 - **Docs:** [12 Continuous integration](../12-build-release-update.md#continuous-integration), V-13, Q-05
-- **Do:** Add the Tier 1 workflow (static checks, unit and integration tests on hosted runners). Verify whether hosted Apple silicon runners can run Virtualization.framework guests (V-13) and record the finding. Add the Tier 2 workflow definition targeting a runner label for a Mac with virtualization, disabled until a runner exists.
+- **Do:** Add the Tier 1 workflow (static checks, unit and integration tests on hosted runners). Verify whether hosted Apple silicon runners can run Virtualization.framework guests (V-13) and record the finding. Add the Tier 2 workflow definition targeting a runner label for a Mac with virtualization, disabled until a runner and real-VM test package exist. Restrict dispatch to the default branch of a private validation repository.
 - **Deliver:** `.github/workflows/tier1.yml`, `.github/workflows/tier2.yml`, an updated V-13 entry in the risks doc.
 - **Accept when:**
   - Tier 1 runs on every push and pull request and is green.
   - The V-13 finding is written into [16](../16-risks-and-open-questions.md) with its source.
-  - Tier 2 is defined and documented, with instructions for registering the runner.
+  - Tier 2 is defined and documented, with instructions for registering the runner in a private validation repository.
 
 ### M0-07 Add dependency policy checks
 

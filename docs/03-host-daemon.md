@@ -214,6 +214,8 @@ Proxy rules:
 
 **Proposed.** Stored as TOML at `~/.marsa/config.toml`. The daemon is the only writer; clients change settings through the API.
 
+The daemon writes `schema_version = 1`. It accepts the unversioned draft format (also identified by version 0), applies defaults for omitted keys, validates the values, and writes the current version when persisting settings. It rejects unsupported versions and unknown keys. The TOML document limit is 256 KiB.
+
 | Group | Keys |
 |---|---|
 | `vm` | `cpus`, `memory`, `backend` (`vz` or `krun`), `idle_stop`, `idle_timeout` |
@@ -225,6 +227,14 @@ Proxy rules:
 | `agents` | permission defaults for MCP clients |
 | `telemetry` | `enabled` (default false) |
 
+- VM defaults are two CPUs, automatic memory sizing at half of host RAM capped at 8 GiB, `vz`, and idle stop after 300 seconds. Explicit memory is in bytes and must be at least 512 MiB. The hypervisor validates resource limits at startup.
+- Disk limits are specified in bytes. The default sparse disk limit is 64 GiB, with automatic reclaim enabled where supported. The minimum limit is 1 GiB.
+- Shares are empty by default. The settings parser checks absolute UTF-8 path syntax. The daemon's share allowlist checks canonical paths and protected directories before exposing any folder.
+- Networking defaults to `auto` with host DNS and proxy discovery. Override DNS with IP addresses in `network.dns`. Set `network.proxy.http` or `network.proxy.https` to an HTTP or HTTPS proxy URL. Credentials belong outside this file. Proxy injection into containers (`network.proxy.inject_into_containers`) requires opt-in.
+- The UI follows system language and appearance by default. Updates are checked automatically on the stable channel, with automatic installation off.
+- Agent operations ask for approval per client and project by default. The `agents.operate_approval` alternatives are `always_ask` and `deny`. `agents.advanced_access` defaults to false. The destroy and host-affecting tiers always require approval.
+- Telemetry remains disabled pending [Q-10](16-risks-and-open-questions.md#open-questions-for-the-project-owner).
+
 ## Filesystem layout on the host
 
 **Proposed.**
@@ -235,15 +245,17 @@ Proxy rules:
 ├── run/
 │   ├── marsad.sock          # typed API
 │   ├── docker.sock          # Docker Engine API
-│   └── marsad.pid
+│   ├── marsad.pid
+│   └── marsad.lock
 ├── vm/
 │   ├── data.img             # sparse data disk
 │   └── console.log
 ├── logs/
 │   └── marsad.log
-└── state/
-    ├── grants.json          # agent permission grants
-    └── update/
+├── state/
+│   ├── grants.json          # agent permission grants
+│   └── update/
+└── bin/                     # optional tool links
 ```
 
 The read-only guest image (kernel and root filesystem) ships inside the app bundle, not in `~/.marsa`, so it is replaced atomically with each update.
