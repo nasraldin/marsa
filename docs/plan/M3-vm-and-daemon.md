@@ -83,7 +83,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 ### M3-07 Guest control client
 
 - **Status:** done
-- **Depends on:** M3-06, M2-06
+- **Depends on:** M3-03, M3-06, M2-06
 - **Docs:** [05 marsa-agent](../05-guest-image.md#marsa-agent)
 - **Do:** Implement the host side of the control protocol: connect, handshake with version check, request and response with timeouts, the event streams from the guest, and reconnect after pause and resume. Treat all guest input as untrusted.
 - **Deliver:** the guest-control module in `marsad` with tests against a scripted agent.
