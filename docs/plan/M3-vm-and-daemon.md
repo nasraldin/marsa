@@ -69,7 +69,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-06 VM supervisor state machine
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-01, M3-05
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle)
 - **Do:** Implement the supervisor as an explicit state machine with every state and transition in the diagram: on-demand start with waiting callers, readiness requiring agent handshake and engine health, idle detection, failure capture with console tail, retry with backoff, and clean stop with a forced fallback.
