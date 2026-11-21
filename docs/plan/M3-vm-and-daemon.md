@@ -19,7 +19,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-02 `vz` backend: configure and boot
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-01, M2-02, Q-02
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [04 Threading](../04-virtualization-macos.md#threading)
 - **Do:** Implement `marsa-vm-vz` using generated `objc2-virtualization` bindings ([D-024](../15-decisions.md#d-024-use-direct-rust-bindings-for-virtualizationframework)). Build the VM configuration from `VmSpec`, validate it, start it and report state changes as a stream. Own a single serial queue for all framework calls.
@@ -32,7 +32,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-03 `vz` backend: disks, console and vsock
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-02
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware)
 - **Do:** Attach the read-only root disk and the read-write data disk with the mechanism chosen in M1-03, write the console to `console.log`, and implement `connect_vsock` returning an async stream.
