@@ -87,7 +87,7 @@
 
 ### M0-08 Check the documentation in CI
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-06
 - **Docs:** [docs/README](../README.md)
 - **Do:** Add a CI job that checks internal Markdown links and anchors in `docs/`, validates Mermaid blocks by rendering them, and verifies that every task ID referenced anywhere in `docs/` exists in a milestone file.
