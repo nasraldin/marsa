@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package marsa.guest.v1;
+
+// Complete resolver, proxy, and engine host alias configuration.
+message ConfigureNetwork {
+  repeated string dns_servers = 1;
+  repeated string search_domains = 2;
+  Proxy proxy = 3;
+  repeated HostAlias host_aliases = 4;
+}
+
+// Proxy URLs for the engine. Treat them as sensitive and omit them from logs.
+message Proxy {
+  optional string http_url = 1;
+  optional string https_url = 2;
+  repeated string no_proxy = 3;
+}
+
+// Engine DNS override mapping a host name to an IPv4 or IPv6 address.
+message HostAlias {
+  string name = 1;
+  string address = 2;
+}
+
+// Replacement set of host-trusted certificates in DER form.
+message InstallCertificates {
+  repeated bytes certificates_der = 1;
+}
+
+// The guest's lifecycle event for a published port binding.
+message PortEvent {
+  PortAction action = 1;
+  Transport transport = 2;
+  string container_id = 3;
+  string bind_address = 4;
+  uint32 published_port = 5;
+  uint32 container_port = 6;
+}
+
+// Lifecycle of a published port.
+enum PortAction {
+  PORT_ACTION_UNSPECIFIED = 0;
+  PORT_ACTION_OPENED = 1;
+  PORT_ACTION_CLOSED = 2;
+}
+
+// IP transport for a published port.
+enum Transport {
+  TRANSPORT_UNSPECIFIED = 0;
+  TRANSPORT_TCP = 1;
+  TRANSPORT_UDP = 2;
+}

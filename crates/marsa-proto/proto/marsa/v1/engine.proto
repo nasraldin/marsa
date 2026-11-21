@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package marsa.v1;
+
+// Daemon and API versions are available before subscribing to state.
+service Meta {
+  rpc Version(VersionRequest) returns (VersionResponse);
+  rpc Capabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+}
+
+// Control the local engine and inspect its current state.
+service Engine {
+  rpc Status(EngineStatusRequest) returns (EngineStatus);
+  rpc Start(EngineActionRequest) returns (EngineStatus);
+  rpc Stop(EngineActionRequest) returns (EngineStatus);
+  rpc Restart(EngineActionRequest) returns (EngineStatus);
+  rpc Reset(ResetRequest) returns (ResetResponse);
+}
+
+message VersionRequest {}
+
+message VersionResponse {
+  uint32 api_major = 1;
+  uint32 api_minor = 2;
+  string daemon_version = 3;
+  repeated ComponentVersion components = 4;
+}
+
+message ComponentVersion {
+  string name = 1;
+  string version = 2;
+}
+
+message CapabilitiesRequest {}
+
+message CapabilitiesResponse {
+  repeated VmCapabilities backends = 1;
+}
+
+message VmCapabilities {
+  string backend = 1;
+  bool memory_balloon = 2;
+  bool pause_resume = 3;
+  bool dynamic_shares = 4;
+  bool userspace_network = 5;
+}
+
+message EngineStatusRequest {}
+
+message EngineActionRequest {
+  // A UUID for daemon-side deduplication.
+  string request_id = 1;
+}
+
+message EngineStatus {
+  EngineState state = 1;
+  string backend = 2;
+  optional string boot_stage = 3;
+  optional string reason = 4;
+  optional string console_tail = 5;
+}
+
+enum EngineState {
+  ENGINE_STATE_UNSPECIFIED = 0;
+  ENGINE_STATE_STOPPED = 1;
+  ENGINE_STATE_STARTING = 2;
+  ENGINE_STATE_BOOTING = 3;
+  ENGINE_STATE_READY = 4;
+  ENGINE_STATE_IDLE = 5;
+  ENGINE_STATE_PAUSED = 6;
+  ENGINE_STATE_STOPPING = 7;
+  ENGINE_STATE_FAILED = 8;
+}
+
+message ResetRequest {
+  string request_id = 1;
+
+  // The daemon issues a single-use, short-lived token. Clients send the token
+  // back only after the user explicitly confirms the identified operation.
+  oneof action {
+    ResetSettings settings = 2;
+    PrepareFactoryReset prepare_factory = 3;
+    ConfirmFactoryReset confirm_factory = 4;
+  }
+}
+
+message ResetSettings {}
+message PrepareFactoryReset {}
+
+message ConfirmFactoryReset {
+  bytes confirmation_token = 1;
+}
+
+message ResetResponse {
+  oneof result {
+    ResetCompleted completed = 1;
+    FactoryResetChallenge challenge = 2;
+  }
+}
+
+message ResetCompleted {}
+
+message FactoryResetChallenge {
+  bytes confirmation_token = 1;
+  int64 expires_at_unix_millis = 2;
+}

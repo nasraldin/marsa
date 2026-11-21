@@ -20,7 +20,7 @@ Marsa (Arabic: مرسى, "harbour") is a fast, lightweight, open-source desktop 
 | Hypervisor | Apple Virtualization.framework (libkrun evaluated as a second backend) |
 | Guest | Alpine-based minimal root filesystem, read-only, with a separate data disk |
 | GUI | GPUI with gpui-component, gated by a right-to-left spike |
-| Licence | Open source; exact licence still to be confirmed (see [open questions](docs/16-risks-and-open-questions.md)) |
+| Licence | [MIT](LICENSE) |
 
 Windows (WSL2) and Linux (native engine) follow after the macOS release, on the same daemon.
 
@@ -29,6 +29,8 @@ Windows (WSL2) and Linux (native engine) follow after the macOS release, on the 
 Start with [docs/README.md](docs/README.md). It indexes the architecture, every component design, the decision records and the task-by-task implementation plan.
 
 Coding agents: read [AGENTS.md](AGENTS.md) before doing anything.
+
+See the [contribution guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
 
 ## Naming
 

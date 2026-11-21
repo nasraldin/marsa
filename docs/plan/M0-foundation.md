@@ -18,7 +18,7 @@
 
 ### M0-02 Add project governance files
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [16 Open questions](../16-risks-and-open-questions.md) (Q-01, Q-09), [11 Vulnerability response](../11-security.md#vulnerability-response)
 - **Do:** Add `CONTRIBUTING.md`, `SECURITY.md` (private reporting channel placeholder to be filled by the owner), `CODE_OF_CONDUCT.md`, issue and pull-request templates that ask for the task ID. Add the `LICENSE` file **only after Q-01 is answered**; until then leave a clearly marked note in `README.md`.
@@ -40,7 +40,7 @@
 
 ### M0-04 Implement `marsa-core`
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [03 Settings](../03-host-daemon.md#settings), [03 Filesystem layout](../03-host-daemon.md#filesystem-layout-on-the-host)
 - **Do:** Implement shared types: the paths module (all `~/.marsa` locations behind one API, overridable for tests), the settings model with validation and defaults, versioned settings migration, the common error types, and a `platform` trait module with a macOS implementation stub.
@@ -52,7 +52,7 @@
 
 ### M0-05 Define the protocols in `marsa-proto`
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [05 marsa-agent](../05-guest-image.md#marsa-agent)
 - **Do:** Write protobuf definitions for the host API (`marsa.v1`: all services in the typed-API table) and the guest control protocol (`marsa.guest.v1`: handshake, time, network config, certificates, port events, health, stats, trim, shares, shutdown). Set up code generation. Define protocol version constants and a compatibility rule.
@@ -76,7 +76,7 @@
 
 ### M0-07 Add dependency policy checks
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-03
 - **Docs:** [11 Updates and supply chain](../11-security.md#updates-and-supply-chain)
 - **Do:** Configure `cargo-deny` (allowed licences, banned crates, advisory database, duplicate detection) and a scheduled `cargo-audit` run. The allowed-licence list stays permissive-only until Q-01 is answered.

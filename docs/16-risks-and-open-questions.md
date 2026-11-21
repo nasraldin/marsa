@@ -6,7 +6,6 @@ These need a decision from a person. Agents must not decide them.
 
 | # | Question | Recommendation | Blocks |
 |---|---|---|---|
-| Q-01 | Which open-source licence? | Apache-2.0, matching the Docker engine, gpui-component and libkrun | M0-02 (adding `LICENSE`), first public release |
 | Q-03 | Is the name "Marsa" clear to use? Trademark search in the software class, domain, GitHub organisation, crates.io, Homebrew names | Check before any public release | M10 |
 | Q-04 | Who holds the Apple Developer Program account and the update signing key? | A project-owned account; the update key offline or hardware-backed | M10 |
 | Q-06 | Who reviews Arabic translations and terminology? | A fluent reviewer plus a term glossary | M6, M7 |
@@ -15,12 +14,19 @@ These need a decision from a person. Agents must not decide them.
 | Q-09 | Business model and governance (contributions, CLA or DCO, security contact)? | DCO, a `SECURITY.md` contact | First public release |
 | Q-10 | Is any telemetry wanted at all? | None by default (decided); decide whether an opt-in exists | M9 |
 
+## Resolved owner questions
+
+| # | Decision | Recorded in |
+|---|---|---|
+| Q-01 | MIT licence | [D-022](15-decisions.md#d-022-licence-marsa-under-mit) |
+
 ## Resolved platform and runner questions
 
 | # | Finding |
 |---|---|
 | Q-02 | The owner selected macOS 27 as the minimum supported version on 2026-11-21. |
 | Q-05 | The owner selected their current Apple silicon Mac as the planned Tier 2 host on 2026-11-21. Registration is pending. See the [runner setup](12-build-release-update.md#tier-2-runner-setup). |
+| V-01 | The macOS spike reproduced incorrect visual caret and click placement in GPUI Arabic input. The other four criteria passed. See the [M1-01 report](spikes/M1-01-gpui-rtl.md). |
 | V-13 | GitHub-hosted Apple silicon runners do not support nested virtualization. Tier 2 requires separate hardware. Verified on 2026-11-21 against [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#limitations-for-arm64-macos-runners). |
 
 ## Technical unknowns to verify
@@ -29,7 +35,6 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
-| V-01 | Does GPUI meet the right-to-left criteria on macOS? | [08](08-gui.md) | M1-01 |
 | V-04 | How much guest memory does the balloon actually return to macOS? | [04](04-virtualization-macos.md) | M9-04 |
 | V-05 | Does guest discard reach the sparse image so APFS frees blocks? | [07](07-file-sharing-and-storage.md) | M1-03, M9-03 |
 | V-06 | virtiofs behaviour: change notifications, ownership mapping | [07](07-file-sharing-and-storage.md) | M4-06 |
