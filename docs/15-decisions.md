@@ -169,7 +169,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Decision:** Apply the Tauri 2 fallback from D-005. The GUI Rust host uses `marsa-client`; the front end uses a system webview and the `marsa-ui` design system.
 - **Why:** The [GPUI spike](spikes/M1-01-gpui-rtl.md) passed four of five criteria. Correct Arabic caret placement and hit testing require changes to upstream text geometry and the editor.
 - **Consequence:** M6 and M7 retain the Figma scope, language, keyboard and accessibility requirements. Close the webview when its window closes and keep log streams bounded.
-- **Date and task:** 2026-11-21, M1-05. The owner directed continuation after receiving the spike recommendations.
+- **Date and task:** 2026-11-21, M1-05. The owner directed continuation after reviewing the recommendation.
 
 ---
 
@@ -178,7 +178,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Decision:** Implement the `vz` backend with the direct `objc2-virtualization` bindings.
 - **Why:** The [signed boot spike](spikes/M1-02-vz-binding.md) validated the complete device configuration, bidirectional vsock exchange and lifecycle callbacks with both bridges. The direct bindings satisfy the selection rule in the virtualization design.
 - **Consequence:** Keep framework object use on the backend queue and isolate unsafe Apple calls inside the backend. The Swift comparison stays in the standalone spike.
-- **Date and task:** 2026-11-21, M1-05. The owner directed continuation after receiving the spike recommendations.
+- **Date and task:** 2026-11-21, M1-05. The owner directed continuation after reviewing the recommendation.
 
 ---
 
