@@ -6,7 +6,6 @@ These need a decision from a person. Agents must not decide them.
 
 | # | Question | Recommendation | Blocks |
 |---|---|---|---|
-| Q-01 | Which open-source licence? | Apache-2.0, matching the Docker engine, gpui-component and libkrun | M0-02 (adding `LICENSE`), first public release |
 | Q-03 | Is the name "Marsa" clear to use? Trademark search in the software class, domain, GitHub organisation, crates.io, Homebrew names | Check before any public release | M10 |
 | Q-04 | Who holds the Apple Developer Program account and the update signing key? | A project-owned account; the update key offline or hardware-backed | M10 |
 | Q-06 | Who reviews Arabic translations and terminology? | A fluent reviewer plus a term glossary | M6, M7 |
@@ -14,6 +13,12 @@ These need a decision from a person. Agents must not decide them.
 | Q-08 | Should `/var/run/docker.sock` be offered during onboarding or only in settings? | Settings only, with a hint when a tool fails to connect | M4, M7 |
 | Q-09 | Business model and governance (contributions, CLA or DCO, security contact)? | DCO, a `SECURITY.md` contact | First public release |
 | Q-10 | Is any telemetry wanted at all? | None by default (decided); decide whether an opt-in exists | M9 |
+
+## Resolved owner questions
+
+| # | Decision | Recorded in |
+|---|---|---|
+| Q-01 | MIT licence | [D-022](15-decisions.md#d-022-licence-marsa-under-mit) |
 
 ## Resolved platform and runner questions
 
