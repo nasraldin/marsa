@@ -120,14 +120,20 @@ The Apple silicon dependency audit of GPUI Kit and gpui-component 0.10.0 with GP
 
 ### M6-10 Tray item
 
-- **Status:** todo
-- **Depends on:** M3-08
+- **Status:** blocked (packaged VM runtime, GUI executable and approval event producer pending)
+- **Depends on:** M3-12, M6-01, M8-02, Q-06
 - **Docs:** [03 Responsibilities](../03-host-daemon.md#responsibilities), D-003
 - **Do:** Implement the menu-bar item owned by `marsad`: engine state, start and stop, open the GUI, pending agent approvals count, quit. Localised and following the system appearance.
 - **Deliver:** tray module in the macOS platform code.
 - **Accept when:**
   - The tray works with no GUI process running.
-  - Its menu is in the selected language.
+  - Its menu follows the selected language and system appearance in English light, English dark, Arabic light and Arabic dark.
+  - The displayed engine state and pending approvals count update from daemon events.
+  - Start and Stop control the packaged VM. Open launches the Marsa GUI and Quit shuts down the daemon and its VM cleanly.
+
+M3-12 installs a VM supervisor behind the engine API. M6-01 supplies the
+launchable GUI. M8-02 owns the approval queue and publishes its updates.
+The tray stays in the daemon and runs with the GUI closed.
 
 ### M6-11 Onboarding
 
