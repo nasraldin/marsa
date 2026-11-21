@@ -264,7 +264,7 @@ The read-only guest image (kernel and root filesystem) ships inside the app bund
 
 - `marsad` is started at login by a per-user launchd agent (**Verify:** use the modern `SMAppService` registration for login items and agents).
 - The GUI and CLI start `marsad` if it is not running.
-- `marsad` holds a lock file so only one instance runs per user.
+- `marsad` holds an exclusive lock on `marsad.lock` so only one instance runs per user. On SIGINT or SIGTERM it drains the local API, removes its socket and PID file, and releases the lock. The lock file stays in place for the next launch.
 - On crash, launchd restarts it. On restart it reattaches or cleans up any orphaned VM before accepting requests.
 
 ## Sleep, wake and network changes
@@ -277,6 +277,6 @@ The read-only guest image (kernel and root filesystem) ships inside the app bund
 
 ## Observability
 
-- Structured logs (JSON lines) with levels, written to `~/.marsa/logs/marsad.log` with rotation.
+- Structured logs with levels use JSON lines and rotate daily in `~/.marsa/logs/`. The daemon keeps at most seven dated logs. `marsad.log` points to the current log.
 - The event bus is the user-visible history: VM transitions, port forwards, share changes, update steps, agent approvals.
 - No telemetry leaves the machine unless the user turns it on.

@@ -238,6 +238,7 @@ flowchart TD
     d --> share
     d --> dproxy
     d --> proto
+    d --> core
     client --> proto
     cli --> client
     mcp --> client
