@@ -201,6 +201,8 @@ Shipping a Linux kernel and Alpine packages brings GPL and other open-source dut
 
 Tier 1 builds the guest twice from separate output directories and compares the images, kernel, configuration, manifests, licence archive and build reports byte for byte. The guest provenance artifact includes the image hashes, inventory, source references, notices and exact kernel configuration. The release process must publish these with the corresponding guest payloads.
 
+When changing Alpine pins, derive package versions, licences, origins and aports commits from the rebuilt archive's `lib/apk/db/installed`. For each origin, record the exact APKBUILD digest and verify its source files against the recipe's SHA-512 checksums. Refresh the matching source records and SHA-256 checksums in [the Alpine notice lock](../guest/provenance/alpine-lock.json). Copy upstream licence, copyright and notice text byte for byte, and label SPDX reference text separately. Remove notices for packages that are no longer shipped. `cargo xtask guest provenance` verifies the resulting coverage against the packed image.
+
 ## Windows note
 
 On Windows with WSL2 the same root filesystem is packaged as a WSL distribution and Microsoft's WSL2 kernel is used in place of Marsa's. The recipe therefore keeps kernel-dependent assumptions out of the root filesystem. See [14 Future platforms](14-future-platforms.md).
