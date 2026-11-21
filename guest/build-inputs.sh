@@ -47,12 +47,14 @@ case "$stage" in
     rootfs)
         fetch "$3" "$4"
         fetch "$5" "$6"
+        /bin/sh /usr/local/lib/marsa/rootfs/build.sh "$4" "$6" "$scratch"
         ;;
     image|all)
         fetch "$1" "$2"
         fetch "$3" "$4"
         fetch "$5" "$6"
         fetch "$7" "$8"
+        /bin/sh /usr/local/lib/marsa/rootfs/build.sh "$4" "$6" "$scratch"
         mv -f -- "$scratch/SHA256SUMS" SHA256SUMS
         ;;
     *)

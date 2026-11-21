@@ -47,14 +47,20 @@ flowchart TB
 
 | Component | Source | Notes |
 |---|---|---|
-| Base | `alpine-base` packages only | No package manager use at runtime |
+| Base | Pinned Alpine minirootfs | No OpenRC or package manager use at runtime |
 | `marsa-init` | This repo, static musl build | PID 1 |
 | `marsa-agent` | This repo, static musl build | Control channel endpoint |
 | `dockerd`, `containerd`, `containerd-shim-runc-v2`, `runc`, `docker-proxy`, `docker-init` | Upstream Docker static release for linux/arm64 | Version pinned in the manifest |
 | BuildKit | Bundled with the engine | Used through `docker buildx` |
-| Networking tools | `iptables` or `nftables`, `iproute2` | Whatever the pinned engine needs. **Verify** for the pinned engine version |
-| Filesystem tools | `e2fsprogs` (mkfs, fsck, resize), `util-linux` (`fstrim`) | For the data disk |
+| Networking tools | Alpine `iptables` and `iproute2-minimal` | Docker 29.10.0 uses `iptables` and `ip6tables` for bridge rules. The `ip` command is available for guest interface setup. |
+| Filesystem tools | `e2fsprogs` and `e2fsprogs-extra` (mkfs, fsck, resize), `blkid` and `fstrim` from util-linux | For the data disk |
 | CA certificates | `ca-certificates` | Extended at boot with host CAs |
+
+Docker Engine 29.10.0 build `06db173` looks up `iptables` and `ip6tables` when configured with the iptables firewall backend. Alpine's `iptables` package supplies those commands through `xtables-nft-multi`. The native `nft` command is optional with the iptables backend. Docker tries to use it to clear old rules from its separate nftables backend. The engine uses netlink for bridge interface management. [Pinned Docker iptables implementation](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/libnetwork/iptables/iptables.go#L64-L79), [Alpine 3.24 packaging](https://github.com/alpinelinux/aports/blob/3.24-stable/main/iptables/APKBUILD#L78-L85).
+
+In the Virtualization.framework test guest running Linux 7.3.5, the pinned engine started with the staged configuration, created and removed a bridge network, and installed IPv4 masquerade rules. Both IPv4 and IPv6 NAT tables were accessible through Alpine's packaged commands.
+
+[Marsa's daemon configuration](../guest/rootfs/daemon.json) binds the engine API to the guest's Unix socket, connects to containerd through `/run/containerd/containerd.sock`, and uses Docker's built-in seccomp profile. Experimental features, live restore and user namespace remapping are off. [Guest hardening](11-security.md#guest-hardening).
 
 Rules:
 
@@ -168,8 +174,9 @@ flowchart LR
 
 - Run `cargo xtask guest all` from a Mac with a local Docker daemon or from the Linux CI runner. The digest-pinned Linux builder downloads and verifies the arm64 guest sources. Individual stages are `kernel`, `rootfs` and `image`.
 - Verified archives and their checksum list are written to `target/guest/`. A checksum mismatch stops the build. Remove a mismatched cached archive before retrying.
-- The kernel stage compiles the arm64 kernel and writes the uncompressed boot `Image`, the ELF `vmlinux`, the resolved kernel config and the Moby configuration report. Run it on an arm64 Linux Docker daemon. M2-03 builds the root filesystem and M2-04 creates the bootable filesystem image.
-- Every input is pinned by version and checksum in `guest/versions.toml`.
+- The kernel stage compiles the arm64 kernel and writes the uncompressed boot `Image`, the ELF `vmlinux`, the resolved kernel config and the Moby configuration report. Run it on an arm64 Linux Docker daemon.
+- The `rootfs` stage produces `target/guest/rootfs.tar` and prints its byte size. Tier 1 uploads the size report as `guest-rootfs-size`. The staging archive uses the builder's unprivileged UID and GID. M2-04 assigns guest ownership and builds the read-only image. M2-05 and M2-06 supply the guest init and agent binaries.
+- The source releases are pinned in [`guest/versions.toml`](../guest/versions.toml). The [arm64 APK lockfile](../guest/rootfs/aarch64.sha256) pins supplemental packages and their dependencies by exact version and SHA-256. The build verifies each APK before an offline, signature-checked install with package scripts disabled. Packages already present in Alpine's minirootfs are covered by its archive checksum.
 - The output is identical for identical inputs (reproducible build), verified in CI by building twice.
 
 ## Versioning and upgrades
