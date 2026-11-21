@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package marsa.v1;
+
+// VM utilization samples and storage maintenance.
+service Stats {
+  rpc VmStats(VmStatsRequest) returns (stream VmStatsSample);
+}
+
+service Disk {
+  rpc Usage(DiskUsageRequest) returns (DiskUsageResponse);
+  rpc Reclaim(DiskReclaimRequest) returns (DiskReclaimResponse);
+  rpc PrunePreview(PrunePreviewRequest) returns (PrunePreviewResponse);
+}
+
+// Retrieve and apply verified Marsa releases.
+service Updates {
+  rpc Check(CheckUpdatesRequest) returns (UpdateStatus);
+  rpc Download(DownloadUpdateRequest) returns (UpdateStatus);
+  rpc Apply(ApplyUpdateRequest) returns (UpdateStatus);
+  rpc Status(UpdateStatusRequest) returns (UpdateStatus);
+}
+
+// Obtain inspected diagnostics from the daemon.
+service Diagnostics {
+  rpc Collect(CollectDiagnosticsRequest) returns (CollectDiagnosticsResponse);
+  rpc Logs(LogsRequest) returns (stream LogEntry);
+}
+
+message VmStatsRequest {}
+
+message VmStatsSample {
+  int64 observed_at_unix_millis = 1;
+  uint64 cpu_busy_nanos = 2;
+  uint64 memory_used_bytes = 3;
+  uint64 memory_total_bytes = 4;
+  uint64 disk_used_bytes = 5;
+  uint64 disk_total_bytes = 6;
+  uint64 network_rx_bytes = 7;
+  uint64 network_tx_bytes = 8;
+}
+
+message DiskUsageRequest {}
+
+message DiskUsageResponse {
+  uint64 host_allocated_bytes = 1;
+  uint64 guest_used_bytes = 2;
+  uint64 guest_capacity_bytes = 3;
+  repeated DiskCategoryUsage categories = 4;
+}
+
+message DiskCategoryUsage {
+  DiskCategory category = 1;
+  uint64 used_bytes = 2;
+  uint64 reclaimable_bytes = 3;
+}
+
+enum DiskCategory {
+  DISK_CATEGORY_UNSPECIFIED = 0;
+  DISK_CATEGORY_CONTAINERS = 1;
+  DISK_CATEGORY_IMAGES = 2;
+  DISK_CATEGORY_VOLUMES = 3;
+  DISK_CATEGORY_NETWORKS = 4;
+  DISK_CATEGORY_BUILD_CACHE = 5;
+}
+
+message DiskReclaimRequest {
+  string request_id = 1;
+}
+
+message DiskReclaimResponse {
+  uint64 guest_trimmed_bytes = 1;
+  uint64 host_reclaimed_bytes = 2;
+  DiskUsageResponse usage = 3;
+}
+
+message PrunePreviewRequest {
+  repeated DiskCategory categories = 1;
+  repeated string volume_names = 2;
+}
+
+message PrunePreviewResponse {
+  repeated PruneCandidate candidates = 1;
+  uint64 estimated_reclaimable_bytes = 2;
+}
+
+message PruneCandidate {
+  DiskCategory category = 1;
+  string id = 2;
+  string name = 3;
+  uint64 size_bytes = 4;
+}
+
+message CheckUpdatesRequest {}
+message UpdateStatusRequest {}
+
+message DownloadUpdateRequest {
+  string request_id = 1;
+  string version = 2;
+}
+
+message ApplyUpdateRequest {
+  string request_id = 1;
+  string version = 2;
+}
+
+message UpdateStatus {
+  UpdatePhase phase = 1;
+  string current_version = 2;
+  optional string available_version = 3;
+  optional uint64 bytes_downloaded = 4;
+  optional uint64 download_size_bytes = 5;
+  optional string detail = 6;
+}
+
+enum UpdatePhase {
+  UPDATE_PHASE_UNSPECIFIED = 0;
+  UPDATE_PHASE_IDLE = 1;
+  UPDATE_PHASE_CHECKING = 2;
+  UPDATE_PHASE_AVAILABLE = 3;
+  UPDATE_PHASE_DOWNLOADING = 4;
+  UPDATE_PHASE_READY_TO_APPLY = 5;
+  UPDATE_PHASE_APPLYING = 6;
+  UPDATE_PHASE_FAILED = 7;
+}
+
+message CollectDiagnosticsRequest {
+  string request_id = 1;
+  bool include_agent_audit = 2;
+}
+
+message CollectDiagnosticsResponse {
+  string bundle_path = 1;
+}
+
+message LogsRequest {
+  bool follow = 1;
+  uint32 tail_lines = 2;
+}
+
+message LogEntry {
+  int64 at_unix_millis = 1;
+  string level = 2;
+  string component = 3;
+  string message = 4;
+}

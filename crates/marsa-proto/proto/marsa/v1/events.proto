@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package marsa.v1;
+
+import "marsa/v1/agents.proto";
+import "marsa/v1/configuration.proto";
+import "marsa/v1/engine.proto";
+import "marsa/v1/maintenance.proto";
+
+// Stream an atomic snapshot followed by events in sequence order.
+service Events {
+  rpc Subscribe(SubscribeRequest) returns (stream DaemonEvent);
+}
+
+message SubscribeRequest {}
+
+message DaemonEvent {
+  // A new daemon process starts a new stream identity.
+  string stream_id = 1;
+  uint64 sequence = 2;
+  int64 observed_at_unix_millis = 3;
+  oneof body {
+    DaemonSnapshot snapshot = 4;
+    EngineStatus engine = 5;
+    SettingsChanged settings = 6;
+    ListSharesResponse shares = 7;
+    NetworkStatus network = 8;
+    ListForwardedPortsResponse forwarded_ports = 9;
+    UpdateStatus update = 10;
+    ListPendingApprovalsResponse approvals = 11;
+    ListGrantsResponse grants = 12;
+  }
+}
+
+message DaemonSnapshot {
+  EngineStatus engine = 1;
+  uint64 settings_revision = 2;
+  ListSharesResponse shares = 3;
+  NetworkStatus network = 4;
+  ListForwardedPortsResponse forwarded_ports = 5;
+  UpdateStatus update = 6;
+  ListPendingApprovalsResponse approvals = 7;
+  ListGrantsResponse grants = 8;
+}
+
+message SettingsChanged {
+  uint64 revision = 1;
+}
