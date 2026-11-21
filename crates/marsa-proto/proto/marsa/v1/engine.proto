@@ -58,6 +58,8 @@ message EngineStatus {
   optional string boot_stage = 3;
   optional string reason = 4;
   optional string console_tail = 5;
+  // Latest health reported by the guest on this VM boot.
+  EngineHealthState guest_health = 6;
 }
 
 enum EngineState {
@@ -70,6 +72,14 @@ enum EngineState {
   ENGINE_STATE_PAUSED = 6;
   ENGINE_STATE_STOPPING = 7;
   ENGINE_STATE_FAILED = 8;
+}
+
+enum EngineHealthState {
+  ENGINE_HEALTH_STATE_UNSPECIFIED = 0;
+  ENGINE_HEALTH_STATE_STARTING = 1;
+  ENGINE_HEALTH_STATE_READY = 2;
+  ENGINE_HEALTH_STATE_UNHEALTHY = 3;
+  ENGINE_HEALTH_STATE_RESTARTING = 4;
 }
 
 message ResetRequest {

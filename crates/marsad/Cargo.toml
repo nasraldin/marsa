@@ -20,6 +20,9 @@ marsa-vm-vz = { path = "../marsa-vm-vz" }
 workspace = true
 
 [target.'cfg(unix)'.dependencies]
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+getrandom = "=0.4.3"
+tempfile = "=3.27.0"
 marsa-core = { path = "../marsa-core" }
 nix = { version = "=0.32.0", features = ["fs", "user"] }
 tokio = { version = "=1.54.1", features = ["macros", "net", "rt", "signal", "sync", "time"] }
@@ -37,5 +40,4 @@ tokio = { version = "=1.54.1", features = ["test-util"] }
 hyper-util = { version = "=0.1.21", features = ["tokio"] }
 nix = { version = "=0.32.0", features = ["signal"] }
 serde_json = "=1.0.154"
-tempfile = "=3.27.0"
 tower = { version = "=0.5.3", features = ["util"] }
