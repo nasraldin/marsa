@@ -10,7 +10,7 @@ use tokio::{
 
 use crate::supervisor::{
     BootFailure, BootStage, State, SupervisorError,
-    boot::{Issue, Outcome, Reason},
+    boot::{self, Issue, Outcome, Reason},
     platform,
 };
 
@@ -142,18 +142,22 @@ impl Actor {
             let _ = cancel.send(());
         }
         self.progress = None;
-        let vm = if let Some(task) = self.boot.take() {
+        let mut ready = self.guest.take();
+        let mut vm = self.cleanup.take();
+        if let Some(task) = self.boot.take() {
             match task.await {
-                Ok(Outcome::Ready(guest)) => Some(guest.vm),
-                Ok(Outcome::Failed { vm, .. }) => vm,
-                Err(_) => None,
+                Ok(Outcome::Ready(guest)) => ready = Some(guest),
+                Ok(Outcome::Failed { vm: partial, .. }) => vm = partial,
+                Err(_) => {}
             }
-        } else {
-            self.cleanup
-                .take()
-                .or_else(|| self.guest.take().map(|guest| guest.vm))
-        };
-        if let Err(error) = self.stop_vm(vm).await {
+        }
+        let mut limit = self.config.stop_timeout;
+        if let Some(guest) = ready {
+            let (running, remaining) = boot::graceful_stop(guest, limit).await;
+            vm = Some(running);
+            limit = remaining;
+        }
+        if let Err(error) = self.stop_vm(vm, limit).await {
             let failure = Arc::new(BootFailure {
                 stage: BootStage::Shutdown,
                 timed_out: false,
@@ -167,7 +171,11 @@ impl Actor {
         Ok(())
     }
 
-    async fn stop_vm(&mut self, vm: Option<Box<dyn Vm>>) -> Result<(), SupervisorError> {
+    async fn stop_vm(
+        &mut self,
+        vm: Option<Box<dyn Vm>>,
+        limit: std::time::Duration,
+    ) -> Result<(), SupervisorError> {
         self.cleanup = vm;
         if let Some(vm) = self.cleanup.as_mut()
             && !matches!(
@@ -175,7 +183,7 @@ impl Actor {
                 VmState::Created | VmState::Failed | VmState::Stopped
             )
         {
-            vm.stop(self.config.stop_timeout).await.map_err(Arc::new)?;
+            vm.stop(limit).await.map_err(Arc::new)?;
         }
         self.cleanup = None;
         Ok(())
@@ -215,7 +223,7 @@ impl Actor {
             Reason::Canceled => (false, "guest activation canceled".into()),
         };
         self.idle_at = None;
-        let stop = self.stop_vm(vm).await;
+        let stop = self.stop_vm(vm, self.config.stop_timeout).await;
         if let Err(error) = &stop {
             detail.push_str(&format!("; guest cleanup failed: {error}"));
         }

@@ -81,6 +81,9 @@ pub enum GuestControlError {
     /// Initial guest clock setup was rejected.
     #[error("guest rejected initial clock setup ({0:?})")]
     ClockRejected(CommandStatus),
+    /// The running guest rejected orderly shutdown.
+    #[error("guest rejected shutdown ({0:?})")]
+    ShutdownRejected(CommandStatus),
     /// The host clock could not be represented as a guest time.
     #[error("host clock cannot be represented as Unix epoch time")]
     InvalidClock,

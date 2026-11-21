@@ -146,6 +146,11 @@ pub trait GuestSession: Send {
     /// Verify agent engine health and the Docker API ping.
     async fn engine_ready(&mut self, vm: &dyn Vm) -> io::Result<()>;
 
+    /// Ask the guest to stop Docker and unmount its data disk before powering off.
+    async fn shutdown(&mut self) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+
     /// Wait for loss of the established control stream.
     async fn disconnected(&mut self) -> io::Error {
         std::future::pending().await

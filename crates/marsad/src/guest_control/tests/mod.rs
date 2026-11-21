@@ -5,7 +5,7 @@ use std::{future::poll_fn, io, sync::Arc, task::Poll, time::Duration};
 use marsa_proto::guest::{
     CONTROL_PORT, DOCKER_API_PORT, MAX_FRAME_BYTES,
     v1::{
-        CommandStatus, Trim, TrimResult, VmStats, guest_envelope::Body as GuestBody,
+        CommandStatus, Shutdown, Trim, TrimResult, VmStats, guest_envelope::Body as GuestBody,
         host_envelope::Body as HostBody,
     },
 };
@@ -269,4 +269,29 @@ async fn rejects_mismatched_result_type_on_the_right_request_id() {
     assert!(control.request(HostBody::Trim(Trim {})).await.is_err());
     let failure = running_failure(&mut transitions).await;
     assert!(failure.detail.contains("trim success requires TrimResult"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn requests_guest_shutdown_and_requires_its_acknowledgement() {
+    for status in [CommandStatus::Ok, CommandStatus::Failed] {
+        let mut script = startup();
+        script.extend([
+            expect(2, HostBody::Shutdown(Shutdown {})),
+            command_result(2, status),
+            AgentStep::Wait(WAIT),
+        ]);
+        let vm = vm(FakeScenario::default().with_agent(CONTROL_PORT, script)).await;
+        let mut session = client().handshake(vm.as_ref()).await.unwrap();
+        let outcome = session.shutdown().await;
+        if status == CommandStatus::Ok {
+            assert!(outcome.is_ok());
+        } else {
+            assert!(
+                outcome
+                    .unwrap_err()
+                    .to_string()
+                    .contains("rejected shutdown")
+            );
+        }
+    }
 }

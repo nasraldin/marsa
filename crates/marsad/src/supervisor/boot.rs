@@ -138,6 +138,28 @@ async fn during_guest_execution<T>(
     }
 }
 
+pub(super) async fn graceful_stop(
+    mut guest: LiveGuest,
+    limit: Duration,
+) -> (Box<dyn Vm>, Duration) {
+    let deadline = Instant::now() + limit;
+    if guest.vm.state() == VmState::Running
+        && let Some(session) = guest.session.as_mut()
+    {
+        let _ = timeout_at(deadline, async {
+            session.shutdown().await?;
+            if !matches!(guest.vm.state(), VmState::Stopped | VmState::Failed) {
+                guest_exit(guest.vm.as_ref(), &mut guest.events).await;
+            }
+            Ok::<(), io::Error>(())
+        })
+        .await;
+    }
+    // Release the control stream before falling back to native stop.
+    drop(guest.session);
+    (guest.vm, deadline.saturating_duration_since(Instant::now()))
+}
+
 pub(super) async fn guest_exit(vm: &dyn Vm, events: &mut VmEventStream) -> String {
     loop {
         match events.next().await {

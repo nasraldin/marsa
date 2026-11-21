@@ -13,8 +13,8 @@ use std::{
 use marsa_proto::guest::{
     ProtocolError,
     v1::{
-        CommandStatus, EngineHealthState, GuestEnvelope, guest_envelope::Body as GuestBody,
-        host_envelope::Body as HostBody,
+        CommandStatus, EngineHealthState, GuestEnvelope, Shutdown,
+        guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
     },
 };
 use marsa_vm::{Vm, VsockStream, async_trait};
@@ -24,7 +24,10 @@ use tokio::{
     time::{Instant, sleep, sleep_until, timeout, timeout_at},
 };
 
-use super::{CONNECT_RETRY, ENGINE_TIMEOUT, GuestControlError, GuestEvent, GuestResponse, wire};
+use super::{
+    CONNECT_RETRY, ENGINE_TIMEOUT, GuestControlError, GuestEvent, GuestResponse, REQUEST_TIMEOUT,
+    wire,
+};
 use crate::supervisor::GuestSession;
 
 pub(super) const REQUEST_CAPACITY: usize = 8;
@@ -147,6 +150,22 @@ impl GuestSession for Session {
         }
         self.active.send_replace(Arc::downgrade(&self.client));
         Ok(())
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        let response = self
+            .client
+            .request(HostBody::Shutdown(Shutdown {}), REQUEST_TIMEOUT)
+            .await?;
+        match response {
+            GuestResponse::Command(result) if result.status() == CommandStatus::Ok => Ok(()),
+            GuestResponse::Command(result) => {
+                Err(GuestControlError::ShutdownRejected(result.status()).into())
+            }
+            GuestResponse::Trim(_) => {
+                Err(GuestControlError::Sequence("expected shutdown result").into())
+            }
+        }
     }
 
     async fn disconnected(&mut self) -> io::Error {
