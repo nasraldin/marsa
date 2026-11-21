@@ -1,2 +1,4 @@
 /target/
 .DS_Store
+
+/xtask/docs-check/node_modules/
