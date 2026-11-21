@@ -43,7 +43,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-04 Read-only image and manifest
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M2-03
 - **Docs:** [05 Layout](../05-guest-image.md#layout), V-17
 - **Do:** Verify EROFS support in the pinned kernel and build tools (V-17); use SquashFS if EROFS is not workable. Build `rootfs.img` and generate `guest-manifest.json` with every component version and the checksums of kernel and image.
