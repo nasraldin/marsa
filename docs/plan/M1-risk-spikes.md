@@ -56,7 +56,7 @@ Spike code lives under `spikes/` and is never shipped. Each spike ends with a wr
 
 ### M1-05 Spike review and gate decisions
 
-- **Status:** blocked (owner agreement for G1 and G2)
+- **Status:** in progress
 - **Depends on:** M1-01, M1-02, M1-03, M1-04
 - **Docs:** [Plan gates](README.md#gates), [15 Decision records](../15-decisions.md)
 - **Do:** Summarise the four reports for the project owner. Record gate G1 (GUI framework) and G2 (Apple bridge) as new decision records. Update every design doc and task that the findings change. If the Tauri fallback is chosen, rewrite the technology notes in M6 and M7 while keeping task IDs and acceptance criteria.
@@ -66,4 +66,4 @@ Spike code lives under `spikes/` and is never shipped. Each spike ends with a wr
   - No doc still carries a **Verify** label for V-01, V-02, V-03 or V-05.
   - The plan reflects any changed tasks.
 
-The [spike review](../spikes/README.md) is ready. The owner must confirm the GUI framework and the Apple bridge before the decision records can be accepted.
+The [spike review](../spikes/README.md) records the outcomes and evidence.

@@ -40,8 +40,8 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | V-07 | NAT attachment requirements; user-space attachment class | [06](06-networking.md) | M4-08, M4-10 |
 | V-08 | Binding privileged ports without root on current macOS | [06](06-networking.md) | M4-09 |
 | V-09 | libkrun: current release, API, kernel requirements (own kernel or libkrunfw) | [04](04-virtualization-macos.md) | M11-02 |
-| V-10 | gpui-component's i18n and whether Fluent can coexist with it | [08](08-gui.md) | M6-04 |
-| V-11 | State of GPUI accessibility on macOS | [08](08-gui.md) | M6-08 |
+| V-10 | Shared Fluent catalogues and component labels across Tauri and the Rust CLI | [08](08-gui.md) | M6-04 |
+| V-11 | VoiceOver and keyboard behavior in the packaged Tauri app | [08](08-gui.md) | M6-08 |
 | V-12 | Which tools ignore Docker contexts | [09](09-cli-and-docker-compat.md) | M4-04 |
 | V-14 | Login-item and agent registration API on the minimum macOS | [03](03-host-daemon.md) | M3-09 |
 | V-15 | Networking packages the pinned engine needs in the guest | [05](05-guest-image.md) | M2-03 |
@@ -52,7 +52,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Finding | Evidence |
 |---|---|---|
-| V-02 | Both bridges booted the same stock Linux fixture and delivered start, vsock and shutdown callbacks. M1-02 recommends the Rust bindings for gate G2. | [M1-02](spikes/M1-02-vz-binding.md) |
+| V-02 | Both bridges booted the same stock Linux fixture and delivered start, vsock and shutdown callbacks. M1-05 chose the direct Rust bindings for gate G2. | [M1-02](spikes/M1-02-vz-binding.md) |
 | V-03 | All planned VZ device and lifecycle classes are available by macOS 12. The full configuration booted on macOS 27.2.1 with a 27.0 deployment target and the virtualization entitlement. | [Availability and boot results](spikes/M1-02-vz-binding.md#verified-class-availability) |
 | V-05 | `fstrim` returned approximately 4 GiB of sparse RAW allocation to APFS in each VZ cache mode on macOS 27.2.1. M9-03 verifies the product cleanup path. | [Allocated byte measurements](spikes/M1-03-disk-reclaim.md#measured-allocated-bytes) |
 
@@ -60,8 +60,8 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Risk | Likelihood | Impact | Mitigation | Owner milestone |
 |---|---|---|---|---|---|
-| R-01 | GPUI cannot deliver correct Arabic and right-to-left | Medium to high | High: GUI framework change | Spike first (M1-01); Tauri fallback defined (D-005); direction built into the component layer either way | M1 |
-| R-02 | GPUI API churn breaks the build on upgrade | High | Medium | Pin GPUI and gpui-component revisions; upgrade in dedicated tasks; keep Marsa's wrapper layer thin and central | M6 |
+| R-01 | GPUI cannot deliver correct Arabic and right-to-left | Medium to high | High: GUI framework change | M1-01 reproduced the defect; D-023 selects Tauri 2. Validate direction in M6. | M1 |
+| R-02 | A Tauri or webview upgrade changes GUI behavior | High | Medium | Pin compatible stable dependencies; run the four-variant and keyboard checks on upgrades | M6 |
 | R-03 | Memory is not returned to macOS under `vz` | Medium | Medium | Idle stop as the dependable mechanism; balloon as a bonus; `krun` backend as the long-term answer | M9, M11 |
 | R-04 | File sharing is too slow or semantically off for real projects | Medium | High | Benchmarks and a compatibility suite early (M4); guidance for named volumes; `krun` evaluation | M4, M11 |
 | R-05 | Corporate networks break pulls and builds | High | High | Automatic user-space fallback; proxy and CA import; test matrix | M4, M9 |
@@ -72,7 +72,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | R-10 | Tool compatibility gaps (Testcontainers, Dev Containers) | Medium | High | Conformance suite with real tools from M4 | M4 |
 | R-11 | Agent misuse through the MCP server causes data loss | Low to medium | High | Tiers, approvals, audit; volumes always need approval | M8 |
 | R-12 | Name or trademark conflict | Unknown | Medium | Q-03 before any public release | M10 |
-| R-13 | Accessibility falls short on GPUI | Medium | Medium | Verify early (V-11); keyboard operation is fully in Marsa's control | M6 |
+| R-13 | Webview accessibility falls short on macOS | Medium | Medium | Verify early (V-11); keyboard operation is fully in Marsa's control | M6 |
 | R-14 | Disk space is not reclaimed, repeating Docker Desktop's most common complaint | Medium | High | M1-03 proved VZ discard. Verify the product path in M9-03 | M1, M9 |
 | R-15 | Numbers quoted from other projects do not hold for Marsa | High | Low | Treat them as targets; publish only Marsa's own measurements | M11 |
 

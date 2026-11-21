@@ -44,7 +44,7 @@ This is the diagram from the planning whiteboard, narrowed to the macOS release.
 ```mermaid
 flowchart TB
     subgraph clients["Clients"]
-        gui["Marsa GUI (optional)<br/>GPUI + gpui-component, all Rust"]
+        gui["Marsa GUI (optional)<br/>Tauri 2 + system webview"]
         dcli["docker CLI + Compose + Buildx<br/>upstream, unchanged"]
         agents["AI coding agents<br/>through MCP"]
         mcli["marsa CLI"]
@@ -160,7 +160,7 @@ sequenceDiagram
 | `marsa-init`, `marsa-agent` | Rust | Guest | [05](05-guest-image.md) |
 | Networking and port forwarder | Rust | Host and guest | [06](06-networking.md) |
 | File sharing and data disk | Rust | Host and guest | [07](07-file-sharing-and-storage.md) |
-| Marsa GUI | Rust (GPUI) | Host | [08](08-gui.md) |
+| Marsa GUI | Rust host and web front end (Tauri 2) | Host | [08](08-gui.md) |
 | `marsa` CLI and Docker compatibility | Rust, bundled upstream binaries | Host | [09](09-cli-and-docker-compat.md) |
 | MCP server | Rust | Host | [10](10-mcp-server.md) |
 | Docker engine | Go, upstream | Guest | [05](05-guest-image.md) |
@@ -260,12 +260,11 @@ Rules the dependency graph enforces:
 |---|---|---|
 | Host language | Rust | Decided |
 | Engine | Upstream Docker engine, unmodified | Decided |
-| GUI framework | GPUI with gpui-component | Decided, gated by the right-to-left spike (task M1-01) |
-| GUI fallback | Tauri 2 with a web front end | Decided as the fallback if the spike fails |
+| GUI framework | Tauri 2 with a web front end | Decided in [D-023](15-decisions.md#d-023-use-tauri-2-for-marsa-desktop) |
 | Hypervisor (macOS) | Virtualization.framework by default; libkrun benchmarked | Decided |
 | Guest base | Alpine Linux | Decided |
 | Host API | gRPC over a Unix socket (tonic, prost) | Proposed |
 | Guest control protocol | Protobuf messages over vsock | Proposed |
 | Async runtime | Tokio | Proposed |
 | Docker API client | bollard | Proposed |
-| Translations | Fluent, for Arabic plural rules | Proposed; verify against gpui-component's i18n |
+| Translations | Fluent, for Arabic plural rules | Proposed; verify shared web and CLI locale coverage in M6-04 |

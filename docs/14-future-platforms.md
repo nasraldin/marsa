@@ -83,7 +83,7 @@ Design notes:
 - The `native` backend implements the Hypervisor trait as a process supervisor for rootless dockerd; "VM" lifecycle maps to engine lifecycle.
 - Networking and file sharing are direct; the port forwarder and share manager are no-ops in native mode.
 - Rootless matters here because there is no VM boundary.
-- GUI concerns specific to Linux (Wayland and X11, GPUI's newer wgpu renderer, input methods) must be evaluated when Linux work starts.
+- GUI concerns specific to Linux (Wayland and X11, the system webview, input methods) must be evaluated when Linux work starts.
 
 ## Order after version 1
 

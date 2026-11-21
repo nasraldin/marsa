@@ -82,5 +82,5 @@ These are the targets the benchmarks in [13 Testing and benchmarks](13-testing-a
 ## Licence and trademark
 
 - **Decided:** Marsa is open source.
-- **Open:** the exact licence. Apache-2.0 is recommended because the Docker engine (Moby), gpui-component and libkrun use it. See [open questions](16-risks-and-open-questions.md).
+- **Decided:** MIT for Marsa. Upstream components retain their own licences. [D-022](15-decisions.md#d-022-licence-marsa-under-mit).
 - Marsa may describe itself as "Docker-compatible". It must not use "Docker" in its name, logo or binary names beyond what compatibility requires (for example the bundled upstream `docker` CLI). This is not legal advice; have it reviewed.

@@ -1,20 +1,18 @@
 # 08 GUI
 
-The Marsa GUI is a native window rendered on the GPU. It is a client of `marsad` and holds no logic the CLI could not also reach.
+The Marsa GUI uses Tauri 2 and the macOS system webview. It is a client of `marsad` and holds no logic the CLI could not also reach.
 
 ## Decisions
 
 | Item | Decision | Status |
 |---|---|---|
-| Framework | GPUI with gpui-component, all Rust | Decided |
-| Gate | A right-to-left spike must pass before feature work starts (task M1-01) | Decided |
-| Fallback | Tauri 2 with a web front end if the spike fails | Decided |
+| Framework | Tauri 2 and a web front end | Decided in [D-023](15-decisions.md#d-023-use-tauri-2-for-marsa-desktop) |
 | Languages | English (US) and Arabic (Modern Standard) | Decided |
 | Directions | Full left-to-right and right-to-left, mirrored layouts | Decided |
 | Themes | Light and dark, following the system by default | Decided |
 | Optional | The window can be closed with nothing left running but the daemon | Decided |
 
-## Why GPUI
+## Framework comparison
 
 The planning comparison, on the criteria that mattered (performance and long-running stability):
 
@@ -27,13 +25,13 @@ The planning comparison, on the criteria that mattered (performance and long-run
 | Accessibility | Mature | Mature | New (AccessKit merged upstream in 2026) | Best |
 | Right-to-left | Mature | Mature | **Weakest area; see below** | Mature |
 | Codebases | One | One | One | Three |
-| Verdict | Rejected | Fallback | **Chosen** | Rejected for version 1 |
+| Verdict | Rejected | Chosen in M1-05 | Failed the RTL gate | Rejected for version 1 |
 
 ## The right-to-left risk
 
 The macOS spike found that GPUI Kit 0.10.0 supports global interface direction and logical layout helpers above GPUI. CoreText rendered joined Arabic and isolated technical values in the correct order. GPUI's single-line input still mapped Arabic graphemes to incorrect caret and pointer positions. The upstream text-bidi work remains tracked in Zed. [M1-01 evidence](spikes/M1-01-gpui-rtl.md) · [GPUI Kit direction change](https://github.com/longbridge/gpui-kit/pull/3886) · [Zed RTL tracking issue](https://github.com/zed-industries/zed/issues/31102).
 
-The spike recommends the Tauri fallback. Gate G1 is decided in the spike review, M1-05.
+M1-05 selected Tauri 2 under gate G1.
 
 ### Spike pass criteria (task M1-01)
 
@@ -45,7 +43,7 @@ On macOS, with Arabic selected:
 4. Arabic text is shaped correctly (letters join) at every font size and weight used by the design system.
 5. Switching language at runtime re-lays out the window without a restart.
 
-If any criterion fails and cannot be fixed inside Marsa's own component layer or with a small, upstreamable GPUI patch, the GUI moves to the Tauri fallback. The daemon, VM and guest are unaffected by that switch.
+The fallback criterion was met because fixing Arabic editing requires changes in both upstream GPUI text geometry and the editor.
 
 ## Architecture
 
@@ -62,7 +60,7 @@ flowchart TB
         tokens["Design tokens<br/>colour, type, spacing, radius"]
         dir["Direction layer<br/>start and end, mirroring"]
         i18n["i18n<br/>en-US, ar, plurals, formats"]
-        comps["Components<br/>built on gpui-component"]
+        comps["Components<br/>built with web controls"]
     end
 
     subgraph ext["Outside the GUI"]
@@ -177,7 +175,7 @@ Rules, enforced by lint and review:
 | Locales | `en-US` (source), `ar` (Modern Standard Arabic) | Decided |
 | Translation format | Fluent (`.ftl`) files in `locales/` | Proposed |
 | Plurals | Full CLDR rules; Arabic has six plural forms | Decided as a requirement |
-| Library | **Verify:** gpui-component is built on rust-i18n, which may not provide plural rules. Use Fluent for Marsa strings and bridge gpui-component's own strings | Verify |
+| Library | **Verify** sharing Fluent resources between the web front end and Rust CLI, including component labels and native dialogs (V-10) | Verify |
 | Dates, times, sizes | Locale-aware formatting with Western digits | Proposed |
 | Runtime switching | Language changes apply live | Decided |
 | Missing strings | Build fails if any key exists in one locale and not the other | Proposed |
@@ -263,14 +261,13 @@ Targets are in [01](01-vision-and-scope.md#success-measures) and measured in [13
 ## Accessibility
 
 - Full keyboard operation, visible focus, logical focus order in both directions.
-- Screen-reader support through the framework's accessibility tree. **Verify** the state of GPUI's AccessKit integration on macOS at implementation time; planning research found it only merged upstream in 2026.
+- Screen-reader support through the webview accessibility tree. **Verify** VoiceOver behavior in the packaged Tauri application on macOS (V-11).
 - Respect system settings: reduce motion, increase contrast, text size where the framework allows.
 
 ## Framework version policy
 
-- gpui-component tracks GPUI from Zed's repository. Pin both to matching revisions in the workspace and upgrade them together in a dedicated task.
-- Keep any GPUI patches in a clearly named fork branch with each patch upstreamed or documented.
+Pin mutually compatible stable Tauri runtime, build and front-end packages in the lockfiles. Verify the versions and upgrade procedure in M6-01.
 
-## If the fallback is triggered
+## Tauri integration
 
-The Tauri fallback keeps the same structure: `marsa-ui` becomes a web design system with the same tokens and the same start and end rules (CSS logical properties), the screens are rebuilt as web views, and the services layer still talks to `marsad` through `marsa-client`. The plan in [M6](plan/M6-gui-foundation.md) and [M7](plan/M7-gui-features.md) stays valid task for task; only the implementation technology changes. Tauri-specific rules from planning: destroy the webview when the window closes, stream logs in batches over a channel, and keep a capped virtualised log buffer.
+The web design system uses the same tokens and start and end API through CSS logical properties. The Rust host exposes narrowly scoped commands to bundled app content through Tauri IPC and talks to `marsad` through `marsa-client`. Destroy the webview when its window closes. Stream logs in batches over a channel and cap the virtualised log buffer. [Tauri architecture](https://v2.tauri.app/concept/architecture/) · [Tauri capabilities](https://v2.tauri.app/security/capabilities/).

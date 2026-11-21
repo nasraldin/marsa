@@ -2,7 +2,7 @@
 
 **Outcome:** the design system (`marsa-ui`) with tokens, themes, direction and translations; the test harness for four variants; and the app shell.
 
-Design: [08 GUI](../08-gui.md). Starts after gate G1. If the Tauri fallback was chosen in M1-05, the same tasks apply with the technology notes rewritten there.
+Design: [08 GUI](../08-gui.md). Starts after gate G1. The Tauri 2 front end follows the Figma handoff for all four variants.
 
 Until M4 is done, GUI work runs against the fake backend and, for real container data, any Docker-compatible engine reachable through a socket (a temporary bootstrap; see D-021).
 
@@ -13,11 +13,11 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 - **Status:** todo
 - **Depends on:** M1-05, M0-01
 - **Docs:** [08 Architecture](../08-gui.md#architecture), [08 Framework version policy](../08-gui.md#framework-version-policy)
-- **Do:** Create `marsa-gui` and `marsa-ui`. Pin GPUI and gpui-component to the revisions validated in M1-01 and document the upgrade procedure. Open a window, handle app lifecycle, and exit the process when the window closes.
-- **Deliver:** both crates, `docs/reference/gpui-upgrade.md`.
+- **Do:** Build the Tauri 2 app in `marsa-gui` with the web design system in `marsa-ui`. Verify and pin the latest mutually compatible stable release set and document upgrades. Open a window, handle app lifecycle, and exit when the window closes.
+- **Deliver:** both crates, `docs/reference/tauri-upgrade.md`.
 - **Accept when:**
   - The app opens an empty window and quits fully on close (no GUI process remains).
-  - GPUI and gpui-component are pinned by exact revision in one place.
+  - Compatible Tauri host and front-end dependencies are pinned in their lockfiles.
 
 ### M6-02 Design tokens, themes and fonts
 
@@ -48,20 +48,20 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 - **Status:** todo
 - **Depends on:** M6-01
 - **Docs:** [08 Internationalisation](../08-gui.md#internationalisation), V-10
-- **Do:** Verify how gpui-component localises its own strings and whether Fluent can sit beside it (V-10). Implement the translation system with `en-US` and `ar`, CLDR plural rules, locale-aware date, time and size formatting with Western digits, live language switching, and a build-time completeness check. Create `locales/GLOSSARY.md` for technical terms.
+- **Do:** Verify how Fluent resources and component labels can be shared between the web front end and Rust CLI (V-10). Implement the translation system with `en-US` and `ar`, CLDR plural rules, locale-aware date, time and size formatting with Western digits, live language switching, and a build-time completeness check. Create `locales/GLOSSARY.md` for technical terms.
 - **Deliver:** i18n module in `marsa-ui`, `locales/en-US/`, `locales/ar/`, the completeness check, an updated V-10 entry.
 - **Accept when:**
   - All six Arabic plural categories are exercised by a test string.
   - A key missing from either locale fails the build.
   - Switching language at runtime updates text and direction without a restart.
-  - gpui-component's built-in strings appear in the selected language.
+  - Component and dialog strings appear in the selected language.
 
 ### M6-05 Core components
 
 - **Status:** todo
 - **Depends on:** M6-02, M6-03, M6-04
 - **Docs:** [08 Design system](../08-gui.md#design-system-marsa-ui)
-- **Do:** Build Marsa's component set on gpui-component, each using tokens, direction and translations: button, icon button, text input, search field, select, checkbox, switch, tabs, list and virtualised list, table and virtualised table, tree, dialog, confirmation dialog with typed confirmation, toast, menu, tooltip, badge and status pill, progress, empty state, error state, code and monospace block, split view. Add a component gallery app.
+- **Do:** Build Marsa's component set using accessible web controls, each using tokens, direction and translations: button, icon button, text input, search field, select, checkbox, switch, tabs, list and virtualised list, table and virtualised table, tree, dialog, confirmation dialog with typed confirmation, toast, menu, tooltip, badge and status pill, progress, empty state, error state, code and monospace block, split view. Add a component gallery app.
 - **Deliver:** components in `marsa-ui`, and the gallery as an example binary under `crates/marsa-ui/examples`.
 - **Accept when:**
   - Every component appears in the gallery in four variants.
@@ -95,7 +95,7 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 - **Status:** todo
 - **Depends on:** M6-05
 - **Docs:** [08 Accessibility](../08-gui.md#accessibility), V-11
-- **Do:** Verify the state of GPUI's accessibility support on macOS (V-11). Implement focus management, visible focus, direction-aware arrow navigation, a central shortcut registry, and accessibility labels on every component as far as the framework supports. Honour reduce-motion.
+- **Do:** Verify VoiceOver and keyboard behavior in the packaged Tauri app on macOS (V-11). Implement focus management, visible focus, direction-aware arrow navigation, a central shortcut registry, and accessibility labels on every component as far as the framework supports. Honour reduce-motion.
 - **Deliver:** focus and shortcut modules, an updated V-11 entry with what a screen reader can and cannot do.
 - **Accept when:**
   - Every component is reachable and operable by keyboard in both directions.
