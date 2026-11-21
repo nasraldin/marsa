@@ -50,8 +50,9 @@ if [ "$(apk --print-arch)" = "$architecture" ]; then
     PATH="$root/usr/local/bin:$PATH" dockerd --validate --config-file "$root/etc/docker/daemon.json"
 fi
 
-# Set guest ownership in the archive headers without chown or capabilities.
-tar --numeric-owner --owner=0 --group=0 -cf "$output_scratch/rootfs.tar" -C "$root" .
+# Normalize staging metadata in the archive without chown or capabilities.
+tar --numeric-owner --owner=0 --group=0 --sort=name --mtime=@0 \
+    -cf "$output_scratch/rootfs.tar" -C "$root" .
 size=$(wc -c < "$output_scratch/rootfs.tar")
 printf 'rootfs.tar: %s bytes\n' "$size" > "$output_scratch/rootfs-size.txt"
 mv -fT -- "$output_scratch/rootfs.tar" rootfs.tar
