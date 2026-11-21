@@ -7,7 +7,7 @@ This plan turns the design in [`docs/`](../README.md) into ordered, checkable ta
 | ID | Milestone | Outcome | Tasks |
 |---|---|---|---|
 | M0 | [Foundation](M0-foundation.md) | A workspace that builds, lints and tests in CI | 8 |
-| M1 | [Risk spikes](M1-risk-spikes.md) | The four biggest unknowns answered with evidence | 5 |
+| M1 | [Risk spikes](M1-risk-spikes.md) | The four biggest unknowns answered with evidence | 6 |
 | M2 | [Guest image](M2-guest-image.md) | A reproducible minimal Linux image that boots to a healthy engine | 10 |
 | M3 | [VM and daemon](M3-vm-and-daemon.md) | `marsad` boots, supervises and stops the VM through the `vz` backend | 11 |
 | M4 | [Docker integration](M4-docker-integration.md) | The standard `docker` CLI and tools work against Marsa | 14 |

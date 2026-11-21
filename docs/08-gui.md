@@ -33,7 +33,7 @@ The planning comparison, on the criteria that mattered (performance and long-run
 
 The macOS spike found that GPUI Kit 0.10.0 supports global interface direction and logical layout helpers above GPUI. CoreText rendered joined Arabic and isolated technical values in the correct order. GPUI's single-line input still mapped Arabic graphemes to incorrect caret and pointer positions. The upstream text-bidi work remains tracked in Zed. [M1-01 evidence](spikes/M1-01-gpui-rtl.md) · [GPUI Kit direction change](https://github.com/longbridge/gpui-kit/pull/3886) · [Zed RTL tracking issue](https://github.com/zed-industries/zed/issues/31102).
 
-The spike recommends the Tauri fallback. Gate G1 is decided in the spike review, M1-05.
+The initial spike recommended the fallback. The [GPUI desktop qualification](spikes/M1-06-gpui-qualification.md) retests the Rust UI path and reports the native macOS editing experiment. Gate G1 is decided in the spike review, M1-05.
 
 ### Spike pass criteria (task M1-01)
 
