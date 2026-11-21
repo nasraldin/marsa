@@ -31,14 +31,9 @@ The planning comparison, on the criteria that mattered (performance and long-run
 
 ## The right-to-left risk
 
-Planning research found that right-to-left support is GPUI's weakest area:
+The macOS spike found that GPUI Kit 0.10.0 supports global interface direction and logical layout helpers above GPUI. CoreText rendered joined Arabic and isolated technical values in the correct order. GPUI's single-line input still mapped Arabic graphemes to incorrect caret and pointer positions. The upstream text-bidi work remains tracked in Zed. [M1-01 evidence](spikes/M1-01-gpui-rtl.md) · [GPUI Kit direction change](https://github.com/longbridge/gpui-kit/pull/3886) · [Zed RTL tracking issue](https://github.com/zed-industries/zed/issues/31102).
 
-- Zed's own tracking issue lists right-to-left languages and input as unsupported, with new reports still being filed in late 2026.
-- Arabic glyph shaping and reordering reportedly work through the platform text stacks; the gaps are paragraph direction, caret and word movement, and selection.
-- GPUI has no global layout-direction flag, so mirroring must be done by the application's own component layer.
-- Upstream fixes were in progress, with unknown merge status.
-
-**Consequence:** Marsa cannot assume the framework handles Arabic. The spike decides, and the component layer is designed for direction from the first line of code.
+The spike recommends the Tauri fallback. Gate G1 is decided in the spike review, M1-05.
 
 ### Spike pass criteria (task M1-01)
 
