@@ -118,7 +118,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-10 Signed "hello VM" build (gate G3)
 
-- **Status:** todo
+- **Status:** blocked (Q-04 and a clean second Apple silicon Mac pending)
 - **Depends on:** M3-03, Q-04
 - **Docs:** [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization), R-09
 - **Do:** Produce a Developer ID signed, hardened-runtime build of `marsad` with the virtualization entitlement, notarize it, and boot the VM on a second, clean Mac. This proves the signing and entitlement path long before release.
@@ -126,6 +126,8 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 - **Accept when:**
   - The notarized build boots the VM on a Mac that has no developer tools installed.
   - The exact entitlements used are recorded in [12](../12-build-release-update.md).
+
+Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also requires access to a second Apple silicon Mac running macOS 27 or later with developer tools absent. The native entitlement and boot path have been verified with an ad-hoc signed test on the first Mac.
 
 ### M3-11 Power and network watcher
 
