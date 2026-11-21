@@ -180,9 +180,9 @@ flowchart TB
 
 Run Tier 2 from a private validation repository containing reviewed Marsa commits. GitHub advises against connecting a persistent self-hosted runner to a public repository. [GitHub runner setup](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners).
 
-1. Use a dedicated standard macOS account on the selected Apple silicon Mac with macOS 27 or later. Install Xcode command-line tools, Rustup, and the prerequisites of the real-VM suite for that account.
+1. Use a dedicated standard macOS account on the selected Apple silicon Mac with macOS 27 or later. Install Xcode command-line tools, Rustup, Python 3.11 or later, and a Docker CLI connected to an arm64 Linux daemon. Expose those tools to the runner account. The workflow installs the pinned protobuf compiler and Linux musl Rust target.
 2. In the private validation repository, restrict writes to trusted maintainers and protect the default branch. In **Settings → Actions → Runners**, select **New self-hosted runner**, macOS, and ARM64. Follow GitHub's registration instructions and add the `marsa-virtualization` label.
-3. Mirror reviewed code to the private default branch. Once the `marsa-system-tests` package and its runner prerequisites are available, set the private repository variable `MARSA_TIER2_ENABLED` to `true`. Dispatch **Tier 2** from that default branch. Add the first real tests in M2-10.
+3. Mirror reviewed code to the private default branch. Set the private repository variable `MARSA_TIER2_ENABLED` to `true` and dispatch **Tier 2** on that branch. The job builds the guest from the checked-out revision, runs the [physical boot test](../spikes/vz-boot/README.md#verify-the-packaged-guest), and uploads the guest boot timings.
 
 The public repository runs Tier 1. Release checks consume Tier 2 results from the same reviewed commit.
 

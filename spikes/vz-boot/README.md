@@ -152,3 +152,41 @@ readiness event. The guest console must report the set epoch from `date +%s`
 and from the readiness file's modification time before the runner requests
 shutdown. The wrapper starts the serial shell and forwards signals to the
 agent. The guest control agent creates the readiness file.
+
+## Verify the packaged guest
+
+From the repository root, install Python 3.11 or later, the pinned
+[`protoc`](../../crates/marsa-proto/PROTOCOL.md#build-the-rust-bindings),
+and Docker with an arm64 Linux daemon. Build the guest and entitled runner.
+
+```sh
+rustup target add aarch64-unknown-linux-musl
+cargo xtask guest all
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked \
+  --manifest-path spikes/vz-boot/Cargo.toml -p marsa-vz-spike --features guest-control
+runner=spikes/vz-boot/target/debug/marsa-vz-spike
+codesign --force --sign - --timestamp=none --entitlements spikes/vz-boot/entitlement.plist "$runner"
+codesign --verify --strict "$runner"
+results=$(mktemp -d)
+python3 spikes/vz-boot/system/boot.py target/guest "$runner" "$results/report"
+```
+
+The harness verifies the manifest hashes and boots the packaged kernel and
+EROFS root with a fresh sparse data disk. A test-only kernel command starts a
+serial shell and then executes the packaged `marsa-init` as PID 1. The
+packaged agent negotiates over vsock, sets the clock, and reports Docker
+ready. A read-only share supplies the upstream Docker CLI and the pinned
+arm64 `hello-world` image. The guest has no network device and runs the
+container with pulling and networking disabled. The harness sends SIGTERM
+to PID 1, requires the VZ shutdown callback and checks the ext4 clean flag
+and journal recovery state.
+
+`boot-timings.json` reports the [boot budgets](../../docs/04-virtualization-macos.md#boot-sequence)
+and the seven PID 1 stage times. The kernel measurement ends at the Linux
+init handoff. The harness measures PID 1 to Hello and dockerd start to
+health readiness using its monotonic clock. Tier 2 uploads the report and logs.
+
+One run on the selected Apple silicon Mac measured 84 ms for the kernel
+against 300 ms, 593 ms from PID 1 to Hello against 300 ms, and 881 ms from
+dockerd start to readiness against 1,500 ms. Fresh disk preparation accounted
+for 453 ms. The runner measured 2,084 ms from startup to readiness.

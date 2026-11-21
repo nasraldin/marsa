@@ -19,9 +19,33 @@ jobs:
       vars.MARSA_TIER2_ENABLED == 'true'
     runs-on: [self-hosted, macOS, ARM64, marsa-virtualization]
     timeout-minutes: 60
+    env:
+      BOOT_RESULTS: target/guest/boot-test/${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Real-VM system tests
-        run: cargo test --locked --package marsa-system-tests -- --ignored
+      - name: Install guest build tools
+        run: |
+          bash .github/scripts/install-ci-tools.sh
+          rustup target add aarch64-unknown-linux-musl
+      - name: Assemble the guest
+        run: cargo xtask guest all
+      - name: Build the entitled VZ test runner
+        run: |
+          MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked \
+            --manifest-path spikes/vz-boot/Cargo.toml -p marsa-vz-spike --features guest-control
+          runner=spikes/vz-boot/target/debug/marsa-vz-spike
+          codesign --force --sign - --timestamp=none --entitlements spikes/vz-boot/entitlement.plist "$runner"
+          codesign --verify --strict "$runner"
+      - name: Boot the guest and run hello-world
+        run: |
+          python3 spikes/vz-boot/system/boot.py target/guest \
+            spikes/vz-boot/target/debug/marsa-vz-spike "$BOOT_RESULTS"
+      - name: Upload guest boot timings and logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: guest-boot-timings
+          path: ${{ env.BOOT_RESULTS }}
+          if-no-files-found: warn

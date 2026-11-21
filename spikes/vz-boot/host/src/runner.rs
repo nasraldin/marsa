@@ -37,15 +37,21 @@ pub struct VmInputs<'a> {
     pub writable_share: bool,
     pub read_only_root: bool,
     pub via_init: bool,
+    pub boot_test: bool,
 }
 
 pub enum Event {
     Started,
     Connected(OwnedFd),
     ConnectFailed(String),
-    RoundTrip,
+    RoundTrip(Option<ControlTimings>),
     Stopped,
     Error(String),
+}
+
+pub struct ControlTimings {
+    hello: Instant,
+    engine_ready: Instant,
 }
 
 pub trait Vm {
@@ -55,6 +61,11 @@ pub trait Vm {
 #[derive(Default)]
 struct Progress {
     read_only_root: bool,
+    boot_test: bool,
+    kernel_ms: Option<u64>,
+    pid1_started: Option<Instant>,
+    dockerd_started: Option<Instant>,
+    control_timings: Option<ControlTimings>,
     started: bool,
     devices: bool,
     listening: bool,
@@ -71,6 +82,7 @@ pub struct BootOptions {
     pub read_only_root: bool,
     pub via_init: bool,
     pub guest_control: bool,
+    pub boot_test: bool,
 }
 
 pub fn run(
@@ -85,9 +97,10 @@ pub fn run(
         read_only_root,
         via_init,
         guest_control,
+        boot_test,
     } = options;
-    validate_fixtures(fixtures, read_only_root)?;
-    let script = read_script(script, guest_control)?;
+    validate_fixtures(fixtures, read_only_root, boot_test)?;
+    let script = read_script(script, guest_control && !boot_test)?;
     let (mut stream, guest_serial) = UnixStream::pair()?;
     stream.set_read_timeout(Some(Duration::from_millis(10)))?;
     stream.set_write_timeout(Some(I_O_TIMEOUT))?;
@@ -104,7 +117,9 @@ pub fn run(
         writable_share,
         read_only_root,
         via_init,
+        boot_test,
     };
+    let started_at = Instant::now();
     let vm = match backend {
         Backend::Rust => super::native::start(&inputs, sender.clone())?,
         #[cfg(feature = "swift")]
@@ -115,6 +130,7 @@ pub fn run(
     let deadline = Instant::now() + DEADLINE;
     let mut progress = Progress {
         read_only_root,
+        boot_test,
         ..Progress::default()
     };
     let mut connect_at = Instant::now();
@@ -136,7 +152,7 @@ pub fn run(
                 Event::Connected(fd) => {
                     connect_error = None;
                     let sender = sender.clone();
-                    thread::spawn(move || exchange(fd, sender, guest_control));
+                    thread::spawn(move || exchange(fd, sender, guest_control, boot_test));
                 }
                 Event::ConnectFailed(detail) if guest_control => {
                     connect_error = Some(detail);
@@ -146,7 +162,8 @@ pub fn run(
                 Event::ConnectFailed(detail) => {
                     return Err(io::Error::other(detail));
                 }
-                Event::RoundTrip => {
+                Event::RoundTrip(timings) => {
+                    progress.control_timings = timings;
                     progress.round_trip = true;
                     if guest_control {
                         println!(
@@ -163,6 +180,9 @@ pub fn run(
                         ));
                     }
                     transcript.flush()?;
+                    if boot_test {
+                        report_timings(&progress, started_at)?;
+                    }
                     println!("received guest shutdown delegate callback");
                     return Ok(());
                 }
@@ -203,6 +223,26 @@ pub fn run(
     ))
 }
 
+fn report_timings(progress: &Progress, start: Instant) -> io::Result<()> {
+    let incomplete = || io::Error::other("missing kernel, PID 1, dockerd or control timing");
+    let kernel_ms = progress.kernel_ms.ok_or_else(incomplete)?;
+    let pid1 = progress.pid1_started.ok_or_else(incomplete)?;
+    let dockerd = progress.dockerd_started.ok_or_else(incomplete)?;
+    let control = progress.control_timings.as_ref().ok_or_else(incomplete)?;
+    let since = |later: Instant, earlier: Instant| {
+        later
+            .checked_duration_since(earlier)
+            .ok_or_else(|| io::Error::other("boot markers arrived out of order"))
+    };
+    println!(
+        "MARSA_BOOT_METRICS kernel_ms={kernel_ms} init_to_hello_ms={} dockerd_to_ready_ms={} start_to_ready_ms={}",
+        since(control.hello, pid1)?.as_millis(),
+        since(control.engine_ready, dockerd)?.as_millis(),
+        since(control.engine_ready, start)?.as_millis(),
+    );
+    Ok(())
+}
+
 fn read_script(path: Option<&Path>, guest_control: bool) -> io::Result<Vec<u8>> {
     let prefix = b"(\nset -e\n";
     let mut commands = prefix.to_vec();
@@ -239,17 +279,17 @@ fn read_script(path: Option<&Path>, guest_control: bool) -> io::Result<Vec<u8>> 
     Ok(commands)
 }
 
-fn exchange(fd: OwnedFd, sender: Sender<Event>, guest_control: bool) {
-    let result = (|| -> io::Result<()> {
+fn exchange(fd: OwnedFd, sender: Sender<Event>, guest_control: bool, boot_test: bool) {
+    let result = (|| -> io::Result<Option<ControlTimings>> {
         let mut stream = UnixStream::from(fd);
         stream.set_read_timeout(Some(I_O_TIMEOUT))?;
         stream.set_write_timeout(Some(I_O_TIMEOUT))?;
         #[cfg(feature = "guest-control")]
         if guest_control {
-            return guest_control::verify(&mut stream);
+            return guest_control::verify(&mut stream, boot_test).map(Some);
         }
         #[cfg(not(feature = "guest-control"))]
-        let _ = guest_control;
+        let _ = (guest_control, boot_test);
         let mut challenge = [0; 16];
         File::open("/dev/urandom")?.read_exact(&mut challenge)?;
         stream.write_all(&challenge)?;
@@ -260,22 +300,24 @@ fn exchange(fd: OwnedFd, sender: Sender<Event>, guest_control: bool) {
                 "guest returned an incorrect vsock challenge",
             ));
         }
-        Ok(())
+        Ok(None)
     })();
     let event = match result {
-        Ok(()) => Event::RoundTrip,
+        Ok(timings) => Event::RoundTrip(timings),
         Err(error) => Event::Error(format!("vsock exchange: {error}")),
     };
     let _ = sender.send(event);
 }
 
-fn validate_fixtures(root: &Path, read_only_root: bool) -> io::Result<()> {
+fn validate_fixtures(root: &Path, read_only_root: bool, boot_test: bool) -> io::Result<()> {
     let directory = symlink_metadata(root)?;
     if !directory.is_dir() || directory.mode() & 0o077 != 0 {
         return Err(io::Error::other("fixture root must be a private directory"));
     }
     let files = if read_only_root {
         &["Image", "rootfs.img"][..]
+    } else if boot_test {
+        &["Image", "rootfs.img", "data.img"][..]
     } else {
         &["Image", "initramfs", "modules.img", "data.img"][..]
     };
