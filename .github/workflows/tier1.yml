@@ -24,6 +24,17 @@ jobs:
         run: cargo xtask check
       - name: Workspace tests
         run: cargo xtask test
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        if: matrix.runner == 'xcode-27'
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: Qualify the user-space network helper
+        if: matrix.runner == 'xcode-27'
+        run: |
+          MARSA_NETWORK_HELPER_TEST=1 bash network-helper/build.sh target/network-helper/marsa-net-helper
+          python3 network-helper/check.py target/network-helper/marsa-net-helper
+          cargo clippy --locked -p marsa-vm-vz --all-targets --features userspace-system-test -- -D warnings
 
   guest:
     name: Build arm64 guest

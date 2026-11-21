@@ -59,6 +59,8 @@ Marsa.app/
     │   ├── marsa-gui                  # main executable
     │   ├── marsad
     │   └── marsa
+    ├── Helpers/
+    │   └── marsa-net-helper           # signed native ARM64 helper
     ├── Resources/
     │   ├── bin/                       # upstream docker, compose, buildx, credential helper
     │   ├── guest/

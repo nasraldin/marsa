@@ -3,9 +3,16 @@
 set -euo pipefail
 
 export MARSA_VZ_GUEST_DIR="${1:-"$PWD/target/guest"}"
+if (( $# > 0 )); then
+    shift
+fi
+features=()
+if [[ -n "${MARSA_VZ_NETWORK_HELPER:-}" ]]; then
+    features=(--features userspace-system-test)
+fi
 test_executable=$(
     MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsa-vm-vz \
-        --test real_vm --no-run --message-format=json |
+        --test real_vm --no-run --message-format=json ${features[@]+"${features[@]}"} |
     python3 -c '
 import json
 import sys
@@ -25,4 +32,4 @@ print(tests[0])
 codesign --force --sign - --timestamp=none \
     --entitlements spikes/vz-boot/entitlement.plist "$test_executable"
 codesign --verify --strict "$test_executable"
-exec "$test_executable" --ignored --nocapture --test-threads=1
+exec "$test_executable" --ignored --nocapture --test-threads=1 "$@"

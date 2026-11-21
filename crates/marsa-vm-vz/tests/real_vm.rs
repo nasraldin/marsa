@@ -2,6 +2,10 @@
 
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
+#[cfg(feature = "userspace-system-test")]
+#[path = "real_vm/user_network.rs"]
+mod user_network;
+
 use std::{
     env,
     fs::{self, File},

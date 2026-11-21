@@ -7,7 +7,7 @@ use std::{
     path::Path,
 };
 
-use marsa_vm::{NetworkSpec, VmError, VmSpec};
+use marsa_vm::{VmError, VmSpec};
 
 use super::state::{invalid_spec, unsupported};
 
@@ -28,9 +28,6 @@ pub(super) fn prepare(spec: VmSpec) -> Result<Prepared, VmError> {
     }
     if !spec.shares.is_empty() {
         return Err(unsupported("VZ shared folders"));
-    }
-    if spec.network != NetworkSpec::Nat {
-        return Err(unsupported("VZ userspace networking"));
     }
 
     let mut kernel = open_regular("kernel", &spec.kernel, false)?;
