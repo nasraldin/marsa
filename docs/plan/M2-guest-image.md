@@ -81,7 +81,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-07 `marsa-agent`: network, proxy and certificates
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M2-06
 - **Docs:** [06 DNS](../06-networking.md#dns), [06 Proxies and certificates](../06-networking.md#proxies-and-certificates)
 - **Do:** Implement applying DNS servers and search domains, proxy settings for dockerd and BuildKit, extra hosts for `host.docker.internal` and related names, and installing host CA certificates into the guest trust store before the engine starts. Changes after boot must apply without a VM restart where the engine allows it.
