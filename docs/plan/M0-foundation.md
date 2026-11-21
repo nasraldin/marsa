@@ -18,7 +18,7 @@
 
 ### M0-02 Add project governance files
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [16 Open questions](../16-risks-and-open-questions.md) (Q-01, Q-09), [11 Vulnerability response](../11-security.md#vulnerability-response)
 - **Do:** Add `CONTRIBUTING.md`, `SECURITY.md` (private reporting channel placeholder to be filled by the owner), `CODE_OF_CONDUCT.md`, issue and pull-request templates that ask for the task ID. Add the `LICENSE` file **only after Q-01 is answered**; until then leave a clearly marked note in `README.md`.
