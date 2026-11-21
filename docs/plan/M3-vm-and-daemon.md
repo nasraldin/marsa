@@ -94,7 +94,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-08 Typed API: Engine, Settings, Events, Stats
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M3-06
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api)
 - **Do:** Implement the `Engine`, `Settings`, `Events` and `Stats` services. Build the event bus with a snapshot-then-stream contract. Settings updates validate, persist atomically and apply live where possible, reporting when a restart is required.
