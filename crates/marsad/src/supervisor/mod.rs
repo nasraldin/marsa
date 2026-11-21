@@ -1,14 +1,19 @@
 //! Coordinate one VM boot, its readiness checks, and lifecycle requests.
 
-use std::{io, sync::Arc, time::Duration};
+use std::{io, net::Ipv4Addr, sync::Arc, time::Duration};
 
+use marsa_proto::guest::v1::EgressStage;
 use marsa_vm::{Hypervisor, Vm, VmError, VmSpec, async_trait};
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 mod actor;
 mod boot;
+mod host_egress;
+mod network;
 mod platform;
+
+pub use network::{AlternateFailure, BootNetwork, NetworkResult};
 
 #[cfg(test)]
 mod tests;
@@ -43,6 +48,8 @@ pub enum BootStage {
     Start,
     /// Negotiate the versioned guest control channel.
     Handshake,
+    /// Qualify the network before Docker starts.
+    Network,
     /// Wait for Docker to serve requests.
     Engine,
     /// Handle an unexpected exit of a running guest.
@@ -73,6 +80,8 @@ pub struct Snapshot {
     pub state: State,
     /// Most recent failure from this activation, retained until a successful start.
     pub failure: Option<Arc<BootFailure>>,
+    /// Active attachment and boot-time connectivity evidence.
+    pub network: Option<BootNetwork>,
 }
 
 /// An ordered lifecycle event.
@@ -84,12 +93,15 @@ pub struct Transition {
     pub current: State,
     /// Failure attached to this event.
     pub failure: Option<Arc<BootFailure>>,
+    /// Active attachment and boot-time connectivity evidence.
+    pub network: Option<BootNetwork>,
 }
 
 /// Bounded startup, shutdown, retry, and idle behavior.
 #[derive(Debug, Clone)]
 pub struct SupervisorConfig {
-    /// Deadline across VM start, handshake, and Docker health.
+    /// Deadline across VM start, network selection, and Docker health.
+    /// Safe cleanup may continue past this deadline.
     pub boot_timeout: Duration,
     /// Grace period passed to the backend before forced stop.
     pub stop_timeout: Duration,
@@ -143,6 +155,16 @@ pub trait GuestProbe: Send + Sync {
 /// Protocol session retained as long as the ready guest is running.
 #[async_trait]
 pub trait GuestSession: Send {
+    /// Whether this guest supports checking egress before starting the engine.
+    fn can_probe_egress(&self) -> bool {
+        false
+    }
+
+    /// Verify the configured HTTPS registry on the same IPv4 endpoint as the host.
+    async fn probe_egress(&mut self, _target: Ipv4Addr) -> io::Result<EgressStage> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+
     /// Verify agent engine health and the Docker API ping.
     async fn engine_ready(&mut self, vm: &dyn Vm) -> io::Result<()>;
 
@@ -175,7 +197,14 @@ impl Supervisor {
         spec: VmSpec,
         config: SupervisorConfig,
     ) -> Self {
-        Self::spawn_inner(backend, probe, spec, config, None)
+        Self::spawn_inner(
+            backend,
+            probe,
+            spec,
+            config,
+            None,
+            network::Selection::new(false),
+        )
     }
 
     pub(crate) fn spawn_observed(
@@ -184,8 +213,16 @@ impl Supervisor {
         spec: VmSpec,
         config: SupervisorConfig,
         observer: Observer,
+        automatic: bool,
     ) -> Self {
-        Self::spawn_inner(backend, probe, spec, config, Some(observer))
+        Self::spawn_inner(
+            backend,
+            probe,
+            spec,
+            config,
+            Some(observer),
+            network::Selection::new(automatic),
+        )
     }
 
     fn spawn_inner(
@@ -194,11 +231,13 @@ impl Supervisor {
         spec: VmSpec,
         config: SupervisorConfig,
         observer: Option<Observer>,
+        selection: network::Selection,
     ) -> Self {
         let (commands, input) = mpsc::channel(actor::CHANNEL_CAPACITY);
         let (output, snapshot) = watch::channel(Snapshot {
             state: State::Stopped,
             failure: None,
+            network: None,
         });
         let (events, _) = broadcast::channel(actor::CHANNEL_CAPACITY);
         tokio::spawn(
@@ -213,6 +252,7 @@ impl Supervisor {
                     events: events.clone(),
                     observer,
                 },
+                selection,
             )
             .run(),
         );

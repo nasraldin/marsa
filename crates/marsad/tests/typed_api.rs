@@ -67,6 +67,12 @@ async fn restart_has_one_activation_and_lifecycle_events_follow_the_same_cursor(
     ] {
         previous = next_state(&mut events, previous, state).await;
     }
+    let network = next(&mut events).await;
+    assert_eq!(network.sequence, previous.sequence + 1);
+    assert!(matches!(&network.body, Some(Body::Network(status)) if
+        status.active_mode() == marsa_proto::host::v1::NetworkMode::Nat
+            && status.reason.as_deref() == Some("probe_unavailable")));
+    previous = network;
     assert_eq!(
         engine.start(action(1)).await.unwrap().into_inner().state(),
         EngineState::Ready
@@ -103,9 +109,13 @@ async fn restart_has_one_activation_and_lifecycle_events_follow_the_same_cursor(
     for state in [EngineState::Stopping, EngineState::Stopped] {
         previous = next_state(&mut events, previous, state).await;
     }
+    let cleared = next(&mut events).await;
+    assert_eq!(cleared.sequence, previous.sequence + 1);
+    assert!(matches!(&cleared.body, Some(Body::Network(status)) if
+        status.active_mode() == marsa_proto::host::v1::NetworkMode::Unspecified));
     assert_eq!(
         next(&mut fixture.events().await).await.sequence,
-        previous.sequence
+        cleared.sequence
     );
 }
 
@@ -341,15 +351,18 @@ async fn next_state(
     previous: DaemonEvent,
     expected: EngineState,
 ) -> DaemonEvent {
-    let event = next(events).await;
-    assert_eq!(event.stream_id, previous.stream_id);
-    assert_eq!(event.sequence, previous.sequence + 1);
-    assert_eq!(
-        event.body.as_ref().and_then(|b| match b {
-            Body::Engine(status) => Some(status.state()),
-            _ => None,
-        }),
-        Some(expected)
-    );
-    event
+    let mut previous = previous;
+    loop {
+        let event = next(events).await;
+        assert_eq!(event.stream_id, previous.stream_id);
+        assert_eq!(event.sequence, previous.sequence + 1);
+        match event.body.as_ref() {
+            Some(Body::Network(_)) => previous = event,
+            Some(Body::Engine(status)) => {
+                assert_eq!(status.state(), expected);
+                return event;
+            }
+            _ => panic!("unexpected event while waiting for {expected:?}"),
+        }
+    }
 }

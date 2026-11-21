@@ -3,10 +3,11 @@
 use std::io;
 
 use marsa_proto::guest::{
-    decode_host, encode_guest, frame_length, negotiate,
+    DEFER_ENGINE_START_MINOR, decode_host, encode_guest, frame_length, negotiate,
     v1::{
-        CommandResult, CommandStatus, ConfigureNetwork, GuestEnvelope, Hello, HostEnvelope,
-        InstallCertificates, PortEvent, SetTime, VmStats, guest_envelope, host_envelope,
+        CommandResult, CommandStatus, ConfigureNetwork, EgressResult, EgressStage, GuestEnvelope,
+        Hello, HostEnvelope, InstallCertificates, PortEvent, ProbeEgress, SetTime, VmStats,
+        guest_envelope, host_envelope,
     },
 };
 use tokio::{
@@ -22,10 +23,13 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const HEALTH_INTERVAL: Duration = Duration::from_millis(250);
 const STATS_INTERVAL: Duration = Duration::from_secs(1);
+const EGRESS_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(crate) trait GuestState {
     fn set_time(&self, time: SetTime) -> io::Result<()>;
     async fn mark_ready(&self) -> io::Result<()>;
+    async fn engine_released(&self) -> bool;
+    async fn probe_egress(&self, request: ProbeEgress) -> EgressResult;
 
     async fn configure_network(&self, _request: ConfigureNetwork) -> io::Result<bool> {
         Err(io::ErrorKind::Unsupported.into())
@@ -59,6 +63,9 @@ pub(crate) async fn session<T>(
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    let advertised = hello
+        .protocol
+        .ok_or_else(|| invalid("missing guest protocol version"))?;
     let (mut reader, mut writer) = tokio::io::split(stream);
     write(&mut writer, 0, guest_envelope::Body::Hello(hello)).await?;
     let envelope = timeout(HANDSHAKE_TIMEOUT, read(&mut reader)).await??;
@@ -68,7 +75,10 @@ where
     let version = ack
         .protocol
         .ok_or_else(|| invalid("missing protocol version"))?;
-    if negotiate(version).map_err(io::Error::other)? != version {
+    if negotiate(version).map_err(io::Error::other)? != version
+        || version.major != advertised.major
+        || version.minor > advertised.minor
+    {
         return Err(invalid("host selected an unsupported protocol version"));
     }
 
@@ -82,7 +92,12 @@ where
             }
         }
     });
-    let result = exchange(&mut writer, &mut inbox, state, engine_socket).await;
+    let activation = Activation {
+        supports_deferral: version.minor >= DEFER_ENGINE_START_MINOR,
+        deferred: ack.defer_engine_start,
+        ..Activation::default()
+    };
+    let result = exchange(&mut writer, &mut inbox, state, engine_socket, activation).await;
     receiver.abort();
     result
 }
@@ -92,9 +107,9 @@ async fn exchange(
     inbox: &mut mpsc::Receiver<io::Result<HostEnvelope>>,
     state: &impl GuestState,
     engine_socket: &str,
+    mut activation: Activation,
 ) -> io::Result<()> {
     let mut health = Health::default();
-    let mut ready = false;
     let mut sample = interval(HEALTH_INTERVAL);
     sample.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut statistics = interval(STATS_INTERVAL);
@@ -115,27 +130,30 @@ async fn exchange(
                 let envelope = envelope?;
                 let request_id = envelope.request_id;
                 let body = envelope.body.ok_or_else(|| invalid("missing host command"))?;
-                let shutdown = matches!(body, host_envelope::Body::Shutdown(_));
+                use host_envelope::Body;
+                let shutdown = matches!(body, Body::Shutdown(_));
+                let was_ready = activation.ready;
                 let response = match body {
-                    host_envelope::Body::SetTime(time) => {
-                        let previous = ready;
-                        match update_time(state, time, &mut ready).await {
-                            Ok(()) => {
-                                if !previous {
-                                    state.start_port_events(engine_socket, port_sender.clone(), &mut port_tasks);
-                                }
-                                success("Guest clock set")
-                            }
+                    Body::SetTime(time) => {
+                        match activation.update_time(state, time).await {
+                            Ok(()) => success("Guest clock set"),
                             Err(error) => {
                                 eprintln!("marsa-agent: set guest time: {error}");
                                 result(CommandStatus::Failed, "Could not set the guest clock")
                             }
                         }
                     }
-                    host_envelope::Body::HelloAck(_) => return Err(invalid("unexpected HelloAck")),
-                    _ if !ready && !shutdown && !matches!(
+                    Body::StartEngine(_) | Body::ProbeEgress(_) if !activation.supports_deferral => {
+                        return Err(invalid("command requires a newer negotiated protocol"));
+                    }
+                    Body::StartEngine(_) => activation.start(state).await,
+                    Body::ProbeEgress(_) if !activation.can_probe(state).await => {
+                        egress_stage(EgressStage::Policy)
+                    }
+                    Body::HelloAck(_) => return Err(invalid("unexpected HelloAck")),
+                    _ if !activation.ready && !shutdown && !matches!(
                         body,
-                        host_envelope::Body::ConfigureNetwork(_) | host_envelope::Body::InstallCertificates(_)
+                        Body::ConfigureNetwork(_) | Body::InstallCertificates(_) | Body::ProbeEgress(_)
                     ) => result(CommandStatus::Unavailable, "Guest setup is incomplete"),
                     body => {
                         // Poll one operation at a time so a slow trim cannot stall health or events.
@@ -145,6 +163,9 @@ async fn exchange(
                         continue;
                     }
                 };
+                if !was_ready && activation.ready {
+                    state.start_port_events(engine_socket, port_sender.clone(), &mut port_tasks);
+                }
                 write(writer, request_id, response).await?;
             }
             Some((request_id, shutdown, outcome)) = async {
@@ -176,17 +197,17 @@ async fn exchange(
                     return Ok(());
                 }
             }
-            Some(event) = port_events.recv(), if ready => {
+            Some(event) = port_events.recv(), if activation.ready => {
                 write(writer, 0, guest_envelope::Body::PortEvent(event)).await?;
             }
-            _ = statistics.tick(), if ready => {
+            _ = statistics.tick(), if activation.ready => {
                 match state.stats().await {
                     Ok(Some(stats)) => write(writer, 0, guest_envelope::Body::Stats(stats)).await?,
                     Ok(None) => {},
                     Err(error) => eprintln!("marsa-agent: guest statistics: {error}"),
                 }
             }
-            _ = sample.tick(), if ready => {
+            _ = sample.tick(), if activation.ready => {
                 if let Some(event) = health.observe(health::probe(engine_socket).await) {
                     write(writer, 0, guest_envelope::Body::EngineHealth(event)).await?;
                 }
@@ -221,6 +242,12 @@ async fn dispatch(
             "Guest CA bundle installed",
             "CA bundle installed. Docker may need a controlled restart to reload trust.",
         ),
+        host_envelope::Body::ProbeEgress(request) => {
+            match timeout(EGRESS_TIMEOUT, state.probe_egress(request)).await {
+                Ok(result) => guest_envelope::Body::EgressResult(result),
+                Err(_) => egress_stage(EgressStage::Policy),
+            }
+        }
         body => return state.command(body).await,
     };
     Ok(Some(response))
@@ -245,13 +272,57 @@ fn configuration_result(
     }
 }
 
-async fn update_time(state: &impl GuestState, time: SetTime, ready: &mut bool) -> io::Result<()> {
-    state.set_time(time)?;
-    if !*ready {
-        state.mark_ready().await?;
-        *ready = true;
+#[derive(Default)]
+struct Activation {
+    supports_deferral: bool,
+    deferred: bool,
+    time_set: bool,
+    ready: bool,
+}
+
+impl Activation {
+    async fn update_time(&mut self, state: &impl GuestState, time: SetTime) -> io::Result<()> {
+        state.set_time(time)?;
+        self.time_set = true;
+        if !self.deferred {
+            self.release(state).await?;
+        }
+        Ok(())
     }
-    Ok(())
+
+    async fn start(&mut self, state: &impl GuestState) -> guest_envelope::Body {
+        if !self.time_set {
+            return result(
+                CommandStatus::Unavailable,
+                "Set the guest clock before starting Docker",
+            );
+        }
+        match self.release(state).await {
+            Ok(()) => success("Guest engine released"),
+            Err(error) => {
+                eprintln!("marsa-agent: release guest engine: {error}");
+                result(CommandStatus::Failed, "Could not start the guest engine")
+            }
+        }
+    }
+
+    async fn release(&mut self, state: &impl GuestState) -> io::Result<()> {
+        if !self.ready {
+            state.mark_ready().await?;
+            self.ready = true;
+        }
+        Ok(())
+    }
+
+    async fn can_probe(&self, state: &impl GuestState) -> bool {
+        self.deferred && self.time_set && !self.ready && !state.engine_released().await
+    }
+}
+
+fn egress_stage(stage: EgressStage) -> guest_envelope::Body {
+    guest_envelope::Body::EgressResult(EgressResult {
+        stage: stage.into(),
+    })
 }
 
 async fn read(reader: &mut (impl AsyncRead + Unpin)) -> io::Result<HostEnvelope> {

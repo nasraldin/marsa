@@ -14,8 +14,7 @@ use std::{
 };
 
 use marsa_proto::guest::{
-    CONTROL_PORT, DOCKER_API_PORT, PROTOCOL_VERSION, decode_guest, encode_host, frame_length,
-    negotiate,
+    CONTROL_PORT, DOCKER_API_PORT, decode_guest, encode_host, frame_length, negotiate,
     v1::{
         CommandStatus, EngineHealthState, GuestEnvelope, HelloAck, HostEnvelope, SetTime,
         guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
@@ -187,12 +186,12 @@ async fn handshake(stream: &mut VsockStream) {
     };
     assert_eq!(hello.image_version, env!("CARGO_PKG_VERSION"));
     let protocol = negotiate(hello.protocol.unwrap()).unwrap();
-    assert_eq!(protocol, PROTOCOL_VERSION);
     send_host(
         stream,
         0,
         HostBody::HelloAck(HelloAck {
             protocol: Some(protocol),
+            defer_engine_start: false,
         }),
     )
     .await;

@@ -5,16 +5,23 @@ use std::{future::Future, io, sync::Arc, time::Duration};
 use marsa_vm::{Hypervisor, Vm, VmError, VmEvent, VmEventStream, VmExitCause, VmSpec, VmState};
 use tokio::{
     sync::{oneshot, watch},
-    time::{Instant, timeout_at},
+    time::{Instant, timeout, timeout_at},
 };
 use tokio_stream::StreamExt;
 
-use super::{BootStage, GuestProbe, GuestSession};
+use super::{
+    AlternateFailure, BootNetwork, BootStage, GuestProbe, GuestSession, NetworkResult,
+    network::Selection,
+};
+
+mod selection;
 
 pub(super) struct LiveGuest {
     pub vm: Box<dyn Vm>,
     pub session: Option<Box<dyn GuestSession>>,
     pub events: VmEventStream,
+    pub network: BootNetwork,
+    network_lost: bool,
 }
 
 pub(super) enum Outcome {
@@ -23,6 +30,17 @@ pub(super) enum Outcome {
         vm: Option<Box<dyn Vm>>,
         issue: Issue,
     },
+}
+
+struct Failed {
+    vm: Option<Box<dyn Vm>>,
+    issue: Issue,
+}
+
+impl From<Failed> for Outcome {
+    fn from(Failed { vm, issue }: Failed) -> Self {
+        Self::Failed { vm, issue }
+    }
 }
 
 pub(super) struct Issue {
@@ -45,69 +63,148 @@ impl Issue {
     }
 }
 
+pub(super) struct Activation {
+    pub(super) spec: VmSpec,
+    pub(super) limit: Duration,
+    pub(super) stop_limit: Duration,
+    pub(super) selection: Selection,
+}
+
 pub(super) async fn run(
     backend: Arc<dyn Hypervisor>,
     probe: Arc<dyn GuestProbe>,
-    spec: VmSpec,
-    limit: Duration,
+    activation: Activation,
     mut cancel: oneshot::Receiver<()>,
     progress: watch::Sender<BootStage>,
 ) -> Outcome {
-    let deadline = Instant::now() + limit;
-    let mut vm = match phase(
-        BootStage::Create,
-        deadline,
+    let result = selection::select_and_start(
+        backend.as_ref(),
+        probe.as_ref(),
+        activation,
         &mut cancel,
-        backend.create(spec),
+        &progress,
     )
-    .await
-    {
-        Ok(vm) => vm,
-        Err(issue) => return Outcome::Failed { vm: None, issue },
-    };
+    .await;
+    match result {
+        Ok(guest) => Outcome::Ready(guest),
+        Err(failure) => failure.into(),
+    }
+}
+
+async fn attach(
+    backend: &dyn Hypervisor,
+    probe: &dyn GuestProbe,
+    spec: VmSpec,
+    deadline: Instant,
+    cancel: &mut oneshot::Receiver<()>,
+    progress: &watch::Sender<BootStage>,
+) -> Result<LiveGuest, Failed> {
+    let active = spec.network;
+    progress.send_replace(BootStage::Create);
+    let mut vm = phase(BootStage::Create, deadline, cancel, backend.create(spec))
+        .await
+        .map_err(|issue| Failed { vm: None, issue })?;
     let mut events = vm.events();
-    if let Err(issue) = phase(BootStage::Start, deadline, &mut cancel, vm.start()).await {
-        return Outcome::Failed {
+    let mut network_lost = false;
+    if let Err(issue) = phase(BootStage::Start, deadline, cancel, vm.start()).await {
+        return Err(Failed {
             vm: Some(vm),
             issue,
-        };
+        });
     }
     progress.send_replace(BootStage::Handshake);
     let session = phase(
         BootStage::Handshake,
         deadline,
-        &mut cancel,
-        during_guest_execution(vm.as_ref(), &mut events, probe.handshake(vm.as_ref())),
+        cancel,
+        during_guest_execution(
+            vm.as_ref(),
+            &mut events,
+            &mut network_lost,
+            probe.handshake(vm.as_ref()),
+        ),
     )
     .await;
-    let mut session = match session {
-        Ok(session) => session,
-        Err(issue) => {
-            return Outcome::Failed {
-                vm: Some(vm),
-                issue,
-            };
-        }
+    match session {
+        Ok(session) => Ok(LiveGuest {
+            vm,
+            session: Some(session),
+            events,
+            network_lost,
+            network: BootNetwork {
+                active,
+                result: NetworkResult::Unchecked,
+            },
+        }),
+        Err(issue) => Err(Failed {
+            vm: Some(vm),
+            issue,
+        }),
+    }
+}
+
+async fn start_engine(
+    mut guest: LiveGuest,
+    deadline: Instant,
+    cancel: &mut oneshot::Receiver<()>,
+    progress: &watch::Sender<BootStage>,
+) -> Result<LiveGuest, Failed> {
+    let Some(session) = guest.session.as_deref_mut() else {
+        return Err(Failed {
+            vm: Some(guest.vm),
+            issue: Issue::failed(BootStage::Engine, "guest session unavailable"),
+        });
     };
     progress.send_replace(BootStage::Engine);
     let ready = phase(
         BootStage::Engine,
         deadline,
-        &mut cancel,
-        during_guest_execution(vm.as_ref(), &mut events, session.engine_ready(vm.as_ref())),
+        cancel,
+        during_guest_execution(
+            guest.vm.as_ref(),
+            &mut guest.events,
+            &mut guest.network_lost,
+            session.engine_ready(guest.vm.as_ref()),
+        ),
     )
     .await;
     match ready {
-        Ok(()) => Outcome::Ready(LiveGuest {
-            vm,
-            session: Some(session),
-            events,
-        }),
-        Err(issue) => Outcome::Failed {
-            vm: Some(vm),
+        Ok(()) => {
+            if guest.network_lost {
+                guest.network.result = match guest.network.result {
+                    NetworkResult::Fallback(native) => NetworkResult::AlternateFailed {
+                        native,
+                        alternate: AlternateFailure::Transport,
+                    },
+                    _ => NetworkResult::TransportUnavailable,
+                };
+            }
+            Ok(guest)
+        }
+        Err(issue) => Err(Failed {
+            vm: Some(guest.vm),
             issue,
-        },
+        }),
     }
+}
+
+pub(super) async fn ensure_stopped(vm: &mut dyn Vm, limit: Duration) -> Result<(), VmError> {
+    // A backend can accept start before publishing Starting. Always order a
+    // stop after any submitted work, even if the observed state is Created.
+    let completion = limit.saturating_add(Duration::from_secs(5));
+    timeout(completion, vm.stop(limit))
+        .await
+        .map_err(|_| VmError::Timeout {
+            operation: "stop",
+            limit: completion,
+        })??;
+    if vm.state() != VmState::Stopped {
+        return Err(VmError::Backend {
+            operation: "stop",
+            detail: "guest did not confirm shutdown".into(),
+        });
+    }
+    Ok(())
 }
 
 async fn phase<T, E: std::fmt::Display>(
@@ -119,22 +216,29 @@ async fn phase<T, E: std::fmt::Display>(
     tokio::select! {
         biased;
         _ = cancel => Err(Issue { stage, reason: Reason::Canceled }),
-        result = timeout_at(deadline, work) => match result {
-            Ok(Ok(value)) => Ok(value),
-            Ok(Err(error)) => Err(Issue::failed(stage, error.to_string())),
-            Err(_) => Err(Issue { stage, reason: Reason::Timeout }),
-        }
+        result = async {
+            if Instant::now() >= deadline {
+                return Err(Issue { stage, reason: Reason::Timeout });
+            }
+            match timeout_at(deadline, work).await {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(error)) => Err(Issue::failed(stage, error.to_string())),
+                Err(_) => Err(Issue { stage, reason: Reason::Timeout }),
+            }
+        } => result,
     }
 }
 
 async fn during_guest_execution<T>(
     vm: &dyn Vm,
     events: &mut VmEventStream,
+    network_lost: &mut bool,
     work: impl Future<Output = io::Result<T>>,
 ) -> io::Result<T> {
     tokio::select! {
+        biased;
+        detail = guest_exit_observing(vm, events, || *network_lost = true) => Err(io::Error::other(detail)),
         result = work => result,
-        detail = guest_exit(vm, events) => Err(io::Error::other(detail)),
     }
 }
 
@@ -206,9 +310,18 @@ async fn wait_for_power_off(vm: &dyn Vm, events: &mut VmEventStream) -> Result<(
 }
 
 pub(super) async fn guest_exit(vm: &dyn Vm, events: &mut VmEventStream) -> String {
+    guest_exit_observing(vm, events, || {}).await
+}
+
+async fn guest_exit_observing(
+    vm: &dyn Vm,
+    events: &mut VmEventStream,
+    mut transport_lost: impl FnMut(),
+) -> String {
     loop {
         match events.next().await {
             Some(VmEvent::UnexpectedExit { detail, .. }) => return detail,
+            Some(VmEvent::NetworkUnavailable { .. }) => transport_lost(),
             Some(VmEvent::StateChanged {
                 current: VmState::Stopped,
                 ..

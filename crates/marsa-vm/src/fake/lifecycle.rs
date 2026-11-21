@@ -40,6 +40,12 @@ impl Lifecycle {
         )
     }
 
+    pub(super) fn network_unavailable(&self) {
+        let _ = self.events.send(VmEvent::NetworkUnavailable {
+            detail: "scripted network transport failure".into(),
+        });
+    }
+
     pub(super) fn exit_unexpectedly(&self) -> bool {
         let event = VmEvent::UnexpectedExit {
             cause: VmExitCause::Failure,

@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use marsa_vm::{Vm, VmState};
+use marsa_vm::Vm;
 use tokio::{
     task::JoinError,
     time::{Instant, timeout},
@@ -202,20 +202,8 @@ impl Actor {
         limit: Duration,
     ) -> Result<(), SupervisorError> {
         self.cleanup = vm;
-        if let Some(vm) = self.cleanup.as_mut()
-            && !matches!(vm.state(), VmState::Created | VmState::Stopped)
-        {
-            // Allow a separate, bounded window for native forced-stop completion.
-            let completion_limit = limit.saturating_add(Duration::from_secs(5));
-            timeout(completion_limit, vm.stop(limit))
-                .await
-                .map_err(|_| {
-                    Arc::new(marsa_vm::VmError::Timeout {
-                        operation: "stop",
-                        limit: completion_limit,
-                    })
-                })?
-                .map_err(Arc::new)?;
+        if let Some(vm) = self.cleanup.as_deref_mut() {
+            boot::ensure_stopped(vm, limit).await.map_err(Arc::new)?;
         }
         self.cleanup = None;
         Ok(())
@@ -232,7 +220,10 @@ impl Actor {
                 self.ready();
             }
             Ok(Outcome::Failed { vm, issue }) => {
-                if matches!(issue.stage, BootStage::Handshake | BootStage::Engine) {
+                if matches!(
+                    issue.stage,
+                    BootStage::Handshake | BootStage::Network | BootStage::Engine
+                ) {
                     self.booting();
                 }
                 self.failed(vm, issue).await;

@@ -4,7 +4,7 @@ use std::cell::Cell;
 
 use marsa_proto::guest::{
     MAX_FRAME_BYTES, PROTOCOL_VERSION, decode_guest, encode_host,
-    v1::{EngineHealthState, HelloAck, Shutdown},
+    v1::{EgressStage, EngineHealthState, HelloAck, ProbeEgress, ProtocolVersion, Shutdown},
 };
 use tokio::io::DuplexStream;
 
@@ -13,9 +13,10 @@ use super::*;
 #[derive(Default)]
 struct FakeState {
     clock: Cell<Option<i64>>,
-    ready: Cell<bool>,
+    ready: Cell<u32>,
     configured: Cell<bool>,
     shutdown_requested: Cell<bool>,
+    probe_delay: Duration,
 }
 
 impl GuestState for FakeState {
@@ -35,8 +36,20 @@ impl GuestState for FakeState {
 
     async fn mark_ready(&self) -> io::Result<()> {
         assert!(self.clock.get().is_some());
-        self.ready.set(true);
+        self.ready.set(self.ready.get() + 1);
         Ok(())
+    }
+
+    async fn engine_released(&self) -> bool {
+        self.ready.get() > 0
+    }
+
+    async fn probe_egress(&self, request: ProbeEgress) -> EgressResult {
+        assert_eq!(request.address_v4, [1, 1, 1, 1]);
+        tokio::time::sleep(self.probe_delay).await;
+        EgressResult {
+            stage: EgressStage::Healthy.into(),
+        }
     }
 
     async fn command(&self, body: host_envelope::Body) -> io::Result<Option<guest_envelope::Body>> {
@@ -77,6 +90,10 @@ async fn receive(client: &mut DuplexStream) -> GuestEnvelope {
 }
 
 async fn begin(client: &mut DuplexStream) {
+    begin_with(client, PROTOCOL_VERSION, false).await;
+}
+
+async fn begin_with(client: &mut DuplexStream, version: ProtocolVersion, defer: bool) {
     assert_eq!(
         receive(client).await.body,
         Some(guest_envelope::Body::Hello(greeting()))
@@ -85,7 +102,8 @@ async fn begin(client: &mut DuplexStream) {
         client,
         0,
         host_envelope::Body::HelloAck(HelloAck {
-            protocol: Some(PROTOCOL_VERSION),
+            protocol: Some(version),
+            defer_engine_start: defer,
         }),
     )
     .await;
@@ -101,8 +119,8 @@ async fn negotiates_and_updates_the_clock_before_readiness() {
     let (server, mut client) = tokio::io::duplex(4 * 1024);
     let state = FakeState::default();
     let test_client = async {
-        begin(&mut client).await;
-        assert!(!state.ready.get());
+        begin_with(&mut client, ProtocolVersion { major: 1, minor: 0 }, false).await;
+        assert_eq!(state.ready.get(), 0);
         send(
             &mut client,
             1,
@@ -118,7 +136,7 @@ async fn negotiates_and_updates_the_clock_before_readiness() {
             matches!(result.body, Some(guest_envelope::Body::CommandResult(command)) if command.status == CommandStatus::Ok as i32)
         );
         assert_eq!(state.clock.get(), Some(1_700_000_000));
-        assert!(state.ready.get());
+        assert_eq!(state.ready.get(), 1);
         drop(client);
     };
     let (result, ()) = tokio::join!(
@@ -163,7 +181,7 @@ async fn applies_boot_configuration_before_engine_is_ready() {
                 if command.status == CommandStatus::Unavailable as i32
                     && command.detail.contains("controlled restart")
         ));
-        assert!(!state.ready.get());
+        assert_eq!(state.ready.get(), 0);
         drop(client);
     };
     let (result, ()) = tokio::join!(
@@ -190,7 +208,7 @@ async fn rejects_malformed_and_over_limit_frames_without_reading_a_large_body() 
             test_client
         );
         assert_ne!(result.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
-        assert!(!state.ready.get());
+        assert_eq!(state.ready.get(), 0);
     }
 }
 
@@ -216,3 +234,5 @@ async fn shutdown_returns_success_with_its_request_id_before_session_closes() {
     result.unwrap();
     assert!(state.shutdown_requested.get());
 }
+
+mod deferred;

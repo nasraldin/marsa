@@ -3,10 +3,10 @@
 use std::net::IpAddr;
 
 use super::v1::{
-    CommandStatus, ConfigureNetwork, EngineHealthState, GuestEnvelope, HostEnvelope, PortAction,
-    PortEvent, Transport, guest_envelope, host_envelope,
+    CommandStatus, ConfigureNetwork, EgressStage, EngineHealthState, GuestEnvelope, HostEnvelope,
+    PortAction, PortEvent, Transport, guest_envelope, host_envelope,
 };
-use super::{MAX_FRAME_BYTES, ProtocolError};
+use super::{DEFER_ENGINE_START_MINOR, MAX_FRAME_BYTES, ProtocolError};
 
 const KIB: usize = 1024;
 
@@ -24,7 +24,13 @@ pub(super) fn host(envelope: &HostEnvelope) -> Result<usize, ProtocolError> {
 
     Ok(match body {
         Body::HelloAck(message) => {
-            check(message.protocol.is_some(), "protocol")?;
+            let version = message
+                .protocol
+                .ok_or(ProtocolError::InvalidField("protocol"))?;
+            check(
+                !message.defer_engine_start || version.minor >= DEFER_ENGINE_START_MINOR,
+                "defer_engine_start",
+            )?;
             64
         }
         Body::SetTime(message) => {
@@ -46,7 +52,11 @@ pub(super) fn host(envelope: &HostEnvelope) -> Result<usize, ProtocolError> {
             )?;
             MAX_FRAME_BYTES
         }
-        Body::Trim(_) | Body::Shutdown(_) => 32,
+        Body::Trim(_) | Body::Shutdown(_) | Body::StartEngine(_) => 32,
+        Body::ProbeEgress(message) => {
+            check(message.address_v4.len() == 4, "address_v4")?;
+            32
+        }
         Body::MountShare(message) => {
             tag(&message.tag)?;
             text(&message.guest_path, 4096, "guest_path")?;
@@ -73,7 +83,11 @@ pub(super) fn guest(envelope: &GuestEnvelope) -> Result<usize, ProtocolError> {
         .as_ref()
         .ok_or(ProtocolError::InvalidField("body"))?;
     check(
-        (envelope.request_id != 0) == matches!(body, Body::TrimResult(_) | Body::CommandResult(_)),
+        (envelope.request_id != 0)
+            == matches!(
+                body,
+                Body::TrimResult(_) | Body::CommandResult(_) | Body::EgressResult(_)
+            ),
         "request_id",
     )?;
 
@@ -116,6 +130,13 @@ pub(super) fn guest(envelope: &GuestEnvelope) -> Result<usize, ProtocolError> {
             128
         }
         Body::TrimResult(_) => 64,
+        Body::EgressResult(message) => {
+            check(
+                matches!(EgressStage::try_from(message.stage), Ok(stage) if stage != EgressStage::Unspecified),
+                "egress_stage",
+            )?;
+            32
+        }
         Body::CommandResult(message) => {
             check(
                 matches!(CommandStatus::try_from(message.status), Ok(status) if status != CommandStatus::Unspecified),

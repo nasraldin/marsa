@@ -11,9 +11,13 @@ How Marsa is built, packaged, signed, shipped and kept up to date on macOS.
 | Guest target | `aarch64-unknown-linux-musl` (static) | Proposed |
 | Task runner | `cargo xtask` (no Makefile, no shell-script sprawl) | Proposed |
 | Protobuf | Cargo generates bindings with `prost` and `tonic` using [pinned protoc](../crates/marsa-proto/PROTOCOL.md#build-the-rust-bindings) | Decided in M0-05 |
-| Guest build | Containerised, driven by `cargo xtask guest` | Proposed |
+| Guest build | Containerised image assembly with static Rust guest programs, driven by `cargo xtask guest` | Proposed |
 | Lint and format | `rustfmt`, `clippy` with warnings denied in CI | Proposed |
 | Dependency policy | `cargo-deny` (licences, bans, advisories), `cargo-audit` | Proposed |
+
+The guest agent TLS provider builds its freestanding ARM64 code with Clang
+and uses the pinned Rust toolchain's `llvm-tools` component for its ELF
+archives. The static guest programs link to the pinned Rust musl target.
 
 ## Build graph
 

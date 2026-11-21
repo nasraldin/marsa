@@ -186,6 +186,9 @@ pub trait Vm: Send + Sync {
     /// Resume a suspended guest.
     async fn resume(&mut self) -> Result<(), VmError>;
     /// Ask the guest to shut down and force it off after the deadline.
+    ///
+    /// Success confirms that guest execution has stopped, including any start
+    /// already submitted to the backend whose caller stopped waiting.
     async fn stop(&mut self, timeout: Duration) -> Result<(), VmError>;
     /// Return the most recently observed backend state.
     fn state(&self) -> VmState;

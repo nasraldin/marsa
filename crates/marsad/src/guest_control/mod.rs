@@ -7,10 +7,10 @@ use std::{
 };
 
 use marsa_proto::guest::{
-    CONTROL_PORT, ProtocolError, negotiate,
+    CONTROL_PORT, DEFER_ENGINE_START_MINOR, ProtocolError, negotiate,
     v1::{
-        CommandResult, CommandStatus, EngineHealth, HelloAck, PortEvent, SetTime, TrimResult,
-        VmStats, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
+        CommandResult, CommandStatus, EgressStage, EngineHealth, HelloAck, PortEvent, SetTime,
+        TrimResult, VmStats, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
     },
 };
 use marsa_vm::{Vm, VmError, async_trait};
@@ -29,6 +29,7 @@ mod wire;
 mod tests;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+const AGENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(25);
 const ENGINE_TIMEOUT: Duration = Duration::from_secs(45);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(35);
 const CONNECT_RETRY: Duration = Duration::from_millis(100);
@@ -52,6 +53,8 @@ pub enum GuestResponse {
     Command(CommandResult),
     /// Successful data filesystem trim.
     Trim(TrimResult),
+    /// Validated stage of the bounded guest HTTPS check.
+    Egress(EgressStage),
 }
 
 /// Failures reported while negotiating or using a guest control session.
@@ -140,11 +143,18 @@ impl GuestControl {
             .borrow()
             .upgrade()
             .ok_or(GuestControlError::Disconnected)?;
+        if matches!(body, HostBody::StartEngine(_) | HostBody::ProbeEgress(_)) {
+            return Err(GuestControlError::Sequence(
+                "boot commands are owned by the supervisor",
+            ));
+        }
         client.request(body, REQUEST_TIMEOUT).await
     }
 
-    async fn connect(&self, vm: &dyn Vm) -> Result<session::Session, GuestControlError> {
-        let mut stream = wire::open(vm, CONTROL_PORT).await?;
+    async fn connect(
+        &self,
+        mut stream: marsa_vm::VsockStream,
+    ) -> Result<session::Session, GuestControlError> {
         let message = wire::read(&mut stream).await?;
         let Some(GuestBody::Hello(hello)) = message.body else {
             return Err(GuestControlError::Sequence("expected initial Hello"));
@@ -154,18 +164,21 @@ impl GuestControl {
                 .protocol
                 .ok_or(ProtocolError::InvalidField("protocol"))?,
         )?;
+        let deferred = version.minor >= DEFER_ENGINE_START_MINOR;
         wire::write(
             &mut stream,
             &wire::encode(
                 0,
                 HostBody::HelloAck(HelloAck {
                     protocol: Some(version),
+                    defer_engine_start: deferred,
                 }),
             )?,
         )
         .await?;
 
-        let session = session::Session::start(stream, self.active.clone(), self.events.clone());
+        let session =
+            session::Session::start(stream, self.active.clone(), self.events.clone(), deferred);
         let now = (self.clock)()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| GuestControlError::InvalidClock)?;
@@ -185,7 +198,7 @@ impl GuestControl {
             GuestResponse::Command(result) => {
                 Err(GuestControlError::ClockRejected(result.status()))
             }
-            GuestResponse::Trim(_) => {
+            GuestResponse::Trim(_) | GuestResponse::Egress(_) => {
                 Err(GuestControlError::Sequence("expected clock setup result"))
             }
         }
@@ -195,7 +208,10 @@ impl GuestControl {
 #[async_trait]
 impl GuestProbe for GuestControl {
     async fn handshake(&self, vm: &dyn Vm) -> io::Result<Box<dyn GuestSession>> {
-        let session = timeout(HANDSHAKE_TIMEOUT, self.connect(vm))
+        let stream = timeout(AGENT_CONNECT_TIMEOUT, wire::open(vm, CONTROL_PORT))
+            .await
+            .map_err(|_| GuestControlError::TimedOut("connecting to the guest agent"))??;
+        let session = timeout(HANDSHAKE_TIMEOUT, self.connect(stream))
             .await
             .map_err(|_| GuestControlError::TimedOut("negotiating the guest session"))??;
         Ok(Box::new(session))

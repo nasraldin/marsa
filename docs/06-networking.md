@@ -60,6 +60,15 @@ and guest results for the same destination, address family, and proxy
 policy. A registry authentication challenge can establish HTTPS reachability
 after certificate validation succeeds.
 
+The boot selector currently compares IPv4 to the Docker Hub registry. It
+negotiates deferred Docker startup, checks the same resolved public address
+with normal TLS verification, and requires a repeated native failure and
+unchanged host route and proxy policy before trying the alternate attachment.
+Unknown proxy policy, a DNS policy reply and certificate rejection preserve
+the native attachment and keep local Docker available. A failed alternate
+attempt must stop before the supervisor restores native networking on the
+same data disk. Explicitly selected modes skip automatic switching.
+
 | Observation | Behavior in `auto` mode |
 |---|---|
 | Native path succeeds | Keep native NAT. |
