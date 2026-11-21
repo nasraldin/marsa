@@ -10,7 +10,7 @@ How Marsa is built, packaged, signed, shipped and kept up to date on macOS.
 | Host target | `aarch64-apple-darwin` | Decided |
 | Guest target | `aarch64-unknown-linux-musl` (static) | Proposed |
 | Task runner | `cargo xtask` (no Makefile, no shell-script sprawl) | Proposed |
-| Protobuf | `prost` and `tonic` with checked-in generated code or build-time generation, decided in M0 | Proposed |
+| Protobuf | Cargo generates bindings with `prost` and `tonic` using [pinned protoc](../crates/marsa-proto/PROTOCOL.md#build-the-rust-bindings) | Decided in M0-05 |
 | Guest build | Containerised, driven by `cargo xtask guest` | Proposed |
 | Lint and format | `rustfmt`, `clippy` with warnings denied in CI | Proposed |
 | Dependency policy | `cargo-deny` (licences, bans, advisories), `cargo-audit` | Proposed |

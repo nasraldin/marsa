@@ -1,0 +1,152 @@
+syntax = "proto3";
+
+package marsa.v1;
+
+// Manage user decisions and project-specific MCP grants.
+service Agents {
+  rpc ListPendingApprovals(ListPendingApprovalsRequest) returns (ListPendingApprovalsResponse);
+  rpc Approve(ApproveRequest) returns (DecisionResponse);
+  rpc Deny(DenyRequest) returns (DecisionResponse);
+  rpc ListGrants(ListGrantsRequest) returns (ListGrantsResponse);
+  rpc RevokeGrant(RevokeGrantRequest) returns (RevokeGrantResponse);
+}
+
+// Allowlisted operations executed by the daemon under MCP policy.
+service AgentOps {
+  rpc Execute(AgentOperationRequest) returns (AgentOperationResponse);
+}
+
+message ListPendingApprovalsRequest {}
+
+message ListPendingApprovalsResponse {
+  repeated PendingApproval approvals = 1;
+}
+
+message PendingApproval {
+  string id = 1;
+  string client_id = 2;
+  string client_name = 3;
+  string project_path = 4;
+  AgentOperation operation = 5;
+  PermissionTier tier = 6;
+  string redacted_arguments_json = 7;
+  repeated AffectedResource affected = 8;
+  int64 expires_at_unix_millis = 9;
+  bool can_grant_for_project = 10;
+}
+
+message AffectedResource {
+  string kind = 1;
+  string name = 2;
+  optional uint64 size_bytes = 3;
+  repeated string related_containers = 4;
+}
+
+enum PermissionTier {
+  PERMISSION_TIER_UNSPECIFIED = 0;
+  PERMISSION_TIER_READ = 1;
+  PERMISSION_TIER_OPERATE = 2;
+  PERMISSION_TIER_DESTROY = 3;
+  PERMISSION_TIER_HOST_AFFECTING = 4;
+}
+
+message ApproveRequest {
+  string request_id = 1;
+  string approval_id = 2;
+  bool grant_for_project = 3;
+}
+
+message DenyRequest {
+  string request_id = 1;
+  string approval_id = 2;
+}
+
+message DecisionResponse {
+  string approval_id = 1;
+}
+
+message ListGrantsRequest {}
+
+message ListGrantsResponse {
+  repeated AgentGrant grants = 1;
+}
+
+message AgentGrant {
+  string id = 1;
+  string client_id = 2;
+  string project_path = 3;
+  AgentOperation operation = 4;
+  int64 expires_at_unix_millis = 5;
+}
+
+message RevokeGrantRequest {
+  string request_id = 1;
+  string grant_id = 2;
+}
+
+message RevokeGrantResponse {}
+
+message AgentOperationRequest {
+  string request_id = 1;
+  // The daemon verifies this identity against its local client session.
+  string client_id = 2;
+  string project_path = 3;
+  AgentOperation operation = 4;
+  // Validated against the selected operation's schema before policy evaluation.
+  // This field never contains a raw Docker HTTP request.
+  string arguments_json = 5;
+}
+
+enum AgentOperation {
+  AGENT_OPERATION_UNSPECIFIED = 0;
+  AGENT_OPERATION_ENGINE_STATUS = 1;
+  AGENT_OPERATION_LIST_CONTAINERS = 2;
+  AGENT_OPERATION_INSPECT_CONTAINER = 3;
+  AGENT_OPERATION_CONTAINER_LOGS = 4;
+  AGENT_OPERATION_CONTAINER_STATS = 5;
+  AGENT_OPERATION_LIST_IMAGES = 6;
+  AGENT_OPERATION_INSPECT_IMAGE = 7;
+  AGENT_OPERATION_LIST_VOLUMES = 8;
+  AGENT_OPERATION_LIST_NETWORKS = 9;
+  AGENT_OPERATION_COMPOSE_LIST = 10;
+  AGENT_OPERATION_COMPOSE_PS = 11;
+  AGENT_OPERATION_COMPOSE_LOGS = 12;
+  AGENT_OPERATION_DISK_USAGE = 13;
+  AGENT_OPERATION_CLEANUP_PREVIEW = 14;
+  AGENT_OPERATION_START_CONTAINER = 15;
+  AGENT_OPERATION_STOP_CONTAINER = 16;
+  AGENT_OPERATION_RESTART_CONTAINER = 17;
+  AGENT_OPERATION_RUN_CONTAINER = 18;
+  AGENT_OPERATION_EXEC_IN_CONTAINER = 19;
+  AGENT_OPERATION_PULL_IMAGE = 20;
+  AGENT_OPERATION_COMPOSE_UP = 21;
+  AGENT_OPERATION_COMPOSE_DOWN = 22;
+  AGENT_OPERATION_COMPOSE_RESTART = 23;
+  AGENT_OPERATION_REMOVE_CONTAINER = 24;
+  AGENT_OPERATION_REMOVE_IMAGE = 25;
+  AGENT_OPERATION_REMOVE_NETWORK = 26;
+  AGENT_OPERATION_REMOVE_VOLUME = 27;
+  AGENT_OPERATION_COMPOSE_DOWN_VOLUMES = 28;
+  AGENT_OPERATION_PRUNE = 29;
+  AGENT_OPERATION_ADD_SHARE = 30;
+}
+
+message AgentOperationResponse {
+  oneof result {
+    AgentOutput output = 1;
+    AgentOperationError error = 2;
+  }
+}
+
+message AgentOutput {
+  // Bounded, untrusted workload data encoded as JSON.
+  string data_json = 1;
+  bool truncated = 2;
+  optional string next_cursor = 3;
+}
+
+message AgentOperationError {
+  string code = 1;
+  string message = 2;
+  optional string denial_reason = 3;
+}

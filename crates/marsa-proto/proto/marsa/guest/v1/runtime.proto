@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package marsa.guest.v1;
+
+// Replace the guest wall clock using Unix epoch time.
+message SetTime {
+  int64 unix_seconds = 1;
+  uint32 nanoseconds = 2;
+}
+
+// Agent health based on dockerd's ping endpoint and process events.
+message EngineHealth {
+  EngineHealthState state = 1;
+  string detail = 2;
+}
+
+// Readiness or restart state of the Docker engine.
+enum EngineHealthState {
+  ENGINE_HEALTH_STATE_UNSPECIFIED = 0;
+  ENGINE_HEALTH_STATE_STARTING = 1;
+  ENGINE_HEALTH_STATE_READY = 2;
+  ENGINE_HEALTH_STATE_UNHEALTHY = 3;
+  ENGINE_HEALTH_STATE_RESTARTING = 4;
+}
+
+// Guest stats since the current boot. CPU time is cumulative.
+message VmStats {
+  uint64 sample_uptime_millis = 1;
+  uint64 cpu_busy_nanos = 2;
+  uint64 memory_total_bytes = 3;
+  uint64 memory_used_bytes = 4;
+  uint64 data_disk_total_bytes = 5;
+  uint64 data_disk_used_bytes = 6;
+  uint64 network_rx_bytes = 7;
+  uint64 network_tx_bytes = 8;
+}
+
+// Trim the guest data filesystem.
+message Trim {}
+
+// Successful trim summary. Failures use CommandResult.
+message TrimResult {
+  uint64 bytes_trimmed = 1;
+  uint64 data_disk_used_bytes = 2;
+}
+
+// Mount a preconfigured virtiofs tag at an absolute path in the guest.
+message MountShare {
+  string tag = 1;
+  string guest_path = 2;
+  bool read_only = 3;
+}
+
+// Remove the guest mount associated with a known virtiofs tag.
+message UnmountShare {
+  string tag = 1;
+}
+
+// Begin a clean guest shutdown.
+message Shutdown {}
+
+// An ordinary command completion or a trim failure.
+message CommandResult {
+  CommandStatus status = 1;
+  string detail = 2;
+}
+
+// Outcome code independent of localized diagnostics.
+enum CommandStatus {
+  COMMAND_STATUS_UNSPECIFIED = 0;
+  COMMAND_STATUS_OK = 1;
+  COMMAND_STATUS_INVALID = 2;
+  COMMAND_STATUS_UNAVAILABLE = 3;
+  COMMAND_STATUS_FAILED = 4;
+}

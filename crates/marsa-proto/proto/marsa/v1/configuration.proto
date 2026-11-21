@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package marsa.v1;
+
+// Versioned daemon configuration stored as TOML.
+service Settings {
+  rpc Get(GetSettingsRequest) returns (SettingsSnapshot);
+  rpc Update(UpdateSettingsRequest) returns (SettingsSnapshot);
+  rpc Watch(WatchSettingsRequest) returns (stream SettingsSnapshot);
+}
+
+// Manage the daemon's explicit shared-folder allowlist.
+service Shares {
+  rpc List(ListSharesRequest) returns (ListSharesResponse);
+  rpc Add(AddShareRequest) returns (Share);
+  rpc Remove(RemoveShareRequest) returns (RemoveShareResponse);
+}
+
+// Report and configure the engine's networking.
+service Network {
+  rpc Status(NetworkStatusRequest) returns (NetworkStatus);
+  rpc SetMode(SetNetworkModeRequest) returns (NetworkStatus);
+  rpc ListForwardedPorts(ListForwardedPortsRequest) returns (ListForwardedPortsResponse);
+}
+
+message GetSettingsRequest {}
+message WatchSettingsRequest {}
+
+message SettingsSnapshot {
+  // The canonical full configuration. Treat as sensitive.
+  string settings_toml = 1;
+  uint64 revision = 2;
+}
+
+message UpdateSettingsRequest {
+  string request_id = 1;
+  string settings_toml = 2;
+  // Prevents overwriting an update made after the client's last read.
+  uint64 expected_revision = 3;
+}
+
+message ListSharesRequest {}
+
+message ListSharesResponse {
+  repeated Share shares = 1;
+}
+
+message Share {
+  string id = 1;
+  string host_path = 2;
+  bool read_only = 3;
+  bool requires_restart = 4;
+}
+
+message AddShareRequest {
+  string request_id = 1;
+  string host_path = 2;
+  bool read_only = 3;
+  // Set when this request answers an outstanding bind mount prompt.
+  optional string approval_id = 4;
+  bool persist = 5;
+}
+
+message RemoveShareRequest {
+  string request_id = 1;
+  string share_id = 2;
+}
+
+message RemoveShareResponse {
+  bool requires_restart = 1;
+}
+
+message NetworkStatusRequest {}
+
+message NetworkStatus {
+  NetworkMode configured_mode = 1;
+  NetworkMode active_mode = 2;
+  optional string reason = 3;
+  optional string guest_address = 4;
+  optional string gateway_address = 5;
+}
+
+enum NetworkMode {
+  NETWORK_MODE_UNSPECIFIED = 0;
+  NETWORK_MODE_AUTO = 1;
+  NETWORK_MODE_NAT = 2;
+  NETWORK_MODE_USERSPACE = 3;
+}
+
+message SetNetworkModeRequest {
+  string request_id = 1;
+  NetworkMode mode = 2;
+}
+
+message ListForwardedPortsRequest {}
+
+message ListForwardedPortsResponse {
+  repeated ForwardedPort ports = 1;
+}
+
+message ForwardedPort {
+  string host_address = 1;
+  uint32 host_port = 2;
+  uint32 guest_port = 3;
+  PortTransport transport = 4;
+  string container_id = 5;
+}
+
+enum PortTransport {
+  PORT_TRANSPORT_UNSPECIFIED = 0;
+  PORT_TRANSPORT_TCP = 1;
+  PORT_TRANSPORT_UDP = 2;
+}

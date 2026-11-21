@@ -52,7 +52,7 @@
 
 ### M0-05 Define the protocols in `marsa-proto`
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M0-01
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [05 marsa-agent](../05-guest-image.md#marsa-agent)
 - **Do:** Write protobuf definitions for the host API (`marsa.v1`: all services in the typed-API table) and the guest control protocol (`marsa.guest.v1`: handshake, time, network config, certificates, port events, health, stats, trim, shares, shutdown). Set up code generation. Define protocol version constants and a compatibility rule.

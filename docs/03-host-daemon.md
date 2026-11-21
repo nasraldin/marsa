@@ -157,7 +157,7 @@ Rules:
 
 ## Typed API
 
-**Proposed.** gRPC over `~/.marsa/run/marsad.sock`, defined in `marsa-proto`. The Docker Engine API is not duplicated here; clients use the Docker socket for container data.
+**Proposed.** gRPC over `~/.marsa/run/marsad.sock`, defined in `marsa-proto`. The [host protocol contract](../crates/marsa-proto/PROTOCOL.md#host-api) defines versioning and subscription semantics. The Docker Engine API is not duplicated here; clients use the Docker socket for container data.
 
 | Service | Methods (summary) |
 |---|---|
