@@ -26,11 +26,18 @@ fn run() -> io::Result<()> {
     let mut args = env::args_os().skip(1).peekable();
     let writable_share = args.next_if(|arg| arg == "--writable-share").is_some();
     let via_init = args.next_if(|arg| arg == "--via-init").is_some();
+    let guest_control = args.next_if(|arg| arg == "--guest-control").is_some();
     let usage = || {
         io::Error::other(
-            "usage: marsa-vz-spike [--writable-share] [--via-init] <rust|swift> <fixture-directory> <console-log> [guest-script]",
+            "usage: marsa-vz-spike [--writable-share] [--via-init] [--guest-control] <rust|swift> <fixture-directory> <console-log> [guest-script]",
         )
     };
+    if guest_control && !via_init {
+        return Err(io::Error::other("--guest-control requires --via-init"));
+    }
+    if guest_control && !cfg!(feature = "guest-control") {
+        return Err(io::Error::other("build with --features guest-control"));
+    }
     let backend = match args
         .next()
         .and_then(|name| name.into_string().ok())
@@ -63,5 +70,6 @@ fn run() -> io::Result<()> {
         script.as_deref(),
         writable_share,
         via_init,
+        guest_control,
     )
 }

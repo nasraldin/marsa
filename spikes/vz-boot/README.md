@@ -108,3 +108,29 @@ The boot fixture substitutes a local readiness signal for the host handshake
 that M2-06 provides. It exercises actual guest mounts, Docker and containerd,
 orphan reaping and PID 1 shutdown. The runner sends SIGTERM to PID 1 and waits
 for the Virtualization.framework shutdown callback.
+
+## Verify the guest control agent
+
+Build the static Linux `marsa-agent` binary with the workspace's pinned
+[`protoc`](../../crates/marsa-proto/PROTOCOL.md#build-the-rust-bindings). Build
+and sign the Rust bridge with real protocol support, then prepare a fresh
+private fixture as for the PID 1 test.
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked -p marsa-vz-spike --features guest-control
+codesign --force --sign - --timestamp=none --entitlements entitlement.plist target/debug/marsa-vz-spike
+python3 pid1/prepare.py --control-agent ../../target/aarch64-unknown-linux-musl/release/marsa-agent \
+  ../../target/guest/rootfs.tar ../../target/aarch64-unknown-linux-musl/release/marsa-init \
+  target/aarch64-unknown-linux-musl/release/marsa-vsock-spike-guest \
+  ../../target/guest/docker-29.10.0.tgz "$scratch/agent-initramfs"
+mv "$scratch/agent-initramfs" "$scratch/fixtures/initramfs"
+target/debug/marsa-vz-spike --via-init --guest-control rust "$scratch/fixtures" \
+  "$scratch/agent-console.log" pid1/check.sh
+```
+
+This mode checks the guest's bounded `Hello` frame on vsock port 5000, selects
+protocol 1.0, sends `SetTime`, and waits for its successful result and a Docker
+readiness event. The guest console must report the set epoch from `date +%s`
+and from the readiness file's modification time before the runner requests
+shutdown. The wrapper starts the serial shell and forwards signals to the
+agent. The guest control agent creates the readiness file.
