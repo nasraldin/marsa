@@ -184,7 +184,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 
 ### M3-14 Qualify the unprivileged user-space transport
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M3-03, M3-13
 - **Docs:** [06 Network modes](../06-networking.md#network-modes), [11 Security](../11-security.md)
 - **Do:** Attach a private datagram transport to the VZ guest. Pin and supervise the user-space helper. Qualify a helper configuration that honors the scoped macOS resolver, restricts host service access and uses ordinary host egress policy. Leave mode selection and production port forwarding to M4-10.
