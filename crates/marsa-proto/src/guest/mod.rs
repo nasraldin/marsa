@@ -14,6 +14,9 @@ pub mod v1 {
     include!(concat!(env!("OUT_DIR"), "/marsa.guest.v1.rs"));
 }
 
+/// Guest control listener port in the VM's vsock namespace.
+pub const CONTROL_PORT: u32 = 5_000;
+
 /// Largest accepted length of a serialized guest control envelope, in bytes.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 

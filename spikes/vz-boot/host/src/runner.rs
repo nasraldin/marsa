@@ -14,12 +14,15 @@ use objc2::rc::autoreleasepool;
 use objc2_foundation::{NSDate, NSRunLoop};
 
 mod console;
+#[cfg(feature = "guest-control")]
+mod guest_control;
 
 use console::SerialCapture;
 
 const DEADLINE: Duration = Duration::from_secs(90);
 const MAX_SCRIPT_BYTES: u64 = 16 * 1024;
 const I_O_TIMEOUT: Duration = Duration::from_secs(5);
+const CONNECT_RETRY: Duration = Duration::from_millis(100);
 pub const VSOCK_PORT: u32 = 5_000;
 
 pub enum Backend {
@@ -38,6 +41,7 @@ pub struct VmInputs<'a> {
 pub enum Event {
     Started,
     Connected(OwnedFd),
+    ConnectFailed(String),
     RoundTrip,
     Stopped,
     Error(String),
@@ -67,9 +71,10 @@ pub fn run(
     script: Option<&Path>,
     writable_share: bool,
     via_init: bool,
+    guest_control: bool,
 ) -> io::Result<()> {
     validate_fixtures(fixtures)?;
-    let script = read_script(script)?;
+    let script = read_script(script, guest_control)?;
     let (mut stream, guest_serial) = UnixStream::pair()?;
     stream.set_read_timeout(Some(Duration::from_millis(10)))?;
     stream.set_write_timeout(Some(I_O_TIMEOUT))?;
@@ -95,6 +100,8 @@ pub fn run(
 
     let deadline = Instant::now() + DEADLINE;
     let mut progress = Progress::default();
+    let mut connect_at = Instant::now();
+    let mut connect_error = None;
     let mut capture = SerialCapture::default();
     let run_loop = NSRunLoop::mainRunLoop();
     while Instant::now() < deadline {
@@ -110,12 +117,27 @@ pub fn run(
                     println!("received VM start completion");
                 }
                 Event::Connected(fd) => {
+                    connect_error = None;
                     let sender = sender.clone();
-                    thread::spawn(move || exchange(fd, sender));
+                    thread::spawn(move || exchange(fd, sender, guest_control));
+                }
+                Event::ConnectFailed(detail) if guest_control => {
+                    connect_error = Some(detail);
+                    connect_at = Instant::now() + CONNECT_RETRY;
+                    progress.connect_requested = false;
+                }
+                Event::ConnectFailed(detail) => {
+                    return Err(io::Error::other(detail));
                 }
                 Event::RoundTrip => {
                     progress.round_trip = true;
-                    println!("verified 16-byte serial-independent vsock challenge");
+                    if guest_control {
+                        println!(
+                            "verified guest control handshake, time result, and engine readiness"
+                        );
+                    } else {
+                        println!("verified 16-byte serial-independent vsock challenge");
+                    }
                 }
                 Event::Stopped => {
                     if !progress.shutdown_sent {
@@ -130,7 +152,11 @@ pub fn run(
                 Event::Error(detail) => return Err(io::Error::other(detail)),
             }
         }
-        if progress.started && progress.listening && !progress.connect_requested {
+        if progress.started
+            && progress.listening
+            && !progress.connect_requested
+            && Instant::now() >= connect_at
+        {
             vm.connect()?;
             progress.connect_requested = true;
         }
@@ -148,19 +174,33 @@ pub fn run(
             progress.shutdown_sent = true;
         }
     }
+    if !progress.round_trip
+        && let Some(detail) = connect_error
+    {
+        return Err(io::Error::other(format!(
+            "guest control connect timed out: {detail}"
+        )));
+    }
     Err(io::Error::other(
         "VM test timed out; inspect the console transcript",
     ))
 }
 
-fn read_script(path: Option<&Path>) -> io::Result<Vec<u8>> {
+fn read_script(path: Option<&Path>, guest_control: bool) -> io::Result<Vec<u8>> {
     let prefix = b"(\nset -e\n";
     let mut commands = prefix.to_vec();
+    #[cfg(feature = "guest-control")]
+    if guest_control {
+        commands.extend(guest_control::clock_assertions(DEADLINE));
+    }
+    #[cfg(not(feature = "guest-control"))]
+    let _ = guest_control;
+    let start = commands.len();
     if let Some(path) = path {
         File::open(path)?
             .take(MAX_SCRIPT_BYTES + 1)
             .read_to_end(&mut commands)?;
-        let contents = &commands[prefix.len()..];
+        let contents = &commands[start..];
         if contents.len() as u64 > MAX_SCRIPT_BYTES {
             return Err(io::Error::other("guest script exceeds 16 KiB"));
         }
@@ -182,11 +222,17 @@ fn read_script(path: Option<&Path>) -> io::Result<Vec<u8>> {
     Ok(commands)
 }
 
-fn exchange(fd: OwnedFd, sender: Sender<Event>) {
+fn exchange(fd: OwnedFd, sender: Sender<Event>, guest_control: bool) {
     let result = (|| -> io::Result<()> {
         let mut stream = UnixStream::from(fd);
         stream.set_read_timeout(Some(I_O_TIMEOUT))?;
         stream.set_write_timeout(Some(I_O_TIMEOUT))?;
+        #[cfg(feature = "guest-control")]
+        if guest_control {
+            return guest_control::verify(&mut stream);
+        }
+        #[cfg(not(feature = "guest-control"))]
+        let _ = guest_control;
         let mut challenge = [0; 16];
         File::open("/dev/urandom")?.read_exact(&mut challenge)?;
         stream.write_all(&challenge)?;

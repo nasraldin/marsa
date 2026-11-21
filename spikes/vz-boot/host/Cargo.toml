@@ -4,12 +4,15 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license = "MIT"
 
 [features]
+guest-control = ["dep:marsa-proto"]
 swift = []
 
 [dependencies]
 block2 = "=0.6.2"
+marsa-proto = { path = "../../../crates/marsa-proto", default-features = false, optional = true }
 objc2 = "=0.6.5"
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSDate", "NSError", "NSFileHandle", "NSRunLoop", "NSString", "NSURL", "NSObjCRuntime", "NSObject"] }
 objc2-virtualization = { version = "=0.3.2", default-features = false, features = [

@@ -1,11 +1,22 @@
-//! Guest process for the host control channel.
+//! Serve the guest control socket and report Docker engine state to the host.
 
-// Keep the architecture's dependency edges until this crate uses them directly.
-use marsa_proto as _;
+#[cfg(any(target_os = "linux", test))]
+mod control;
+#[cfg(any(target_os = "linux", test))]
+mod health;
+#[cfg(target_os = "linux")]
+mod metadata;
+#[cfg(target_os = "linux")]
+mod platform;
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    // Report failure until this binary has a working entry point.
+    #[cfg(target_os = "linux")]
+    if let Err(error) = platform::run() {
+        eprintln!("marsa-agent: {error}");
+    }
+    #[cfg(not(target_os = "linux"))]
+    eprintln!("marsa-agent requires a Linux guest.");
     ExitCode::FAILURE
 }

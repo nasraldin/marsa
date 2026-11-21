@@ -120,12 +120,12 @@ Requirements:
 
 ## `marsa-agent`
 
-The guest end of the control channel. It listens on a vsock port and speaks the [versioned, size-limited guest protocol](../crates/marsa-proto/PROTOCOL.md#guest-control-channel).
+The guest end of the control channel. It listens on vsock port 5000 and accepts connections from the host CID. It speaks the [versioned, size-limited guest protocol](../crates/marsa-proto/PROTOCOL.md#guest-control-channel).
 
 | Function | Direction | Detail |
 |---|---|---|
 | Handshake | Guest to host | Protocol version, guest image version, boot timings |
-| Time sync | Host to guest | Set the clock at boot and after every host wake |
+| Time sync | Host to guest | The first successful clock update releases PID 1 to start the engine. The host can update the clock after a wake. |
 | Network config | Host to guest | DNS servers, search domains, proxy variables for dockerd |
 | CA certificates | Host to guest | Host-trusted certificates added to the guest trust store |
 | Port events | Guest to host | A container published or released a port |
