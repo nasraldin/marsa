@@ -19,6 +19,7 @@ unsafe extern "C" {
     fn marsa_vz_start(
         root: *const c_char,
         serial: i32,
+        writable_share: i32,
         context: *mut c_void,
         callback: Callback,
     ) -> *mut c_void;
@@ -53,6 +54,7 @@ pub fn start(inputs: &VmInputs<'_>, sender: Sender<Event>) -> io::Result<Box<dyn
         marsa_vz_start(
             path.as_ptr(),
             inputs.serial.as_raw_fd(),
+            i32::from(inputs.writable_share),
             callback.cast::<c_void>().as_ptr(),
             receive,
         )

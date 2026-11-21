@@ -31,6 +31,7 @@ pub enum Backend {
 pub struct VmInputs<'a> {
     pub fixtures: &'a Path,
     pub serial: BorrowedFd<'a>,
+    pub writable_share: bool,
 }
 
 pub enum Event {
@@ -63,6 +64,7 @@ pub fn run(
     fixtures: &Path,
     console: &Path,
     script: Option<&Path>,
+    writable_share: bool,
 ) -> io::Result<()> {
     validate_fixtures(fixtures)?;
     let script = read_script(script)?;
@@ -79,6 +81,7 @@ pub fn run(
     let inputs = VmInputs {
         fixtures,
         serial: guest_serial.as_fd(),
+        writable_share,
     };
     let vm = match backend {
         Backend::Rust => super::native::start(&inputs, sender.clone())?,

@@ -1,0 +1,12 @@
+[package]
+name = "marsa-virtiofs-spike"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { version = "=0.32.0", features = ["inotify", "user"] }
+
+[lints]
+workspace = true

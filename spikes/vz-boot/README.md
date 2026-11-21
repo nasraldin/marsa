@@ -54,3 +54,30 @@ test shell, so another script can mount it with its own mount options. Use a
 fresh, owner-only fixture directory and temporary data for each experiment.
 Keep the fixture tree under your control for the whole run. The framework
 opens the checked files by path.
+
+## Virtiofs correctness and timings
+
+Build optimized native and Linux versions of the same filesystem probe.
+The host runner still needs the virtualization entitlement after rebuilding.
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked --release -p marsa-vz-spike -p marsa-virtiofs-spike
+codesign --force --sign - --timestamp=none --entitlements entitlement.plist target/release/marsa-vz-spike
+codesign --verify --strict target/release/marsa-vz-spike
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
+  cargo build --locked --release --target aarch64-unknown-linux-musl \
+  -p marsa-vsock-spike-guest -p marsa-virtiofs-spike
+
+scratch=$(mktemp -d)
+set -o pipefail
+python3 -u virtiofs.py correctness "$scratch/check" | tee "$scratch/check.txt"
+python3 -u virtiofs.py benchmark "$scratch/timing-1" --first native | tee "$scratch/timing-1.txt"
+python3 -u virtiofs.py benchmark "$scratch/timing-2" --first guest | tee "$scratch/timing-2.txt"
+python3 -u virtiofs.py benchmark "$scratch/timing-3" --first native | tee "$scratch/timing-3.txt"
+```
+
+Pass `--iso <path>` to reuse the same downloaded Alpine image. The benchmark
+creates and ejects only its temporary APFS images. Keep the Mac idle during
+timings. The correctness helper opts into `--writable-share` for its newly
+created fixture only. The runner otherwise uses a read-only virtiofs share.
+[Measurements and findings](../../docs/spikes/M1-04-virtiofs.md)

@@ -21,10 +21,10 @@ private final class Session: NSObject, VZVirtualMachineDelegate {
     private var connection: VZVirtioSocketConnection?
     private var active = true
 
-    init(root: URL, serial: Int32, context: UnsafeMutableRawPointer, callback: MarsaEvent) throws {
+    init(root: URL, serial: Int32, writableShare: Bool, context: UnsafeMutableRawPointer, callback: MarsaEvent) throws {
         self.context = context
         self.callback = callback
-        let (config, peer) = try configure(root: root, serial: serial)
+        let (config, peer) = try configure(root: root, serial: serial, writableShare: writableShare)
         self.networkPeer = peer
         self.vm = VZVirtualMachine(configuration: config)
         super.init()
@@ -85,7 +85,7 @@ private final class Session: NSObject, VZVirtualMachineDelegate {
     }
 }
 
-private func configure(root: URL, serial: Int32) throws -> (VZVirtualMachineConfiguration, FileHandle) {
+private func configure(root: URL, serial: Int32, writableShare: Bool) throws -> (VZVirtualMachineConfiguration, FileHandle) {
     let configuration = VZVirtualMachineConfiguration()
     configuration.cpuCount = 2
     configuration.memorySize = 1024 * 1024 * 1024
@@ -109,7 +109,7 @@ private func configure(root: URL, serial: Int32) throws -> (VZVirtualMachineConf
     ]
 
     let share = VZVirtioFileSystemDeviceConfiguration(tag: "marsa-spike")
-    let directory = VZSharedDirectory(url: root.appending(path: "share"), readOnly: true)
+    let directory = VZSharedDirectory(url: root.appending(path: "share"), readOnly: !writableShare)
     share.share = VZSingleDirectoryShare(directory: directory)
     configuration.directorySharingDevices = [share]
 
@@ -141,13 +141,13 @@ private func duplicate(_ descriptor: Int32) throws -> FileHandle {
 }
 
 @c public func marsa_vz_start(
-    _ root: UnsafePointer<CChar>, _ serial: Int32, _ context: UnsafeMutableRawPointer,
+    _ root: UnsafePointer<CChar>, _ serial: Int32, _ writableShare: Int32, _ context: UnsafeMutableRawPointer,
     _ callback: MarsaEvent
 ) -> UnsafeMutableRawPointer? {
     precondition(Thread.isMainThread)
     do {
         let path = URL(fileURLWithPath: String(cString: root), isDirectory: true)
-        let session = try Session(root: path, serial: serial, context: context, callback: callback)
+        let session = try Session(root: path, serial: serial, writableShare: writableShare != 0, context: context, callback: callback)
         session.start()
         return Unmanaged.passRetained(session).toOpaque()
     } catch {

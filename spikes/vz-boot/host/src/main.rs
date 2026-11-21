@@ -23,10 +23,11 @@ fn main() -> ExitCode {
 }
 
 fn run() -> io::Result<()> {
-    let mut args = env::args_os().skip(1);
+    let mut args = env::args_os().skip(1).peekable();
+    let writable_share = args.next_if(|arg| arg == "--writable-share").is_some();
     let usage = || {
         io::Error::other(
-            "usage: marsa-vz-spike <rust|swift> <fixture-directory> <console-log> [guest-script]",
+            "usage: marsa-vz-spike [--writable-share] <rust|swift> <fixture-directory> <console-log> [guest-script]",
         )
     };
     let backend = match args
@@ -50,5 +51,11 @@ fn run() -> io::Result<()> {
     if args.next().is_some() {
         return Err(usage());
     }
-    runner::run(backend, &fixtures, &console, script.as_deref())
+    runner::run(
+        backend,
+        &fixtures,
+        &console,
+        script.as_deref(),
+        writable_share,
+    )
 }
