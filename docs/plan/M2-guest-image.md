@@ -19,7 +19,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-02 Minimal kernel
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M2-01
 - **Docs:** [05 Kernel](../05-guest-image.md#kernel)
 - **Do:** Write the arm64 kernel config with only the options containers and the virtual devices need. Build it in the guest build. Run Docker's `check-config.sh` against the config in the build and fail on missing required options.
