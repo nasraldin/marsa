@@ -1,63 +1,37 @@
 //! Dispatch native calls, retain the VM across callbacks and dispose of it on the same queue.
 
+mod devices;
+mod sockets;
+
 use std::{
     cell::RefCell,
     collections::HashMap,
-    os::fd::BorrowedFd,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Weak},
 };
 
 use block2::RcBlock;
 use dispatch2::{DispatchQueue, DispatchRetained};
-use marsa_vm::{NetworkInfo, VmError, VmExitCause, VmState};
+use marsa_vm::{VmError, VmExitCause, VmState};
 use objc2::{
     AnyThread, DefinedClass, define_class, msg_send,
     rc::{Retained, autoreleasepool},
     runtime::ProtocolObject,
 };
-use objc2_foundation::{NSError, NSObject, NSObjectProtocol, NSPOSIXErrorDomain};
+use objc2_foundation::{NSError, NSObject, NSObjectProtocol};
 use objc2_virtualization::{
-    VZVirtioSocketConnection, VZVirtioSocketDevice, VZVirtioTraditionalMemoryBalloonDevice,
-    VZVirtualMachine, VZVirtualMachineConfiguration, VZVirtualMachineDelegate,
-    VZVirtualMachineState,
+    VZVirtioSocketConnection, VZVirtualMachine, VZVirtualMachineDelegate, VZVirtualMachineState,
 };
 use tokio::sync::{oneshot, watch};
 
+pub(super) use self::devices::Power;
+use self::devices::PowerChange;
 use super::{
     configuration,
-    spec::{MIB, Prepared},
-    state::{Lifecycle, backend, invalid_spec},
-    vsock::{self, CONNECT, Connected, Lease},
+    spec::Prepared,
+    state::{Lifecycle, backend},
 };
 
 pub(super) type Reply = oneshot::Sender<Result<(), VmError>>;
-
-struct PowerChange {
-    reply: Reply,
-    finished: watch::Sender<bool>,
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum Power {
-    Pause,
-    Resume,
-}
-
-impl Power {
-    pub(super) fn name(self) -> &'static str {
-        match self {
-            Self::Pause => "pause",
-            Self::Resume => "resume",
-        }
-    }
-
-    fn states(self) -> (VmState, VmState) {
-        match self {
-            Self::Pause => (VmState::Running, VmState::Paused),
-            Self::Resume => (VmState::Paused, VmState::Running),
-        }
-    }
-}
 
 pub(super) enum StopRequest {
     WaitForStart,
@@ -246,250 +220,6 @@ impl Controller {
         self.cleanup();
     }
 
-    pub(super) fn change_power(self: &Arc<Self>, power: Power, reply: Reply) {
-        let mut slot = self.slot.0.borrow_mut();
-        let state = self.lifecycle.current();
-        let Slot {
-            machine,
-            power_change,
-            ..
-        } = &mut *slot;
-        let Some(machine) = machine else {
-            let _ = reply.send(Err(backend(power.name(), "the native VM is unavailable")));
-            return;
-        };
-        // SAFETY: Native state is inspected and changed only on the VM queue.
-        let ready = unsafe {
-            match power {
-                Power::Pause => machine.vm.canPause(),
-                Power::Resume => machine.vm.canResume(),
-            }
-        };
-        if power_change.is_some() || state != power.states().0 || !ready {
-            let _ = reply.send(Err(VmError::InvalidState {
-                operation: power.name(),
-                state,
-            }));
-            return;
-        }
-        *power_change = Some(PowerChange {
-            reply,
-            finished: watch::channel(false).0,
-        });
-        let controller = self.clone();
-        let completion = RcBlock::new(move |error: *mut NSError| {
-            controller.queue.assert();
-            let error = callback_error(error);
-            // Enqueue completion to keep an inline callback out of the slot.
-            controller.submit(move |controller| controller.power_changed(power, error));
-        });
-        // SAFETY: The framework checked the legal transition on this serial queue.
-        unsafe {
-            match power {
-                Power::Pause => machine.vm.pauseWithCompletionHandler(&completion),
-                Power::Resume => machine.vm.resumeWithCompletionHandler(&completion),
-            }
-        }
-    }
-
-    fn power_changed(self: &Arc<Self>, power: Power, error: Option<String>) {
-        let change = self.slot.0.borrow_mut().power_change.take();
-        let (previous, current) = power.states();
-        let result = if let Some(detail) = error {
-            Err(backend(power.name(), detail))
-        } else if self.lifecycle.current() == previous {
-            self.lifecycle.transition(current);
-            Ok(())
-        } else {
-            Err(backend(power.name(), "the VM exited during the transition"))
-        };
-        if let Some(change) = change {
-            change.finished.send_replace(true);
-            let _ = change.reply.send(result);
-        }
-        self.cleanup();
-    }
-
-    pub(super) fn set_memory_target(&self, bytes: u64) -> Result<(), VmError> {
-        let slot = self.slot.0.borrow();
-        let state = self.lifecycle.current();
-        if state != VmState::Running || slot.power_change.is_some() {
-            return Err(VmError::InvalidState {
-                operation: "set memory target",
-                state,
-            });
-        }
-        let machine = slot
-            .machine
-            .as_ref()
-            .ok_or_else(|| backend("set memory target", "the native VM is unavailable"))?;
-        // SAFETY: The configured VM and its balloon are used on their owning queue.
-        unsafe {
-            let minimum = VZVirtualMachineConfiguration::minimumAllowedMemorySize();
-            if !bytes.is_multiple_of(MIB) || !(minimum..=machine.memory_bytes).contains(&bytes) {
-                return Err(invalid_spec(
-                    "memory_target",
-                    format!(
-                        "use 1 MiB increments between {minimum} and {} bytes",
-                        machine.memory_bytes
-                    ),
-                ));
-            }
-            let balloon = machine
-                .vm
-                .memoryBalloonDevices()
-                .firstObject()
-                .and_then(|device| {
-                    device
-                        .downcast::<VZVirtioTraditionalMemoryBalloonDevice>()
-                        .ok()
-                })
-                .ok_or_else(|| backend("set memory target", "the VM has no memory balloon"))?;
-            balloon.setTargetVirtualMachineMemorySize(bytes);
-            if balloon.targetVirtualMachineMemorySize() != bytes {
-                return Err(backend(
-                    "set memory target",
-                    "Virtualization.framework changed the requested target",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn publish_network(
-        &self,
-        observed: &watch::Receiver<VmState>,
-        facts: Option<NetworkInfo>,
-    ) -> bool {
-        // Compare the observed state on the queue that orders all transitions.
-        if matches!(observed.has_changed(), Ok(false))
-            && self.slot.0.borrow().power_change.is_none()
-        {
-            self.lifecycle.set_network(facts);
-        }
-        self.lifecycle.network().is_some()
-    }
-
-    pub(super) fn connect_socket(self: &Arc<Self>, port: u32, reply: vsock::Reply) {
-        if reply.is_closed() {
-            return;
-        }
-        let (device, generation, id) = match self.socket_request() {
-            Ok(request) => request,
-            Err(error) => {
-                let _ = reply.send(Err(error));
-                return;
-            }
-        };
-        let controller = Arc::downgrade(self);
-        let reply = Mutex::new(Some(reply));
-        let completion = RcBlock::new(
-            move |connection: *mut VZVirtioSocketConnection, error: *mut NSError| {
-                let Some(controller) = controller.upgrade() else {
-                    return;
-                };
-                controller.queue.assert();
-                let reply = reply
-                    .lock()
-                    .unwrap_or_else(|poison| poison.into_inner())
-                    .take();
-                if let Some(reply) = reply.filter(|reply| !reply.is_closed()) {
-                    // SAFETY: VZ lends a null or live connection during this callback.
-                    let connection = unsafe { Retained::retain(connection) };
-                    let result = controller.connected(port, id, &generation, connection, error);
-                    // A cancelled receiver drops the descriptor and schedules the native release.
-                    let _ = reply.send(result);
-                }
-            },
-        );
-        // SAFETY: The device belongs to this running VM on this queue. No slot borrow
-        // is held since the framework can invoke the completion inline.
-        unsafe { device.connectToPort_completionHandler(port, &completion) };
-    }
-
-    fn socket_request(&self) -> Result<(Retained<VZVirtioSocketDevice>, Arc<()>, u64), VmError> {
-        self.require_running()?;
-        let mut slot = self.slot.0.borrow_mut();
-        if slot.power_change.is_some() {
-            return Err(VmError::InvalidState {
-                operation: CONNECT,
-                state: self.lifecycle.current(),
-            });
-        }
-        let id = slot.next_socket;
-        slot.next_socket = id
-            .checked_add(1)
-            .ok_or_else(|| backend(CONNECT, "the socket lease IDs are exhausted"))?;
-        let machine = slot
-            .machine
-            .as_ref()
-            .ok_or_else(|| backend(CONNECT, "the native VM is unavailable"))?;
-        // SAFETY: The machine and its devices are accessed on the owning queue.
-        let device = unsafe { machine.vm.socketDevices() }
-            .firstObject()
-            .and_then(|device| device.downcast::<VZVirtioSocketDevice>().ok())
-            .ok_or_else(|| backend(CONNECT, "the VM has no virtio socket device"))?;
-        Ok((device, machine.generation.clone(), id))
-    }
-
-    fn connected(
-        self: &Arc<Self>,
-        port: u32,
-        id: u64,
-        generation: &Arc<()>,
-        connection: Option<Retained<VZVirtioSocketConnection>>,
-        error: *mut NSError,
-    ) -> Result<Connected, VmError> {
-        self.require_running()?;
-        let mut slot = self.slot.0.borrow_mut();
-        let machine = slot
-            .machine
-            .as_mut()
-            .filter(|machine| Arc::ptr_eq(&machine.generation, generation))
-            .ok_or_else(|| backend(CONNECT, "the VM restarted during the connection attempt"))?;
-        // SAFETY: The framework lends a null or live NSError for this callback.
-        let connection = connection.ok_or_else(|| socket_error(port, unsafe { error.as_ref() }))?;
-        // SAFETY: The connection is used on the VM queue and owns its descriptor.
-        let fd = unsafe { connection.fileDescriptor() };
-        if fd < 0 {
-            return Err(backend(CONNECT, "the native socket is already closed"));
-        }
-        // SAFETY: The retained connection outlives the borrow during duplication.
-        let fd = unsafe { BorrowedFd::borrow_raw(fd) }
-            .try_clone_to_owned()
-            .map_err(vsock::io_error)?;
-        machine.sockets.insert(id, connection);
-        Ok(Connected {
-            fd,
-            lease: Lease {
-                controller: self.clone(),
-                id,
-            },
-        })
-    }
-
-    pub(super) fn release_socket(&self, id: u64) {
-        let socket = self
-            .slot
-            .0
-            .borrow_mut()
-            .machine
-            .as_mut()
-            .and_then(|machine| machine.sockets.remove(&id));
-        drop(socket);
-    }
-
-    fn require_running(&self) -> Result<(), VmError> {
-        let state = self.lifecycle.current();
-        if state != VmState::Running {
-            return Err(VmError::InvalidState {
-                operation: CONNECT,
-                state,
-            });
-        }
-        Ok(())
-    }
-
     pub(super) fn request_stop(&self) -> Result<StopRequest, VmError> {
         if let Some(change) = &self.slot.0.borrow().power_change {
             return Ok(StopRequest::WaitForPowerChange(change.finished.subscribe()));
@@ -662,26 +392,4 @@ fn callback_error(error: *mut NSError) -> Option<String> {
     autoreleasepool(|_| {
         unsafe { error.as_ref() }.map(|error| error.localizedDescription().to_string())
     })
-}
-
-fn socket_error(port: u32, error: Option<&NSError>) -> VmError {
-    let Some(error) = error else {
-        return backend(CONNECT, "missing native socket result");
-    };
-    // SAFETY: Foundation provides the POSIX domain as an immutable NSString.
-    if &*error.domain() == unsafe { NSPOSIXErrorDomain }
-        && [libc::ECONNRESET as isize, libc::ECONNREFUSED as isize].contains(&error.code())
-    {
-        // VZ reports ECONNRESET on this platform until the guest starts listening.
-        return VmError::GuestPortUnavailable { port };
-    }
-    backend(
-        CONNECT,
-        format!(
-            "port {port}: {} ({}, {})",
-            error.localizedDescription(),
-            error.domain(),
-            error.code()
-        ),
-    )
 }
