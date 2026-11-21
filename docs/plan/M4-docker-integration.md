@@ -119,9 +119,9 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 ### M4-10 User-space network mode and automatic selection
 
 - **Status:** todo
-- **Depends on:** M4-09, M3-14
+- **Depends on:** M4-09, M3-15
 - **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection), V-07
-- **Do:** Use the qualified transport and helper from M3-14. Implement `userspace` port forwarding and the `auto` probe and switch with events. Respect a pinned mode.
+- **Do:** Use the qualified transport from M3-14 and boot-time mode selection from M3-15. Implement `userspace` port forwarding and network-change recovery with events. Respect a pinned mode.
 - **Deliver:** user-space mode, the probe, `Network.SetMode`.
 - **Accept when:**
   - With NAT egress blocked by a firewall rule in a test, `auto` switches to `userspace` and a pull succeeds.

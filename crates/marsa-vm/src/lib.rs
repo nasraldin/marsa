@@ -85,6 +85,11 @@ pub enum VmEvent {
         /// Diagnostic supplied by the backend.
         detail: String,
     },
+    /// The network transport failed while guest control remains available.
+    NetworkUnavailable {
+        /// Diagnostic supplied by the backend.
+        detail: String,
+    },
     /// The consumer lagged. Subscribe again and take a fresh state sample.
     EventsDropped {
         /// Number of lifecycle events the consumer missed.

@@ -184,13 +184,27 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 
 ### M3-14 Qualify the unprivileged user-space transport
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-03, M3-13
 - **Docs:** [06 Network modes](../06-networking.md#network-modes), [11 Security](../11-security.md)
-- **Do:** Attach a private datagram transport to the VZ guest. Pin and supervise the user-space helper. Qualify a helper configuration that honors the scoped macOS resolver, restricts host service access and uses ordinary host egress policy. Leave mode selection and production port forwarding to M4-10.
+- **Do:** Attach a private datagram transport to the VZ guest. Pin and supervise the user-space helper. Qualify a helper configuration that honors the scoped macOS resolver, restricts host service access and uses ordinary host egress policy. Leave boot mode selection to M3-15 and production port forwarding to M4-10.
 - **Deliver:** A supported VZ user-space attachment, dependency and licence evidence, and an entitled system test.
 - **Accept when:**
   - The packaged guest obtains a lease and reaches a configured HTTPS endpoint with valid TLS through a user-space-only attachment.
   - The helper runs unprivileged, has no public listeners, and releases all resources on stop or abnormal exit.
   - Tests verify scoped resolver behavior and denied access to unapproved host loopback and metadata endpoints.
   - Tests cover the helper being unavailable or blocked and show a bounded, diagnosable outcome.
+- **Evidence:** The entitled VM obtained a DHCP lease, resolved a temporary macOS scoped DNS record and pulled an image from Docker Hub over verified TLS on macOS 27.2.1 with NordVPN, LuLu and the macOS firewall active. The socketpair and Rust tests verify destination restrictions, helper readiness, timeout, restart and cleanup.
+
+### M3-15 Select the network mode before Docker starts
+
+- **Status:** todo
+- **Depends on:** M3-06, M3-07, M3-14
+- **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection)
+- **Do:** Add versioned guest control to synchronize time and probe HTTPS before allowing Docker to start. Pair guest and host evidence by destination, address family and policy. Select native NAT or one user-space candidate for an automatic boot. Keep configured modes pinned and release the engine even when external connectivity is unavailable. Leave packaged runtime wiring to M3-12 and port forwarding and network-change transitions to M4-10.
+- **Deliver:** Guest control negotiation, typed connectivity results and a boot-only supervisor selector with fake and entitled system tests.
+- **Accept when:**
+  - A healthy native path and explicitly selected modes never restart to switch.
+  - With native IPv4 forwarding unavailable and equivalent host HTTPS healthy, auto selects a verified user-space path before starting Docker.
+  - A host failure, unknown proxy policy, TLS validation failure or incompatible guest leaves local Docker available without a false recovery claim.
+  - The supervisor confirms the first guest is stopped before reusing its data disk, and exposes the active mode and failure stage in daemon status and events.

@@ -40,7 +40,15 @@ flowchart TB
 
 ### The user-space stack
 
-**Proposed:** run gvisor-tap-vsock's `gvproxy` as a bundled helper process for version 1. It is proven, it is used by Podman and Lima, and it already provides DHCP, DNS and port forwarding. A pure-Rust stack is a possible later optimisation, not a version 1 goal.
+The VZ backend supports an opt-in helper built from the signed and checksum-pinned
+gvisor-tap-vsock v0.9.0 source. Marsa runs its own small entry point over an inherited
+connected datagram socket. The helper provides IPv4 DHCP and ordinary host-socket
+egress. Conventional guest DNS uses the macOS scoped resolver. Each activation
+has its own process, bounded readiness, guest frame validation, and egress limits.
+The helper has no listening host port. The default alias to host loopback is absent.
+The helper rejects host interface addresses, loopback and metadata destinations.
+A helper exit publishes a network event and leaves guest control alive.
+[Build and verification](../network-helper/README.md).
 
 ## Automatic mode selection
 
@@ -91,8 +99,25 @@ enabled, including LuLu's documented limits on hostname-based filtering.
 
 [M3-14](plan/M3-vm-and-daemon.md#m3-14-qualify-the-unprivileged-user-space-transport)
 owns the transport and helper qualification.
+[M3-15](plan/M3-vm-and-daemon.md#m3-15-select-the-network-mode-before-docker-starts)
+owns automatic selection during boot.
 [M4-10](plan/M4-docker-integration.md#m4-10-user-space-network-mode-and-automatic-selection)
-owns automatic selection and the recovery policy.
+owns transitions after boot and the port-forwarding policy.
+
+The production helper in an entitled VM test reached the upstream Docker registry with NordVPN, LuLu and
+the macOS firewall active. A local-only DNS-SD record resolved through the guest
+and matched the macOS resolver. This Mac's independently configured lab resolver
+timed out from the host during the VPN test. Positive qualification against that
+resolver needs a reachable endpoint. The previous native test separately reached
+HTTPS over IPv6 after router advertisement and timed out over IPv4.
+
+Apple's published XNU source initializes host-wide IPv4 forwarding to zero.
+A live zero is consistent with the default and does not identify the process or
+configuration that last set it. Apple documents its native NAT attachment as the
+routing and translation mechanism. Marsa uses the forwarding value only as
+diagnostic context and offers user-space networking as the alternative.
+[Apple XNU default](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/netinet/ip_input.c#L192-L195)
+· [Apple native NAT](https://developer.apple.com/documentation/virtualization/vznatnetworkdeviceattachment).
 
 ## Published ports
 
