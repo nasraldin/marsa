@@ -56,7 +56,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-05 `marsad` skeleton
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-04, M0-05
 - **Docs:** [03 Process supervision](../03-host-daemon.md#process-supervision), [03 Observability](../03-host-daemon.md#observability)
 - **Do:** Create the daemon binary: single-instance lock, directory creation with correct modes, structured logging with rotation, settings load, graceful shutdown on signals, and the gRPC server on `marsad.sock` with the `Meta` service only.
