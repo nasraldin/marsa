@@ -141,3 +141,30 @@ fn errors_keep_original_config_values_private() {
         assert!(!format!("{error:?}").contains("sensitive-marker"));
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_share_paths_are_rejected_before_serialization() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let mut settings = Settings::default();
+    settings
+        .shares
+        .push(OsString::from_vec(b"/tmp/non-utf8-\xff".to_vec()).into());
+
+    assert!(matches!(
+        settings.validate(),
+        Err(SettingsError::InvalidValue {
+            field: "shares",
+            ..
+        })
+    ));
+    assert!(matches!(
+        settings.to_toml(),
+        Err(SettingsError::InvalidValue {
+            field: "shares",
+            ..
+        })
+    ));
+}

@@ -105,11 +105,11 @@ impl Settings {
         if self
             .shares
             .iter()
-            .any(|path| validate_directory(path).is_err())
+            .any(|path| path.to_str().is_none() || validate_directory(path).is_err())
         {
             return Err(SettingsError::invalid(
                 "shares",
-                "paths must be absolute non-root directories without parent traversal or NUL bytes",
+                "paths must be absolute, non-root UTF-8 paths without parent traversal or NUL bytes",
             ));
         }
         if self.telemetry.enabled {
