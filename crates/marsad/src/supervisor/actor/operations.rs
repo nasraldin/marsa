@@ -187,7 +187,7 @@ impl Actor {
                 stage: BootStage::Shutdown,
                 timed_out: false,
                 detail: error.to_string(),
-                console_tail: platform::console_tail(self.spec.console_log.clone()).await,
+                console_tail: platform::console_tail(self.runtime.console_log.clone()).await,
             });
             self.set_state(State::Failed, Some(failure));
             return Err(error);
@@ -214,7 +214,10 @@ impl Actor {
         self.cancel_boot = None;
         self.progress = None;
         match outcome {
-            Ok(Outcome::Ready(guest)) => {
+            Ok(Outcome::Ready(mut guest)) => {
+                if let Some(applied) = guest.applied.take() {
+                    applied();
+                }
                 self.booting();
                 self.guest = Some(guest);
                 self.ready();
@@ -254,10 +257,14 @@ impl Actor {
             stage: issue.stage,
             timed_out,
             detail,
-            console_tail: platform::console_tail(self.spec.console_log.clone()).await,
+            console_tail: if issue.stage == BootStage::Prepare {
+                String::new()
+            } else {
+                platform::console_tail(self.runtime.console_log.clone()).await
+            },
         });
         self.set_state(State::Failed, Some(failure.clone()));
-        if self.retries_left > 0 && stop.is_ok() {
+        if self.retries_left > 0 && stop.is_ok() && issue.stage != BootStage::Prepare {
             self.retries_left -= 1;
             self.retry_at = Some(Instant::now() + self.backoff);
             self.backoff = self

@@ -144,13 +144,7 @@ impl Bus {
         idle_applied: bool,
     ) -> SettingsSnapshot {
         let mut state = self.lock();
-        let restart_required = !idle_applied
-            || state.startup.vm.cpus != settings.vm.cpus
-            || state.startup.vm.backend != settings.vm.backend
-            || state.startup.vm.memory != settings.vm.memory
-            || state.startup.disk.data_size_limit != settings.disk.data_size_limit
-            || state.startup.shares != settings.shares
-            || state.startup.network != settings.network;
+        let restart_required = !idle_applied || restart_changed(&state.startup, &settings);
         state.settings = settings;
         let snapshot = SettingsSnapshot {
             settings_toml: text,
@@ -161,6 +155,20 @@ impl Bus {
         state.publish(Body::Settings(SettingsChanged { revision }));
         let _ = state.settings_events.send(snapshot.clone());
         snapshot
+    }
+
+    pub(super) fn runtime_applied(&self, applied: &Settings) {
+        let mut state = self.lock();
+        state.startup = applied.clone();
+        let required = restart_changed(applied, &state.settings);
+        if state.settings_snapshot.restart_required != required {
+            state.settings_snapshot.restart_required = required;
+            let snapshot = state.settings_snapshot.clone();
+            state.publish(Body::Settings(SettingsChanged {
+                revision: snapshot.revision,
+            }));
+            let _ = state.settings_events.send(snapshot);
+        }
     }
 
     pub(super) fn watch_settings(&self, stop: watch::Receiver<bool>) -> Output<SettingsSnapshot> {
@@ -278,6 +286,15 @@ impl Events for TypedApi {
     }
 }
 
+fn restart_changed(applied: &Settings, desired: &Settings) -> bool {
+    applied.vm.cpus != desired.vm.cpus
+        || applied.vm.backend != desired.vm.backend
+        || applied.vm.memory != desired.vm.memory
+        || applied.disk.data_size_limit != desired.disk.data_size_limit
+        || applied.shares != desired.shares
+        || applied.network != desired.network
+}
+
 fn mode(value: NetworkMode) -> WireMode {
     match value {
         NetworkMode::Auto => WireMode::Auto,
@@ -338,6 +355,27 @@ mod tests {
     use futures_util::StreamExt;
 
     use super::*;
+
+    #[test]
+    fn successful_activation_clears_restart_only_for_the_configuration_it_loaded() {
+        let original = Settings::default();
+        let bus = Bus::new(original.clone()).unwrap();
+        let mut desired = original.clone();
+        desired.vm.memory = Some(1024 * 1024 * 1024);
+        let revision = bus.settings_snapshot().revision + 1;
+        assert!(
+            bus.update_settings(desired.clone(), desired.to_toml().unwrap(), revision, true)
+                .restart_required
+        );
+
+        bus.runtime_applied(&original);
+        assert!(bus.settings_snapshot().restart_required);
+
+        bus.runtime_applied(&desired);
+        let applied = bus.settings_snapshot();
+        assert_eq!(applied.revision, revision);
+        assert!(!applied.restart_required);
+    }
 
     #[tokio::test]
     async fn paused_subscriber_never_receives_a_gap_as_if_it_were_contiguous() {

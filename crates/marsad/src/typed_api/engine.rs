@@ -11,7 +11,7 @@ use tonic::{Request, Response, Status};
 
 use crate::supervisor::{BootStage, State, SupervisorError, Transition};
 
-use super::TypedApi;
+use super::{TypedApi, events::Bus};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum Action {
@@ -23,14 +23,7 @@ pub(super) enum Action {
 impl TypedApi {
     /// Publish a health value from the active, validated guest session.
     pub fn publish_guest_health(&self, health: &EngineHealth) {
-        let health = match health.state() {
-            GuestHealth::Unspecified => return,
-            GuestHealth::Starting => EngineHealthState::Starting,
-            GuestHealth::Ready => EngineHealthState::Ready,
-            GuestHealth::Unhealthy => EngineHealthState::Unhealthy,
-            GuestHealth::Restarting => EngineHealthState::Restarting,
-        };
-        self.inner.events.health(health);
+        publish_health(&self.inner.events, health);
     }
 
     async fn action(
@@ -59,6 +52,17 @@ impl TypedApi {
             .await?;
         Ok(Response::new(status))
     }
+}
+
+pub(super) fn publish_health(events: &Bus, health: &EngineHealth) {
+    let health = match health.state() {
+        GuestHealth::Unspecified => return,
+        GuestHealth::Starting => EngineHealthState::Starting,
+        GuestHealth::Ready => EngineHealthState::Ready,
+        GuestHealth::Unhealthy => EngineHealthState::Unhealthy,
+        GuestHealth::Restarting => EngineHealthState::Restarting,
+    };
+    events.health(health);
 }
 
 #[tonic::async_trait]
@@ -136,6 +140,7 @@ pub(super) fn wire_state(state: State) -> EngineState {
 
 pub(super) fn stage_name(stage: BootStage) -> &'static str {
     match stage {
+        BootStage::Prepare => "prepare",
         BootStage::Create => "create",
         BootStage::Start => "start",
         BootStage::Handshake => "handshake",

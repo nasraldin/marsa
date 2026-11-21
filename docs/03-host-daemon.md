@@ -128,6 +128,20 @@ The backend reports its features through `Capabilities`. The daemon can restart 
 
 ## VM lifecycle
 
+When launched from `Marsa.app/Contents/MacOS`, the daemon resolves the guest
+and the signed network helper from that bundle. A cold activation checks the
+bundle and the guest manifest on a blocking worker before it opens private VM
+storage. It snapshots the current settings for the whole activation, including
+both attempts when automatic network selection tries the user-space helper.
+
+The first valid activation creates the sparse data image in the user's private
+VM directory. Stop and restart reuse that image. A successful restart records
+which settings took effect and clears the restart flag only for that
+configuration. Guest health and statistics flow through the local daemon API.
+The packaged runtime requires an empty folder-share list until M4-05
+provides the protected-path allowlist.
+
+
 ```mermaid
 stateDiagram-v2
     [*] --> Stopped
