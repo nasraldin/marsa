@@ -68,7 +68,7 @@ Spike code lives under `spikes/` and is never shipped. Each spike ends with a wr
 
 ### M1-06 Qualify GPUI for the Marsa desktop
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M1-01
 - **Docs:** [08 GUI](../08-gui.md), [13 GUI tests](../13-testing-and-benchmarks.md#gui-tests), D-004, V-11
 - **Do:** Test the current compatible stable GPUI stack on Apple silicon against the desktop requirements. Reproduce and investigate the Arabic editing failure. Check bilingual rendering, keyboard and accessibility behavior, and representative large lists and streaming logs. Compare the measured evidence with the product plan and identify what needs a production screen or separate validation.

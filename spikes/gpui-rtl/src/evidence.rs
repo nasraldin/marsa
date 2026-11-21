@@ -88,10 +88,15 @@ pub fn capture(destination: &Path) -> Result<()> {
     println!("English centers: {en:?}");
     println!("Arabic centers: {ar:?}");
 
-    cx.update_window(handle, |_, window, cx| {
-        text::run(window)?;
-        input::probe(&view, window, cx)
-    })??;
+    for (variant, mode) in [("ar-light", ThemeMode::Light), ("ar-dark", ThemeMode::Dark)] {
+        println!("Arabic shaping and editing in {variant}");
+        cx.update_window(handle, |_, window, cx| {
+            Theme::change(mode, None, cx);
+            window.render_frame(cx);
+            text::run(window)?;
+            input::probe(&view, window, cx)
+        })??;
+    }
 
     cx.update_window(handle, |_, window, cx| window.click("language-toggle", cx))?;
     let switched_back = cx.update(|cx| view.read(cx).language) == Language::English;
