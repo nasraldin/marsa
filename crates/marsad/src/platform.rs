@@ -1,15 +1,17 @@
 //! Run the Unix daemon and keep its transport and files scoped to the current user.
 
-mod api;
 mod files;
 mod logging;
+#[cfg(target_os = "macos")]
+mod login;
 
 use std::{error::Error, io, time::Duration};
 
 use marsa_core::paths::MarsaPaths;
+use marsad::typed_api::TypedApi;
 use nix::{
     sys::stat::{Mode, umask},
-    unistd::geteuid,
+    unistd::{Uid, geteuid},
 };
 use tokio::{
     signal::unix::{Signal, SignalKind, signal},
@@ -21,14 +23,7 @@ type DaemonError = Box<dyn Error + Send + Sync>;
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(super) fn run() -> Result<(), DaemonError> {
-    let uid = geteuid();
-    if uid.is_root() {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "marsad must run as an unprivileged user",
-        )
-        .into());
-    }
+    let uid = require_unprivileged()?;
     // Set the daemon's private file-creation policy before starting worker threads.
     umask(Mode::S_IRWXG | Mode::S_IRWXO);
     let home =
@@ -44,13 +39,14 @@ pub(super) fn run() -> Result<(), DaemonError> {
 
     let uid = uid.as_raw();
     let mut instance = files::Instance::acquire(&paths, uid)?;
-    let _settings = files::read_settings(&paths, uid)?;
+    let settings = files::read_settings(&paths, uid)?;
+    let api = TypedApi::new(paths.clone(), uid, settings)?;
     let _logging = logging::initialize(&paths, uid)?;
     let socket = instance.publish(&paths, uid)?;
     let serving = runtime.block_on(async {
         let socket = tokio::net::UnixListener::from_std(socket)?;
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
-        serve(socket, uid, signals).await
+        serve(socket, api, signals).await
     });
     let cleanup = instance.cleanup();
     serving?;
@@ -59,13 +55,33 @@ pub(super) fn run() -> Result<(), DaemonError> {
     Ok(())
 }
 
+fn require_unprivileged() -> io::Result<Uid> {
+    let uid = geteuid();
+    if uid.is_root() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            crate::diagnostics::localized(
+                "marsad must run as an unprivileged user",
+                "يجب تشغيل marsad بحساب مستخدم عادي",
+            ),
+        ));
+    }
+    Ok(uid)
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn login(action: &std::ffi::OsStr) -> io::Result<()> {
+    require_unprivileged()?;
+    login::run(action)
+}
+
 async fn serve(
     listener: tokio::net::UnixListener,
-    uid: u32,
+    api: TypedApi,
     signals: Signals,
 ) -> Result<(), DaemonError> {
     let (shutdown, stop) = oneshot::channel();
-    let server = api::serve(listener, uid, async {
+    let server = api.serve(listener, async {
         let _ = stop.await;
     });
     tokio::pin!(server);

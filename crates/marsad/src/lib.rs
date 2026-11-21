@@ -6,3 +6,5 @@ pub mod supervisor;
 
 #[cfg(unix)]
 pub mod guest_control;
+/// Local gRPC services and native runtime composition.
+pub mod typed_api;

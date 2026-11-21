@@ -157,6 +157,8 @@ pub trait GuestSession: Send {
     }
 }
 
+type Observer = Arc<dyn Fn(&Transition) + Send + Sync>;
+
 /// Shared client of one per-user VM supervisor.
 #[derive(Clone)]
 pub struct Supervisor {
@@ -173,6 +175,26 @@ impl Supervisor {
         spec: VmSpec,
         config: SupervisorConfig,
     ) -> Self {
+        Self::spawn_inner(backend, probe, spec, config, None)
+    }
+
+    pub(crate) fn spawn_observed(
+        backend: Arc<dyn Hypervisor>,
+        probe: Arc<dyn GuestProbe>,
+        spec: VmSpec,
+        config: SupervisorConfig,
+        observer: Observer,
+    ) -> Self {
+        Self::spawn_inner(backend, probe, spec, config, Some(observer))
+    }
+
+    fn spawn_inner(
+        backend: Arc<dyn Hypervisor>,
+        probe: Arc<dyn GuestProbe>,
+        spec: VmSpec,
+        config: SupervisorConfig,
+        observer: Option<Observer>,
+    ) -> Self {
         let (commands, input) = mpsc::channel(actor::CHANNEL_CAPACITY);
         let (output, snapshot) = watch::channel(Snapshot {
             state: State::Stopped,
@@ -180,7 +202,19 @@ impl Supervisor {
         });
         let (events, _) = broadcast::channel(actor::CHANNEL_CAPACITY);
         tokio::spawn(
-            actor::Actor::new(backend, probe, spec, config, input, output, events.clone()).run(),
+            actor::Actor::new(
+                backend,
+                probe,
+                spec,
+                config,
+                input,
+                actor::TransitionOutput {
+                    snapshot: output,
+                    events: events.clone(),
+                    observer,
+                },
+            )
+            .run(),
         );
         Self {
             commands,
@@ -199,6 +233,11 @@ impl Supervisor {
         self.request(actor::Command::Stop).await
     }
 
+    /// Atomically stop the current VM and request one new activation.
+    pub async fn restart(&self) -> Result<(), SupervisorError> {
+        self.request(actor::Command::Restart).await
+    }
+
     /// Suspend the guest for a host lifecycle event.
     pub async fn pause(&self) -> Result<(), SupervisorError> {
         self.request(actor::Command::Pause).await
@@ -212,6 +251,16 @@ impl Supervisor {
     /// Report an observed Docker container count for idle detection.
     pub async fn report_containers(&self, count: u32) -> Result<(), SupervisorError> {
         self.request(|reply| actor::Command::ContainerCount(count, reply))
+            .await
+    }
+
+    /// Apply a new idle policy to the running engine or its next boot.
+    pub async fn set_idle_policy(
+        &self,
+        stop: bool,
+        timeout: Duration,
+    ) -> Result<(), SupervisorError> {
+        self.request(|reply| actor::Command::IdlePolicy(stop, timeout, reply))
             .await
     }
 

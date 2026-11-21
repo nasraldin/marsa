@@ -24,8 +24,27 @@ impl Actor {
                 return;
             }
             Command::Stop(reply) => (reply, self.stop().await),
+            Command::Restart(reply) => {
+                if let Err(error) = self.stop().await {
+                    let _ = reply.send(Err(error));
+                } else {
+                    self.ensure_ready(reply);
+                }
+                return;
+            }
             Command::Pause(reply) => (reply, self.pause().await),
             Command::Resume(reply) => (reply, self.resume().await),
+            Command::IdlePolicy(stop, timeout, reply) => {
+                self.config.idle_stop = stop;
+                self.config.idle_timeout = timeout;
+                self.reset_idle();
+                let result = if stop && self.state() == State::Idle {
+                    self.stop().await
+                } else {
+                    Ok(())
+                };
+                (reply, result)
+            }
             Command::ContainerCount(count, reply) => {
                 self.container_count(count);
                 (reply, Ok(()))
@@ -42,7 +61,7 @@ impl Actor {
                 let _ = reply.send(Ok(()));
             }
             State::Failed if self.retry_at.is_none() => {
-                let failure = self.snapshot.borrow().failure.clone();
+                let failure = self.output.snapshot.borrow().failure.clone();
                 let error = failure.map_or(SupervisorError::Closed, SupervisorError::Boot);
                 let _ = reply.send(Err(error));
             }
