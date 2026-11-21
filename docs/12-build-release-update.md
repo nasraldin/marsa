@@ -62,7 +62,7 @@ Marsa.app/
     ├── Resources/
     │   ├── bin/                       # upstream docker, compose, buildx, credential helper
     │   ├── guest/
-    │   │   ├── vmlinux
+    │   │   ├── Image
     │   │   ├── rootfs.img
     │   │   └── guest-manifest.json
     │   ├── locales/

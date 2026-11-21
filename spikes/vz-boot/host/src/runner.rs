@@ -35,6 +35,7 @@ pub struct VmInputs<'a> {
     pub fixtures: &'a Path,
     pub serial: BorrowedFd<'a>,
     pub writable_share: bool,
+    pub read_only_root: bool,
     pub via_init: bool,
 }
 
@@ -53,6 +54,7 @@ pub trait Vm {
 
 #[derive(Default)]
 struct Progress {
+    read_only_root: bool,
     started: bool,
     devices: bool,
     listening: bool,
@@ -64,16 +66,27 @@ struct Progress {
     shutdown_sent: bool,
 }
 
+pub struct BootOptions {
+    pub writable_share: bool,
+    pub read_only_root: bool,
+    pub via_init: bool,
+    pub guest_control: bool,
+}
+
 pub fn run(
     backend: Backend,
     fixtures: &Path,
     console: &Path,
     script: Option<&Path>,
-    writable_share: bool,
-    via_init: bool,
-    guest_control: bool,
+    options: BootOptions,
 ) -> io::Result<()> {
-    validate_fixtures(fixtures)?;
+    let BootOptions {
+        writable_share,
+        read_only_root,
+        via_init,
+        guest_control,
+    } = options;
+    validate_fixtures(fixtures, read_only_root)?;
     let script = read_script(script, guest_control)?;
     let (mut stream, guest_serial) = UnixStream::pair()?;
     stream.set_read_timeout(Some(Duration::from_millis(10)))?;
@@ -89,6 +102,7 @@ pub fn run(
         fixtures,
         serial: guest_serial.as_fd(),
         writable_share,
+        read_only_root,
         via_init,
     };
     let vm = match backend {
@@ -99,7 +113,10 @@ pub fn run(
     drop(guest_serial);
 
     let deadline = Instant::now() + DEADLINE;
-    let mut progress = Progress::default();
+    let mut progress = Progress {
+        read_only_root,
+        ..Progress::default()
+    };
     let mut connect_at = Instant::now();
     let mut connect_error = None;
     let mut capture = SerialCapture::default();
@@ -142,7 +159,7 @@ pub fn run(
                 Event::Stopped => {
                     if !progress.shutdown_sent {
                         return Err(io::Error::other(
-                            "guest stopped before the runner requested shutdown",
+                            "guest stopped before completing the boot checks",
                         ));
                     }
                     transcript.flush()?;
@@ -165,10 +182,10 @@ pub fn run(
             progress.commands_sent = true;
         }
         if progress.commands_finished && !progress.shutdown_sent {
-            // Leave the interactive shell running until its serial output has been verified.
+            // EROFS fixture mode powers off directly after checking the root mount.
             if via_init {
                 stream.write_all(b"busybox kill -TERM 1\n")?;
-            } else {
+            } else if !read_only_root {
                 stream.write_all(b"busybox sync\nbusybox poweroff -f\n")?;
             }
             progress.shutdown_sent = true;
@@ -252,12 +269,17 @@ fn exchange(fd: OwnedFd, sender: Sender<Event>, guest_control: bool) {
     let _ = sender.send(event);
 }
 
-fn validate_fixtures(root: &Path) -> io::Result<()> {
+fn validate_fixtures(root: &Path, read_only_root: bool) -> io::Result<()> {
     let directory = symlink_metadata(root)?;
     if !directory.is_dir() || directory.mode() & 0o077 != 0 {
         return Err(io::Error::other("fixture root must be a private directory"));
     }
-    for name in ["Image", "initramfs", "modules.img", "data.img"] {
+    let files = if read_only_root {
+        &["Image", "rootfs.img"][..]
+    } else {
+        &["Image", "initramfs", "modules.img", "data.img"][..]
+    };
+    for &name in files {
         let metadata = symlink_metadata(root.join(name))?;
         if !metadata.is_file() || metadata.len() == 0 {
             return Err(io::Error::other(format!(
@@ -270,7 +292,7 @@ fn validate_fixtures(root: &Path) -> io::Result<()> {
             ));
         }
     }
-    if !symlink_metadata(root.join("share"))?.is_dir() {
+    if !read_only_root && !symlink_metadata(root.join("share"))?.is_dir() {
         return Err(io::Error::other("share must be a fixture directory"));
     }
     Ok(())

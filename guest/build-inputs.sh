@@ -49,7 +49,7 @@ case "$stage" in
         fetch "$5" "$6"
         /bin/sh /usr/local/lib/marsa/rootfs/build.sh "$4" "$6" "$scratch"
         ;;
-    image|all)
+    all)
         fetch "$1" "$2"
         fetch "$3" "$4"
         fetch "$5" "$6"

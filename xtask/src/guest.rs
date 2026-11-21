@@ -2,11 +2,13 @@
 
 use std::{
     ffi::OsString,
-    fs, io,
+    fs::{self, File},
+    io::{self, Write},
     path::Path,
     process::{Command, ExitCode},
 };
 
+use marsa_core::guest_manifest::{GuestComponentVersions, GuestManifest};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -14,8 +16,9 @@ use serde::Deserialize;
 struct Versions {
     kernel: Release,
     alpine: Alpine,
-    docker: Release,
+    docker: Docker,
     moby: Checksum,
+    erofs: Version,
 }
 
 #[derive(Deserialize)]
@@ -23,6 +26,23 @@ struct Versions {
 struct Release {
     version: String,
     sha256: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Docker {
+    version: String,
+    sha256: String,
+    buildkit: String,
+    containerd: String,
+    runc: String,
+    docker_init: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Version {
+    version: String,
 }
 
 #[derive(Deserialize)]
@@ -70,13 +90,16 @@ fn build(stage: &str) -> io::Result<()> {
     let guest = workspace.join("guest");
     let pins = fs::read_to_string(guest.join("versions.toml"))?;
     let versions: Versions = toml::from_str(&pins).map_err(io::Error::other)?;
-    let inputs = versions.inputs()?;
     let output = workspace.join("target/guest");
     fs::create_dir_all(&output)?;
     let output = output.canonicalize()?;
     let mount = format!("type=bind,source={},target=/output", output.display());
     let user = format!("{}:{}", native_id("-u")?, native_id("-g")?);
-    let image = docker_image(&guest)?;
+    if stage == "image" {
+        return assemble_image(&guest, &output, &user, &versions);
+    }
+    let inputs = versions.inputs()?;
+    let image = docker_image(&guest, &["--target", "inputs"])?;
     let status = Command::new("docker")
         .args([
             "run",
@@ -97,7 +120,7 @@ fn build(stage: &str) -> io::Result<()> {
         )));
     }
     if matches!(stage, "kernel" | "all") {
-        let image = docker_image(&guest.join("kernel"))?;
+        let image = docker_image(&guest.join("kernel"), &[])?;
         let status = Command::new("docker")
             .args([
                 "run",
@@ -122,6 +145,88 @@ fn build(stage: &str) -> io::Result<()> {
             )));
         }
     }
+    if stage == "all" {
+        assemble_image(&guest, &output, &user, &versions)?;
+    }
+    Ok(())
+}
+
+fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) -> io::Result<()> {
+    let kernel = File::open(output.join("Image")).map_err(|error| {
+        io::Error::other(format!(
+            "could not read Image (run cargo xtask guest kernel): {error}"
+        ))
+    })?;
+    let rootfs_tar = output.join("rootfs.tar");
+    if !rootfs_tar.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "missing rootfs.tar (run cargo xtask guest rootfs)",
+        ));
+    }
+    let staging = tempfile::tempdir_in(output)?;
+    let stage_mount = format!(
+        "type=bind,source={},target=/output",
+        staging.path().display()
+    );
+    let tar_mount = format!(
+        "type=bind,source={},target=/rootfs.tar,readonly",
+        rootfs_tar.display()
+    );
+    let image = docker_image(guest, &["--target", "image"])?;
+    let status = Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "--pull=never",
+            "--read-only",
+            "--network=none",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+        ])
+        .args([
+            "--user",
+            user,
+            "--mount",
+            &stage_mount,
+            "--mount",
+            &tar_mount,
+        ])
+        .args([&image, &versions.erofs.version])
+        .status()?;
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "image builder exited with {status}"
+        )));
+    }
+
+    let rootfs_path = staging.path().join("rootfs.img");
+    let rootfs = File::open(&rootfs_path)?;
+    let manifest = GuestManifest::create(
+        env!("CARGO_PKG_VERSION").to_owned(),
+        GuestComponentVersions {
+            linux: versions.kernel.version.clone(),
+            alpine: versions.alpine.version.clone(),
+            docker: versions.docker.version.clone(),
+            buildkit: versions.docker.buildkit.clone(),
+            containerd: versions.docker.containerd.clone(),
+            runc: versions.docker.runc.clone(),
+            docker_init: versions.docker.docker_init.clone(),
+            erofs_utils: versions.erofs.version.clone(),
+        },
+        kernel,
+        rootfs,
+    )
+    .map_err(io::Error::other)?;
+    let manifest_path = staging.path().join("guest-manifest.json");
+    {
+        let mut file = File::create(&manifest_path)?;
+        file.write_all(&manifest.to_json().map_err(io::Error::other)?)?;
+        file.write_all(b"\n")?;
+    }
+    fs::rename(rootfs_path, output.join("rootfs.img"))?;
+    fs::rename(manifest_path, output.join("guest-manifest.json"))?;
+    println!("Wrote rootfs.img and guest-manifest.json");
     Ok(())
 }
 
@@ -177,9 +282,10 @@ impl Versions {
     }
 }
 
-fn docker_image(guest: &Path) -> io::Result<String> {
+fn docker_image(guest: &Path, args: &[&str]) -> io::Result<String> {
     let output = Command::new("docker")
         .args(["build", "--quiet"])
+        .args(args)
         .arg(guest)
         .output()
         .map_err(|error| io::Error::new(error.kind(), format!("could not run Docker: {error}")))?;

@@ -61,6 +61,24 @@ fresh, owner-only fixture directory and temporary data for each experiment.
 Keep the fixture tree under your control for the whole run. The framework
 opens the checked files by path.
 
+## Read-only EROFS root
+
+Build the Rust runner and apply the virtualization entitlement as above. Run
+`cargo xtask guest all` from the repository root to build the kernel and image.
+Then run from this directory:
+
+```sh
+workspace=$(git rev-parse --show-toplevel)
+scratch=$(mktemp -d)
+cp "$workspace/target/guest/Image" "$workspace/target/guest/rootfs.img" "$scratch/"
+target/debug/marsa-vz-spike --read-only-root rust "$scratch" "$scratch/console.log"
+```
+
+This test boots the kernel directly with `root=/dev/vda rootfstype=erofs ro`.
+PID 1 checks that `/` is mounted read-only and the engine executable is
+present, attempts a write to the root, and shuts down after the write fails.
+The runner requires the serial success marker and the shutdown callback.
+
 ## Virtiofs correctness and timings
 
 Build optimized native and Linux versions of the same filesystem probe.

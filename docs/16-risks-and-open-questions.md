@@ -45,7 +45,6 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | V-12 | Which tools ignore Docker contexts | [09](09-cli-and-docker-compat.md) | M4-04 |
 | V-14 | Login-item and agent registration API on the minimum macOS | [03](03-host-daemon.md) | M3-09 |
 | V-16 | Licences of the fonts to bundle | [08](08-gui.md) | M6-02 |
-| V-17 | Root filesystem format support (EROFS versus SquashFS) in the chosen kernel and tools | [05](05-guest-image.md) | M2-04 |
 
 ### Verified findings
 
@@ -55,6 +54,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | V-03 | All planned VZ device and lifecycle classes are available by macOS 12. The full configuration booted on macOS 27.2.1 with a 27.0 deployment target and the virtualization entitlement. | [Availability and boot results](spikes/M1-02-vz-binding.md#verified-class-availability) |
 | V-05 | `fstrim` returned approximately 4 GiB of sparse RAW allocation to APFS in each VZ cache mode on macOS 27.2.1. M9-03 verifies the product cleanup path. | [Allocated byte measurements](spikes/M1-03-disk-reclaim.md#measured-allocated-bytes) |
 | V-15 | Docker Engine 29.10.0 build `06db173` uses Alpine's `iptables` and `ip6tables` commands for the selected bridge firewall backend. `iproute2-minimal` supplies the `ip` command for guest setup. | [Pinned engine source and Alpine packaging](05-guest-image.md#root-filesystem-contents) |
+| V-17 | Linux 7.3.5 mounted the compressed EROFS image from Alpine 3.24’s formatter as a read-only root filesystem on VZ. | [D-026 and boot reproduction](15-decisions.md#d-026-use-erofs-for-the-guest-root-filesystem) |
 
 ## Risk register
 

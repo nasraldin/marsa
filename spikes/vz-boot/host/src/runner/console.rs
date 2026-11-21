@@ -78,6 +78,9 @@ impl SerialCapture {
 
 fn accept_line(line: &[u8], progress: &mut Progress) -> io::Result<()> {
     match line {
+        b"MARSA_EROFS_ROOT_OK\n" | b"MARSA_EROFS_ROOT_OK\r\n" if progress.read_only_root => {
+            progress.commands_finished = true;
+        }
         b"MARSA_DEVICES_READY\n" | b"MARSA_DEVICES_READY\r\n" => progress.devices = true,
         b"MARSA_VSOCK_READY\n" | b"MARSA_VSOCK_READY\r\n" => progress.listening = true,
         _ if progress.commands_sent => match command_status(line) {
