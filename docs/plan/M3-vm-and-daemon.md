@@ -106,7 +106,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-09 Start at login and daemon lifecycle on macOS
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M3-05
 - **Docs:** [03 Process supervision](../03-host-daemon.md#process-supervision), V-14
 - **Do:** Verify the current API for registering a per-user agent and login item on the minimum macOS (V-14). Implement registration, a setting to turn start-at-login on and off, and automatic restart after a crash.
