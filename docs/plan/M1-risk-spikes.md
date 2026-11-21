@@ -33,7 +33,7 @@ Spike code lives under `spikes/` and is never shipped. Each spike ends with a wr
 
 ### M1-03 Prove disk space is returned to macOS
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M1-02
 - **Docs:** [07 Returning space to macOS](../07-file-sharing-and-storage.md#returning-space-to-macos), V-05, R-14
 - **Do:** Using the spike VM, attach a sparse raw image as a data disk, format it ext4, write several gigabytes, delete them, run `fstrim`, and measure the image file's real on-disk size on APFS before and after. Try the available disk attachment options. If discard does not propagate, test offline compaction as the fallback.

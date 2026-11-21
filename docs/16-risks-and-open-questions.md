@@ -36,7 +36,6 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
 | V-04 | How much guest memory does the balloon actually return to macOS? | [04](04-virtualization-macos.md) | M9-04 |
-| V-05 | Does guest discard reach the sparse image so APFS frees blocks? | [07](07-file-sharing-and-storage.md) | M1-03, M9-03 |
 | V-06 | virtiofs behaviour: change notifications, ownership mapping | [07](07-file-sharing-and-storage.md) | M4-06 |
 | V-07 | NAT attachment requirements; user-space attachment class | [06](06-networking.md) | M4-08, M4-10 |
 | V-08 | Binding privileged ports without root on current macOS | [06](06-networking.md) | M4-09 |
@@ -55,6 +54,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 |---|---|---|
 | V-02 | Both bridges booted the same stock Linux fixture and delivered start, vsock and shutdown callbacks. M1-02 recommends the Rust bindings for gate G2. | [M1-02](spikes/M1-02-vz-binding.md) |
 | V-03 | All planned VZ device and lifecycle classes are available by macOS 12. The full configuration booted on macOS 27.2.1 with a 27.0 deployment target and the virtualization entitlement. | [Availability and boot results](spikes/M1-02-vz-binding.md#verified-class-availability) |
+| V-05 | `fstrim` returned approximately 4 GiB of sparse RAW allocation to APFS in each VZ cache mode on macOS 27.2.1. M9-03 verifies the product cleanup path. | [Allocated byte measurements](spikes/M1-03-disk-reclaim.md#measured-allocated-bytes) |
 
 ## Risk register
 
@@ -73,7 +73,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | R-11 | Agent misuse through the MCP server causes data loss | Low to medium | High | Tiers, approvals, audit; volumes always need approval | M8 |
 | R-12 | Name or trademark conflict | Unknown | Medium | Q-03 before any public release | M10 |
 | R-13 | Accessibility falls short on GPUI | Medium | Medium | Verify early (V-11); keyboard operation is fully in Marsa's control | M6 |
-| R-14 | Disk space is not reclaimed, repeating Docker Desktop's most common complaint | Medium | High | Prove discard end to end in the spike (M1-03) | M1, M9 |
+| R-14 | Disk space is not reclaimed, repeating Docker Desktop's most common complaint | Medium | High | M1-03 proved VZ discard. Verify the product path in M9-03 | M1, M9 |
 | R-15 | Numbers quoted from other projects do not hold for Marsa | High | Low | Treat them as targets; publish only Marsa's own measurements | M11 |
 
 ## Assumptions
