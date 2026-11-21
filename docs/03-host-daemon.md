@@ -71,7 +71,7 @@ flowchart TB
 
 ## The Hypervisor trait
 
-**Proposed.** Every VM backend implements one trait in `marsa-vm`. The rest of the daemon knows nothing about Apple frameworks.
+Every VM backend implements the `marsa-vm` contract using platform-neutral types.
 
 ```rust
 /// A single Linux VM managed by one backend.
@@ -93,7 +93,7 @@ pub trait Vm: Send + Sync {
     async fn stop(&mut self, timeout: Duration) -> Result<(), VmError>;
     fn state(&self) -> VmState;
     /// Stream of state changes, including unexpected exits.
-    fn events(&self) -> BoxStream<'static, VmEvent>;
+    fn events(&self) -> VmEventStream;
     /// Open a vsock connection to a guest port.
     async fn connect_vsock(&self, port: u32) -> Result<VsockStream, VmError>;
     /// Set the guest's target memory, if the backend supports ballooning.
@@ -124,7 +124,7 @@ pub struct Capabilities {
 }
 ```
 
-The trait is deliberately small. Anything a backend cannot do is reported through `Capabilities`, and the daemon adapts (for example, it restarts the VM to add a share when `dynamic_shares` is false).
+The backend reports its features through `Capabilities`. The daemon can restart the VM to add a share when `dynamic_shares` is false. Backend `Running` reports guest execution. The supervisor promotes the engine to `Ready` after the agent handshake and Docker health check. Tests can enable the `fake` feature to replay guest protocol bytes over an in-memory vsock stream and inject lifecycle failures.
 
 ## VM lifecycle
 
