@@ -11,6 +11,12 @@ case "$(uname -s):$(uname -m)" in
     protoc_target="osx-aarch_64"
     protoc_sha="9cd98a532c5c5e0c4161314de0225de27e4c8a323917b6ea7b1b714d3ae23466"
     ;;
+  Linux:aarch64)
+    deny_target="aarch64-unknown-linux-musl"
+    deny_sha="4818d44cdcac285776336504fca722493ab634d3377b94a462e98aad3f41484a"
+    protoc_target="linux-aarch_64"
+    protoc_sha="8b8f18bd2b30346efbc698dd5a73dd7c805f3ef8380f6dfc95c768f3f1852f6a"
+    ;;
   Linux:x86_64)
     deny_target="x86_64-unknown-linux-musl"
     deny_sha="98c56e6a408bfa5c3c60744b6015aaa6aa08f743fdeb88386d06fca035bb1786"

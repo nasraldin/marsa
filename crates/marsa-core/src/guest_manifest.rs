@@ -56,6 +56,12 @@ pub struct GuestComponentVersions {
     pub docker_init: String,
     /// Upstream image formatter release.
     pub erofs_utils: String,
+    /// Marsa's PID 1 release, present in images assembled with guest programs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marsa_init: Option<String>,
+    /// Marsa's control-agent release, present in images assembled with guest programs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marsa_agent: Option<String>,
 }
 
 /// Failure to parse, generate or check a guest manifest.
@@ -180,7 +186,16 @@ impl GuestManifest {
             ("runc", &versions.runc),
             ("docker_init", &versions.docker_init),
             ("erofs_utils", &versions.erofs_utils),
-        ] {
+        ]
+        .into_iter()
+        .chain(
+            [
+                ("marsa_init", versions.marsa_init.as_ref()),
+                ("marsa_agent", versions.marsa_agent.as_ref()),
+            ]
+            .into_iter()
+            .filter_map(|(name, value)| value.map(|value| (name, value))),
+        ) {
             if value.is_empty()
                 || value.len() > 128
                 || !value

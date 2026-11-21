@@ -20,14 +20,21 @@ pub(super) struct Mounts {
 
 impl Mounts {
     pub(super) fn system(&self) -> io::Result<()> {
-        filesystem(
-            "devtmpfs",
-            "/dev",
-            "devtmpfs",
-            MsFlags::MS_NOSUID,
-            Some("mode=0755"),
-        )?;
         filesystem("proc", "/proc", "proc", NOEXEC, None)?;
+        // The kernel mounts devtmpfs before PID 1 when booting the EROFS disk.
+        let mounts = fs::read_to_string("/proc/self/mountinfo")?;
+        let existing_device_fs = mounts.lines().find_map(|line| {
+            let (mount, filesystem) = line.split_once(" - ")?;
+            (mount.split_ascii_whitespace().nth(4) == Some("/dev"))
+                .then(|| filesystem.split_ascii_whitespace().next())
+                .flatten()
+        });
+        let (device_flags, device_options) = match existing_device_fs {
+            Some("devtmpfs") => (MsFlags::MS_REMOUNT | MsFlags::MS_NOSUID, None),
+            Some(_) => return Err(io::Error::other("unexpected filesystem mounted at /dev")),
+            None => (MsFlags::MS_NOSUID, Some("mode=0755")),
+        };
+        filesystem("devtmpfs", "/dev", "devtmpfs", device_flags, device_options)?;
         filesystem("sysfs", "/sys", "sysfs", NOEXEC, None)?;
         filesystem("cgroup2", "/sys/fs/cgroup", "cgroup2", NOEXEC, None)?;
         filesystem("tmpfs", "/run", "tmpfs", UNPRIVILEGED, Some("mode=0755"))?;

@@ -4,7 +4,7 @@ use std::{
     ffi::OsString,
     fs::{self, File},
     io::{self, Write},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, ExitCode},
 };
 
@@ -173,6 +173,15 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
         "type=bind,source={},target=/rootfs.tar,readonly",
         rootfs_tar.display()
     );
+    let bin_dir = build_guest_programs(guest, output)?;
+    let init_mount = format!(
+        "type=bind,source={},target=/programs/marsa-init,readonly",
+        bin_dir.join("marsa-init").display()
+    );
+    let agent_mount = format!(
+        "type=bind,source={},target=/programs/marsa-agent,readonly",
+        bin_dir.join("marsa-agent").display()
+    );
     let image = docker_image(guest, &["--target", "image"])?;
     let status = Command::new("docker")
         .args([
@@ -183,6 +192,8 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
             "--network=none",
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
+            "--tmpfs",
+            "/tmp:rw,nosuid,nodev,noexec,mode=1777",
         ])
         .args([
             "--user",
@@ -192,6 +203,7 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
             "--mount",
             &tar_mount,
         ])
+        .args(["--mount", &init_mount, "--mount", &agent_mount])
         .args([&image, &versions.erofs.version])
         .status()?;
     if !status.success() {
@@ -213,6 +225,8 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
             runc: versions.docker.runc.clone(),
             docker_init: versions.docker.docker_init.clone(),
             erofs_utils: versions.erofs.version.clone(),
+            marsa_init: Some(env!("CARGO_PKG_VERSION").to_owned()),
+            marsa_agent: Some(env!("CARGO_PKG_VERSION").to_owned()),
         },
         kernel,
         rootfs,
@@ -224,10 +238,41 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
         file.write_all(&manifest.to_json().map_err(io::Error::other)?)?;
         file.write_all(b"\n")?;
     }
+    fs::rename(
+        staging.path().join("staged-rootfs.tar"),
+        output.join("image-rootfs.tar"),
+    )?;
     fs::rename(rootfs_path, output.join("rootfs.img"))?;
     fs::rename(manifest_path, output.join("guest-manifest.json"))?;
     println!("Wrote rootfs.img and guest-manifest.json");
     Ok(())
+}
+
+fn build_guest_programs(guest: &Path, output: &Path) -> io::Result<PathBuf> {
+    const TARGET: &str = "aarch64-unknown-linux-musl";
+    let target_dir = output
+        .parent()
+        .ok_or_else(|| io::Error::other("missing target directory"))?;
+    let status = Command::new("cargo")
+        .current_dir(guest.join(".."))
+        .env("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER", "rust-lld")
+        .args([
+            "build",
+            "--locked",
+            "--release",
+            "--target",
+            TARGET,
+            "--target-dir",
+        ])
+        .arg(target_dir)
+        .args(["-p", "marsa-init", "-p", "marsa-agent"])
+        .status()?;
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "guest Rust build exited with {status}"
+        )));
+    }
+    Ok(target_dir.join(TARGET).join("release"))
 }
 
 impl Versions {
