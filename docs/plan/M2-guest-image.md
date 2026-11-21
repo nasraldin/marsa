@@ -8,7 +8,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-01 Guest build environment and version pins
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-03
 - **Docs:** [05 Build pipeline](../05-guest-image.md#build-pipeline)
 - **Do:** Create `guest/versions.toml` pinning the kernel release, the Alpine release and package list, and the Docker static-binary version, each with a checksum. Implement `cargo xtask guest` to run the build inside a container so it works on a Mac and in CI. Verify the current upstream versions before pinning.
