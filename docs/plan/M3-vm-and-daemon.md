@@ -44,7 +44,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-04 `vz` backend: shares, network, memory target, pause
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M3-03
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [06 Network modes](../06-networking.md#network-modes)
 - **Do:** Attach virtiofs shares from `VmSpec`, the NAT network attachment, the balloon device with `set_memory_target`, and pause and resume. Report accurate `Capabilities`, including whether shares can be added without a restart.
