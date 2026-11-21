@@ -16,6 +16,7 @@ use super::{GuestControl, GuestControlError, GuestEvent, GuestResponse};
 use crate::supervisor::{BootFailure, BootStage, GuestProbe, State, SupervisorError, Transition};
 
 mod fixtures;
+mod shutdown;
 
 use fixtures::{
     client, command_result, docker_ping, expect, expect_events, hello, normal_session, send,

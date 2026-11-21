@@ -1,4 +1,6 @@
 //! Own one stream reader and writer and correlate replies with bounded host work.
+//! A reserved shutdown request closes the ordinary queue and follows the current
+//! wire request, preserving response correlation until the guest acknowledges.
 
 use std::{
     future::pending,
@@ -51,11 +53,26 @@ impl Client {
         body: HostBody,
         duration: Duration,
     ) -> Result<GuestResponse, GuestControlError> {
+        if matches!(body, HostBody::Shutdown(_)) {
+            return Err(GuestControlError::Sequence(
+                "guest shutdown is owned by the supervisor",
+            ));
+        }
         let slot = self.queue.try_reserve().map_err(|error| match error {
             mpsc::error::TrySendError::Full(_) => GuestControlError::Busy,
             mpsc::error::TrySendError::Closed(_) => GuestControlError::Disconnected,
         })?;
         let deadline = Instant::now() + duration;
+        let (request, response) = self.prepare(body, deadline)?;
+        slot.send(request);
+        response_before(deadline, response).await
+    }
+
+    fn prepare(
+        &self,
+        body: HostBody,
+        deadline: Instant,
+    ) -> Result<(Request, oneshot::Receiver<GuestResponse>), GuestControlError> {
         let id = self
             .next_id
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
@@ -63,24 +80,34 @@ impl Client {
         let trim = matches!(body, HostBody::Trim(_));
         let frame = wire::encode(id, body)?;
         let (reply, response) = oneshot::channel();
-        slot.send(Request {
-            id,
-            trim,
-            deadline,
-            frame,
-            reply,
-        });
-        match timeout_at(deadline, response).await {
-            Ok(Ok(result)) => Ok(result),
-            Ok(Err(_)) if Instant::now() < deadline => Err(GuestControlError::Disconnected),
-            _ => Err(GuestControlError::TimedOut("waiting for a command result")),
-        }
+        Ok((
+            Request {
+                id,
+                trim,
+                deadline,
+                frame,
+                reply,
+            },
+            response,
+        ))
+    }
+}
+
+async fn response_before(
+    deadline: Instant,
+    response: oneshot::Receiver<GuestResponse>,
+) -> Result<GuestResponse, GuestControlError> {
+    match timeout_at(deadline, response).await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(_)) if Instant::now() < deadline => Err(GuestControlError::Disconnected),
+        _ => Err(GuestControlError::TimedOut("waiting for a command result")),
     }
 }
 
 pub(super) struct Session {
     pub(super) client: Arc<Client>,
     active: watch::Sender<Weak<Client>>,
+    shutdown: Option<oneshot::Sender<Request>>,
     health: watch::Receiver<Option<EngineHealthState>>,
     failure: watch::Receiver<Option<Arc<GuestControlError>>>,
     worker: JoinHandle<()>,
@@ -93,10 +120,11 @@ impl Session {
         events: broadcast::Sender<GuestEvent>,
     ) -> Self {
         let (queue, requests) = mpsc::channel(REQUEST_CAPACITY);
+        let (shutdown, stop) = oneshot::channel();
         let (publish_health, health) = watch::channel(None);
         let (publish_failure, failure) = watch::channel(None);
         let worker = tokio::spawn(async move {
-            if let Err(error) = exchange(stream, requests, publish_health, events).await {
+            if let Err(error) = exchange(stream, requests, stop, publish_health, events).await {
                 publish_failure.send_replace(Some(Arc::new(error)));
             }
         });
@@ -106,10 +134,22 @@ impl Session {
                 next_id: AtomicU64::new(1),
             }),
             active,
+            shutdown: Some(shutdown),
             health,
             failure,
             worker,
         }
+    }
+
+    fn revoke(&self) {
+        let client = Arc::downgrade(&self.client);
+        self.active.send_if_modified(|active| {
+            if !active.ptr_eq(&client) {
+                return false;
+            }
+            *active = Weak::new();
+            true
+        });
     }
 
     async fn verify_engine(
@@ -153,11 +193,18 @@ impl GuestSession for Session {
     }
 
     async fn shutdown(&mut self) -> io::Result<()> {
-        let response = self
+        self.revoke();
+        let send = self
+            .shutdown
+            .take()
+            .ok_or(GuestControlError::Disconnected)?;
+        let deadline = Instant::now() + REQUEST_TIMEOUT;
+        let (request, response) = self
             .client
-            .request(HostBody::Shutdown(Shutdown {}), REQUEST_TIMEOUT)
-            .await?;
-        match response {
+            .prepare(HostBody::Shutdown(Shutdown {}), deadline)?;
+        send.send(request)
+            .map_err(|_| GuestControlError::Disconnected)?;
+        match response_before(deadline, response).await? {
             GuestResponse::Command(result) if result.status() == CommandStatus::Ok => Ok(()),
             GuestResponse::Command(result) => {
                 Err(GuestControlError::ShutdownRejected(result.status()).into())
@@ -175,51 +222,67 @@ impl GuestSession for Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        let client = Arc::downgrade(&self.client);
-        self.active.send_if_modified(|active| {
-            if !active.ptr_eq(&client) {
-                return false;
-            }
-            *active = Weak::new();
-            true
-        });
+        self.revoke();
         self.worker.abort();
     }
 }
 
 async fn exchange(
     stream: VsockStream,
-    mut requests: mpsc::Receiver<Request>,
+    requests: mpsc::Receiver<Request>,
+    mut shutdown: oneshot::Receiver<Request>,
     health: watch::Sender<Option<EngineHealthState>>,
     events: broadcast::Sender<GuestEvent>,
 ) -> Result<(), GuestControlError> {
     let (mut reader, mut writer) = tokio::io::split(stream);
+    let mut requests = Some(requests);
+    let mut reserved = None;
     let mut current = None::<Request>;
-    // The guest runs one command at a time. Keep a single in-flight request
-    // and keep reading events and responses while it executes.
+    // The guest runs one command at a time. Keep reading events and retain
+    // the in-flight request even when shutdown revokes ordinary command intake.
     loop {
         let incoming = wire::read(&mut reader);
         tokio::pin!(incoming);
         let envelope = loop {
-            let deadline = current.as_ref().map(|request| request.deadline);
-            tokio::select! {
-                envelope = &mut incoming => break envelope?,
-                request = requests.recv(), if current.is_none() => {
-                    let Some(request) = request else { return Ok(()); };
-                    if request.reply.is_closed() || request.deadline <= Instant::now() {
+            let request = if current.is_none() && reserved.is_some() {
+                reserved.take()
+            } else {
+                let deadline = current.as_ref().map(|request| request.deadline);
+                tokio::select! {
+                    biased;
+                    stop = &mut shutdown, if requests.is_some() => {
+                        // Drop queued commands and reject stale clients that still hold
+                        // a reference to this session. The reserved request is next.
+                        requests = None;
+                        let Ok(stop) = stop else { return Ok(()); };
+                        reserved = Some(stop);
                         continue;
                     }
-                    wire::write(&mut writer, &request.frame).await?;
-                    current = Some(request);
+                    () = wait_deadline(deadline) => {
+                        // Closing prevents a late response from matching later work.
+                        return Err(GuestControlError::TimedOut("waiting for a command result"));
+                    }
+                    envelope = &mut incoming => break envelope?,
+                    request = receive(&mut requests), if current.is_none() => request,
                 }
-                () = wait_deadline(deadline) => {
-                    // Closing prevents a late response from being associated
-                    // with later work.
-                    return Err(GuestControlError::TimedOut("waiting for a command result"));
-                }
+            };
+            let Some(request) = request else {
+                return Ok(());
+            };
+            if request.reply.is_closed() || request.deadline <= Instant::now() {
+                continue;
             }
+            wire::write(&mut writer, &request.frame).await?;
+            current = Some(request);
         };
         accept(envelope, &mut current, &health, &events)?;
+    }
+}
+
+async fn receive(requests: &mut Option<mpsc::Receiver<Request>>) -> Option<Request> {
+    match requests {
+        Some(requests) => requests.recv().await,
+        None => pending().await,
     }
 }
 
