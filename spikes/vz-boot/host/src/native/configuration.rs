@@ -12,31 +12,43 @@ use objc2_virtualization::*;
 
 use crate::runner::VmInputs;
 
+const READ_ONLY_BOOT: &str = concat!(
+    "console=hvc0 root=/dev/vda rootfstype=erofs ro panic=-1 init=/bin/sh -- -c \"",
+    "exec </dev/hvc0 >/dev/hvc0 2>&1; set -e; ",
+    "/bin/busybox mount -t proc proc /proc; ",
+    "/bin/busybox grep -E '^[^ ]+ / erofs ro(,| )' /proc/mounts; ",
+    "/bin/busybox test -x /usr/local/bin/dockerd; ",
+    "if /bin/busybox touch /.marsa-write-test; then exit 1; fi; ",
+    "echo MARSA_EROFS_ROOT_OK; /bin/busybox sleep 1; /bin/busybox poweroff -f\"",
+);
+
 pub(super) fn build(
     inputs: &VmInputs<'_>,
     network: BorrowedFd<'_>,
 ) -> io::Result<Retained<VZVirtualMachineConfiguration>> {
     let kernel = file_url(&inputs.fixtures.join("Image"))?;
-    let initramfs = file_url(&inputs.fixtures.join("initramfs"))?;
-    let directory = file_url(&inputs.fixtures.join("share"))?;
+    let boot_disk = if inputs.read_only_root {
+        "rootfs.img"
+    } else {
+        "modules.img"
+    };
+    let boot_disk = block(&inputs.fixtures.join(boot_disk), true)?;
     let serial_read = file_handle(inputs.serial)?;
     let serial_write = file_handle(inputs.serial)?;
-    let network = file_handle(network)?;
-    let module_disk = block(&inputs.fixtures.join("modules.img"), true)?;
-    let data_disk = image_block(
-        &inputs.fixtures.join("data.img"),
-        false,
-        cache_mode(inputs.fixtures)?,
-    )?;
 
     // SAFETY: All allocations use the matching documented initializers on the VM queue.
     // Setters receive retained/copyable objects. No VM starts until validation succeeds.
     unsafe {
         let loader = VZLinuxBootLoader::initWithKernelURL(VZLinuxBootLoader::alloc(), &kernel);
-        loader.setInitialRamdiskURL(Some(&initramfs));
-        loader.setCommandLine(&NSString::from_str(
-            "console=hvc0 rdinit=/marsa-spike-init panic=-1",
-        ));
+        if inputs.read_only_root {
+            loader.setCommandLine(&NSString::from_str(READ_ONLY_BOOT));
+        } else {
+            let initramfs = file_url(&inputs.fixtures.join("initramfs"))?;
+            loader.setInitialRamdiskURL(Some(&initramfs));
+            loader.setCommandLine(&NSString::from_str(
+                "console=hvc0 rdinit=/marsa-spike-init panic=-1",
+            ));
+        }
 
         let console = VZVirtioConsoleDeviceSerialPortConfiguration::new();
         let serial =
@@ -47,51 +59,64 @@ pub(super) fn build(
             );
         console.setAttachment(Some(&serial));
 
-        let share = VZVirtioFileSystemDeviceConfiguration::initWithTag(
-            VZVirtioFileSystemDeviceConfiguration::alloc(),
-            &NSString::from_str("marsa-spike"),
-        );
-        let directory = VZSharedDirectory::initWithURL_readOnly(
-            VZSharedDirectory::alloc(),
-            &directory,
-            !inputs.writable_share,
-        );
-        let directory =
-            VZSingleDirectoryShare::initWithDirectory(VZSingleDirectoryShare::alloc(), &directory);
-        share.setShare(Some(&directory));
-
-        let nat = VZVirtioNetworkDeviceConfiguration::new();
-        nat.setAttachment(Some(&VZNATNetworkDeviceAttachment::new()));
-        let file_handle = VZVirtioNetworkDeviceConfiguration::new();
-        let attachment = VZFileHandleNetworkDeviceAttachment::initWithFileHandle(
-            VZFileHandleNetworkDeviceAttachment::alloc(),
-            &network,
-        );
-        file_handle.setAttachment(Some(&attachment));
-
         let config = VZVirtualMachineConfiguration::new();
         config.setCPUCount(2);
         config.setMemorySize(1024 * 1024 * 1024);
         config.setBootLoader(Some(&loader));
         config.setSerialPorts(&NSArray::from_retained_slice(&[console.into_super()]));
-        config.setStorageDevices(&NSArray::from_retained_slice(&[
-            module_disk.into_super(),
-            data_disk.into_super(),
-        ]));
-        config.setDirectorySharingDevices(&NSArray::from_retained_slice(&[share.into_super()]));
-        config.setSocketDevices(&NSArray::from_retained_slice(&[
-            VZVirtioSocketDeviceConfiguration::new().into_super(),
-        ]));
-        config.setNetworkDevices(&NSArray::from_retained_slice(&[
-            nat.into_super(),
-            file_handle.into_super(),
-        ]));
-        config.setMemoryBalloonDevices(&NSArray::from_retained_slice(&[
-            VZVirtioTraditionalMemoryBalloonDeviceConfiguration::new().into_super(),
-        ]));
-        config.setEntropyDevices(&NSArray::from_retained_slice(&[
-            VZVirtioEntropyDeviceConfiguration::new().into_super(),
-        ]));
+        if inputs.read_only_root {
+            config.setStorageDevices(&NSArray::from_retained_slice(&[boot_disk.into_super()]));
+        } else {
+            let directory = file_url(&inputs.fixtures.join("share"))?;
+            let network = file_handle(network)?;
+            let data_disk = image_block(
+                &inputs.fixtures.join("data.img"),
+                false,
+                cache_mode(inputs.fixtures)?,
+            )?;
+            config.setStorageDevices(&NSArray::from_retained_slice(&[
+                boot_disk.into_super(),
+                data_disk.into_super(),
+            ]));
+            let share = VZVirtioFileSystemDeviceConfiguration::initWithTag(
+                VZVirtioFileSystemDeviceConfiguration::alloc(),
+                &NSString::from_str("marsa-spike"),
+            );
+            let directory = VZSharedDirectory::initWithURL_readOnly(
+                VZSharedDirectory::alloc(),
+                &directory,
+                !inputs.writable_share,
+            );
+            let directory = VZSingleDirectoryShare::initWithDirectory(
+                VZSingleDirectoryShare::alloc(),
+                &directory,
+            );
+            share.setShare(Some(&directory));
+
+            let nat = VZVirtioNetworkDeviceConfiguration::new();
+            nat.setAttachment(Some(&VZNATNetworkDeviceAttachment::new()));
+            let file_handle = VZVirtioNetworkDeviceConfiguration::new();
+            let attachment = VZFileHandleNetworkDeviceAttachment::initWithFileHandle(
+                VZFileHandleNetworkDeviceAttachment::alloc(),
+                &network,
+            );
+            file_handle.setAttachment(Some(&attachment));
+
+            config.setDirectorySharingDevices(&NSArray::from_retained_slice(&[share.into_super()]));
+            config.setSocketDevices(&NSArray::from_retained_slice(&[
+                VZVirtioSocketDeviceConfiguration::new().into_super(),
+            ]));
+            config.setNetworkDevices(&NSArray::from_retained_slice(&[
+                nat.into_super(),
+                file_handle.into_super(),
+            ]));
+            config.setMemoryBalloonDevices(&NSArray::from_retained_slice(&[
+                VZVirtioTraditionalMemoryBalloonDeviceConfiguration::new().into_super(),
+            ]));
+            config.setEntropyDevices(&NSArray::from_retained_slice(&[
+                VZVirtioEntropyDeviceConfiguration::new().into_super(),
+            ]));
+        }
         config
             .validateWithError()
             .map_err(|error| io::Error::other(error.localizedDescription().to_string()))?;

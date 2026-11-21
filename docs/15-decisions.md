@@ -33,6 +33,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-023 | Choose GPUI for the desktop | Accepted |
 | D-024 | Use direct Rust bindings for Virtualization.framework | Accepted |
 | D-025 | Pin the current stable Linux kernel | Accepted |
+| D-026 | Use EROFS for the guest root filesystem | Accepted |
 
 ---
 
@@ -186,6 +187,13 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** The owner requires current stable dependencies. Kernel.org identified 7.3.5 as its latest stable release on 2026-11-21. The build uses kernel.org’s published SHA-256, and M2-02 validates the minimal configuration and boots the result. [Upstream releases](https://www.kernel.org/releases.json).
 - **Consequence:** Update the exact release and checksum together. Verify the Docker configuration requirements and boot the pinned kernel before shipping an update.
 - **Date and task:** 2026-11-21, M2-01.
+
+## D-026 Use EROFS for the guest root filesystem
+
+- **Decision:** Pack the root tree as LZ4-compressed EROFS and attach it as a read-only virtio block device.
+- **Why:** Alpine 3.24 provides `erofs-utils` 1.9.1-r0 with tar input and a full data check. Linux 7.3.5 with `CONFIG_EROFS_FS=y` and built-in compression support mounted that image directly as `/` in Virtualization.framework and returned `Read-only file system` when PID 1 attempted a write. [EROFS build documentation](https://erofs.docs.kernel.org/en/latest/mkfs.html), [reproduction](../spikes/vz-boot/README.md#read-only-erofs-root).
+- **Consequence:** Build and validate the image in the pinned Linux formatter container. Record its SHA-256 and the raw arm64 boot kernel's SHA-256 in the guest manifest.
+- **Date and task:** 2026-11-21, M2-04.
 
 ---
 

@@ -19,7 +19,7 @@ The guest is the Linux system that runs inside the VM. It exists only to run the
 ```mermaid
 flowchart TB
     subgraph bundle["Inside Marsa.app (read-only, versioned)"]
-        kernel["vmlinux<br/>minimal arm64 kernel"]
+        kernel["Image<br/>minimal arm64 kernel"]
         rootimg["rootfs.img<br/>read-only root filesystem"]
         manifest["guest-manifest.json<br/>versions and checksums"]
     end
@@ -65,7 +65,7 @@ In the Virtualization.framework test guest running Linux 7.3.5, the pinned engin
 Rules:
 
 - Nothing in the root filesystem is writable. Runtime state lives on tmpfs or the data disk.
-- The root filesystem format is a compressed read-only filesystem (**Proposed:** EROFS, with SquashFS as the fallback) presented as a virtio block device.
+- The root filesystem is an LZ4-compressed EROFS image presented as a read-only virtio block device. See [D-026](15-decisions.md#d-026-use-erofs-for-the-guest-root-filesystem).
 - The image is built reproducibly from pinned inputs and its checksum is recorded in the manifest.
 
 ## Kernel
@@ -78,7 +78,7 @@ Must include:
 |---|---|
 | Virtio | block, net, console, vsock, balloon, rng, virtiofs (FUSE) |
 | Containers | namespaces, cgroup v2 (all controllers), seccomp, overlayfs, veth, bridge, netfilter and NAT |
-| Filesystems | ext4, EROFS or SquashFS, tmpfs, FUSE, overlayfs |
+| Filesystems | ext4, EROFS, tmpfs, FUSE, overlayfs |
 | Security | seccomp, AppArmor off or on by decision at implementation, user namespaces |
 | Memory | free page reporting and balloon support |
 | Misc | binfmt_misc (for optional later use), eBPF basics needed by the engine |
@@ -156,7 +156,7 @@ flowchart LR
     end
 
     subgraph outputs["Outputs"]
-        vml["vmlinux"]
+        vml["Image and vmlinux"]
         rimg["rootfs.img"]
         mj["guest-manifest.json"]
         sbom["SBOM and source bundle"]
@@ -177,7 +177,9 @@ flowchart LR
 - The kernel stage compiles the arm64 kernel and writes the uncompressed boot `Image`, the ELF `vmlinux`, the resolved kernel config and the Moby configuration report. Run it on an arm64 Linux Docker daemon.
 - The `rootfs` stage produces `target/guest/rootfs.tar` and prints its byte size. Tier 1 uploads the size report as `guest-rootfs-size`. The unprivileged builder writes root UID and GID 0 into the staging archive. M2-04 builds the read-only image. M2-05 and M2-06 supply the guest init and agent binaries.
 - The source releases are pinned in [`guest/versions.toml`](../guest/versions.toml). The [arm64 APK lockfile](../guest/rootfs/aarch64.sha256) pins supplemental packages and their dependencies by exact version and SHA-256. The build verifies each APK before an offline, signature-checked install with package scripts disabled. Packages already present in Alpine's minirootfs are covered by its archive checksum. GNU tar is pinned separately for the [arm64](../guest/rootfs/builder/aarch64.sha256) and [x86_64](../guest/rootfs/builder/x86_64.sha256) builders.
-- The output is identical for identical inputs (reproducible build), verified in CI by building twice.
+- The `image` stage imports the staged `rootfs.tar` directly into EROFS and verifies file data with `fsck.erofs`. Build the kernel and root filesystem with the same pins before running this stage. `all` runs those stages first.
+- The formatter uses a fixed timestamp and UUID, one compression worker, and path ordering. It runs as the host user inside the build container. The format preserves the numeric ownership in the staging archive.
+- The image stage writes `rootfs.img` and `guest-manifest.json` to `target/guest/`. The manifest records the workspace release, architecture, filesystem format, component releases, and SHA-256 of the raw boot `Image` and `rootfs.img`. The core reader uses a size limit and streams artifact verification. M2-09 adds the full package inventory and verifies whole-build reproducibility in CI.
 
 ## Versioning and upgrades
 

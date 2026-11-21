@@ -7,7 +7,9 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
+marsa-core = { path = "../crates/marsa-core" }
 serde = { version = "1.0.229", features = ["derive"] }
+tempfile = "3.27.0"
 toml = "1.2.2"
 
 [lints]
