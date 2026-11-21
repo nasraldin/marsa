@@ -1,0 +1,13 @@
+[package]
+name = "marsa-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+marsa-client = { path = "../marsa-client" }
+marsa-ui = { path = "../marsa-ui" }
+
+[lints]
+workspace = true

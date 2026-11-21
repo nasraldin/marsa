@@ -1,0 +1,17 @@
+[package]
+name = "marsad"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+marsa-dockerproxy = { path = "../marsa-dockerproxy" }
+marsa-net = { path = "../marsa-net" }
+marsa-proto = { path = "../marsa-proto" }
+marsa-share = { path = "../marsa-share" }
+marsa-vm-krun = { path = "../marsa-vm-krun" }
+marsa-vm-vz = { path = "../marsa-vm-vz" }
+
+[lints]
+workspace = true

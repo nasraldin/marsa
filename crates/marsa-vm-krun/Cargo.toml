@@ -1,0 +1,12 @@
+[package]
+name = "marsa-vm-krun"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+marsa-vm = { path = "../marsa-vm" }
+
+[lints]
+workspace = true

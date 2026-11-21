@@ -2,7 +2,7 @@
 
 Marsa (Arabic: مرسى, "harbour") is a fast, lightweight, open-source desktop app for running Docker containers. It replaces the heavy parts of Docker Desktop (the Electron GUI and the general-purpose VM stack) and keeps the open-source Docker engine unmodified.
 
-**Status:** planning complete, implementation not started. This repository currently contains the design documentation and the implementation plan.
+**Status:** workspace foundation in progress. See the [implementation plan](docs/plan/README.md) for task status.
 
 ## What Marsa is
 

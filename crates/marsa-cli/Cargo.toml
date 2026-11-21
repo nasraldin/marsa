@@ -1,0 +1,16 @@
+[package]
+name = "marsa-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "marsa"
+path = "src/main.rs"
+
+[dependencies]
+marsa-client = { path = "../marsa-client" }
+
+[lints]
+workspace = true

@@ -6,7 +6,7 @@
 
 ### M0-01 Create the Cargo workspace
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** none
 - **Docs:** [02 Repository layout](../02-architecture-overview.md#6-repository-layout), [02 Crate dependencies](../02-architecture-overview.md#7-crate-dependencies)
 - **Do:** Create the workspace with every crate listed in the repository layout as a compiling stub (library or binary). Add `rust-toolchain.toml` pinning a stable toolchain, `rustfmt.toml`, workspace-level lint settings, `.gitignore` and `.editorconfig`.
