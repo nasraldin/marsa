@@ -2,8 +2,7 @@
 
 **Recommendation for G2.** Use `objc2-virtualization` for `marsa-vm-vz`.
 The direct Rust binding configured and booted the full planned virtual device
-list and delivered the same callbacks as the Swift bridge. The G2 decision
-belongs to M1-05.
+list and delivered the same callbacks as the Swift bridge. The owner approved this recommendation in [D-024](../15-decisions.md#d-024-use-direct-rust-bindings-for-virtualizationframework).
 
 ## Test environment
 

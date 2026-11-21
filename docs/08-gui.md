@@ -7,8 +7,7 @@ The Marsa GUI is a native window rendered on the GPU. It is a client of `marsad`
 | Item | Decision | Status |
 |---|---|---|
 | Framework | GPUI with gpui-component, all Rust | Decided |
-| Gate | A right-to-left spike must pass before feature work starts (task M1-01) | Decided |
-| Fallback | Tauri 2 with a web front end if the spike fails | Decided |
+| Framework gate | The owner selected GPUI after the RTL and desktop qualification spikes | Closed in [D-023](15-decisions.md#d-023-choose-gpui-for-the-desktop) |
 | Languages | English (US) and Arabic (Modern Standard) | Decided |
 | Directions | Full left-to-right and right-to-left, mirrored layouts | Decided |
 | Themes | Light and dark, following the system by default | Decided |
@@ -27,13 +26,13 @@ The planning comparison, on the criteria that mattered (performance and long-run
 | Accessibility | Mature | Mature | New (AccessKit merged upstream in 2026) | Best |
 | Right-to-left | Mature | Mature | **Weakest area; see below** | Mature |
 | Codebases | One | One | One | Three |
-| Verdict | Rejected | Fallback | **Chosen** | Rejected for version 1 |
+| Verdict | Rejected | Rejected | **Chosen** | Rejected for version 1 |
 
 ## The right-to-left risk
 
 The macOS spike found that GPUI Kit 0.10.0 supports global interface direction and logical layout helpers above GPUI. CoreText rendered joined Arabic and isolated technical values in the correct order. GPUI's single-line input still mapped Arabic graphemes to incorrect caret and pointer positions. The upstream text-bidi work remains tracked in Zed. [M1-01 evidence](spikes/M1-01-gpui-rtl.md) · [GPUI Kit direction change](https://github.com/longbridge/gpui-kit/pull/3886) · [Zed RTL tracking issue](https://github.com/zed-industries/zed/issues/31102).
 
-The initial spike recommended the fallback. The [GPUI desktop qualification](spikes/M1-06-gpui-qualification.md) retests the Rust UI path and reports the native macOS editing experiment. Gate G1 is decided in the spike review, M1-05.
+The owner selected GPUI in [D-023](15-decisions.md#d-023-choose-gpui-for-the-desktop) after the desktop qualification verified a Rust-backed AppKit editor inside a GPUI window. The probe passed Arabic typing, native caret events, mouse selection and live IME conversion. The alternate AppKit placement exposed both native and GPUI controls in the macOS accessibility tree. [Desktop qualification](spikes/M1-06-gpui-qualification.md).
 
 ### Spike pass criteria (task M1-01)
 
@@ -45,7 +44,7 @@ On macOS, with Arabic selected:
 4. Arabic text is shaped correctly (letters join) at every font size and weight used by the design system.
 5. Switching language at runtime re-lays out the window without a restart.
 
-If any criterion fails and cannot be fixed inside Marsa's own component layer or with a small, upstreamable GPUI patch, the GUI moves to the Tauri fallback. The daemon, VM and guest are unaffected by that switch.
+These criteria continue to apply to the production GUI. M6-08 verifies the native editor’s physical keyboard behavior, IME candidate panel and spoken VoiceOver behavior.
 
 ## Architecture
 
@@ -270,7 +269,3 @@ Targets are in [01](01-vision-and-scope.md#success-measures) and measured in [13
 
 - gpui-component tracks GPUI from Zed's repository. Pin both to matching revisions in the workspace and upgrade them together in a dedicated task.
 - Keep any GPUI patches in a clearly named fork branch with each patch upstreamed or documented.
-
-## If the fallback is triggered
-
-The Tauri fallback keeps the same structure: `marsa-ui` becomes a web design system with the same tokens and the same start and end rules (CSS logical properties), the screens are rebuilt as web views, and the services layer still talks to `marsad` through `marsa-client`. The plan in [M6](plan/M6-gui-foundation.md) and [M7](plan/M7-gui-features.md) stays valid task for task; only the implementation technology changes. Tauri-specific rules from planning: destroy the webview when the window closes, stream logs in batches over a channel, and keep a capped virtualised log buffer.

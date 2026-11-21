@@ -1,6 +1,6 @@
 # M1-06 GPUI desktop qualification
 
-This report supports the framework decision in M1-05. It tests representative UI paths before the Docker engine, app store and release application exist. Each fixture uses synthetic container data. The framework gate remains with the owner.
+This report supports the framework decision in M1-05. It tests representative UI paths before the Docker engine, app store and release application exist. Each fixture uses synthetic container data. The owner selected GPUI in [D-023](../15-decisions.md#d-023-choose-gpui-for-the-desktop).
 
 ## Environment
 
@@ -36,7 +36,7 @@ The visible Rust probe embedded the same grapheme-aware AppKit editor in a nativ
 | Live conversion IME | Passed composition, candidate cycling and commit with macOS Japanese – Romaji. Typing `nihon` into the Arabic selection produced marked kana, Space converted to `日本`, a second Space selected `🇯🇵`, and keypad Enter cleared marked state and committed `ع🇯🇵ب`. The desktop driver captures the app window, so candidate panel placement and pointer choice in that separate panel remain unverified. |
 | macOS accessibility and VoiceOver | Direct attachment hid the editor from the native accessibility tree. The alternate layout puts the original AccessKit content view and the native editor in a shared AppKit parent as siblings. With VoiceOver enabled, macOS exposed both the GPUI button and the labelled native editor, reported the editor as focused, and returned its Arabic value. The GPUI button responded to an accessibility activation. The desktop driver delivered a VoiceOver read chord to the text editor as a control character, so spoken output and navigation using the VoiceOver cursor remain unverified. |
 
-Before G1, verify spoken reading and editing with the VoiceOver cursor, physical keyboard movement, and candidate panel positioning and selection. The shared AppKit parent is a working accessibility experiment. Check resizing, overlapping controls, focus handoff and windows that enter or leave full screen before adopting this placement in the product.
+During M6-08, verify spoken reading and editing with the VoiceOver cursor, physical keyboard movement, and candidate panel positioning and selection. The shared AppKit parent is a working accessibility experiment. Check resizing, overlapping controls, focus handoff and windows that enter or leave full screen before adopting this placement in the product.
 
 ## Keyboard and accessibility
 
@@ -103,4 +103,4 @@ The stream fixture uses the debug profile and opens a native window during its r
 
 ## Decision for discussion
 
-The measured rendering, controls and representative workloads support keeping GPUI as a candidate. The visible native editor now has an accessibility placement that exposes both kinds of control and handles native Arabic key events and live IME conversion. Keep G1 open until the remaining VoiceOver and hardware checks pass. If those checks expose an integration cost the project cannot carry, compare another Rust UI framework using the same criteria and native input tests.
+The measured rendering, controls and representative workloads support keeping GPUI as a candidate. The visible native editor now has an accessibility placement that exposes both kinds of control and handles native Arabic key events and live IME conversion. M6-08 carries the remaining VoiceOver and hardware checks into the product. If those checks expose an integration cost the project cannot carry, compare another Rust UI framework using the same criteria and native input tests.

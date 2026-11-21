@@ -260,8 +260,7 @@ Rules the dependency graph enforces:
 |---|---|---|
 | Host language | Rust | Decided |
 | Engine | Upstream Docker engine, unmodified | Decided |
-| GUI framework | GPUI with gpui-component | Decided, gated by the right-to-left spike (task M1-01) |
-| GUI fallback | Tauri 2 with a web front end | Decided as the fallback if the spike fails |
+| GUI framework | GPUI with gpui-component | Decided in [D-023](15-decisions.md#d-023-choose-gpui-for-the-desktop) |
 | Hypervisor (macOS) | Virtualization.framework by default; libkrun benchmarked | Decided |
 | Guest base | Alpine Linux | Decided |
 | Host API | gRPC over a Unix socket (tonic, prost) | Proposed |
