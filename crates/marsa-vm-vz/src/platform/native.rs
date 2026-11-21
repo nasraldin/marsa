@@ -9,7 +9,7 @@ use std::{
 
 use block2::RcBlock;
 use dispatch2::{DispatchQueue, DispatchRetained};
-use marsa_vm::{NetworkInfo, VmError, VmState};
+use marsa_vm::{NetworkInfo, VmError, VmExitCause, VmState};
 use objc2::{
     AnyThread, DefinedClass, define_class, msg_send,
     rc::{Retained, autoreleasepool},
@@ -501,12 +501,7 @@ impl Controller {
                 self.lifecycle.transition(VmState::Stopped);
                 Ok(StopRequest::Force)
             }
-            VmState::Failed => {
-                if !self.can_force_stop() {
-                    self.lifecycle.transition(VmState::Stopped);
-                }
-                Ok(StopRequest::Force)
-            }
+            VmState::Failed => Ok(StopRequest::Force),
             VmState::Stopping => Ok(StopRequest::Graceful),
             VmState::Starting => Ok(StopRequest::WaitForStart),
             VmState::Running | VmState::Paused => {
@@ -553,7 +548,8 @@ impl Controller {
                     return Ok(());
                 }
                 let detail = "the native VM is unable to stop";
-                self.lifecycle.unexpected_exit(detail.into());
+                self.lifecycle
+                    .unexpected_exit(VmExitCause::Failure, detail.into());
                 return Err(backend("stop", detail));
             }
             self.lifecycle.transition(VmState::Stopping);
@@ -580,7 +576,7 @@ impl Controller {
             .is_some_and(|machine| unsafe { machine.vm.state() == VZVirtualMachineState::Stopped });
         drop(slot);
         if let Some(detail) = error.filter(|_| !stopped) {
-            self.lifecycle.unexpected_exit(detail);
+            self.lifecycle.unexpected_exit(VmExitCause::Failure, detail);
             let mut slot = self.slot.0.borrow_mut();
             if slot.closing {
                 // This teardown attempt failed. Release our native retains on the queue.
@@ -612,9 +608,14 @@ impl Controller {
                 self.lifecycle.transition(VmState::Stopped);
             }
         } else {
-            self.lifecycle.unexpected_exit(
-                error.unwrap_or_else(|| "the guest shut down without a stop request".into()),
-            );
+            let (cause, detail) = match error {
+                Some(detail) => (VmExitCause::Failure, detail),
+                None => (
+                    VmExitCause::GuestPowerOff,
+                    "the guest shut down without a stop request".into(),
+                ),
+            };
+            self.lifecycle.unexpected_exit(cause, detail);
         }
         self.cleanup();
     }

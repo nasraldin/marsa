@@ -70,7 +70,7 @@ NAT using
 
 ### M3-05 `marsad` skeleton
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-04, M0-05
 - **Docs:** [03 Process supervision](../03-host-daemon.md#process-supervision), [03 Observability](../03-host-daemon.md#observability)
 - **Do:** Create the daemon binary: single-instance lock, directory creation with correct modes, structured logging with rotation, settings load, graceful shutdown on signals, and the gRPC server on `marsad.sock` with the `Meta` service only.
@@ -83,7 +83,7 @@ NAT using
 
 ### M3-06 VM supervisor state machine
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-01, M3-05
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle)
 - **Do:** Implement the supervisor as an explicit state machine with every state and transition in the diagram: on-demand start with waiting callers, readiness requiring agent handshake and engine health, idle detection, failure capture with console tail, retry with backoff, and clean stop with a forced fallback.
@@ -96,8 +96,8 @@ NAT using
 
 ### M3-07 Guest control client
 
-- **Status:** todo
-- **Depends on:** M3-06, M2-06
+- **Status:** done
+- **Depends on:** M3-03, M3-06, M2-06
 - **Docs:** [05 marsa-agent](../05-guest-image.md#marsa-agent)
 - **Do:** Implement the host side of the control protocol: connect, handshake with version check, request and response with timeouts, the event streams from the guest, and reconnect after pause and resume. Treat all guest input as untrusted.
 - **Deliver:** the guest-control module in `marsad` with tests against a scripted agent.
@@ -105,10 +105,13 @@ NAT using
   - An incompatible guest protocol version produces a clear, user-visible error.
   - Oversized or malformed guest messages close the connection without crashing the daemon.
   - Port, health and stats events are delivered to subscribers.
+  - An orderly host stop sends the guest shutdown request before using native fallback.
+
+**Verification.** The scripted backend covered incompatible versions, malformed and oversized messages, partial frames, request IDs and result types, request timeouts, all three event types, and pause and resume with fresh time sync and a separate Docker ping. Shutdown tests covered a full command queue, a paused guest, and failure after the guest acknowledged shutdown. The production VZ backend, guest client, supervisor and typed Unix-socket API reached Docker Ready on Apple silicon macOS 27.2.1. The API served live guest health and stats. `Engine.Stop` left the persistent ext4 disk clean. Workspace tests, strict Clippy and dependency policy checks passed.
 
 ### M3-08 Typed API: Engine, Settings, Events, Stats
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-06
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api)
 - **Do:** Implement the `Engine`, `Settings`, `Events` and `Stats` services. Build the event bus with a snapshot-then-stream contract. Settings updates validate, persist atomically and apply live where possible, reporting when a restart is required.
@@ -120,7 +123,7 @@ NAT using
 
 ### M3-09 Start at login and daemon lifecycle on macOS
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-05
 - **Docs:** [03 Process supervision](../03-host-daemon.md#process-supervision), V-14
 - **Do:** Verify the current API for registering a per-user agent and login item on the minimum macOS (V-14). Implement registration, a setting to turn start-at-login on and off, and automatic restart after a crash.
@@ -151,3 +154,15 @@ NAT using
 - **Accept when:**
   - After a real sleep and wake, the guest clock is within one second of the host (Tier 2 or manual test recorded).
   - The sequence is covered by tests with injected events.
+
+### M3-12 Compose the packaged VM runtime
+
+- **Status:** todo
+- **Depends on:** M3-03, M3-04, M3-07, M3-08
+- **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [04 Boot sequence](../04-virtualization-macos.md#boot-sequence), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
+- **Do:** Wire the packaged daemon to the native VZ backend, guest artefact validation, guest-control session and typed API. Create the private sparse data disk on first activation. Build each VM spec from the current settings and apply restart-scoped settings on the next activation. Publish health and stats from the active control session.
+- **Deliver:** Runtime composition in `marsad` and an entitled system test through the normal daemon socket.
+- **Accept when:**
+  - A packaged daemon started with a fresh per-user state directory accepts a real `Engine.Start`, reaches Ready through the agent and Docker API, and reports guest health and stats.
+  - Subsequent Stop and Restart use the same data disk. A restart-scoped settings change becomes effective on restart.
+  - Invalid or missing guest files fail cleanly before a VM starts and preserve existing user data.

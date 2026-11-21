@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use tokio::sync::broadcast;
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
-use crate::{VmError, VmEvent, VmEventStream, VmState};
+use crate::{VmError, VmEvent, VmEventStream, VmExitCause, VmState};
 
 use super::lock;
 
@@ -42,6 +42,7 @@ impl Lifecycle {
 
     pub(super) fn exit_unexpectedly(&self) -> bool {
         let event = VmEvent::UnexpectedExit {
+            cause: VmExitCause::Failure,
             detail: "scripted guest exit".into(),
         };
         self.transition_with(

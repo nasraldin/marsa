@@ -234,12 +234,14 @@ flowchart TD
     share --> core
     dproxy --> core
     dproxy --> share
+    d --> vm
     d --> vz
     d --> krun
     d --> net
     d --> share
     d --> dproxy
     d --> proto
+    d --> core
     client --> proto
     cli --> client
     mcp --> client

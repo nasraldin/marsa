@@ -31,17 +31,33 @@ The host serves `marsa.v1` as gRPC over the local Unix socket.
 major and only use features available in the daemon's minor revision. Within a
 major version, changes are additive and retired field numbers and names must be
 reserved. The daemon enforces request validation and authentication at the
-service boundary. Mutations carry a request ID for daemon-side deduplication.
+service boundary. Mutations carry a UUID for daemon-side deduplication.
+Engine lifecycle calls and settings replacements each retain a bounded,
+process-local history, evicting completed requests before admitting new ones.
+Retry an interrupted request with the same UUID and payload. Reusing a cached
+UUID with a different operation or payload fails with `ALREADY_EXISTS`.
 
 `Events.Subscribe` emits a snapshot before live updates on each connection.
 The daemon takes that snapshot at an event cursor and then emits events after
 that cursor in order. Sequence numbers are scoped to the stream ID of the
-daemon process. Clients replace their view with the new snapshot on reconnect.
+daemon process. If a subscriber falls behind the bounded buffer, the daemon
+ends the stream with `RESOURCE_EXHAUSTED`. Clients replace their view with the
+new snapshot on reconnect.
 The API design and service table live in the daemon design.
 [Host typed API](../../docs/03-host-daemon.md#typed-api)
 
 Settings messages carry a revision and the canonical TOML document. An update
-must match the currently stored revision. Agent requests identify an
+must match the current revision. Read it again after reconnecting to a
+different daemon process. The daemon publishes a new revision only after the
+replacement has committed. `Settings.Watch` starts with the current settings.
+
+API 1.1 adds `SettingsSnapshot.restart_required` and
+`EngineStatus.guest_health` without changing existing fields. API 1.0 clients
+ignore both fields. Missing fields have the protobuf defaults of `false` and
+unspecified health. VM stats are live observations of the active guest.
+The stream starts with a sample only when the daemon has observed one.
+
+Agent requests identify an
 allowlisted operation and use that operation's existing JSON Schema for its
 arguments. The daemon authenticates the client, validates those arguments, and
 applies permission and audit policy before sending any request to the engine.
@@ -70,13 +86,14 @@ The separate Docker API bridge uses the Docker byte stream directly.
 4. Each command has a nonzero request ID, unique among pending requests on
    that connection. A result echoes its command's ID. Unsolicited health, port
    and stats events use request ID zero. The recipient rejects results with
-   no corresponding pending command or with the wrong result type.
+   no corresponding pending command or with the wrong result type. A successful
+   `Trim` returns `TrimResult`. A failed `Trim` returns a non-OK `CommandResult`.
 
 A reconnect starts a new handshake and clears pending requests. A peer may
 send new message variants only when the negotiated minor supports them.
 Additive fields for existing variants use new field numbers and must preserve
 existing behavior when omitted. Close the connection on malformed, oversized
-or out-of-sequence input. Transport owners apply read and handshake timeouts.
+or out-of-sequence input. Transport owners apply timeouts to incomplete frames and handshakes.
 Wire validation checks shape. The agent still checks mount allowlists,
 certificate validity and operating system constraints before applying changes.
 Treat peer diagnostics and proxy URLs as potentially sensitive.

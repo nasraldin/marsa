@@ -30,6 +30,8 @@ message SettingsSnapshot {
   // The canonical full configuration. Treat as sensitive.
   string settings_toml = 1;
   uint64 revision = 2;
+  // Boot-time preferences differ from the configuration applied to the VM.
+  bool restart_required = 3;
 }
 
 message UpdateSettingsRequest {
