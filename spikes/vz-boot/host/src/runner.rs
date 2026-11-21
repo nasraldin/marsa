@@ -32,6 +32,7 @@ pub struct VmInputs<'a> {
     pub fixtures: &'a Path,
     pub serial: BorrowedFd<'a>,
     pub writable_share: bool,
+    pub via_init: bool,
 }
 
 pub enum Event {
@@ -65,6 +66,7 @@ pub fn run(
     console: &Path,
     script: Option<&Path>,
     writable_share: bool,
+    via_init: bool,
 ) -> io::Result<()> {
     validate_fixtures(fixtures)?;
     let script = read_script(script)?;
@@ -82,6 +84,7 @@ pub fn run(
         fixtures,
         serial: guest_serial.as_fd(),
         writable_share,
+        via_init,
     };
     let vm = match backend {
         Backend::Rust => super::native::start(&inputs, sender.clone())?,
@@ -137,7 +140,11 @@ pub fn run(
         }
         if progress.commands_finished && !progress.shutdown_sent {
             // Leave the interactive shell running until its serial output has been verified.
-            stream.write_all(b"busybox sync\nbusybox poweroff -f\n")?;
+            if via_init {
+                stream.write_all(b"busybox kill -TERM 1\n")?;
+            } else {
+                stream.write_all(b"busybox sync\nbusybox poweroff -f\n")?;
+            }
             progress.shutdown_sent = true;
         }
     }

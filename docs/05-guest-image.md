@@ -108,7 +108,9 @@ Requirements:
 - Reaps orphaned processes and forwards signals, as any PID 1 must.
 - On shutdown: stop containers through the engine with a timeout, stop dockerd and containerd, sync and unmount the data disk, then power off.
 - Writes each boot stage and its duration to the console and reports timings to the agent.
-- Has no configuration file. Everything variable arrives on the kernel command line or from the host over vsock.
+- Has no configuration file. Everything variable arrives on the kernel command line or from the host over vsock. `marsa.hostname` and `marsa.interface` override the default hostname and DHCP interface. Repeated `marsa.share=<tag>:<path>` parameters describe distinct virtiofs mountpoints. Percent-encode spaces and other characters that cannot appear in a kernel argument.
+- PID 1 writes completed boot timings as stage and milliseconds pairs to `/run/marsa/boot-timings`. The guest agent signals that the host handshake and initial configuration are complete by creating `/run/marsa/agent.ready`. PID 1 then starts containerd and Docker in order.
+- The unpartitioned virtio data disk is `/dev/vdb`. The current schema marker, `/var/lib/marsa/schema-version`, contains `1` and a newline. PID 1 rejects unknown contents or an unsupported marker. Data stays unmounted while any filesystem repair or growth runs.
 
 ## `marsa-agent`
 

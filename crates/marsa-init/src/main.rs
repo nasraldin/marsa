@@ -1,11 +1,21 @@
 //! Guest PID 1 and process supervision.
 
-// Keep the architecture's dependency edges until this crate uses them directly.
+// Preserve the architecture's guest dependency edge for shared types.
 use marsa_core as _;
+
+#[cfg(target_os = "linux")]
+mod platform;
+#[cfg(any(target_os = "linux", test))]
+mod settings;
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    // Report failure until this binary has a working entry point.
+    #[cfg(target_os = "linux")]
+    if let Err(error) = platform::run() {
+        eprintln!("marsa-init: {error}");
+    }
+    #[cfg(not(target_os = "linux"))]
+    eprintln!("marsa-init requires a Linux guest.");
     ExitCode::FAILURE
 }
