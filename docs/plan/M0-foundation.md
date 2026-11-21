@@ -29,11 +29,11 @@
 
 ### M0-03 Build the `xtask` runner
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M0-01
 - **Docs:** [12 Toolchain](../12-build-release-update.md#toolchain)
-- **Do:** Create the `xtask` crate with subcommands as stubs that print what they will do: `check`, `test`, `guest`, `fetch-upstream`, `bundle`, `sign`, `package`, `bench`. Implement `check` (fmt, clippy, deny) and `test` now.
-- **Deliver:** `xtask/`, a `.cargo/config.toml` alias so `cargo xtask <cmd>` works.
+- **Do:** Create the `xtask` crate with the following subcommands: `check`, `test`, `guest`, `fetch-upstream`, `bundle`, `sign`, `package`, `bench`. Implement `check` (fmt, clippy, deny) and `test` now. Commit a baseline permissive licence policy so `check` is usable before M0-07 expands it. Future commands appear in help and fail until their implementation lands.
+- **Deliver:** `xtask/`, a baseline `deny.toml`, and a `.cargo/config.toml` alias so `cargo xtask <cmd>` works.
 - **Accept when:**
   - `cargo xtask check` runs all static checks and fails on any warning.
   - `cargo xtask --help` lists every subcommand with a one-line description.
