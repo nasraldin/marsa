@@ -67,7 +67,29 @@ M1-02 verified these classes in the macOS 27.2 SDK and booted the complete devic
 
 ### Threading
 
-Virtualization.framework objects must be used on the dispatch queue they were created with. The backend owns one serial queue for the VM and exposes async Rust methods that hop onto it. No framework object crosses to another thread.
+The VZ backend allocates a private GCD serial queue per VM and supplies it to
+`VZVirtualMachine.initWithConfiguration:queue:`. It checks host files on
+Tokio's blocking pool before submitting configuration. All Foundation and VZ
+allocation, validation, device setup, lifecycle calls and owned releases run
+on that queue. Jobs assert their queue and use an autorelease pool.
+
+The native VM and its retained delegate live in a private slot. The delegate
+holds a weak controller reference. Completion and delegate callbacks assert
+the queue and enqueue another job so an inline callback cannot reenter the
+slot. Only Rust payloads cross the queue boundary through oneshot replies,
+snapshots and the bounded event stream. A cancelled Rust start leaves the
+native completion in charge of the state transition. Dropping the last VM
+handle queues teardown and keeps the native objects alive through any
+in-flight start or forced stop.
+
+M3-02 attaches the boot and data disks, standard NAT, entropy and the virtio
+socket device. Its file-backed serial sink provides early boot diagnostics.
+M3-03 extends the storage and console paths and opens host vsock streams.
+M3-04 adds shares, network reporting, ballooning, and pause and resume.
+
+The [entitled system test](../crates/marsa-vm-vz/README.md) verified packaged
+PID 1 boot and native lifecycle events on the selected Apple silicon Mac.
+[Apple's initializer contract](https://developer.apple.com/documentation/virtualization/vzvirtualmachine/init(configuration:queue:)).
 
 ### Calling the framework from Rust
 

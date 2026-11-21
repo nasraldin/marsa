@@ -1,4 +1,7 @@
-//! The macOS Virtualization.framework backend.
+//! The Apple silicon Virtualization.framework hypervisor.
 
-// Keep the architecture's dependency edges until this crate uses them directly.
-use marsa_vm as _;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[allow(unsafe_code)]
+mod platform;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub use platform::VzHypervisor;
