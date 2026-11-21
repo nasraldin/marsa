@@ -202,8 +202,9 @@ async fn rotates_the_daily_json_logs_and_keeps_the_current_path() {
                 .is_some_and(|name| name.starts_with("marsad.") && name.ends_with(".jsonl"))
         })
         .count();
-    assert!(rotated <= 7);
-    assert!(!paths.logs_dir().join("marsad.2000-01-01.jsonl").exists());
+    // The appender prunes by filesystem creation time when available.
+    // These fixtures may share one timestamp, so their eviction order can vary.
+    assert_eq!(rotated, 7);
     assert_eq!(fs::read_to_string(unrelated).unwrap(), "unrelated log");
 }
 
