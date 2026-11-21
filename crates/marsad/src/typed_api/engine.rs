@@ -139,6 +139,7 @@ fn stage_name(stage: BootStage) -> &'static str {
         BootStage::Create => "create",
         BootStage::Start => "start",
         BootStage::Handshake => "handshake",
+        BootStage::Network => "network",
         BootStage::Engine => "engine",
         BootStage::Running => "running",
         BootStage::Resume => "resume",

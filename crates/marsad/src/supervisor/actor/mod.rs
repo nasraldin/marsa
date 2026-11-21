@@ -12,7 +12,8 @@ use tokio::{
 use super::{
     BootFailure, BootStage, GuestProbe, Observer, Snapshot, State, SupervisorConfig,
     SupervisorError, Transition,
-    boot::{self, LiveGuest, Outcome},
+    boot::{self, Activation, LiveGuest, Outcome},
+    network::Selection,
 };
 
 mod operations;
@@ -50,6 +51,7 @@ pub(super) struct Actor {
     probe: Arc<dyn GuestProbe>,
     spec: VmSpec,
     config: SupervisorConfig,
+    selection: Selection,
     commands: mpsc::Receiver<Command>,
     output: TransitionOutput,
     boot: Option<JoinHandle<Outcome>>,
@@ -73,12 +75,14 @@ impl Actor {
         config: SupervisorConfig,
         commands: mpsc::Receiver<Command>,
         output: TransitionOutput,
+        selection: Selection,
     ) -> Self {
         Self {
             backend,
             probe,
             spec,
             config,
+            selection,
             commands,
             output,
             boot: None,
@@ -111,7 +115,9 @@ impl Actor {
                     let _ = self.stop().await;
                     return;
                 }
-                Event::Progress(BootStage::Handshake | BootStage::Engine) => self.booting(),
+                Event::Progress(BootStage::Handshake | BootStage::Network | BootStage::Engine) => {
+                    self.booting()
+                }
                 Event::Progress(_) => {}
                 Event::Boot(outcome) => self.boot_finished(outcome).await,
                 Event::GuestExited(detail) => {
@@ -132,14 +138,17 @@ impl Actor {
     fn set_state(&self, current: State, failure: Option<Arc<BootFailure>>) {
         let previous = self.state();
         if previous != current {
+            let network = self.guest.as_ref().map(|guest| guest.network);
             self.output.snapshot.send_replace(Snapshot {
                 state: current,
                 failure: failure.clone(),
+                network,
             });
             let transition = Transition {
                 previous,
                 current,
                 failure,
+                network,
             };
             if let Some(observer) = &self.output.observer {
                 observer(&transition);
@@ -176,8 +185,12 @@ impl Actor {
         self.boot = Some(tokio::spawn(boot::run(
             self.backend.clone(),
             self.probe.clone(),
-            self.spec.clone(),
-            self.config.boot_timeout,
+            Activation {
+                spec: self.spec.clone(),
+                limit: self.config.boot_timeout,
+                stop_limit: self.config.stop_timeout,
+                selection: self.selection.clone(),
+            },
             cancel,
             progress,
         )));

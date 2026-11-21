@@ -161,9 +161,9 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 ### M3-12 Compose the packaged VM runtime
 
 - **Status:** todo
-- **Depends on:** M3-03, M3-04, M3-07, M3-08
+- **Depends on:** M3-03, M3-04, M3-07, M3-08, M3-15
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [04 Boot sequence](../04-virtualization-macos.md#boot-sequence), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
-- **Do:** Wire the packaged daemon to the native VZ backend, guest artefact validation, guest-control session and typed API. Create the private sparse data disk on first activation. Build each VM spec from the current settings and apply restart-scoped settings on the next activation. Publish health and stats from the active control session.
+- **Do:** Wire the packaged daemon to the native VZ backend, guest artefact validation, guest-control session and typed API. Create the private sparse data disk on first activation. Build each VM spec from the current settings and apply restart-scoped settings on the next activation. Publish health and stats from the active control session. Install the signed user-space helper and use the boot selector when network mode is automatic.
 - **Deliver:** Runtime composition in `marsad` and an entitled system test through the normal daemon socket.
 - **Accept when:**
   - A packaged daemon started with a fresh per-user state directory accepts a real `Engine.Start`, reaches Ready through the agent and Docker API, and reports guest health and stats.
@@ -198,7 +198,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 
 ### M3-15 Select the network mode before Docker starts
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-06, M3-07, M3-14
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection)
 - **Do:** Add versioned guest control to synchronize time and probe HTTPS before allowing Docker to start. Pair guest and host evidence by destination, address family and policy. Select native NAT or one user-space candidate for an automatic boot. Keep configured modes pinned and release the engine even when external connectivity is unavailable. Leave packaged runtime wiring to M3-12 and port forwarding and network-change transitions to M4-10.
@@ -208,3 +208,4 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
   - With native IPv4 forwarding unavailable and equivalent host HTTPS healthy, auto selects a verified user-space path before starting Docker.
   - A host failure, unknown proxy policy, TLS validation failure or incompatible guest leaves local Docker available without a false recovery claim.
   - The supervisor confirms the first guest is stopped before reusing its data disk, and exposes the active mode and failure stage in daemon status and events.
+- **Evidence:** The entitled daemon API test on macOS 27.2.1 started Docker through its local socket after the selector reported a native IPv4 route failure and verified the user-space attachment over HTTPS. NordVPN, LuLu and the macOS firewall were active. The test received the selected attachment and failure stage from the daemon event stream.

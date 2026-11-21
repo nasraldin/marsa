@@ -65,7 +65,7 @@ applies permission and audit policy before sending any request to the engine.
 
 ## Guest control channel
 
-The guest listens on AF_VSOCK port 5000 and accepts the host CID. Port 5001 is a separate unframed, host-CID-only byte stream to the guest Docker socket. Send `HelloAck` and an initial `SetTime` before expecting the Docker engine to become ready. The agent publishes readiness to PID 1 after setting the clock.
+The guest listens on AF_VSOCK port 5000 and accepts the host CID. Port 5001 is a separate unframed, host-CID-only byte stream to the guest Docker socket. Send `HelloAck` and an initial `SetTime` before expecting the Docker engine to become ready. The agent normally releases PID 1 to start Docker after setting the clock.
 
 The host opens the control vsock connection to the guest. Each record begins
 with an unsigned four-byte big-endian integer containing the protobuf payload
@@ -98,6 +98,24 @@ Wire validation checks shape. The agent still checks mount allowlists,
 certificate validity and operating system constraints before applying changes.
 Treat peer diagnostics and proxy URLs as potentially sensitive.
 
+### Deferred engine start (guest protocol 1.1)
+
+A host that negotiates minor 1 or later can set `HelloAck.defer_engine_start`.
+The guest then acknowledges `SetTime` without releasing Docker. After the clock
+is set, the host may send `ProbeEgress` on the deferred session. It supplies the
+four network-order bytes of an IPv4 address selected for
+`https://registry-1.docker.io/v2/`. The guest retains the hostname for DNS, TLS
+and HTTP checks. The probe returns a correlated `EgressResult` with a diagnostic
+stage. A probe outside the permitted state or one that exceeds its control
+deadline returns `POLICY`. Neither is evidence of blocked native egress.
+
+After the host selects the attachment, `StartEngine` releases PID 1 and
+returns `CommandResult`. It requires a successful `SetTime` and is idempotent.
+`Shutdown` remains available before Docker is released. Hosts that negotiate
+1.0 or omit the deferral flag retain the original `SetTime` startup behavior.
+Once Docker has been released, reconnecting cannot make that guest eligible for
+another deferred probe.
+
 ### Guest message limits
 
 Limits apply to the serialized envelope including the request ID, excluding
@@ -115,8 +133,11 @@ fields are additionally bounded as shown. String limits count UTF-8 bytes.
 | Host → guest | `MountShare` | 5 KiB | Tag ≤36 bytes. Absolute guest path ≤4,096 bytes, without empty, dot or parent segments. |
 | Host → guest | `UnmountShare` | 128 B | Tag ≤36 bytes. |
 | Host → guest | `Shutdown` | 32 B | No payload fields. |
+| Host → guest | `StartEngine` | 32 B | No payload fields. |
+| Host → guest | `ProbeEgress` | 32 B | Exactly four address bytes. |
 | Guest → host | `PortEvent` | 256 B | Known action and TCP or UDP transport, 64-digit hex container ID, IP literal ≤45 bytes, ports 1–65,535. |
 | Guest → host | `EngineHealth` | 3 KiB | Known health value and detail ≤2,048 bytes. |
 | Guest → host | `VmStats` | 128 B | Memory and disk usage cannot exceed their corresponding totals. |
 | Guest → host | `TrimResult` | 64 B | Trimmed and used byte counts. |
 | Guest → host | `CommandResult` | 3 KiB | Known status and detail ≤2,048 bytes. |
+| Guest → host | `EgressResult` | 32 B | A known, nonzero diagnostic stage. |

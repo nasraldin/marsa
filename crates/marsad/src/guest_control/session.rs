@@ -5,6 +5,7 @@
 use std::{
     future::pending,
     io,
+    net::Ipv4Addr,
     sync::{
         Arc, Weak,
         atomic::{AtomicU64, Ordering},
@@ -15,8 +16,8 @@ use std::{
 use marsa_proto::guest::{
     ProtocolError,
     v1::{
-        CommandStatus, EngineHealthState, GuestEnvelope, Shutdown,
-        guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
+        CommandStatus, EgressStage, EngineHealthState, GuestEnvelope, ProbeEgress, Shutdown,
+        StartEngine, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
     },
 };
 use marsa_vm::{Vm, VsockStream, async_trait};
@@ -36,10 +37,17 @@ pub(super) const REQUEST_CAPACITY: usize = 8;
 
 struct Request {
     id: u64,
-    trim: bool,
+    result: ResultType,
     deadline: Instant,
     frame: Vec<u8>,
     reply: oneshot::Sender<GuestResponse>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResultType {
+    Command,
+    Trim,
+    Egress,
 }
 
 pub(super) struct Client {
@@ -77,13 +85,17 @@ impl Client {
             .next_id
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| GuestControlError::Sequence("request IDs exhausted"))?;
-        let trim = matches!(body, HostBody::Trim(_));
+        let result = match body {
+            HostBody::Trim(_) => ResultType::Trim,
+            HostBody::ProbeEgress(_) => ResultType::Egress,
+            _ => ResultType::Command,
+        };
         let frame = wire::encode(id, body)?;
         let (reply, response) = oneshot::channel();
         Ok((
             Request {
                 id,
-                trim,
+                result,
                 deadline,
                 frame,
                 reply,
@@ -111,6 +123,7 @@ pub(super) struct Session {
     health: watch::Receiver<Option<EngineHealthState>>,
     failure: watch::Receiver<Option<Arc<GuestControlError>>>,
     worker: JoinHandle<()>,
+    deferred: bool,
 }
 
 impl Session {
@@ -118,6 +131,7 @@ impl Session {
         stream: VsockStream,
         active: watch::Sender<Weak<Client>>,
         events: broadcast::Sender<GuestEvent>,
+        deferred: bool,
     ) -> Self {
         let (queue, requests) = mpsc::channel(REQUEST_CAPACITY);
         let (shutdown, stop) = oneshot::channel();
@@ -138,6 +152,7 @@ impl Session {
             health,
             failure,
             worker,
+            deferred,
         }
     }
 
@@ -180,7 +195,41 @@ impl Session {
 
 #[async_trait]
 impl GuestSession for Session {
+    fn can_probe_egress(&self) -> bool {
+        self.deferred
+    }
+
+    async fn probe_egress(&mut self, target: Ipv4Addr) -> io::Result<EgressStage> {
+        let response = self
+            .client
+            .request(
+                HostBody::ProbeEgress(ProbeEgress {
+                    address_v4: target.octets().to_vec(),
+                }),
+                Duration::from_secs(12),
+            )
+            .await?;
+        match response {
+            GuestResponse::Egress(stage) => Ok(stage),
+            _ => Err(GuestControlError::Sequence("expected egress result").into()),
+        }
+    }
+
     async fn engine_ready(&mut self, vm: &dyn Vm) -> io::Result<()> {
+        if self.deferred {
+            match self
+                .client
+                .request(HostBody::StartEngine(StartEngine {}), REQUEST_TIMEOUT)
+                .await?
+            {
+                GuestResponse::Command(result) if result.status() == CommandStatus::Ok => {
+                    self.deferred = false;
+                }
+                _ => {
+                    return Err(GuestControlError::Sequence("guest rejected engine startup").into());
+                }
+            }
+        }
         tokio::select! {
             biased;
             error = Self::failure(&mut self.failure) => return Err(error),
@@ -209,7 +258,7 @@ impl GuestSession for Session {
             GuestResponse::Command(result) => {
                 Err(GuestControlError::ShutdownRejected(result.status()).into())
             }
-            GuestResponse::Trim(_) => {
+            GuestResponse::Trim(_) | GuestResponse::Egress(_) => {
                 Err(GuestControlError::Sequence("expected shutdown result").into())
             }
         }
@@ -308,20 +357,36 @@ fn accept(
         Some(GuestBody::Stats(event)) => GuestEvent::Stats(event),
         Some(GuestBody::CommandResult(result)) => {
             let request = matching_request(current, envelope.request_id)?;
-            if request.trim && result.status() == CommandStatus::Ok {
-                return Err(GuestControlError::Sequence(
-                    "trim success requires TrimResult",
-                ));
+            match request.result {
+                ResultType::Egress => {
+                    return Err(GuestControlError::Sequence(
+                        "egress probe requires EgressResult",
+                    ));
+                }
+                ResultType::Trim if result.status() == CommandStatus::Ok => {
+                    return Err(GuestControlError::Sequence(
+                        "trim success requires TrimResult",
+                    ));
+                }
+                _ => {}
             }
             let _ = request.reply.send(GuestResponse::Command(result));
             return Ok(());
         }
         Some(GuestBody::TrimResult(result)) => {
             let request = matching_request(current, envelope.request_id)?;
-            if !request.trim {
+            if request.result != ResultType::Trim {
                 return Err(GuestControlError::Sequence("unexpected TrimResult"));
             }
             let _ = request.reply.send(GuestResponse::Trim(result));
+            return Ok(());
+        }
+        Some(GuestBody::EgressResult(result)) => {
+            let request = matching_request(current, envelope.request_id)?;
+            if request.result != ResultType::Egress || result.stage() == EgressStage::Unspecified {
+                return Err(GuestControlError::Sequence("unexpected egress result"));
+            }
+            let _ = request.reply.send(GuestResponse::Egress(result.stage()));
             return Ok(());
         }
         Some(GuestBody::Hello(_)) => return Err(GuestControlError::Sequence("unexpected Hello")),

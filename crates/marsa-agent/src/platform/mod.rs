@@ -10,8 +10,8 @@ use std::io;
 use marsa_proto::guest::{
     CONTROL_PORT, DOCKER_API_PORT,
     v1::{
-        ConfigureNetwork, InstallCertificates, PortEvent, SetTime, VmStats, guest_envelope,
-        host_envelope,
+        ConfigureNetwork, EgressResult, InstallCertificates, PortEvent, ProbeEgress, SetTime,
+        VmStats, guest_envelope, host_envelope,
     },
 };
 use nix::{
@@ -67,6 +67,15 @@ impl GuestState for Linux {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
             Err(error) => Err(error),
         }
+    }
+
+    async fn engine_released(&self) -> bool {
+        // An unreadable marker is not proof that the engine has never started.
+        !matches!(tokio::fs::symlink_metadata(READY_FILE).await, Err(error) if error.kind() == io::ErrorKind::NotFound)
+    }
+
+    async fn probe_egress(&self, request: ProbeEgress) -> EgressResult {
+        crate::egress::probe(request).await
     }
 
     async fn command(&self, body: host_envelope::Body) -> io::Result<Option<guest_envelope::Body>> {

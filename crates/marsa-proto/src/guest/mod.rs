@@ -23,8 +23,14 @@ pub const DOCKER_API_PORT: u32 = 5_001;
 /// Largest accepted length of a serialized guest control envelope, in bytes.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
+/// First protocol minor supporting deferred engine startup and egress probes.
+pub const DEFER_ENGINE_START_MINOR: u32 = 1;
+
 /// Current guest control version advertised by this build.
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 0 };
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion {
+    major: 1,
+    minor: DEFER_ENGINE_START_MINOR,
+};
 
 /// A rejected guest control frame or incompatible protocol version.
 #[derive(Debug, Error)]

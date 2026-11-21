@@ -9,12 +9,15 @@ use tokio::{
 };
 use tokio_stream::StreamExt;
 
-use super::{BootStage, GuestProbe, GuestSession};
+use super::{BootNetwork, BootStage, GuestProbe, GuestSession, NetworkResult, network::Selection};
+
+mod selection;
 
 pub(super) struct LiveGuest {
     pub vm: Box<dyn Vm>,
     pub session: Option<Box<dyn GuestSession>>,
     pub events: VmEventStream,
+    pub network: BootNetwork,
 }
 
 pub(super) enum Outcome {
@@ -23,6 +26,17 @@ pub(super) enum Outcome {
         vm: Option<Box<dyn Vm>>,
         issue: Issue,
     },
+}
+
+struct Failed {
+    vm: Option<Box<dyn Vm>>,
+    issue: Issue,
+}
+
+impl From<Failed> for Outcome {
+    fn from(Failed { vm, issue }: Failed) -> Self {
+        Self::Failed { vm, issue }
+    }
 }
 
 pub(super) struct Issue {
@@ -45,68 +59,109 @@ impl Issue {
     }
 }
 
+pub(super) struct Activation {
+    pub(super) spec: VmSpec,
+    pub(super) limit: Duration,
+    pub(super) stop_limit: Duration,
+    pub(super) selection: Selection,
+}
+
 pub(super) async fn run(
     backend: Arc<dyn Hypervisor>,
     probe: Arc<dyn GuestProbe>,
-    spec: VmSpec,
-    limit: Duration,
+    activation: Activation,
     mut cancel: oneshot::Receiver<()>,
     progress: watch::Sender<BootStage>,
 ) -> Outcome {
-    let deadline = Instant::now() + limit;
-    let mut vm = match phase(
-        BootStage::Create,
-        deadline,
+    let result = selection::select_and_start(
+        backend.as_ref(),
+        probe.as_ref(),
+        activation,
         &mut cancel,
-        backend.create(spec),
+        &progress,
     )
-    .await
-    {
-        Ok(vm) => vm,
-        Err(issue) => return Outcome::Failed { vm: None, issue },
-    };
+    .await;
+    match result {
+        Ok(guest) => Outcome::Ready(guest),
+        Err(failure) => failure.into(),
+    }
+}
+
+async fn attach(
+    backend: &dyn Hypervisor,
+    probe: &dyn GuestProbe,
+    spec: VmSpec,
+    deadline: Instant,
+    cancel: &mut oneshot::Receiver<()>,
+    progress: &watch::Sender<BootStage>,
+) -> Result<LiveGuest, Failed> {
+    let active = spec.network;
+    progress.send_replace(BootStage::Create);
+    let mut vm = phase(BootStage::Create, deadline, cancel, backend.create(spec))
+        .await
+        .map_err(|issue| Failed { vm: None, issue })?;
     let mut events = vm.events();
-    if let Err(issue) = phase(BootStage::Start, deadline, &mut cancel, vm.start()).await {
-        return Outcome::Failed {
+    if let Err(issue) = phase(BootStage::Start, deadline, cancel, vm.start()).await {
+        return Err(Failed {
             vm: Some(vm),
             issue,
-        };
+        });
     }
     progress.send_replace(BootStage::Handshake);
     let session = phase(
         BootStage::Handshake,
         deadline,
-        &mut cancel,
+        cancel,
         during_guest_execution(vm.as_ref(), &mut events, probe.handshake(vm.as_ref())),
     )
     .await;
-    let mut session = match session {
-        Ok(session) => session,
-        Err(issue) => {
-            return Outcome::Failed {
-                vm: Some(vm),
-                issue,
-            };
-        }
+    match session {
+        Ok(session) => Ok(LiveGuest {
+            vm,
+            session: Some(session),
+            events,
+            network: BootNetwork {
+                active,
+                result: NetworkResult::Unchecked,
+            },
+        }),
+        Err(issue) => Err(Failed {
+            vm: Some(vm),
+            issue,
+        }),
+    }
+}
+
+async fn start_engine(
+    mut guest: LiveGuest,
+    deadline: Instant,
+    cancel: &mut oneshot::Receiver<()>,
+    progress: &watch::Sender<BootStage>,
+) -> Result<LiveGuest, Failed> {
+    let Some(session) = guest.session.as_deref_mut() else {
+        return Err(Failed {
+            vm: Some(guest.vm),
+            issue: Issue::failed(BootStage::Engine, "guest session unavailable"),
+        });
     };
     progress.send_replace(BootStage::Engine);
     let ready = phase(
         BootStage::Engine,
         deadline,
-        &mut cancel,
-        during_guest_execution(vm.as_ref(), &mut events, session.engine_ready(vm.as_ref())),
+        cancel,
+        during_guest_execution(
+            guest.vm.as_ref(),
+            &mut guest.events,
+            session.engine_ready(guest.vm.as_ref()),
+        ),
     )
     .await;
     match ready {
-        Ok(()) => Outcome::Ready(LiveGuest {
-            vm,
-            session: Some(session),
-            events,
-        }),
-        Err(issue) => Outcome::Failed {
-            vm: Some(vm),
+        Ok(()) => Ok(guest),
+        Err(issue) => Err(Failed {
+            vm: Some(guest.vm),
             issue,
-        },
+        }),
     }
 }
 

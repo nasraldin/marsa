@@ -232,7 +232,10 @@ impl Actor {
                 self.ready();
             }
             Ok(Outcome::Failed { vm, issue }) => {
-                if matches!(issue.stage, BootStage::Handshake | BootStage::Engine) {
+                if matches!(
+                    issue.stage,
+                    BootStage::Handshake | BootStage::Network | BootStage::Engine
+                ) {
                     self.booting();
                 }
                 self.failed(vm, issue).await;

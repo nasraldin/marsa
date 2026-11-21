@@ -31,4 +31,6 @@ message Hello {
 // Accepted protocol version. The host closes the connection on incompatibility.
 message HelloAck {
   ProtocolVersion protocol = 1;
+  // Protocol 1.1 or later. SetTime synchronizes the clock without starting Docker.
+  bool defer_engine_start = 2;
 }

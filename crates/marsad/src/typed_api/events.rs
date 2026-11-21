@@ -8,15 +8,18 @@ use std::{
 };
 
 use futures_util::{Stream, stream};
-use marsa_core::settings::{Settings, VmBackend};
+use marsa_core::settings::{NetworkMode, Settings, VmBackend};
+use marsa_proto::guest::v1::EgressStage;
 use marsa_proto::host::v1::{
-    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, SettingsChanged,
-    SettingsSnapshot, SubscribeRequest, VmStatsSample, daemon_event::Body, events_server::Events,
+    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, NetworkMode as WireMode,
+    NetworkStatus, SettingsChanged, SettingsSnapshot, SubscribeRequest, VmStatsSample,
+    daemon_event::Body, events_server::Events,
 };
+use marsa_vm::NetworkSpec;
 use tokio::sync::{broadcast, watch};
 use tonic::{Request, Response, Status};
 
-use crate::supervisor::{State, Transition};
+use crate::supervisor::{BootNetwork, NetworkResult, State, Transition};
 
 use super::{TypedApi, engine};
 
@@ -30,6 +33,7 @@ struct StateAtCursor {
     stream_id: String,
     sequence: u64,
     engine: EngineStatus,
+    network: Option<NetworkStatus>,
     startup: Settings,
     settings: Settings,
     settings_snapshot: SettingsSnapshot,
@@ -55,6 +59,7 @@ impl Bus {
                 backend: backend_name(settings.vm.backend).into(),
                 ..Default::default()
             },
+            network: None,
             startup: settings.clone(),
             settings,
             settings_snapshot: SettingsSnapshot {
@@ -89,6 +94,20 @@ impl Bus {
         state.engine = engine::from_transition(&state.engine.backend, transition, health);
         let status = state.engine.clone();
         state.publish(Body::Engine(status));
+
+        let previous = state.network.take();
+        let configured = state.startup.network.mode;
+        let current = transition
+            .network
+            .map(|network| network_status(configured, network));
+        if current != previous {
+            let status = current.clone().unwrap_or_else(|| NetworkStatus {
+                configured_mode: mode(configured).into(),
+                ..Default::default()
+            });
+            state.publish(Body::Network(status));
+        }
+        state.network = current;
     }
 
     pub(super) fn health(&self, health: EngineHealthState) {
@@ -163,6 +182,7 @@ impl Bus {
         let first = state.envelope(Body::Snapshot(DaemonSnapshot {
             engine: Some(state.engine.clone()),
             settings_revision: state.settings_snapshot.revision,
+            network: state.network.clone(),
             ..Default::default()
         }));
         stream_from(Some(first), state.events.subscribe(), stop)
@@ -258,6 +278,48 @@ impl Events for TypedApi {
     }
 }
 
+fn mode(value: NetworkMode) -> WireMode {
+    match value {
+        NetworkMode::Auto => WireMode::Auto,
+        NetworkMode::Nat => WireMode::Nat,
+        NetworkMode::Userspace => WireMode::Userspace,
+    }
+}
+
+fn network_status(configured: NetworkMode, network: BootNetwork) -> NetworkStatus {
+    let active = match network.active {
+        NetworkSpec::Nat => WireMode::Nat,
+        NetworkSpec::Userspace => WireMode::Userspace,
+    };
+    let reason = match network.result {
+        NetworkResult::Unchecked | NetworkResult::NativeHealthy => None,
+        NetworkResult::Unavailable => Some("probe_unavailable".into()),
+        NetworkResult::Fallback(stage) => {
+            Some(format!("native_{}_userspace_verified", stage_name(stage)))
+        }
+        NetworkResult::NativeDegraded(stage) => Some(format!("native_{}", stage_name(stage))),
+    };
+    NetworkStatus {
+        configured_mode: mode(configured).into(),
+        active_mode: active.into(),
+        reason,
+        ..Default::default()
+    }
+}
+
+fn stage_name(stage: EgressStage) -> &'static str {
+    match stage {
+        EgressStage::Unspecified => "unknown",
+        EgressStage::Healthy => "healthy",
+        EgressStage::Dns => "dns",
+        EgressStage::Route => "route",
+        EgressStage::Tcp => "tcp",
+        EgressStage::Tls => "tls",
+        EgressStage::Http => "http",
+        EgressStage::Policy => "policy",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use futures_util::StreamExt;
@@ -275,6 +337,7 @@ mod tests {
                 previous: State::Starting,
                 current: State::Booting,
                 failure: None,
+                network: None,
             });
         }
 

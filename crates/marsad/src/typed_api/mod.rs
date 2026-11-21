@@ -9,12 +9,15 @@ mod stats;
 
 use std::{future::Future, io, sync::Arc, time::Duration};
 
-use marsa_core::{paths::MarsaPaths, settings::Settings};
+use marsa_core::{
+    paths::MarsaPaths,
+    settings::{NetworkMode, Settings},
+};
 use marsa_proto::host::v1::{
     engine_server::EngineServer, events_server::EventsServer, meta_server::MetaServer,
     settings_server::SettingsServer, stats_server::StatsServer,
 };
-use marsa_vm::{Capabilities, Hypervisor, VmSpec};
+use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
 use tokio::{net::UnixListener, sync::watch};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{
@@ -72,11 +75,22 @@ impl TypedApi {
         mut self,
         backend: Arc<dyn Hypervisor>,
         probe: Arc<dyn GuestProbe>,
-        spec: VmSpec,
+        mut spec: VmSpec,
         config: SupervisorConfig,
     ) -> (Self, Supervisor) {
         let events = self.inner.events.clone();
         let capabilities = backend.capabilities();
+        let (settings, _) = events.settings();
+        let automatic = settings.network.mode == NetworkMode::Auto
+            && capabilities.userspace_network
+            && settings.network.dns.is_empty()
+            && settings.network.proxy.http.is_none()
+            && settings.network.proxy.https.is_none();
+        match settings.network.mode {
+            NetworkMode::Auto | NetworkMode::Nat => spec.network = NetworkSpec::Nat,
+            NetworkMode::Userspace => spec.network = NetworkSpec::Userspace,
+        }
+
         events.backend(capabilities.name);
         self.capabilities = Some(capabilities);
         let supervisor = Supervisor::spawn_observed(
@@ -85,6 +99,7 @@ impl TypedApi {
             spec,
             config,
             Arc::new(move |transition| events.engine(transition)),
+            automatic,
         );
         self.supervisor = Some(supervisor.clone());
         (self, supervisor)

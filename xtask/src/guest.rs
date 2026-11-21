@@ -323,10 +323,13 @@ fn build_guest_programs(workspace: &Path, output: &Path) -> io::Result<PathBuf> 
         workspace.display(),
         cargo_home.display(),
     );
-    let status = Command::new("cargo")
+    let mut build = Command::new("cargo");
+    build
         .current_dir(workspace)
         .env("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER", "rust-lld")
         .env("CARGO_ENCODED_RUSTFLAGS", remap_flags)
+        .env("CC_aarch64_unknown_linux_musl", "clang")
+        .env("AR_aarch64_unknown_linux_musl", guest_archiver(workspace)?)
         .args([
             "build",
             "--locked",
@@ -336,14 +339,42 @@ fn build_guest_programs(workspace: &Path, output: &Path) -> io::Result<PathBuf> 
             "--target-dir",
         ])
         .arg(target_dir)
-        .args(["-p", "marsa-init", "-p", "marsa-agent"])
-        .status()?;
+        .args(["-p", "marsa-init", "-p", "marsa-agent"]);
+    if cfg!(target_os = "macos") {
+        // Apple clang's musl stddef wrapper includes a system header that
+        // ring's freestanding build deliberately excludes. Select the
+        // compiler's freestanding definitions without changing the target ABI.
+        build.env("CFLAGS_aarch64_unknown_linux_musl", "-U__musl__");
+    }
+    let status = build.status()?;
     if !status.success() {
         return Err(io::Error::other(format!(
             "guest Rust build exited with {status}"
         )));
     }
     Ok(target_dir.join(TARGET).join("release"))
+}
+
+fn guest_archiver(workspace: &Path) -> io::Result<PathBuf> {
+    let output = Command::new("rustc")
+        .current_dir(workspace)
+        .args(["--print", "target-libdir"])
+        .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other("rustc could not locate guest build tools"));
+    }
+    let directory = String::from_utf8(output.stdout).map_err(io::Error::other)?;
+    let archiver = Path::new(directory.trim())
+        .parent()
+        .ok_or_else(|| io::Error::other("rustc returned an invalid host library directory"))?
+        .join("bin")
+        .join("llvm-ar");
+    if !archiver.is_file() {
+        return Err(io::Error::other(
+            "install the pinned Rust llvm-tools component to build the guest",
+        ));
+    }
+    Ok(archiver)
 }
 
 impl Versions {

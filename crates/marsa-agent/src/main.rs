@@ -2,6 +2,8 @@
 
 #[cfg(any(target_os = "linux", test))]
 mod control;
+#[cfg(target_os = "linux")]
+mod egress;
 #[cfg(any(target_os = "linux", test))]
 mod health;
 #[cfg(target_os = "linux")]

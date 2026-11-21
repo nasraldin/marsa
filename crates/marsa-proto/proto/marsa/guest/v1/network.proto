@@ -51,3 +51,29 @@ enum Transport {
   TRANSPORT_TCP = 1;
   TRANSPORT_UDP = 2;
 }
+
+// Release Docker after a successful SetTime. Safe to repeat on the same session.
+message StartEngine {}
+
+// Probe registry-1.docker.io:443/v2/ from a deferred engine session.
+message ProbeEgress {
+  // IPv4 address selected by the host's resolver, in network byte order.
+  bytes address_v4 = 1;
+}
+
+// Diagnostic stage with no peer-supplied text.
+message EgressResult {
+  EgressStage stage = 1;
+}
+
+// Result of the comparison probe, independently of Docker readiness.
+enum EgressStage {
+  EGRESS_STAGE_UNSPECIFIED = 0;
+  EGRESS_STAGE_HEALTHY = 1;
+  EGRESS_STAGE_DNS = 2;
+  EGRESS_STAGE_ROUTE = 3;
+  EGRESS_STAGE_TCP = 4;
+  EGRESS_STAGE_TLS = 5;
+  EGRESS_STAGE_HTTP = 6;
+  EGRESS_STAGE_POLICY = 7;
+}

@@ -25,6 +25,8 @@ use super::{
     Transition,
 };
 
+mod network;
+
 const PORT: u32 = 5000;
 const STEP: Duration = Duration::from_millis(20);
 
