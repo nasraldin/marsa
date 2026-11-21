@@ -2,7 +2,7 @@
 
 use std::{future::pending, sync::Arc, time::Duration};
 
-use marsa_vm::{Hypervisor, Vm, VmSpec};
+use marsa_vm::Vm;
 use tokio::{
     sync::{broadcast, mpsc, oneshot, watch},
     task::{JoinError, JoinHandle},
@@ -12,8 +12,8 @@ use tokio::{
 use super::{
     BootFailure, BootStage, GuestProbe, Observer, Snapshot, State, SupervisorConfig,
     SupervisorError, Transition,
-    boot::{self, Activation, LiveGuest, Outcome},
-    network::Selection,
+    boot::{self, LiveGuest, Outcome},
+    launch::Runtime,
 };
 
 mod operations;
@@ -49,11 +49,9 @@ pub(super) struct TransitionOutput {
 }
 
 pub(super) struct Actor {
-    backend: Arc<dyn Hypervisor>,
+    runtime: Runtime,
     probe: Arc<dyn GuestProbe>,
-    spec: VmSpec,
     config: SupervisorConfig,
-    selection: Selection,
     commands: mpsc::Receiver<Command>,
     output: TransitionOutput,
     boot: Option<JoinHandle<Outcome>>,
@@ -74,20 +72,16 @@ pub(super) struct Actor {
 
 impl Actor {
     pub(super) fn new(
-        backend: Arc<dyn Hypervisor>,
+        runtime: Runtime,
         probe: Arc<dyn GuestProbe>,
-        spec: VmSpec,
         config: SupervisorConfig,
         commands: mpsc::Receiver<Command>,
         output: TransitionOutput,
-        selection: Selection,
     ) -> Self {
         Self {
-            backend,
+            runtime,
             probe,
-            spec,
             config,
-            selection,
             commands,
             output,
             boot: None,
@@ -195,14 +189,10 @@ impl Actor {
         self.cancel_boot = Some(cancel_boot);
         self.progress = Some(updates);
         self.boot = Some(tokio::spawn(boot::run(
-            self.backend.clone(),
+            self.runtime.source.clone(),
             self.probe.clone(),
-            Activation {
-                spec: self.spec.clone(),
-                limit: self.config.boot_timeout,
-                stop_limit: self.config.stop_timeout,
-                selection: self.selection.clone(),
-            },
+            self.config.boot_timeout,
+            self.config.stop_timeout,
             cancel,
             progress,
         )));
@@ -215,6 +205,10 @@ impl Actor {
     }
 
     fn ready(&mut self) {
+        if let Some(applied) = self.guest.as_mut().and_then(|guest| guest.applied.take()) {
+            applied();
+        }
+
         self.set_state(State::Ready, None);
         self.reset_idle();
         self.reply_waiters(Ok(()));

@@ -1,6 +1,6 @@
 //! Coordinate one VM boot, its readiness checks, and lifecycle requests.
 
-use std::{io, net::Ipv4Addr, sync::Arc, time::Duration};
+use std::{io, net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 
 use marsa_proto::guest::v1::EgressStage;
 use marsa_vm::{Hypervisor, Vm, VmError, VmSpec, async_trait};
@@ -10,7 +10,8 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 mod actor;
 mod boot;
 mod host_egress;
-mod network;
+pub(crate) mod launch;
+pub(crate) mod network;
 mod platform;
 
 pub use network::{AlternateFailure, BootNetwork, NetworkResult};
@@ -42,6 +43,8 @@ pub enum State {
 /// Phase in which guest activation failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootStage {
+    /// Validate the packaged guest and prepare its persistent disk.
+    Prepare,
     /// Construct the VM and validate its devices.
     Create,
     /// Start the hypervisor.
@@ -241,6 +244,52 @@ impl Supervisor {
         observer: Option<Observer>,
         selection: network::Selection,
     ) -> Self {
+        let console_log = spec.console_log.clone();
+        let pause_resume = backend.capabilities().pause_resume;
+        let launch = launch::Launch {
+            backend,
+            spec,
+            selection,
+            applied: None,
+        };
+        Self::spawn_runtime(
+            launch::Runtime {
+                source: launch::Source::Fixed(Box::new(launch)),
+                console_log,
+                pause_resume,
+            },
+            probe,
+            config,
+            observer,
+        )
+    }
+
+    pub(crate) fn spawn_packaged(
+        prepare: launch::Prepare,
+        console_log: PathBuf,
+        pause_resume: bool,
+        probe: Arc<dyn GuestProbe>,
+        config: SupervisorConfig,
+        observer: Observer,
+    ) -> Self {
+        Self::spawn_runtime(
+            launch::Runtime {
+                source: launch::Source::Package(prepare),
+                console_log,
+                pause_resume,
+            },
+            probe,
+            config,
+            Some(observer),
+        )
+    }
+
+    fn spawn_runtime(
+        launch: launch::Runtime,
+        probe: Arc<dyn GuestProbe>,
+        config: SupervisorConfig,
+        observer: Option<Observer>,
+    ) -> Self {
         let (commands, input) = mpsc::channel(actor::CHANNEL_CAPACITY);
         let (output, snapshot) = watch::channel(Snapshot {
             state: State::Stopped,
@@ -250,9 +299,8 @@ impl Supervisor {
         let (events, _) = broadcast::channel(actor::CHANNEL_CAPACITY);
         tokio::spawn(
             actor::Actor::new(
-                backend,
+                launch,
                 probe,
-                spec,
                 config,
                 input,
                 actor::TransitionOutput {
@@ -260,7 +308,6 @@ impl Supervisor {
                     events: events.clone(),
                     observer,
                 },
-                selection,
             )
             .run(),
         );

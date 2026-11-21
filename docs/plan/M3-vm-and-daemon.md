@@ -146,7 +146,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 
 ### M3-11 Power and network watcher
 
-- **Status:** in progress
+- **Status:** blocked (manual system sleep and wake measurement pending)
 - **Depends on:** M3-07, M3-16
 - **Docs:** [03 Sleep, wake and network changes](../03-host-daemon.md#sleep-wake-and-network-changes)
 - **Do:** Subscribe to host sleep, wake and network-change notifications. Pause on sleep, resume on wake, push the current time to the agent, and publish events. Network-change handling here only emits the event; M4 consumes it.
@@ -154,10 +154,11 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 - **Accept when:**
   - After a real sleep and wake, the guest clock is within one second of the host (Tier 2 or manual test recorded).
   - The sequence is covered by tests with injected events.
+- **Evidence:** Injected sleep and wake, startup races, manual pause ownership, and daemon event ordering passed. On Apple silicon, the entitled harness registered native notifications and measured less than 5 ms of pre-sleep skew with the user-space attachment. The manual windows ended before the Mac entered sleep. A real sleep and wake measurement is still required.
 
 ### M3-12 Compose the packaged VM runtime
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-03, M3-07, M3-08, M3-15, M3-16
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [04 Boot sequence](../04-virtualization-macos.md#boot-sequence), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
 - **Do:** Wire the packaged daemon to the native VZ backend, guest artefact validation, guest-control session and typed API. Create the private sparse data disk on first activation. Build each VM spec from the current settings and apply restart-scoped settings on the next activation. Publish health and stats from the active control session. Install the signed user-space helper and use the boot selector when network mode is automatic.
@@ -166,6 +167,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
   - A packaged daemon started with a fresh per-user state directory accepts a real `Engine.Start`, reaches Ready through the agent and Docker API, and reports guest health and stats.
   - Subsequent Stop and Restart use the same data disk. A restart-scoped settings change becomes effective on restart.
   - Invalid or missing guest files fail cleanly before a VM starts and preserve existing user data.
+- **Evidence:** An ad-hoc-signed bundle on macOS 27.2.1 reached Docker Ready over its Unix socket on a fresh default 64 GiB sparse disk. It verified the user-space fallback with the native route unavailable and exposed health and stats. Restart applied new memory on the same disk inode. A missing image, corrupt image, and broken resource seal preserved the disk.
 
 ### M3-13 Keep guest control available without an upstream lease
 

@@ -29,8 +29,9 @@ use tonic::{
 };
 
 use crate::{
+    guest_control::{GuestControl, GuestEvent},
     host_events::{HostEvent, HostNotification},
-    supervisor::{GuestProbe, Supervisor, SupervisorConfig},
+    supervisor::{GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection},
 };
 
 const CONTROL_LIMIT: usize = 4096;
@@ -87,16 +88,7 @@ impl TypedApi {
         let events = self.inner.events.clone();
         let capabilities = backend.capabilities();
         let (settings, _) = events.settings();
-        let automatic = settings.network.mode == NetworkMode::Auto
-            && capabilities.userspace_network
-            && settings.network.dns.is_empty()
-            && settings.network.proxy.http.is_none()
-            && settings.network.proxy.https.is_none();
-        match settings.network.mode {
-            NetworkMode::Auto | NetworkMode::Nat => spec.network = NetworkSpec::Nat,
-            NetworkMode::Userspace => spec.network = NetworkSpec::Userspace,
-        }
-
+        let automatic = select_network(&settings, &mut spec, capabilities);
         events.backend(capabilities.name);
         self.capabilities = Some(capabilities);
         let supervisor = Supervisor::spawn_observed(
@@ -131,6 +123,51 @@ impl TypedApi {
             }
             notification.finish();
         }
+    }
+
+    /// Install the runtime used by the bundled daemon.
+    ///
+    /// The factory runs on a blocking worker at every cold activation. It sees
+    /// one settings snapshot for the whole attempt, including network fallback.
+    pub fn with_packaged_runtime(
+        mut self,
+        capabilities: Capabilities,
+        control: GuestControl,
+        config: SupervisorConfig,
+        prepare: impl Fn(&Settings) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> + Send + Sync + 'static,
+    ) -> Self {
+        let events = self.inner.events.clone();
+        events.backend(capabilities.name);
+        self.capabilities = Some(capabilities);
+        let settings = events.clone();
+        let preparation = Arc::new(move || {
+            let (desired, _) = settings.settings();
+            let (backend, mut spec) = prepare(&desired)?;
+            let automatic = select_network(&desired, &mut spec, backend.capabilities());
+            let bus = settings.clone();
+            Ok(Launch {
+                backend,
+                spec,
+                selection: Selection::new(automatic),
+                applied: Some(Arc::new(move || bus.runtime_applied(&desired))),
+            })
+        });
+        let observations = self.inner.events.clone();
+        let control = Arc::new(control.observe_active(move |event| match event {
+            GuestEvent::Health(health) => engine::publish_health(&observations, health),
+            GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
+            GuestEvent::Port(_) => (),
+        }));
+        let supervisor = Supervisor::spawn_packaged(
+            preparation,
+            self.inner.paths.console_log(),
+            capabilities.pause_resume,
+            control,
+            config,
+            Arc::new(move |transition| events.engine(transition)),
+        );
+        self.supervisor = Some(supervisor);
+        self
     }
 
     /// Serve the Unix RPCs until the caller requests shutdown.
@@ -181,4 +218,16 @@ impl TypedApi {
         }
         Ok(request.into_inner())
     }
+}
+
+fn select_network(settings: &Settings, spec: &mut VmSpec, capabilities: Capabilities) -> bool {
+    spec.network = match settings.network.mode {
+        NetworkMode::Auto | NetworkMode::Nat => NetworkSpec::Nat,
+        NetworkMode::Userspace => NetworkSpec::Userspace,
+    };
+    settings.network.mode == NetworkMode::Auto
+        && capabilities.userspace_network
+        && settings.network.dns.is_empty()
+        && settings.network.proxy.http.is_none()
+        && settings.network.proxy.https.is_none()
 }

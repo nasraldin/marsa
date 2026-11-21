@@ -26,11 +26,10 @@ pub(super) async fn select_and_start(
 ) -> Result<Outcome, Failed> {
     let Activation {
         spec,
-        limit,
+        deadline,
         stop_limit,
         selection,
     } = activation;
-    let deadline = Instant::now() + limit;
     let mut guest = attach(backend, probe, spec.clone(), deadline, cancel, progress).await?;
     let Some(host) = selection.host.filter(|_| spec.network == NetworkSpec::Nat) else {
         return start_engine(guest, deadline, cancel, progress).await;

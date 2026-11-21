@@ -2,7 +2,7 @@
 
 use std::{
     io,
-    sync::Weak,
+    sync::{Arc, Weak},
     time::{Duration, SystemTime},
 };
 
@@ -22,6 +22,7 @@ use tokio::{
 
 use crate::supervisor::{GuestProbe, GuestSession};
 
+mod observations;
 mod session;
 mod wire;
 
@@ -114,21 +115,40 @@ impl From<GuestControlError> for io::Error {
 #[derive(Clone)]
 pub struct GuestControl {
     active: watch::Sender<Weak<session::Client>>,
-    events: broadcast::Sender<GuestEvent>,
+    events: observations::EventBus,
     clock: fn() -> SystemTime,
+    agent_connect_timeout: Duration,
 }
 
 impl Default for GuestControl {
     fn default() -> Self {
         Self {
             active: watch::channel(Weak::new()).0,
-            events: broadcast::channel(EVENT_CAPACITY).0,
+            events: observations::EventBus::default(),
             clock: SystemTime::now,
+            agent_connect_timeout: AGENT_CONNECT_TIMEOUT,
         }
     }
 }
 
 impl GuestControl {
+    pub(crate) fn observe_active(
+        mut self,
+        observer: impl Fn(&GuestEvent) + Send + Sync + 'static,
+    ) -> Self {
+        self.events.observer = Some(Arc::new(observer));
+        self
+    }
+
+    /// Set the deadline for the guest agent's listener to appear.
+    ///
+    /// The packaged runtime allows for first-boot disk initialization. Frame
+    /// and negotiation deadlines continue to apply after the connection opens.
+    pub fn with_agent_connect_timeout(mut self, limit: Duration) -> Self {
+        self.agent_connect_timeout = limit;
+        self
+    }
+
     /// Subscribe to future guest events across reconnects. Lagging receivers
     /// receive a broadcast lag notice and must refresh their view.
     pub fn events(&self) -> broadcast::Receiver<GuestEvent> {
@@ -192,7 +212,7 @@ impl GuestControl {
 #[async_trait]
 impl GuestProbe for GuestControl {
     async fn handshake(&self, vm: &dyn Vm) -> io::Result<Box<dyn GuestSession>> {
-        let stream = timeout(AGENT_CONNECT_TIMEOUT, wire::open(vm, CONTROL_PORT))
+        let stream = timeout(self.agent_connect_timeout, wire::open(vm, CONTROL_PORT))
             .await
             .map_err(|_| GuestControlError::TimedOut("connecting to the guest agent"))??;
         let session = timeout(HANDSHAKE_TIMEOUT, self.connect(stream))

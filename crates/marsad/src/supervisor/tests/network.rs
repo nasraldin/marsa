@@ -405,3 +405,38 @@ async fn a_stalled_alternate_reserves_time_to_restore_local_docker() {
         ]
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_alternate_can_verify_after_a_single_transient_tcp_failure() {
+    let (result, observed, trace) = boot(
+        Some(Arc::new(AvailableHost)),
+        NetworkSpec::Nat,
+        FakeScenario::default(),
+        vec![
+            Some(vec![EgressStage::Route; 2]),
+            Some(vec![EgressStage::Tcp, EgressStage::Healthy]),
+        ],
+    )
+    .await;
+    result.unwrap();
+    assert_eq!(
+        observed,
+        Some(BootNetwork {
+            active: NetworkSpec::Userspace,
+            result: NetworkResult::Fallback(EgressStage::Route),
+        })
+    );
+    assert_eq!(
+        trace,
+        [
+            "native",
+            "probe",
+            "probe",
+            "retire",
+            "userspace",
+            "probe",
+            "probe",
+            "engine"
+        ]
+    );
+}
