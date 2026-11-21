@@ -11,7 +11,7 @@ The spikes used macOS 27.2.1 on Apple silicon. The reports contain the test setu
 
 ## Gate status
 
-- **G1. GPUI selected.** The owner confirmed GPUI in [D-023](../15-decisions.md#d-023-choose-gpui-for-the-desktop). The desktop qualification verified the native editor for Arabic input, native arrow events, live IME conversion and the macOS accessibility tree. M6-08 still owns physical keyboard and spoken VoiceOver validation. [Desktop qualification](https://github.com/nasraldin/marsa/pull/14).
+- **G1. GPUI selected.** The owner confirmed GPUI in [D-023](../15-decisions.md#d-023-choose-gpui-for-the-desktop). The desktop qualification verified the native editor for Arabic input, native arrow events, live IME conversion and the macOS accessibility tree. M6-08 still owns physical keyboard and spoken VoiceOver validation. [Desktop qualification](M1-06-gpui-qualification.md).
 - **G2. Direct Rust bindings recommended.** Both bridges met the runtime criteria. The choice still needs explicit owner agreement. [Apple bridge comparison](../04-virtualization-macos.md#calling-the-framework-from-rust).
 
 M4-06 owns the notification relay and real-container permission validation. M9-03 verifies disk reclaim through the production path.

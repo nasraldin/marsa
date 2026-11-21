@@ -67,3 +67,15 @@ The [spike review](../spikes/README.md) records both gates. The owner selected G
   - G1 and G2 are recorded with the owner's agreement noted.
   - No doc still carries a **Verify** label for V-01, V-02, V-03 or V-05.
   - The plan reflects any changed tasks.
+
+### M1-06 Qualify GPUI for the Marsa desktop
+
+- **Status:** done
+- **Depends on:** M1-01
+- **Docs:** [08 GUI](../08-gui.md), [13 GUI tests](../13-testing-and-benchmarks.md#gui-tests), D-004, V-11
+- **Do:** Test the current compatible stable GPUI stack on Apple silicon against the desktop requirements. Reproduce and investigate the Arabic editing failure. Check bilingual rendering, keyboard and accessibility behavior, and representative large lists and streaming logs. Compare the measured evidence with the product plan and identify what needs a production screen or separate validation.
+- **Deliver:** Reproducible non-shipping probes and a qualification report under `docs/spikes/`.
+- **Accept when:**
+  - The existing five right-to-left criteria are rerun in the four language and appearance variants, with failures and candidate fixes documented.
+  - Representative keyboard, accessibility and load risks are tested where feasible, with precise limitations.
+  - Every must-have desktop area has a disposition and the report supports an owner decision without closing G1 automatically.

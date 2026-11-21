@@ -164,7 +164,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 ## D-023 Choose GPUI for the desktop
 
 - **Decision:** The owner chose GPUI as the Rust desktop UI framework. This closes G1 and supersedes D-004 and D-005.
-- **Why:** M1-01 reproduced Arabic caret and hit-testing defects in stock GPUI Kit input. The desktop qualification verified a Rust-backed AppKit editor inside GPUI for Arabic typing, native arrow events, pointer selection and live IME conversion. It also demonstrated an AppKit layout that exposes both the native editor and a GPUI control to macOS accessibility. [Qualification evidence](https://github.com/nasraldin/marsa/pull/14).
+- **Why:** M1-01 reproduced Arabic caret and hit-testing defects in stock GPUI Kit input. The desktop qualification verified a Rust-backed AppKit editor inside GPUI for Arabic typing, native arrow events, pointer selection and live IME conversion. It also demonstrated an AppKit layout that exposes both the native editor and a GPUI control to macOS accessibility. [Qualification evidence](spikes/M1-06-gpui-qualification.md).
 - **Consequence:** Keep direction, localization and GUI accessibility in the Rust component layer. Validate the native editor in the production window. M6-08 covers physical arrow keys, the live IME candidate panel and spoken VoiceOver reading and editing. D-015 still requires all four language and theme variants.
 - **Reopen if:** The production integration cannot satisfy the Arabic editing or accessibility requirements at a maintainable cost.
 - **Date and task:** 2026-11-21, M1-05.

@@ -14,6 +14,7 @@ use super::require;
 pub(super) fn probe(view: &Entity<Spike>, window: &mut Window, cx: &mut App) -> Result<()> {
     let input = view.read(cx).input.clone();
     input.read(cx).focus_handle(cx).focus(window, cx);
+    window.press("cmd-a", cx);
     window.input("عرب", cx);
     require(
         input.read(cx).value().as_ref() == "عرب",
