@@ -168,7 +168,7 @@ flowchart LR
 
 - Run `cargo xtask guest all` from a Mac with a local Docker daemon or from the Linux CI runner. The digest-pinned Linux builder downloads and verifies the arm64 guest sources. Individual stages are `kernel`, `rootfs` and `image`.
 - Verified archives and their checksum list are written to `target/guest/`. A checksum mismatch stops the build. Remove a mismatched cached archive before retrying.
-- Until M2-02 and M2-03 implement the kernel and root filesystem recipes, the stages produce verified source archives for those tasks. M2-04 builds the bootable filesystem image.
+- The kernel stage compiles the arm64 kernel and writes the uncompressed boot `Image`, the ELF `vmlinux`, the resolved kernel config and the Moby configuration report. Run it on an arm64 Linux Docker daemon. M2-03 builds the root filesystem and M2-04 creates the bootable filesystem image.
 - Every input is pinned by version and checksum in `guest/versions.toml`.
 - The output is identical for identical inputs (reproducible build), verified in CI by building twice.
 

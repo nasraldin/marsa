@@ -42,6 +42,7 @@ shift
 case "$stage" in
     kernel)
         fetch "$1" "$2"
+        fetch "$7" "$8"
         ;;
     rootfs)
         fetch "$3" "$4"
@@ -51,6 +52,7 @@ case "$stage" in
         fetch "$1" "$2"
         fetch "$3" "$4"
         fetch "$5" "$6"
+        fetch "$7" "$8"
         mv -f -- "$scratch/SHA256SUMS" SHA256SUMS
         ;;
     *)

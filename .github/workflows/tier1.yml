@@ -25,8 +25,15 @@ jobs:
       - name: Workspace tests
         run: cargo xtask test
 
-      - name: Build and verify guest inputs
-        if: runner.os == 'Linux'
+  guest:
+    name: Build arm64 guest
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build guest kernel and verify upstream inputs
         run: |
           cargo xtask guest all
           (cd target/guest && sha256sum -c SHA256SUMS)
