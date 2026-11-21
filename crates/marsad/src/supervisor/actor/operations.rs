@@ -1,6 +1,6 @@
 //! Implement the actor's state transitions for requests, deadlines, and boot completion.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use marsa_vm::{Vm, VmState};
 use tokio::{
@@ -10,7 +10,7 @@ use tokio::{
 
 use crate::supervisor::{
     BootFailure, BootStage, State, SupervisorError,
-    boot::{Issue, Outcome, Reason},
+    boot::{self, Issue, Outcome, Reason},
     platform,
 };
 
@@ -109,6 +109,7 @@ impl Actor {
         }
         let guest = self.guest.as_mut().ok_or(SupervisorError::Closed)?;
         guest.vm.pause().await.map_err(Arc::new)?;
+        guest.session.take();
         self.idle_at = None;
         self.transition(State::Paused);
         Ok(())
@@ -119,7 +120,6 @@ impl Actor {
             return Err(self.invalid("resume"));
         }
         let guest = self.guest.as_mut().ok_or(SupervisorError::Closed)?;
-        guest.session.take();
         let result = timeout(self.config.boot_timeout, async {
             guest.vm.resume().await.map_err(std::io::Error::other)?;
             let mut session = self.probe.handshake(guest.vm.as_ref()).await?;
@@ -161,18 +161,28 @@ impl Actor {
             let _ = cancel.send(());
         }
         self.progress = None;
-        let vm = if let Some(task) = self.boot.take() {
+        let mut ready = self.guest.take();
+        let mut vm = self.cleanup.take();
+        if let Some(task) = self.boot.take() {
             match task.await {
-                Ok(Outcome::Ready(guest)) => Some(guest.vm),
-                Ok(Outcome::Failed { vm, .. }) => vm,
-                Err(_) => None,
+                Ok(Outcome::Ready(guest)) => ready = Some(guest),
+                Ok(Outcome::Failed { vm: partial, .. }) => vm = partial,
+                Err(_) => {}
             }
-        } else {
-            self.cleanup
-                .take()
-                .or_else(|| self.guest.take().map(|guest| guest.vm))
-        };
-        if let Err(error) = self.stop_vm(vm).await {
+        }
+        let mut limit = self.config.stop_timeout;
+        let mut failure = None;
+        if let Some(guest) = ready {
+            let (running, remaining, exit_failure) =
+                boot::graceful_stop(guest, self.probe.as_ref(), limit).await;
+            vm = Some(running);
+            limit = remaining;
+            failure = exit_failure;
+        }
+        let outcome = self.stop_vm(vm, limit).await.and_then(|()| {
+            failure.map_or(Ok(()), |error| Err(SupervisorError::Vm(Arc::new(error))))
+        });
+        if let Err(error) = outcome {
             let failure = Arc::new(BootFailure {
                 stage: BootStage::Shutdown,
                 timed_out: false,
@@ -186,15 +196,26 @@ impl Actor {
         Ok(())
     }
 
-    async fn stop_vm(&mut self, vm: Option<Box<dyn Vm>>) -> Result<(), SupervisorError> {
+    async fn stop_vm(
+        &mut self,
+        vm: Option<Box<dyn Vm>>,
+        limit: Duration,
+    ) -> Result<(), SupervisorError> {
         self.cleanup = vm;
         if let Some(vm) = self.cleanup.as_mut()
-            && !matches!(
-                vm.state(),
-                VmState::Created | VmState::Failed | VmState::Stopped
-            )
+            && !matches!(vm.state(), VmState::Created | VmState::Stopped)
         {
-            vm.stop(self.config.stop_timeout).await.map_err(Arc::new)?;
+            // Allow a separate, bounded window for native forced-stop completion.
+            let completion_limit = limit.saturating_add(Duration::from_secs(5));
+            timeout(completion_limit, vm.stop(limit))
+                .await
+                .map_err(|_| {
+                    Arc::new(marsa_vm::VmError::Timeout {
+                        operation: "stop",
+                        limit: completion_limit,
+                    })
+                })?
+                .map_err(Arc::new)?;
         }
         self.cleanup = None;
         Ok(())
@@ -234,7 +255,7 @@ impl Actor {
             Reason::Canceled => (false, "guest activation canceled".into()),
         };
         self.idle_at = None;
-        let stop = self.stop_vm(vm).await;
+        let stop = self.stop_vm(vm, self.config.stop_timeout).await;
         if let Err(error) = &stop {
             detail.push_str(&format!("; guest cleanup failed: {error}"));
         }

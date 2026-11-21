@@ -220,7 +220,15 @@ async fn watch_progress(progress: &mut Option<watch::Receiver<BootStage>>) -> Bo
 
 async fn watch_guest(guest: &mut Option<LiveGuest>) -> String {
     match guest {
-        Some(guest) => boot::guest_exit(guest.vm.as_ref(), &mut guest.events).await,
+        Some(guest) => tokio::select! {
+            detail = boot::guest_exit(guest.vm.as_ref(), &mut guest.events) => detail,
+            error = async {
+                match guest.session.as_mut() {
+                    Some(session) => session.disconnected().await,
+                    None => pending().await,
+                }
+            } => error.to_string(),
+        },
         None => pending().await,
     }
 }

@@ -25,7 +25,7 @@ getrandom = "=0.4.3"
 tempfile = "=3.27.0"
 marsa-core = { path = "../marsa-core" }
 nix = { version = "=0.32.0", features = ["fs", "user"] }
-tokio = { version = "=1.54.1", features = ["macros", "net", "rt", "signal", "sync", "time"] }
+tokio = { version = "=1.54.1", features = ["io-util", "macros", "net", "rt", "signal", "sync", "time"] }
 tokio-stream = { version = "=0.1.19", features = ["net"] }
 tonic = "=0.14.9"
 tracing = "=0.1.44"

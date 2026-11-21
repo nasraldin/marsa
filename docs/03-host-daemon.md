@@ -151,9 +151,15 @@ stateDiagram-v2
 Rules:
 
 - **Start on demand.** The VM starts when the user asks or when the first Docker API call arrives. A call that arrives during `Starting` or `Booting` waits, up to a timeout, and then proceeds.
-- **Ready means usable.** `Ready` requires both the agent handshake and a successful `GET /_ping` to dockerd.
+- **Ready means usable.** `Ready` requires protocol negotiation, a successful guest clock update, an agent health report of `Ready`, and an independent successful `GET /_ping` over the Docker API vsock port.
 - **Idle behaviour is a setting.** By default the VM stops after a period with no running containers, so an idle Marsa uses almost no memory.
 - **Failures are visible.** Every transition is published, and `Failed` carries the failed stage and a bounded console tail. Retries use a bounded backoff and share a budget across one explicit activation. If VM cleanup fails, the supervisor retains it for another stop attempt before starting a replacement.
+
+### Guest control
+
+`marsad::guest_control::GuestControl` implements the supervisor's guest probe. It applies the [shared protocol limits](../crates/marsa-proto/PROTOCOL.md#guest-message-limits) before allocating for a frame and before accepting a decoded message. One command is in flight at a time. Up to eight commands can wait, and the request deadline includes that queue time. A stalled or out-of-sequence reply closes the session to prevent late replies from matching future requests.
+
+Port, health and stats messages are published to bounded subscribers. If a subscriber falls behind, it must refresh its view. The supervisor drops the control session after a successful pause. Resume negotiates a fresh session, sets the current clock, and rechecks Docker before reporting readiness.
 
 ## Typed API
 

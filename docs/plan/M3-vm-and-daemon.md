@@ -82,8 +82,8 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-07 Guest control client
 
-- **Status:** todo
-- **Depends on:** M3-06, M2-06
+- **Status:** done
+- **Depends on:** M3-03, M3-06, M2-06
 - **Docs:** [05 marsa-agent](../05-guest-image.md#marsa-agent)
 - **Do:** Implement the host side of the control protocol: connect, handshake with version check, request and response with timeouts, the event streams from the guest, and reconnect after pause and resume. Treat all guest input as untrusted.
 - **Deliver:** the guest-control module in `marsad` with tests against a scripted agent.
@@ -91,6 +91,9 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
   - An incompatible guest protocol version produces a clear, user-visible error.
   - Oversized or malformed guest messages close the connection without crashing the daemon.
   - Port, health and stats events are delivered to subscribers.
+  - An orderly host stop sends the guest shutdown request before using native fallback.
+
+**Verification.** The scripted backend covered incompatible versions, malformed and oversized messages, partial frames, request IDs and result types, request timeouts, all three event types, and pause and resume with fresh time sync and a separate Docker ping. Shutdown tests covered a full command queue, a paused guest, and failure after the guest acknowledged shutdown. The production VZ backend, guest client, supervisor and typed Unix-socket API reached Docker Ready on Apple silicon macOS 27.2.1. The API served live guest health and stats. `Engine.Stop` left the persistent ext4 disk clean. Workspace tests, strict Clippy and dependency policy checks passed.
 
 ### M3-08 Typed API: Engine, Settings, Events, Stats
 

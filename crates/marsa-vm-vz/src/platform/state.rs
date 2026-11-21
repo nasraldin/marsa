@@ -1,6 +1,6 @@
 //! Publish queue-ordered lifecycle snapshots and events without sharing framework objects.
 
-use marsa_vm::{VmError, VmEvent, VmEventStream, VmState};
+use marsa_vm::{VmError, VmEvent, VmEventStream, VmExitCause, VmState};
 use tokio::sync::{broadcast, watch};
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
@@ -46,13 +46,13 @@ impl Lifecycle {
         }
     }
 
-    pub(super) fn unexpected_exit(&self, detail: String) {
+    pub(super) fn unexpected_exit(&self, cause: VmExitCause, detail: String) {
         if !matches!(
             self.current(),
             VmState::Created | VmState::Stopped | VmState::Failed
         ) {
             self.transition(VmState::Failed);
-            let _ = self.events.send(VmEvent::UnexpectedExit { detail });
+            let _ = self.events.send(VmEvent::UnexpectedExit { cause, detail });
         }
     }
 }
