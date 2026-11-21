@@ -1,6 +1,9 @@
+[graph]
+all-features = true
+
 [licenses]
-# The project's own unpublished crates are pending the owner decision in Q-01.
-private = { ignore = true }
+include-build = true
+include-dev = true
 unused-allowed-license = "allow"
 allow = [
     "0BSD",
@@ -14,3 +17,22 @@ allow = [
     "Unicode-3.0",
     "Zlib",
 ]
+
+[advisories]
+db-urls = ["https://github.com/RustSec/advisory-db"]
+yanked = "deny"
+unmaintained = "all"
+unsound = "all"
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+    { name = "failure", reason = "Use thiserror for library error types and anyhow for binary entry points." },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+required-git-spec = "rev"
