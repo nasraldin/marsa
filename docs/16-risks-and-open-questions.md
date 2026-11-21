@@ -6,10 +6,8 @@ These need a decision from a person. Agents must not decide them.
 
 | # | Question | Recommendation | Blocks |
 |---|---|---|---|
-| Q-02 | Minimum macOS version? | macOS 26 | M3 device choices, M10 packaging |
 | Q-03 | Is the name "Marsa" clear to use? Trademark search in the software class, domain, GitHub organisation, crates.io, Homebrew names | Check before any public release | M10 |
 | Q-04 | Who holds the Apple Developer Program account and the update signing key? | A project-owned account; the update key offline or hardware-backed | M10 |
-| Q-05 | Is there a self-hosted Apple silicon Mac for Tier 2 CI and benchmarks? | Yes; plan for one | M0-06, all system tests |
 | Q-06 | Who reviews Arabic translations and terminology? | A fluent reviewer plus a term glossary | M6, M7 |
 | Q-07 | Default for LAN exposure of published ports: loopback only (proposed) or Docker Desktop's behaviour? | Loopback only | M4 |
 | Q-08 | Should `/var/run/docker.sock` be offered during onboarding or only in settings? | Settings only, with a hint when a tool fails to connect | M4, M7 |
@@ -21,6 +19,14 @@ These need a decision from a person. Agents must not decide them.
 | # | Decision | Recorded in |
 |---|---|---|
 | Q-01 | MIT licence | [D-022](15-decisions.md#d-022-licence-marsa-under-mit) |
+
+## Resolved platform and runner questions
+
+| # | Finding |
+|---|---|
+| Q-02 | The owner selected macOS 27 as the minimum supported version on 2026-11-21. |
+| Q-05 | The owner selected their current Apple silicon Mac as the planned Tier 2 host on 2026-11-21. Registration is pending. See the [runner setup](12-build-release-update.md#tier-2-runner-setup). |
+| V-13 | GitHub-hosted Apple silicon runners do not support nested virtualization. Tier 2 requires separate hardware. Verified on 2026-11-21 against [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#limitations-for-arm64-macos-runners). |
 
 ## Technical unknowns to verify
 
@@ -40,7 +46,6 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | V-10 | gpui-component's i18n and whether Fluent can coexist with it | [08](08-gui.md) | M6-04 |
 | V-11 | State of GPUI accessibility on macOS | [08](08-gui.md) | M6-08 |
 | V-12 | Which tools ignore Docker contexts | [09](09-cli-and-docker-compat.md) | M4-04 |
-| V-13 | Nested virtualization on hosted Apple silicon CI runners | [12](12-build-release-update.md) | M0-06 |
 | V-14 | Login-item and agent registration API on the minimum macOS | [03](03-host-daemon.md) | M3-09 |
 | V-15 | Networking packages the pinned engine needs in the guest | [05](05-guest-image.md) | M2-03 |
 | V-16 | Licences of the fonts to bundle | [08](08-gui.md) | M6-02 |

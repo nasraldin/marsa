@@ -57,7 +57,7 @@ A container desktop that starts in seconds, idles near zero, feels native, speak
 | Item | Value | Status |
 |---|---|---|
 | Hardware | Apple silicon (arm64) | Decided |
-| Minimum macOS | macOS 26 | Proposed. Confirm before the first release; see open questions. |
+| Minimum macOS | macOS 27 | Decided in [Q-02](16-risks-and-open-questions.md#resolved-platform-and-runner-questions). |
 | Container architecture | linux/arm64 | Decided |
 
 ## Success measures

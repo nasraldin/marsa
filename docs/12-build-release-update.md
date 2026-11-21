@@ -7,7 +7,7 @@ How Marsa is built, packaged, signed, shipped and kept up to date on macOS.
 | Item | Choice | Status |
 |---|---|---|
 | Rust | Stable channel, version pinned in `rust-toolchain.toml` | Proposed |
-| Host target | `aarch64-apple-darwin` | Decided |
+| Host target | `aarch64-apple-darwin`, macOS 27 minimum | Decided |
 | Guest target | `aarch64-unknown-linux-musl` (static) | Proposed |
 | Task runner | `cargo xtask` (no Makefile, no shell-script sprawl) | Proposed |
 | Protobuf | `prost` and `tonic` with checked-in generated code or build-time generation, decided in M0 | Proposed |
@@ -160,7 +160,7 @@ flowchart TB
 
     t1 --> t2
 
-    subgraph t2["Tier 2: Apple silicon runner with virtualization (PR label and main)"]
+    subgraph t2["Tier 2: trusted dispatch on an Apple silicon runner"]
         boot["Boot test: VM to engine healthy"]
         conf["Docker conformance suite"]
         net["Network and port tests"]
@@ -173,8 +173,18 @@ flowchart TB
     sign2 --> pubr["Publish + signed manifest"]
 ```
 
-- **Verify** whether GitHub-hosted Apple silicon runners support nested virtualization for Virtualization.framework guests at implementation time. If they do not, Tier 2 runs on a self-hosted Mac. Plan for the self-hosted option.
+- Tier 1 runs for pushes and pull requests on hosted Linux and Apple silicon macOS 27 runners. GitHub-hosted Apple silicon runners lack nested virtualization. [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#limitations-for-arm64-macos-runners).
 - Secrets (signing identity, notarization credentials, update key) are available only to the release workflow on protected tags.
+
+### Tier 2 runner setup
+
+Run Tier 2 from a private validation repository containing reviewed Marsa commits. GitHub advises against connecting a persistent self-hosted runner to a public repository. [GitHub runner setup](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners).
+
+1. Use a dedicated standard macOS account on the selected Apple silicon Mac with macOS 27 or later. Install Xcode command-line tools, Rustup, and the prerequisites of the real-VM suite for that account.
+2. In the private validation repository, restrict writes to trusted maintainers and protect the default branch. In **Settings → Actions → Runners**, select **New self-hosted runner**, macOS, and ARM64. Follow GitHub's registration instructions and add the `marsa-virtualization` label.
+3. Mirror reviewed code to the private default branch. Once the `marsa-system-tests` package and its runner prerequisites are available, set the private repository variable `MARSA_TIER2_ENABLED` to `true`. Dispatch **Tier 2** from that default branch. Add the first real tests in M2-10.
+
+The public repository runs Tier 1. Release checks consume Tier 2 results from the same reviewed commit.
 
 ## Release checklist
 
