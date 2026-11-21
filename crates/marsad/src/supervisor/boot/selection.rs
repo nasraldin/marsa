@@ -9,8 +9,8 @@ use tokio::{
 };
 
 use super::{
-    Activation, Failed, Issue, LiveGuest, Reason, attach, during_guest_execution, ensure_stopped,
-    graceful_stop, phase, start_engine,
+    Activation, Failed, Issue, LiveGuest, Outcome, Reason, attach, during_guest_execution,
+    ensure_stopped, graceful_stop, phase, start_engine,
 };
 use crate::supervisor::{
     AlternateFailure, BootStage, GuestProbe, NetworkResult,
@@ -23,7 +23,7 @@ pub(super) async fn select_and_start(
     activation: Activation,
     cancel: &mut oneshot::Receiver<()>,
     progress: &watch::Sender<BootStage>,
-) -> Result<LiveGuest, Failed> {
+) -> Result<Outcome, Failed> {
     let Activation {
         spec,
         limit,

@@ -709,6 +709,8 @@ dependencies = [
 name = "marsad"
 version = "0.1.0"
 dependencies = [
+ "block2",
+ "dispatch2",
  "futures-util",
  "getrandom 0.4.3",
  "hyper-util",
@@ -727,6 +729,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "time",
  "tokio",
  "tokio-stream",
  "tonic",

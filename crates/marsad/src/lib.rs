@@ -5,6 +5,10 @@
 pub mod guest_control;
 
 #[cfg(unix)]
+/// Host power and network notifications.
+pub mod host_events;
+
+#[cfg(unix)]
 /// On-demand Linux guest lifecycle and readiness supervision.
 pub mod supervisor;
 

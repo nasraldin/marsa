@@ -43,7 +43,20 @@ pub(super) fn run() -> Result<(), DaemonError> {
     let api = TypedApi::new(paths.clone(), uid, settings)?;
     let _logging = logging::initialize(&paths, uid)?;
     let socket = instance.publish(&paths, uid)?;
+    #[cfg(target_os = "macos")]
+    let (_watcher, host_events) = match marsad::host_events::platform::Watcher::start() {
+        Ok((watcher, events)) => (Some(watcher), Some(events)),
+        Err(error) => {
+            tracing::warn!(%error, "host notifications unavailable");
+            (None, None)
+        }
+    };
     let serving = runtime.block_on(async {
+        #[cfg(target_os = "macos")]
+        if let Some(events) = host_events {
+            let api = api.clone();
+            tokio::spawn(async move { api.watch_host_events(events).await });
+        }
         let socket = tokio::net::UnixListener::from_std(socket)?;
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
         serve(socket, api, signals).await

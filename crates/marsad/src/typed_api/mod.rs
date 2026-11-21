@@ -18,14 +18,20 @@ use marsa_proto::host::v1::{
     settings_server::SettingsServer, stats_server::StatsServer,
 };
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
-use tokio::{net::UnixListener, sync::watch};
+use tokio::{
+    net::UnixListener,
+    sync::{mpsc, watch},
+};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{
     Request, Status,
     transport::{Server, server::UdsConnectInfo},
 };
 
-use crate::supervisor::{GuestProbe, Supervisor, SupervisorConfig};
+use crate::{
+    host_events::{HostEvent, HostNotification},
+    supervisor::{GuestProbe, Supervisor, SupervisorConfig},
+};
 
 const CONTROL_LIMIT: usize = 4096;
 const CONFIG_LIMIT: usize = marsa_core::settings::MAX_SETTINGS_BYTES + CONTROL_LIMIT;
@@ -103,6 +109,28 @@ impl TypedApi {
         );
         self.supervisor = Some(supervisor.clone());
         (self, supervisor)
+    }
+
+    /// Publish host notifications in arrival order and apply power changes to the active VM.
+    ///
+    /// The source closes when its watcher is dropped. Each sleep notification is
+    /// acknowledged to the watcher once the supervisor finishes handling it.
+    pub async fn watch_host_events(&self, mut source: mpsc::UnboundedReceiver<HostNotification>) {
+        while let Some(notification) = source.recv().await {
+            let event = notification.event;
+            self.inner.events.host(event.into());
+            if let Some(supervisor) = &self.supervisor {
+                let result = match event {
+                    HostEvent::WillSleep => supervisor.host_will_sleep().await,
+                    HostEvent::Woke => supervisor.host_woke().await,
+                    HostEvent::NetworkChanged => Ok(()),
+                };
+                if let Err(error) = result {
+                    tracing::warn!(?event, %error, "host power change failed");
+                }
+            }
+            notification.finish();
+        }
     }
 
     /// Serve the Unix RPCs until the caller requests shutdown.

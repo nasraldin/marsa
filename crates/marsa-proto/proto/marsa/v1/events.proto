@@ -29,6 +29,7 @@ message DaemonEvent {
     UpdateStatus update = 10;
     ListPendingApprovalsResponse approvals = 11;
     ListGrantsResponse grants = 12;
+    HostEvent host = 13;
   }
 }
 
@@ -45,4 +46,16 @@ message DaemonSnapshot {
 
 message SettingsChanged {
   uint64 revision = 1;
+}
+
+// Transient host notification. Engine and network status follow independently.
+message HostEvent {
+  HostEventKind kind = 1;
+}
+
+enum HostEventKind {
+  HOST_EVENT_KIND_UNSPECIFIED = 0;
+  HOST_EVENT_KIND_WILL_SLEEP = 1;
+  HOST_EVENT_KIND_WOKE = 2;
+  HOST_EVENT_KIND_NETWORK_CHANGED = 3;
 }
