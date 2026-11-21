@@ -10,7 +10,7 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 
 ### M6-01 GUI application skeleton
 
-- **Status:** in progress
+- **Status:** blocked (validated GPUI suite fails production dependency policy)
 - **Depends on:** M1-05, M0-01
 - **Docs:** [08 Architecture](../08-gui.md#architecture), [08 Framework version policy](../08-gui.md#framework-version-policy)
 - **Do:** Create `marsa-gui` and `marsa-ui`. Pin GPUI and gpui-component to the revisions validated in M1-01 and document the upgrade procedure. Open a window, handle app lifecycle, and exit the process when the window closes.
@@ -18,6 +18,8 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 - **Accept when:**
   - The app opens an empty window and quits fully on close (no GUI process remains).
   - GPUI and gpui-component are pinned by exact revision in one place.
+
+The Apple silicon dependency audit of GPUI Kit and gpui-component 0.10.0 with GPUI 0.3.12 reported five RustSec unmaintained dependencies (`instant`, `paste`, `ttf-parser`, `rustybuzz` and `chrono`), two MPL-2.0 dependencies outside the current allowlist (`cbindgen` and `option-ext`), and 21 duplicate-version groups. Kit and its components require several of these crates directly. The audit added the exact tested Kit version in an isolated worktree and ran `cargo deny --target aarch64-apple-darwin --locked check`. Resume with a maintained, policy-compliant GPUI dependency graph and re-run the input and lifecycle qualification for its pins. See [D-023](../15-decisions.md#d-023-choose-gpui-for-the-desktop).
 
 ### M6-02 Design tokens, themes and fonts
 
