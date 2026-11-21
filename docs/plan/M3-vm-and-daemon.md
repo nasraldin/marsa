@@ -42,17 +42,15 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
   - The console log contains the full boot output.
   - The root disk is not writable from the guest.
 
-### M3-04 `vz` backend: shares, network, memory target, pause
+### M3-04 Qualify strict native IPv4 NAT
 
-- **Status:** blocked (external HTTPS over native NAT times out on the Tier 2 Mac)
-- **Depends on:** M3-03
+- **Status:** blocked (external HTTPS over native NAT times out or DHCP fails on the Tier 2 Mac)
+- **Depends on:** M3-03, M3-16
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [06 Network modes](../06-networking.md#network-modes)
-- **Do:** Attach virtiofs shares from `VmSpec`, the NAT network attachment, the balloon device with `set_memory_target`, and pause and resume. Report accurate `Capabilities`, including whether shares can be added without a restart.
-- **Deliver:** backend code and Tier 2 tests.
+- **Do:** Qualify the native VZ attachment with the strict IPv4 guest test on Apple silicon.
+- **Deliver:** The entitled native-only DHCP, gateway and HTTPS test and recorded passing hardware evidence.
 - **Accept when:**
-  - A shared folder is visible in the guest at its host path.
-  - The guest has outbound connectivity in NAT mode and `network_info` reports its address.
-  - Pause and resume work and are reported as events.
+  - A guest in explicit native NAT mode obtains IPv4, the backend reports its address and gateway, and the guest reaches HTTPS with certificate verification.
 
 The entitled tests on macOS 27.2.1 verified the read-only share at its
 original host path, guest balloon inflation, and pause and resume events.
@@ -64,9 +62,8 @@ the same address and gateway as the guest kernel. A stock Ubuntu 26.04 VM
 under Lima 2.3.0 obtained a DHCP lease and also timed out on HTTPS bound to
 its Apple `vzNAT` interface.
 
-The implementation and strict acceptance test are in branch
-`task/M3-04-vz-devices`. Repeat the test on an Apple silicon host with working
-native NAT using
+The native qualification is independent of the VZ device and runtime work.
+Run the strict test on Apple silicon with
 `bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest packaged_guest_nat_address_gateway_and_https`.
 
 ### M3-05 `marsad` skeleton
@@ -150,7 +147,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 ### M3-11 Power and network watcher
 
 - **Status:** todo
-- **Depends on:** M3-07, M3-04
+- **Depends on:** M3-07, M3-16
 - **Docs:** [03 Sleep, wake and network changes](../03-host-daemon.md#sleep-wake-and-network-changes)
 - **Do:** Subscribe to host sleep, wake and network-change notifications. Pause on sleep, resume on wake, push the current time to the agent, and publish events. Network-change handling here only emits the event; M4 consumes it.
 - **Deliver:** the watcher in the macOS platform module, with the logic tested through an injectable event source.
@@ -161,7 +158,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 ### M3-12 Compose the packaged VM runtime
 
 - **Status:** todo
-- **Depends on:** M3-03, M3-04, M3-07, M3-08, M3-15
+- **Depends on:** M3-03, M3-07, M3-08, M3-15, M3-16
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [04 Boot sequence](../04-virtualization-macos.md#boot-sequence), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
 - **Do:** Wire the packaged daemon to the native VZ backend, guest artefact validation, guest-control session and typed API. Create the private sparse data disk on first activation. Build each VM spec from the current settings and apply restart-scoped settings on the next activation. Publish health and stats from the active control session. Install the signed user-space helper and use the boot selector when network mode is automatic.
 - **Deliver:** Runtime composition in `marsad` and an entitled system test through the normal daemon socket.
@@ -209,3 +206,15 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
   - A host failure, unknown proxy policy, TLS validation failure or incompatible guest leaves local Docker available without a false recovery claim.
   - The supervisor confirms the first guest is stopped before reusing its data disk, and exposes the active mode and failure stage in daemon status and events.
 - **Evidence:** The entitled daemon API test on macOS 27.2.1 started Docker through its local socket after the selector reported a native IPv4 route failure and verified the user-space attachment over HTTPS. NordVPN, LuLu and the macOS firewall were active. The test received the selected attachment and failure stage from the daemon event stream.
+
+### M3-16 Integrate VZ devices independently of native egress
+
+- **Status:** in progress
+- **Depends on:** M3-03, M3-14
+- **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [06 Network modes](../06-networking.md#network-modes)
+- **Do:** Integrate the existing native virtiofs, balloon, pause, resume and guest IPv4 facts support with both VZ network attachments. Keep the strict native NAT entitlement test independently selectable.
+- **Deliver:** VZ device support, backend capabilities, and separate entitled device and native qualification tests.
+- **Accept when:**
+  - A shared folder mounts at its original path with the configured read-only access.
+  - Balloon inflation, pause and resume work on Apple silicon and state changes are published.
+  - The user-space attachment still passes HTTPS verification and the strict native test still requires IPv4, gateway and HTTPS through native NAT.
