@@ -22,4 +22,4 @@ Run the task's acceptance checks and record the commands and results in the pull
 - Remove credentials, private paths, and personal data from logs and screenshots before publishing them.
 - Follow the [Code of Conduct](CODE_OF_CONDUCT.md) and use the [security policy](SECURITY.md) for sensitive reports.
 
-The project's licence and contribution terms are pending owner decisions. See [Q-01 and Q-09](docs/16-risks-and-open-questions.md#open-questions-for-the-project-owner).
+Marsa uses the [MIT licence](LICENSE). Additional contribution terms are pending [Q-09](docs/16-risks-and-open-questions.md#open-questions-for-the-project-owner).
