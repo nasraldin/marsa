@@ -31,6 +31,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-021 | Lima and Apple's container tool are not shipped | Accepted |
 | D-022 | Licence Marsa under MIT | Accepted |
 | D-023 | Choose GPUI for the desktop | Accepted |
+| D-024 | Use direct Rust bindings for Virtualization.framework | Accepted |
 
 ---
 
@@ -167,6 +168,14 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** M1-01 reproduced Arabic caret and hit-testing defects in stock GPUI Kit input. The desktop qualification verified a Rust-backed AppKit editor inside GPUI for Arabic typing, native arrow events, pointer selection and live IME conversion. It also demonstrated an AppKit layout that exposes both the native editor and a GPUI control to macOS accessibility. [Qualification evidence](spikes/M1-06-gpui-qualification.md).
 - **Consequence:** Keep direction, localization and GUI accessibility in the Rust component layer. Validate the native editor in the production window. M6-08 covers physical arrow keys, the live IME candidate panel and spoken VoiceOver reading and editing. D-015 still requires all four language and theme variants.
 - **Reopen if:** The production integration cannot satisfy the Arabic editing or accessibility requirements at a maintainable cost.
+- **Date and task:** 2026-11-21, M1-05.
+
+## D-024 Use direct Rust bindings for Virtualization.framework
+
+- **Decision:** The owner approved the generated `objc2-virtualization` bindings for the macOS backend. This closes G2.
+- **Why:** Both bridges validated the full planned device list, booted the signed Alpine test VM, completed a vsock round trip, and delivered start and shutdown callbacks. The generated bindings keep the build and framework ownership in Rust. [M1-02 comparison](spikes/M1-02-vz-binding.md).
+- **Consequence:** Retain the Objective-C delegate and completion blocks for their documented lifetimes. Own framework objects and their callbacks on the backend’s serial dispatch queue and keep socket I/O off that queue. M3-02 owns production configuration and boot.
+- **Reopen if:** A required Virtualization.framework API is unavailable in the generated bindings or a required callback cannot meet the queue and lifetime contract.
 - **Date and task:** 2026-11-21, M1-05.
 
 ---

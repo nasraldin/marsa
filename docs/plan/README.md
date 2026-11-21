@@ -93,7 +93,7 @@ Work stops at a gate until its condition is met.
 | Gate | Condition | Decided in |
 |---|---|---|
 | G1 GUI framework | The owner selects the desktop framework after RTL and input qualification | M1-05, [D-023](../15-decisions.md#d-023-choose-gpui-for-the-desktop) |
-| G2 Apple bridge | Rust bindings or Swift shim chosen for Virtualization.framework | M1-05 |
+| G2 Apple bridge | The owner approved direct Rust bindings for Virtualization.framework | M1-05, [D-024](../15-decisions.md#d-024-use-direct-rust-bindings-for-virtualizationframework) |
 | G3 Signed VM | A signed build with the virtualization entitlement boots a VM on a second Mac | M3-10 |
 | G4 Compatibility | The conformance suite passes with the real `docker` CLI, Compose and at least one Testcontainers suite | M4-14 |
 | G5 Four variants | Every "must have" screen passes the four-variant audit and Arabic review | M7-14 |
