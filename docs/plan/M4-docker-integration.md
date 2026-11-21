@@ -173,3 +173,16 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - The suite passes on the virtualization runner.
   - `--platform linux/amd64` fails with the documented message.
   - Results are published as a CI artifact per run.
+
+### M4-15 Apply staged Docker engine configuration
+
+- **Status:** todo
+- **Depends on:** M2-07, M3-06, M4-08
+- **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
+- **Do:** Connect staged proxy, trust and gateway changes to a controlled engine restart. Validate the requested config, coordinate admission of new engine requests and preserve active workloads where Docker supports it. Require explicit user approval when the action can stop running workloads.
+- **Deliver:** daemon and guest restart coordination with end-to-end tests.
+- **Accept when:**
+  - Valid staged proxy settings take effect for registry and BuildKit requests after the coordinated restart.
+  - The host keeps desired settings when an update requires a later guest boot.
+  - Active workloads are preserved, or the action reports the impact and requires explicit approval before stopping them.
+  - A failed engine restart reports the failure and restores the last working configuration.

@@ -81,15 +81,16 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-07 `marsa-agent`: network, proxy and certificates
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M2-06
 - **Docs:** [06 DNS](../06-networking.md#dns), [06 Proxies and certificates](../06-networking.md#proxies-and-certificates)
 - **Do:** Implement applying DNS servers and search domains, proxy settings for dockerd and BuildKit, extra hosts for `host.docker.internal` and related names, and installing host CA certificates into the guest trust store before the engine starts. Changes after boot must apply without a VM restart where the engine allows it.
 - **Deliver:** agent handlers and tests.
 - **Accept when:**
   - A pushed CA certificate is trusted by an image pull from a registry using that CA (tested with a local registry).
-  - DNS and proxy changes pushed after boot take effect for new containers.
-  - `host.docker.internal` resolves inside a container.
+  - New containers use DNS changes pushed after boot.
+  - Docker starts with the configured proxy. Runtime proxy changes are staged and report that a restart is required. M4-15 owns restart orchestration.
+  - A container with Docker's `host-gateway` entry resolves `host.docker.internal` to the configured address. M4-08 owns injection for unmodified clients.
 
 ### M2-08 `marsa-agent`: ports, stats, disk, shares, shutdown and API bridge
 
