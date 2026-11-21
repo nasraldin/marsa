@@ -178,7 +178,9 @@ API rules:
 
 - Versioned package (`marsa.v1`). Additive changes only within a major version.
 - Every mutating call is idempotent or carries a request ID.
-- Every client gets its state from `Events.Subscribe` plus an initial snapshot; clients never poll.
+- `Events.Subscribe` takes a snapshot and its cursor together, then sends subsequent events in sequence order. A slow client whose buffer has filled reconnects for a new snapshot.
+- Engine lifecycle and settings update RPCs deduplicate retries by UUID for a bounded period within the daemon process. Stop can cancel a pending start. A restart with the same UUID joins or replays its earlier result.
+- The daemon accepts engine lifecycle commands when a VM runtime is attached. Stats and guest health reflect observations from the current guest session.
 
 ## Docker socket proxy
 
@@ -233,6 +235,7 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 - Networking defaults to `auto` with host DNS and proxy discovery. Override DNS with IP addresses in `network.dns`. Set `network.proxy.http` or `network.proxy.https` to an HTTP or HTTPS proxy URL. Credentials belong outside this file. Proxy injection into containers (`network.proxy.inject_into_containers`) requires opt-in.
 - The UI follows system language and appearance by default. Updates are checked automatically on the stable channel, with automatic installation off.
 - Agent operations ask for approval per client and project by default. The `agents.operate_approval` alternatives are `always_ask` and `deny`. `agents.advanced_access` defaults to false. The destroy and host-affecting tiers always require approval.
+- Settings replacements use compare-and-swap revisions and an atomic rename of a private file in the config directory. Idle policy changes apply to the supervisor live. Boot-time changes report `restart_required` until the VM runtime is rebuilt with the new settings. VM CPU, memory, disk size, shares, backend and network settings are included in that check.
 - Telemetry remains disabled pending [Q-10](16-risks-and-open-questions.md#open-questions-for-the-project-owner).
 
 ## Filesystem layout on the host

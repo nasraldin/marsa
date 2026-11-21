@@ -10,8 +10,8 @@ use tokio::{
 };
 
 use super::{
-    BootFailure, BootStage, GuestProbe, Snapshot, State, SupervisorConfig, SupervisorError,
-    Transition,
+    BootFailure, BootStage, GuestProbe, Observer, Snapshot, State, SupervisorConfig,
+    SupervisorError, Transition,
     boot::{self, LiveGuest, Outcome},
 };
 
@@ -23,9 +23,11 @@ pub(super) type Reply = oneshot::Sender<Result<(), SupervisorError>>;
 pub(super) enum Command {
     EnsureReady(Reply),
     Stop(Reply),
+    Restart(Reply),
     Pause(Reply),
     Resume(Reply),
     ContainerCount(u32, Reply),
+    IdlePolicy(bool, Duration, Reply),
 }
 
 enum Event {
@@ -37,14 +39,19 @@ enum Event {
     Idle,
 }
 
+pub(super) struct TransitionOutput {
+    pub(super) snapshot: watch::Sender<Snapshot>,
+    pub(super) events: broadcast::Sender<Transition>,
+    pub(super) observer: Option<Observer>,
+}
+
 pub(super) struct Actor {
     backend: Arc<dyn Hypervisor>,
     probe: Arc<dyn GuestProbe>,
     spec: VmSpec,
     config: SupervisorConfig,
     commands: mpsc::Receiver<Command>,
-    snapshot: watch::Sender<Snapshot>,
-    events: broadcast::Sender<Transition>,
+    output: TransitionOutput,
     boot: Option<JoinHandle<Outcome>>,
     progress: Option<watch::Receiver<BootStage>>,
     cancel_boot: Option<oneshot::Sender<()>>,
@@ -65,8 +72,7 @@ impl Actor {
         spec: VmSpec,
         config: SupervisorConfig,
         commands: mpsc::Receiver<Command>,
-        snapshot: watch::Sender<Snapshot>,
-        events: broadcast::Sender<Transition>,
+        output: TransitionOutput,
     ) -> Self {
         Self {
             backend,
@@ -74,8 +80,7 @@ impl Actor {
             spec,
             config,
             commands,
-            snapshot,
-            events,
+            output,
             boot: None,
             progress: None,
             cancel_boot: None,
@@ -121,26 +126,30 @@ impl Actor {
     }
 
     fn state(&self) -> State {
-        self.snapshot.borrow().state
+        self.output.snapshot.borrow().state
     }
 
     fn set_state(&self, current: State, failure: Option<Arc<BootFailure>>) {
         let previous = self.state();
         if previous != current {
-            self.snapshot.send_replace(Snapshot {
+            self.output.snapshot.send_replace(Snapshot {
                 state: current,
                 failure: failure.clone(),
             });
-            let _ = self.events.send(Transition {
+            let transition = Transition {
                 previous,
                 current,
                 failure,
-            });
+            };
+            if let Some(observer) = &self.output.observer {
+                observer(&transition);
+            }
+            let _ = self.output.events.send(transition);
         }
     }
 
     fn transition(&self, current: State) {
-        let failure = self.snapshot.borrow().failure.clone();
+        let failure = self.output.snapshot.borrow().failure.clone();
         self.set_state(current, failure);
     }
 
