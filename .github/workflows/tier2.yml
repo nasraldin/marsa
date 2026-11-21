@@ -1,0 +1,27 @@
+name: Tier 2
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tier2-virtualization
+  cancel-in-progress: false
+
+jobs:
+  system:
+    name: Apple silicon virtualization
+    if: >-
+      github.event.repository.private &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      github.ref_protected &&
+      vars.MARSA_TIER2_ENABLED == 'true'
+    runs-on: [self-hosted, macOS, ARM64, marsa-virtualization]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Real-VM system tests
+        run: cargo test --locked --package marsa-system-tests -- --ignored
