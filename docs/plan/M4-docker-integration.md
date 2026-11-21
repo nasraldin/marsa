@@ -80,8 +80,8 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-07 Data disk management
 
-- **Status:** todo
-- **Depends on:** M3-03, M2-05
+- **Status:** in progress
+- **Depends on:** M3-03, M2-05, M3-12
 - **Docs:** [07 Data disk](../07-file-sharing-and-storage.md#data-disk)
 - **Do:** Create the sparse data image on first run with the configured maximum size, grow it when the setting increases, expose usage through the `Disk` service, exclude it from Time Machine by default with a setting, and guarantee a clean guest shutdown on quit, logout and host shutdown.
 - **Deliver:** data-disk module in `marsad`, `Disk.Usage`.
