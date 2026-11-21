@@ -25,6 +25,22 @@ jobs:
       - name: Workspace tests
         run: cargo xtask test
 
+      - name: Build and verify guest inputs
+        if: runner.os == 'Linux'
+        run: |
+          cargo xtask guest all
+          (cd target/guest && sha256sum -c SHA256SUMS)
+          original=$(mktemp)
+          cp guest/versions.toml "$original"
+          trap 'cp "$original" guest/versions.toml; rm -f "$original"' EXIT
+          sed -i '0,/sha256 = "[0-9a-f]*"/s//sha256 = "0000000000000000000000000000000000000000000000000000000000000000"/' guest/versions.toml
+          if result=$(cargo xtask guest kernel 2>&1); then
+            echo 'The guest builder accepted an invalid checksum.' >&2
+            exit 1
+          fi
+          printf '%s\n' "$result"
+          grep -q 'Guest input checksum mismatch:' <<< "$result"
+
   docs:
     name: Check documentation
     runs-on: ubuntu-26.04

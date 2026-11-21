@@ -32,6 +32,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-022 | Licence Marsa under MIT | Accepted |
 | D-023 | Choose GPUI for the desktop | Accepted |
 | D-024 | Use direct Rust bindings for Virtualization.framework | Accepted |
+| D-025 | Pin the current stable Linux kernel | Accepted |
 
 ---
 
@@ -177,6 +178,13 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Consequence:** Retain the Objective-C delegate and completion blocks for their documented lifetimes. Own framework objects and their callbacks on the backend’s serial dispatch queue and keep socket I/O off that queue. M3-02 owns production configuration and boot.
 - **Reopen if:** A required Virtualization.framework API is unavailable in the generated bindings or a required callback cannot meet the queue and lifetime contract.
 - **Date and task:** 2026-11-21, M1-05.
+
+## D-025 Pin the current stable Linux kernel
+
+- **Decision:** Pin Linux 7.3.5, the current upstream stable release at the time of M2-01.
+- **Why:** The owner requires current stable dependencies. Kernel.org identified 7.3.5 as its latest stable release on 2026-11-21. The build uses kernel.org’s published SHA-256, and M2-02 validates the minimal configuration and boots the result. [Upstream releases](https://www.kernel.org/releases.json).
+- **Consequence:** Update the exact release and checksum together. Verify the Docker configuration requirements and boot the pinned kernel before shipping an update.
+- **Date and task:** 2026-11-21, M2-01.
 
 ---
 

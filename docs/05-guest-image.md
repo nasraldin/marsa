@@ -64,7 +64,7 @@ Rules:
 
 ## Kernel
 
-**Proposed.** A minimal arm64 kernel built from a pinned longterm release with a Marsa config.
+Build a minimal arm64 kernel from the pinned upstream stable release with a Marsa config. See [D-025](15-decisions.md#d-025-pin-the-current-stable-linux-kernel).
 
 Must include:
 
@@ -166,7 +166,9 @@ flowchart LR
     man --> sbom
 ```
 
-- The build runs in a container, so it works on a Mac and in CI.
+- Run `cargo xtask guest all` from a Mac with a local Docker daemon or from the Linux CI runner. The digest-pinned Linux builder downloads and verifies the arm64 guest sources. Individual stages are `kernel`, `rootfs` and `image`.
+- Verified archives and their checksum list are written to `target/guest/`. A checksum mismatch stops the build. Remove a mismatched cached archive before retrying.
+- Until M2-02 and M2-03 implement the kernel and root filesystem recipes, the stages produce verified source archives for those tasks. M2-04 builds the bootable filesystem image.
 - Every input is pinned by version and checksum in `guest/versions.toml`.
 - The output is identical for identical inputs (reproducible build), verified in CI by building twice.
 

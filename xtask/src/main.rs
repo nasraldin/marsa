@@ -1,5 +1,7 @@
 //! Build and verification commands used by Marsa contributors.
 
+mod guest;
+
 use std::env;
 use std::io;
 use std::path::Path;
@@ -31,7 +33,7 @@ const COMMANDS: &[Subcommand] = &[
     },
     Subcommand {
         name: "guest",
-        description: "Build the guest kernel and filesystem image (pending)",
+        description: "Prepare verified guest kernel and filesystem inputs",
         action: Action::Deferred,
     },
     Subcommand {
@@ -63,6 +65,12 @@ const COMMANDS: &[Subcommand] = &[
 
 fn main() -> ExitCode {
     let arguments = env::args_os().skip(1).collect::<Vec<_>>();
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "guest")
+    {
+        return guest::run(&arguments[1..]);
+    }
     match arguments.as_slice() {
         [] => print_help(),
         [flag] if flag == "--help" || flag == "-h" => print_help(),
