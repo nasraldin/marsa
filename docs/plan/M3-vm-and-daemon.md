@@ -32,7 +32,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-03 `vz` backend: disks, console and vsock
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-02
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware)
 - **Do:** Attach the read-only root disk and the read-write data disk with the mechanism chosen in M1-03, write the console to `console.log`, and implement `connect_vsock` returning an async stream.

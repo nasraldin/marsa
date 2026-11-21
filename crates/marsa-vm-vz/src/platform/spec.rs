@@ -78,7 +78,10 @@ pub(super) fn prepare(spec: VmSpec) -> Result<Prepared, VmError> {
         .open(&spec.console_log)
         .map_err(|error| invalid_file("console_log", error))?;
     let console = metadata("console_log", &console_out)?;
-    if console.nlink() != 1
+    // SAFETY: geteuid has no arguments and returns the effective user of this process.
+    let owner = unsafe { libc::geteuid() };
+    if console.uid() != owner
+        || console.nlink() != 1
         || console.mode() & 0o077 != 0
         || same_file(&console, &data)
         || read_only_inputs

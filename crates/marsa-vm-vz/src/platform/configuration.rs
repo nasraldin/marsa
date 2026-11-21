@@ -6,11 +6,11 @@ use marsa_vm::{DiskSpec, VmError};
 use objc2::{AnyThread, rc::Retained};
 use objc2_foundation::{NSArray, NSFileHandle, NSString, NSURL};
 use objc2_virtualization::{
-    VZDiskImageStorageDeviceAttachment, VZFileHandleSerialPortAttachment, VZLinuxBootLoader,
-    VZNATNetworkDeviceAttachment, VZVirtioBlockDeviceConfiguration,
-    VZVirtioConsoleDeviceSerialPortConfiguration, VZVirtioEntropyDeviceConfiguration,
-    VZVirtioNetworkDeviceConfiguration, VZVirtioSocketDeviceConfiguration, VZVirtualMachine,
-    VZVirtualMachineConfiguration,
+    VZDiskImageCachingMode, VZDiskImageStorageDeviceAttachment, VZDiskImageSynchronizationMode,
+    VZFileHandleSerialPortAttachment, VZLinuxBootLoader, VZNATNetworkDeviceAttachment,
+    VZVirtioBlockDeviceConfiguration, VZVirtioConsoleDeviceSerialPortConfiguration,
+    VZVirtioEntropyDeviceConfiguration, VZVirtioNetworkDeviceConfiguration,
+    VZVirtioSocketDeviceConfiguration, VZVirtualMachine, VZVirtualMachineConfiguration,
 };
 
 use super::{
@@ -101,10 +101,12 @@ fn disk(
     let url = file_url(field, &spec.path)?;
     // SAFETY: The checked URL is a regular raw disk and configuration stays on the queue.
     unsafe {
-        let attachment = VZDiskImageStorageDeviceAttachment::initWithURL_readOnly_error(
+        let attachment = VZDiskImageStorageDeviceAttachment::initWithURL_readOnly_cachingMode_synchronizationMode_error(
             VZDiskImageStorageDeviceAttachment::alloc(),
             &url,
             spec.read_only,
+            VZDiskImageCachingMode::Automatic,
+            VZDiskImageSynchronizationMode::Full,
         )
         .map_err(|error| invalid_spec(field, error.localizedDescription().to_string()))?;
         Ok(VZVirtioBlockDeviceConfiguration::initWithAttachment(
