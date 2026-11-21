@@ -44,7 +44,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-04 `vz` backend: shares, network, memory target, pause
 
-- **Status:** in progress
+- **Status:** blocked (external HTTPS over native NAT times out on the Tier 2 Mac)
 - **Depends on:** M3-03
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [06 Network modes](../06-networking.md#network-modes)
 - **Do:** Attach virtiofs shares from `VmSpec`, the NAT network attachment, the balloon device with `set_memory_target`, and pause and resume. Report accurate `Capabilities`, including whether shares can be added without a restart.
@@ -53,6 +53,20 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
   - A shared folder is visible in the guest at its host path.
   - The guest has outbound connectivity in NAT mode and `network_info` reports its address.
   - Pause and resume work and are reported as events.
+
+The entitled tests on macOS 27.2.1 verified the read-only share at its
+original host path, guest balloon inflation, and pause and resume events.
+Marsa acquired a DHCP lease on one run and resolved the HTTPS destination.
+The guest request timed out while the host could reach the destination
+directly. Other runs received no lease. In a separate probe with a temporary
+static address, the guest reached the NAT gateway and the backend reported
+the same address and gateway as the guest kernel. A stock Ubuntu 26.04 VM
+under Lima 2.3.0 obtained a DHCP lease and also timed out on HTTPS bound to
+its Apple `vzNAT` interface.
+
+Repeat the strict acceptance test on an Apple silicon host with working native
+NAT using
+`bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest packaged_guest_nat_address_gateway_and_https`.
 
 ### M3-05 `marsad` skeleton
 
