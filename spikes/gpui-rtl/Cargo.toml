@@ -1,0 +1,15 @@
+[package]
+name = "marsa-gpui-rtl-spike"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui-kit = { version = "=0.10.0", default-features = false, features = ["component", "test-support"] }
+
+[profile.dev]
+debug = 0

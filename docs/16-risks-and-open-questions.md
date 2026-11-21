@@ -21,6 +21,7 @@ These need a decision from a person. Agents must not decide them.
 |---|---|
 | Q-02 | The owner selected macOS 27 as the minimum supported version on 2026-11-21. |
 | Q-05 | The owner selected their current Apple silicon Mac as the planned Tier 2 host on 2026-11-21. Registration is pending. See the [runner setup](12-build-release-update.md#tier-2-runner-setup). |
+| V-01 | The macOS spike reproduced incorrect visual caret and click placement in GPUI Arabic input. The other four criteria passed. See the [M1-01 report](spikes/M1-01-gpui-rtl.md). |
 | V-13 | GitHub-hosted Apple silicon runners do not support nested virtualization. Tier 2 requires separate hardware. Verified on 2026-11-21 against [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#limitations-for-arm64-macos-runners). |
 
 ## Technical unknowns to verify
@@ -29,7 +30,6 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
-| V-01 | Does GPUI meet the right-to-left criteria on macOS? | [08](08-gui.md) | M1-01 |
 | V-02 | Rust bindings or a Swift shim for Virtualization.framework? | [04](04-virtualization-macos.md) | M1-02 |
 | V-03 | Exact Virtualization.framework classes and entitlements on the minimum macOS | [04](04-virtualization-macos.md), [12](12-build-release-update.md) | M1-02, M3-02 |
 | V-04 | How much guest memory does the balloon actually return to macOS? | [04](04-virtualization-macos.md) | M9-04 |
