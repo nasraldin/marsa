@@ -10,7 +10,8 @@ use std::{
 };
 
 use marsa_proto::guest::{
-    CONTROL_PORT, PROTOCOL_VERSION, decode_guest, encode_host, frame_length, negotiate,
+    CONTROL_PORT, DOCKER_API_PORT, PROTOCOL_VERSION, decode_guest, encode_host, frame_length,
+    negotiate,
     v1::{
         CommandStatus, EngineHealthState, GuestEnvelope, HelloAck, HostEnvelope, SetTime,
         guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
@@ -221,6 +222,65 @@ async fn handshake(stream: &mut VsockStream) {
     }
 }
 
+async fn connect_control(vm: &dyn marsa_vm::Vm, console: &Path) -> VsockStream {
+    let connection = timeout(LIMIT, async {
+        loop {
+            match vm.connect_vsock(CONTROL_PORT).await {
+                Ok(stream) => break stream,
+                Err(VmError::GuestPortUnavailable { port }) if port == CONTROL_PORT => {
+                    sleep(Duration::from_millis(20)).await;
+                }
+                Err(error) => panic!("connect to port {CONTROL_PORT}: {error:?}"),
+            }
+        }
+    })
+    .await;
+    connection.unwrap_or_else(|error| {
+        panic!(
+            "agent did not listen within {LIMIT:?}: {error}\n{}",
+            fs::read_to_string(console).unwrap()
+        );
+    })
+}
+
+#[tokio::test]
+#[ignore = "requires virtualization entitlement and MARSA_VZ_GUEST_DIR on Apple silicon"]
+async fn packaged_guest_with_no_upstream_link_keeps_local_docker_ready() {
+    let guest = env::var_os("MARSA_VZ_GUEST_DIR").expect("set MARSA_VZ_GUEST_DIR");
+    let guest = Path::new(&guest).canonicalize().unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    let cmdline = "console=hvc0 root=/dev/vda rootfstype=erofs ro init=/usr/bin/marsa-init marsa.interface=missing0 panic=-1";
+    let spec = spec(&guest, scratch.path(), cmdline);
+    let console = spec.console_log.clone();
+    let mut vm = VzHypervisor.create(spec).await.unwrap();
+    timeout(LIMIT, vm.start()).await.unwrap().unwrap();
+    let mut stream = connect_control(vm.as_ref(), &console).await;
+    timeout(LIMIT, handshake(&mut stream)).await.unwrap();
+
+    timeout(LIMIT, async {
+        let mut docker = vm.connect_vsock(DOCKER_API_PORT).await.unwrap();
+        docker
+            .write_all(b"GET /_ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut status = [0; 12];
+        docker.read_exact(&mut status).await.unwrap();
+        assert_eq!(&status, b"HTTP/1.1 200");
+    })
+    .await
+    .unwrap();
+
+    let log = fs::read_to_string(console).unwrap();
+    assert!(
+        log.contains("upstream interface missing0 is offline"),
+        "{log}"
+    );
+    timeout(LIMIT, vm.stop(Duration::from_secs(3)))
+        .await
+        .unwrap()
+        .unwrap();
+}
+
 #[tokio::test]
 #[ignore = "requires virtualization entitlement and MARSA_VZ_GUEST_DIR on Apple silicon"]
 async fn packaged_agent_handshake_read_only_root_and_full_console() {
@@ -244,24 +304,7 @@ async fn packaged_agent_handshake_read_only_root_and_full_console() {
     ));
     timeout(LIMIT, vm.start()).await.unwrap().unwrap();
 
-    let connection = timeout(LIMIT, async {
-        loop {
-            match vm.connect_vsock(CONTROL_PORT).await {
-                Ok(stream) => break stream,
-                Err(VmError::GuestPortUnavailable { port }) if port == CONTROL_PORT => {
-                    sleep(Duration::from_millis(20)).await;
-                }
-                Err(error) => panic!("connect to port {CONTROL_PORT}: {error:?}"),
-            }
-        }
-    })
-    .await;
-    let mut stream = connection.unwrap_or_else(|error| {
-        panic!(
-            "agent did not listen within {LIMIT:?}: {error}\n{}",
-            fs::read_to_string(&console).unwrap()
-        );
-    });
+    let mut stream = connect_control(vm.as_ref(), &console).await;
     let unused = timeout(LIMIT, vm.connect_vsock(5_999)).await.unwrap();
     assert!(
         matches!(unused, Err(VmError::GuestPortUnavailable { port: 5_999 })),

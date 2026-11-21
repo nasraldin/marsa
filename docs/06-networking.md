@@ -32,7 +32,7 @@ flowchart TB
 |---|---|---|
 | How traffic leaves | Forwarded by macOS as NATed packets | Re-originated by a host process as ordinary sockets |
 | Speed | Highest | Lower |
-| VPNs and strict firewalls | Can fail when the VPN blocks forwarded traffic | Works, because traffic looks like it comes from a normal app |
+| VPNs and strict firewalls | Can fail when the VPN blocks forwarded traffic | Uses ordinary host sockets and is subject to VPN and process-filter policy |
 | Guest IP reachable from host | Yes | No; ports are forwarded through the stack |
 | Framework attachment | NAT attachment | File-handle (datagram socket) attachment |
 
@@ -44,22 +44,55 @@ flowchart TB
 
 ## Automatic mode selection
 
-```mermaid
-flowchart TD
-    start["VM reaches Ready, or network changed, or host woke"] --> probe["Agent probes: resolve a name,<br/>open TCP to a known registry"]
-    probe --> ok{"Probe succeeds<br/>in nat mode?"}
-    ok -- yes --> keep["Stay in nat"]
-    ok -- no --> hostok{"Same probe succeeds<br/>from the host?"}
-    hostok -- no --> offline["Host is offline: stay in nat,<br/>show offline state"]
-    hostok -- yes --> switch["Switch to userspace mode<br/>(restart network device or VM)"]
-    switch --> note["Publish event: mode changed and why"]
-```
+The local engine and vsock control remain available when the guest has no
+upstream link or DHCP lease. Track egress separately from Docker readiness.
+Probe at first boot, after a host network change, and after waking. Use
+bounded, configurable probes that send no identifying data. Compare host
+and guest results for the same destination, address family, and proxy
+policy. A registry authentication challenge can establish HTTPS reachability
+after certificate validation succeeds.
 
-Rules:
+| Observation | Behavior in `auto` mode |
+|---|---|
+| Native path succeeds | Keep native NAT. |
+| Host reaches the destination and native DHCP, DNS or TCP fails | Try the user-space path and confirm connectivity before reporting recovery. Publish the chosen mode and the failed stage. |
+| Host and guest both fail DNS or transport | Keep the local engine usable. Report the failing stage and retry on an applicable network change. |
+| Host DNS returns a policy answer, or TLS rejects a certificate | Preserve the resolver result and certificate validation. Surface the DNS, proxy or certificate error and use the configured trust path. |
+| A process firewall blocks the signed helper | Report the affected helper and policy failure or timeout. Require the user's normal firewall decision. |
+| User explicitly pins a mode | Keep that mode and report its connectivity status. |
 
-- The user can pin a mode in settings; `auto` never overrides a pinned mode.
-- A mode switch is announced in the GUI and the event log, with the reason.
-- Probe targets are configurable, and no probe sends identifying data.
+Use the macOS scoped resolver for private VPN domains and split DNS. Route
+helper sockets through the ordinary host network policy, with no firewall
+or VPN changes. Keep the helper transport private, apply explicit host
+service exposure rules, and preserve loopback-only published ports by
+default. Confirm repeated failures before changing modes. Schedule a
+restart-required change around active workloads and avoid repeated switching
+on transient Wi-Fi, captive portals, or VPN handoffs.
+
+### Apple silicon qualification
+
+On macOS 27.2.1, both Marsa and a stock Ubuntu VM experienced native NAT
+failures. With NordVPN disconnected and LuLu and the macOS firewall active,
+a paired test booted the same Marsa image on native NAT and on a private
+`VZFileHandleNetworkDeviceAttachment` backed by `gvproxy` v0.9.0. Both
+received DHCP and resolved the same HTTPS destination. Native NAT timed out
+while IPv4 forwarding reported off. The user-space path returned HTTP 200
+with the server certificate verified. The probe used a disposable helper
+with no TCP listening socket. It established the transport only. The pinned
+helper's defaults map a guest address to host loopback and read
+`/etc/resolv.conf` for some record types. Qualify an explicit helper
+configuration with that loopback mapping controlled and all DNS requests
+subject to scoped resolver policy. Validate policy outcomes with filters
+enabled, including LuLu's documented limits on hostname-based filtering.
+[Apple's file-handle attachment](https://developer.apple.com/documentation/virtualization/vzfilehandlenetworkdeviceattachment)
+· [gvproxy v0.9.0 configuration](https://github.com/containers/gvisor-tap-vsock/blob/v0.9.0/cmd/gvproxy/config.go)
+· [gvproxy v0.9.0 DNS](https://github.com/containers/gvisor-tap-vsock/blob/v0.9.0/pkg/services/dns/dns.go)
+· [LuLu documentation](https://objective-see.org/products/lulu.html)
+
+[M3-14](plan/M3-vm-and-daemon.md#m3-14-qualify-the-unprivileged-user-space-transport)
+owns the transport and helper qualification.
+[M4-10](plan/M4-docker-integration.md#m4-10-user-space-network-mode-and-automatic-selection)
+owns automatic selection and the recovery policy.
 
 ## Published ports
 
