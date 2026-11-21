@@ -11,8 +11,38 @@ marsa-dockerproxy = { path = "../marsa-dockerproxy" }
 marsa-net = { path = "../marsa-net" }
 marsa-proto = { path = "../marsa-proto" }
 marsa-share = { path = "../marsa-share" }
+marsa-vm = { path = "../marsa-vm" }
+thiserror = "=2.0.21"
 marsa-vm-krun = { path = "../marsa-vm-krun" }
 marsa-vm-vz = { path = "../marsa-vm-vz" }
 
 [lints]
 workspace = true
+
+[target.'cfg(unix)'.dependencies]
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+getrandom = "=0.4.3"
+tempfile = "=3.27.0"
+marsa-core = { path = "../marsa-core" }
+nix = { version = "=0.32.0", features = ["fs", "user"] }
+tokio = { version = "=1.54.1", features = ["macros", "net", "rt", "signal", "sync", "time"] }
+tokio-stream = { version = "=0.1.19", features = ["net"] }
+tonic = "=0.14.9"
+tracing = "=0.1.44"
+tracing-appender = "=0.2.5"
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "json", "std"] }
+
+[dev-dependencies]
+marsa-vm = { path = "../marsa-vm", features = ["fake"] }
+tokio = { version = "=1.54.1", features = ["test-util"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+hyper-util = { version = "=0.1.21", features = ["tokio"] }
+nix = { version = "=0.32.0", features = ["signal"] }
+serde_json = "=1.0.154"
+tower = { version = "=0.5.3", features = ["util"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.5"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSBundle", "NSError", "NSString"] }
+objc2-service-management = { version = "=0.3.2", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService"] }
