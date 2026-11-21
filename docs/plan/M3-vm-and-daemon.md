@@ -91,6 +91,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
   - An incompatible guest protocol version produces a clear, user-visible error.
   - Oversized or malformed guest messages close the connection without crashing the daemon.
   - Port, health and stats events are delivered to subscribers.
+  - An orderly host stop sends the guest shutdown request before using native fallback.
 
 **Verification.** The scripted backend covered incompatible versions, malformed and oversized messages, partial frames, request IDs and result types, request timeouts, all three event types, and pause/resume with fresh time sync and a separate Docker ping. Workspace tests, strict Clippy and dependency policy checks passed. The signed M2-10 system fixture independently exercised the packaged guest on Apple silicon macOS 27.2.1. It observed negotiation, time synchronization, agent engine readiness, a successful container run and clean shutdown through the spike runner. The production client on the real VZ vsock backend is verified when M3-03 and M3-04 are integrated.
 
