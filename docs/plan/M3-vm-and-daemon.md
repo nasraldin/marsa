@@ -8,7 +8,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-01 Hypervisor trait and fake backend
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-04, M1-05
 - **Docs:** [03 The Hypervisor trait](../03-host-daemon.md#the-hypervisor-trait), [13 The fake backend](../13-testing-and-benchmarks.md#the-fake-backend)
 - **Do:** Implement `marsa-vm`: the `Hypervisor` and `Vm` traits, `VmSpec`, `Capabilities`, state and event types, and errors. Implement `FakeHypervisor` with scripted state transitions, a loopback "vsock" to a scripted agent, and failure injection.
