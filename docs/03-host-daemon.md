@@ -153,7 +153,7 @@ Rules:
 - **Start on demand.** The VM starts when the user asks or when the first Docker API call arrives. A call that arrives during `Starting` or `Booting` waits, up to a timeout, and then proceeds.
 - **Ready means usable.** `Ready` requires both the agent handshake and a successful `GET /_ping` to dockerd.
 - **Idle behaviour is a setting.** By default the VM stops after a period with no running containers, so an idle Marsa uses almost no memory.
-- **Failures are visible.** Every transition is published on the event bus with a reason, and `Failed` carries the tail of the guest console log.
+- **Failures are visible.** Every transition is published, and `Failed` carries the failed stage and a bounded console tail. Retries use a bounded backoff and share a budget across one explicit activation. If VM cleanup fails, the supervisor retains it for another stop attempt before starting a replacement.
 
 ## Typed API
 
