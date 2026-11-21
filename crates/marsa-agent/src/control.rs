@@ -5,8 +5,8 @@ use std::io;
 use marsa_proto::guest::{
     decode_host, encode_guest, frame_length, negotiate,
     v1::{
-        CommandResult, CommandStatus, GuestEnvelope, Hello, HostEnvelope, SetTime, guest_envelope,
-        host_envelope,
+        CommandResult, CommandStatus, ConfigureNetwork, GuestEnvelope, Hello, HostEnvelope,
+        InstallCertificates, SetTime, guest_envelope, host_envelope,
     },
 };
 use tokio::{
@@ -24,6 +24,12 @@ const HEALTH_INTERVAL: Duration = Duration::from_millis(250);
 pub(crate) trait GuestState {
     fn set_time(&self, time: SetTime) -> io::Result<()>;
     async fn mark_ready(&self) -> io::Result<()>;
+    async fn configure_network(&self, _request: ConfigureNetwork) -> io::Result<bool> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+    async fn install_certificates(&self, _request: InstallCertificates) -> io::Result<bool> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
 }
 
 pub(crate) async fn session<T>(
@@ -94,6 +100,14 @@ async fn exchange(
                             }
                         }
                     }
+                    Some(host_envelope::Body::ConfigureNetwork(request)) => configuration_result(
+                        state.configure_network(request).await, "Guest network applied",
+                        "DNS applied. Staged Docker settings require a controlled restart.",
+                    ),
+                    Some(host_envelope::Body::InstallCertificates(request)) => configuration_result(
+                        state.install_certificates(request).await, "Guest CA bundle installed",
+                        "CA bundle installed. Docker may need a controlled restart to reload trust.",
+                    ),
                     _ => (CommandStatus::Unavailable, "Command is unavailable in this guest"),
                 };
                 write(writer, envelope.request_id, guest_envelope::Body::CommandResult(
@@ -105,6 +119,25 @@ async fn exchange(
                     write(writer, 0, guest_envelope::Body::EngineHealth(event)).await?;
                 }
             }
+        }
+    }
+}
+
+fn configuration_result(
+    result: io::Result<bool>,
+    success: &'static str,
+    staged: &'static str,
+) -> (CommandStatus, &'static str) {
+    match result {
+        Ok(false) => (CommandStatus::Ok, success),
+        Ok(true) => (CommandStatus::Unavailable, staged),
+        Err(error) => {
+            let status = match error.kind() {
+                io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => CommandStatus::Invalid,
+                io::ErrorKind::Unsupported => CommandStatus::Unavailable,
+                _ => CommandStatus::Failed,
+            };
+            (status, "Guest configuration could not be applied")
         }
     }
 }
