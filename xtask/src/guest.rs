@@ -84,6 +84,8 @@ fn build(stage: &str) -> io::Result<()> {
             "--pull=never",
             "--read-only",
             "--cap-drop=ALL",
+            "--tmpfs",
+            "/tmp:rw,exec,nosuid,nodev,mode=1777",
         ])
         .args(["--security-opt=no-new-privileges", "--user", &user])
         .args(["--mount", &mount, &image, stage])

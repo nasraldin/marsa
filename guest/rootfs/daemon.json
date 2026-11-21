@@ -1,0 +1,8 @@
+{
+  "hosts": ["unix:///var/run/docker.sock"],
+  "containerd": "/run/containerd/containerd.sock",
+  "seccomp-profile": "builtin",
+  "experimental": false,
+  "live-restore": false,
+  "firewall-backend": "iptables"
+}

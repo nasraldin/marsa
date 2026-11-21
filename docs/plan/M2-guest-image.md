@@ -31,7 +31,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-03 Root filesystem recipe
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M2-01
 - **Docs:** [05 Root filesystem contents](../05-guest-image.md#root-filesystem-contents), V-15
 - **Do:** Assemble the Alpine-based root filesystem with only the packages in the contents table. Add the pinned upstream Docker static binaries unmodified. Verify which networking packages the pinned engine needs (V-15) and record it. Write the engine configuration (`daemon.json`) with the defaults from the security doc.

@@ -97,6 +97,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Decision:** An Alpine-derived root filesystem, read-only and versioned with the app; a separate data disk; a Rust init instead of a general init system.
 - **Why:** A few megabytes instead of a hundred or more, faster boot, nothing extra running. musl is not a problem because containers bring their own userland and the engine ships as static binaries.
 - **Rejected:** Debian or Ubuntu (boot a general-purpose system); Fedora CoreOS and Flatcar (large, systemd-centred); a fully custom Buildroot image (a later optimisation).
+- **Implementation (M2-03):** Use the pinned Alpine minirootfs. Alpine 3.24's `alpine-base` meta-package depends on OpenRC and installs service packages outside the guest contents table. The recipe adds only the locked tools and dependencies required by Marsa.
 
 ## D-011 Kernel NAT by default with automatic user-space fallback
 
