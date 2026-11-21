@@ -64,7 +64,7 @@
 
 ### M0-06 Set up continuous integration
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-03
 - **Docs:** [12 Continuous integration](../12-build-release-update.md#continuous-integration), V-13, Q-05
 - **Do:** Add the Tier 1 workflow (static checks, unit and integration tests on hosted runners). Verify whether hosted Apple silicon runners can run Virtualization.framework guests (V-13) and record the finding. Add the Tier 2 workflow definition targeting a runner label for a Mac with virtualization, disabled until a runner and real-VM test package exist. Restrict dispatch to the default branch of a private validation repository.
