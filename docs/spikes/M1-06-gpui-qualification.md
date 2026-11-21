@@ -22,7 +22,21 @@ The probes used a physical Apple silicon Mac, macOS 27.2.1, Rust 1.100.0 and the
 - **CoreText geometry in Rust.** The standalone geometry probe returned distinct visual positions for all four boundaries in `عرب`. It resolved the expected hit at the visual starting edge and exposed two valid caret positions at each tested mixed-direction boundary. A complete GPUI editor fix would need the visual mapping for painting, hit testing, movement and selection together.
 - **Native AppKit editor embedded from Rust.** The probe used GPUI's public native window handle to attach an `NSTextView` to a hidden native GPUI window and give it first-responder status. AppKit Right actions produced distinct, correctly ordered caret positions in `عرب`. The text hit test, shifted selection and deletion, movement within the Latin run of a mixed sample, and programmatically driven marked-text composition also passed. Stock AppKit Backspace removed the final Arabic combining mark before the base letter. A small Rust subclass preserved the Arabic grapheme and the emoji ZWJ cluster while delegating deletion and composition to AppKit. [GPUI Kit native extension guide](https://gpui-kit.com/docs/native-extension/).
 
-The embedded editor is a credible macOS path for keeping GPUI without modifying GPUI itself. The probe invoked native actions and text-service APIs in a hidden window. A visible, Figma-aligned field still needs qualification for physical Arabic keyboard and pointer input, actual IME candidate behavior, layout and clipping, popup layering, native and GPUI focus handoff, and VoiceOver. A GPUI-level fix would require upstream geometry and editor changes, with broader platform reach if accepted.
+The embedded editor is a credible macOS path for keeping GPUI without modifying GPUI itself. A GPUI-level fix would require upstream geometry and editor changes, with broader platform reach if accepted.
+
+### Visible AppKit window on macOS 27.2.1
+
+The visible Rust probe embedded the same grapheme-aware AppKit editor in a native GPUI window. A local bundle let the desktop driver observe the window and exercise normal pointer interaction and keyboard layout input.
+
+| Check | Observation |
+| --- | --- |
+| Arabic keyboard layout | Passed. macOS reported `com.apple.keylayout.Arabic` and the editor rendered the Arabic letters received from the keyboard driver. |
+| Visual arrow movement | Inconclusive with the desktop driver. Its Left and Right commands inserted U+001C and U+001D into the visible editor. The separate AppKit action probe still passes. Verify with hardware arrow keys and Shift-arrow. |
+| Mouse hit-testing and drag | Passed for the sample. Clicking inside the mixed text moved the caret. A drag across the line selected the full text, which the highlight and AppKit's selection range both confirmed. |
+| Live conversion IME | Pending. The marked-text API previously passed in the hidden probe. A live candidate window and commit still need verification. |
+| VoiceOver | Blocked for direct attachment. VoiceOver was enabled on the host. The native accessibility snapshot contained window chrome and no editable text element after focusing the field. The pinned AccessKit adapter replaces accessibility children, focus and hit-testing on the window's content view. A native sibling outside that view is an integration option to test. Spoken feedback remains unverified. |
+
+Before G1, validate the accessible placement with a labelled native field, a GPUI control in the same window, and real VoiceOver focus and spoken editing. Also verify live IME candidate interaction and physical keyboard movement. Product layout, clipping and bilingual theme review remain part of the GUI foundation tasks.
 
 ## Keyboard and accessibility
 
@@ -74,12 +88,15 @@ spike=spikes/gpui-rtl/Cargo.toml
 evidence_dir=$(mktemp -d)
 cargo run --locked --manifest-path "$spike" -- --capture "$evidence_dir/rtl"
 cargo run --locked --manifest-path "$spike" --bin arabic-editing
+cargo run --locked --manifest-path "$spike" --bin arabic-editing -- --visible
 cargo run --locked --manifest-path "$spike" --bin controls
 cargo run --locked --manifest-path "$spike" --bin locale-chart -- "$evidence_dir/chart"
 cargo run --locked --manifest-path "$spike" --bin window-lifecycle
 cargo run --locked --manifest-path "$spike" --bin stream-load -- 20
 cargo test --locked --manifest-path "$spike"
 ```
+
+Use disposable sample text with `--visible`. The probe writes the field content, selected range, caret position and current input source to the local terminal on change.
 
 The stream fixture uses the debug profile and opens a native window during its run. Sample RSS with `ps -o rss= -p PID` from a separate shell. Its duration is configurable and the fixed history and cadence histogram remain bounded. All additional Rust bindings and Unicode segmentation are confined to this standalone probe workspace.
 

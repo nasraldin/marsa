@@ -14,7 +14,7 @@ gpui-kit = { version = "=0.10.0", default-features = false, features = ["compone
 objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFAttributedString", "CFCGTypes", "CFDictionary", "CFString"] }
 objc2-core-text = { version = "=0.3.2", default-features = false, features = ["std", "CTFont", "CTLine", "CTStringAttributes"] }
 objc2 = "=0.6.5"
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSFont", "NSResponder", "NSText", "NSTextInputClient", "NSTextView", "NSView", "NSWindow"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSAccessibilityProtocols", "NSFont", "NSResponder", "NSText", "NSTextInputClient", "NSTextInputContext", "NSTextView", "NSView", "NSWindow"] }
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSGeometry", "NSRange", "NSString"] }
 raw-window-handle = { version = "=0.6.2", features = ["std"] }
 unicode-segmentation = "=1.13.3"

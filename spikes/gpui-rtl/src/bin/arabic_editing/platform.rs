@@ -70,13 +70,7 @@ impl Render for HiddenRoot {
 fn attach_and_probe(window: &Window) -> Result<()> {
     let main =
         MainThreadMarker::new().ok_or_else(|| io::Error::other("AppKit needs the main thread"))?;
-    let handle = raw_window_handle::HasWindowHandle::window_handle(window)?;
-    let RawWindowHandle::AppKit(raw) = handle.as_raw() else {
-        return Err(io::Error::other("GPUI did not return an AppKit NSView").into());
-    };
-    // SAFETY: GPUI returns a borrowed, non-null AppKit NSView for the life of
-    // this platform window. This function runs on the AppKit main thread.
-    let host = unsafe { raw.ns_view.cast::<NSView>().as_ref() };
+    let host = native_view(window)?;
     let native_window = host
         .window()
         .ok_or_else(|| io::Error::other("GPUI NSView has no AppKit window"))?;
@@ -112,6 +106,16 @@ fn attach_and_probe(window: &Window) -> Result<()> {
         );
         Ok(())
     })
+}
+
+pub(super) fn native_view(window: &Window) -> Result<&NSView> {
+    let handle = raw_window_handle::HasWindowHandle::window_handle(window)?;
+    let RawWindowHandle::AppKit(raw) = handle.as_raw() else {
+        return Err(io::Error::other("GPUI did not return an AppKit NSView").into());
+    };
+    // SAFETY: GPUI returns a borrowed, non-null AppKit NSView for the life of
+    // this platform window. This function runs on the AppKit main thread.
+    Ok(unsafe { raw.ns_view.cast::<NSView>().as_ref() })
 }
 
 fn with_attached_field(
@@ -222,7 +226,7 @@ fn verify_mixed(field: &NSTextView) -> Result<()> {
     Ok(())
 }
 
-fn caret_rect(field: &NSTextView, offset: usize) -> NSRect {
+pub(super) fn caret_rect(field: &NSTextView, offset: usize) -> NSRect {
     // SAFETY: The empty range lies on a valid UTF-16 boundary in the field;
     // AppKit accepts a null optional actual-range output pointer.
     unsafe {

@@ -16,7 +16,14 @@ mod platform;
 mod grapheme_view;
 
 #[cfg(target_os = "macos")]
+#[path = "arabic_editing/visible.rs"]
+mod visible;
+
+#[cfg(target_os = "macos")]
 fn main() -> gpui_kit::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--visible") {
+        return visible::run();
+    }
     core_text::probe()?;
     editor::probe()?;
     platform::probe()
