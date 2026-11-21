@@ -109,7 +109,7 @@ pub struct SupervisorConfig {
 #[derive(Debug, Clone, Error)]
 pub enum SupervisorError {
     /// All startup attempts were exhausted.
-    #[error("guest failed during {:?}", .0.stage)]
+    #[error("guest failed during {:?}: {}", .0.stage, .0.detail)]
     Boot(Arc<BootFailure>),
     /// A stop request canceled an outstanding readiness request.
     #[error("guest activation was stopped")]
@@ -145,6 +145,11 @@ pub trait GuestProbe: Send + Sync {
 pub trait GuestSession: Send {
     /// Verify agent engine health and the Docker API ping.
     async fn engine_ready(&mut self, vm: &dyn Vm) -> io::Result<()>;
+
+    /// Wait for loss of the established control stream.
+    async fn disconnected(&mut self) -> io::Error {
+        std::future::pending().await
+    }
 }
 
 /// Shared client of one per-user VM supervisor.

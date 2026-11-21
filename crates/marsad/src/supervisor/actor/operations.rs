@@ -90,6 +90,7 @@ impl Actor {
         }
         let guest = self.guest.as_mut().ok_or(SupervisorError::Closed)?;
         guest.vm.pause().await.map_err(Arc::new)?;
+        guest.session.take();
         self.idle_at = None;
         self.transition(State::Paused);
         Ok(())
@@ -100,7 +101,6 @@ impl Actor {
             return Err(self.invalid("resume"));
         }
         let guest = self.guest.as_mut().ok_or(SupervisorError::Closed)?;
-        guest.session.take();
         let result = timeout(self.config.boot_timeout, async {
             guest.vm.resume().await.map_err(std::io::Error::other)?;
             let mut session = self.probe.handshake(guest.vm.as_ref()).await?;

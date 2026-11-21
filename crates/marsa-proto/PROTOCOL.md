@@ -70,13 +70,14 @@ The separate Docker API bridge uses the Docker byte stream directly.
 4. Each command has a nonzero request ID, unique among pending requests on
    that connection. A result echoes its command's ID. Unsolicited health, port
    and stats events use request ID zero. The recipient rejects results with
-   no corresponding pending command or with the wrong result type.
+   no corresponding pending command or with the wrong result type. A successful
+   `Trim` returns `TrimResult`. A failed `Trim` returns a non-OK `CommandResult`.
 
 A reconnect starts a new handshake and clears pending requests. A peer may
 send new message variants only when the negotiated minor supports them.
 Additive fields for existing variants use new field numbers and must preserve
 existing behavior when omitted. Close the connection on malformed, oversized
-or out-of-sequence input. Transport owners apply read and handshake timeouts.
+or out-of-sequence input. Transport owners apply timeouts to incomplete frames and handshakes.
 Wire validation checks shape. The agent still checks mount allowlists,
 certificate validity and operating system constraints before applying changes.
 Treat peer diagnostics and proxy URLs as potentially sensitive.
