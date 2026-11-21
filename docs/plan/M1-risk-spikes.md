@@ -8,7 +8,7 @@ Spike code lives under `spikes/` and is never shipped. Each spike ends with a wr
 
 ### M1-01 Right-to-left spike in GPUI
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [08 The right-to-left risk](../08-gui.md#the-right-to-left-risk), [08 Spike pass criteria](../08-gui.md#spike-pass-criteria-task-m1-01), D-004, D-005, V-01
 - **Do:** First, read the current state of right-to-left support upstream (GPUI tracking issues and merged changes) and pin the GPUI and gpui-component revisions you test. Build a small app with: a mirrored sidebar and list; a text field for Arabic input; rows mixing Arabic labels with English container names, image tags and paths; a runtime language switch; light and dark themes. Use a prototype of the start and end layout helpers. Test each of the five pass criteria and capture screenshots.
@@ -33,7 +33,7 @@ Spike code lives under `spikes/` and is never shipped. Each spike ends with a wr
 
 ### M1-03 Prove disk space is returned to macOS
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M1-02
 - **Docs:** [07 Returning space to macOS](../07-file-sharing-and-storage.md#returning-space-to-macos), V-05, R-14
 - **Do:** Using the spike VM, attach a sparse raw image as a data disk, format it ext4, write several gigabytes, delete them, run `fstrim`, and measure the image file's real on-disk size on APFS before and after. Try the available disk attachment options. If discard does not propagate, test offline compaction as the fallback.

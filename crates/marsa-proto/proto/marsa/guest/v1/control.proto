@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package marsa.guest.v1;
+
+import "marsa/guest/v1/handshake.proto";
+import "marsa/guest/v1/network.proto";
+import "marsa/guest/v1/runtime.proto";
+
+// A framed command or negotiation response from the host.
+message HostEnvelope {
+  uint64 request_id = 1;
+  oneof body {
+    HelloAck hello_ack = 2;
+    SetTime set_time = 3;
+    ConfigureNetwork configure_network = 4;
+    InstallCertificates install_certificates = 5;
+    Trim trim = 6;
+    MountShare mount_share = 7;
+    UnmountShare unmount_share = 8;
+    Shutdown shutdown = 9;
+  }
+}
+
+// A framed event, command result, or greeting from the guest.
+message GuestEnvelope {
+  uint64 request_id = 1;
+  oneof body {
+    Hello hello = 2;
+    PortEvent port_event = 3;
+    EngineHealth engine_health = 4;
+    VmStats stats = 5;
+    TrimResult trim_result = 6;
+    CommandResult command_result = 7;
+  }
+}

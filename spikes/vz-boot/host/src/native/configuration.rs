@@ -1,6 +1,7 @@
 //! Build and validate identical fixture devices for the direct Rust bridge.
 
-use std::io;
+use std::fs::{File, symlink_metadata};
+use std::io::{self, Read};
 use std::os::fd::{BorrowedFd, IntoRawFd};
 use std::path::Path;
 
@@ -22,7 +23,11 @@ pub(super) fn build(
     let serial_write = file_handle(inputs.serial)?;
     let network = file_handle(network)?;
     let module_disk = block(&inputs.fixtures.join("modules.img"), true)?;
-    let data_disk = block(&inputs.fixtures.join("data.img"), false)?;
+    let data_disk = image_block(
+        &inputs.fixtures.join("data.img"),
+        false,
+        cache_mode(inputs.fixtures)?,
+    )?;
 
     // SAFETY: All allocations use the matching documented initializers on the VM queue.
     // Setters receive retained/copyable objects. No VM starts until validation succeeds.
@@ -95,14 +100,54 @@ pub(super) fn build(
 }
 
 fn block(path: &Path, read_only: bool) -> io::Result<Retained<VZVirtioBlockDeviceConfiguration>> {
+    image_block(path, read_only, None)
+}
+
+fn cache_mode(fixtures: &Path) -> io::Result<Option<VZDiskImageCachingMode>> {
+    let path = fixtures.join("disk-cache");
+    match symlink_metadata(&path) {
+        Ok(metadata) if metadata.is_file() && metadata.len() <= 32 => {}
+        Ok(_) => return Err(io::Error::other("disk-cache must be a small fixture file")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let mut value = String::new();
+    File::open(path)?.take(33).read_to_string(&mut value)?;
+    if value.len() > 32 {
+        return Err(io::Error::other("disk-cache must be a small fixture file"));
+    }
+    let mode = match value.trim() {
+        "automatic" => VZDiskImageCachingMode::Automatic,
+        "cached" => VZDiskImageCachingMode::Cached,
+        "uncached" => VZDiskImageCachingMode::Uncached,
+        _ => return Err(io::Error::other("invalid fixture disk-cache mode")),
+    };
+    Ok(Some(mode))
+}
+
+fn image_block(
+    path: &Path,
+    read_only: bool,
+    cache: Option<VZDiskImageCachingMode>,
+) -> io::Result<Retained<VZVirtioBlockDeviceConfiguration>> {
     let url = file_url(path)?;
-    // SAFETY: This file URL is passed to the documented fallible initializer on the VM queue.
+    // SAFETY: These documented fallible initializers run on the VM queue with a file URL.
+    // The explicit cache experiments hold synchronization mode at Full for comparability.
     unsafe {
-        let attachment = VZDiskImageStorageDeviceAttachment::initWithURL_readOnly_error(
-            VZDiskImageStorageDeviceAttachment::alloc(),
-            &url,
-            read_only,
-        )
+        let allocated = VZDiskImageStorageDeviceAttachment::alloc();
+        let attachment = if let Some(cache) = cache {
+            VZDiskImageStorageDeviceAttachment::initWithURL_readOnly_cachingMode_synchronizationMode_error(
+                allocated,
+                &url,
+                read_only,
+                cache,
+                VZDiskImageSynchronizationMode::Full,
+            )
+        } else {
+            VZDiskImageStorageDeviceAttachment::initWithURL_readOnly_error(
+                allocated, &url, read_only,
+            )
+        }
         .map_err(|error| io::Error::other(error.localizedDescription().to_string()))?;
         Ok(VZVirtioBlockDeviceConfiguration::initWithAttachment(
             VZVirtioBlockDeviceConfiguration::alloc(),

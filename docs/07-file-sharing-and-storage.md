@@ -92,7 +92,7 @@ measurements, and limitations.
 |---|---|---|
 | File | `~/.marsa/vm/data.img` | Proposed |
 | Type | Sparse raw image on APFS | Proposed |
-| Filesystem | ext4, mounted with discard support | Proposed |
+| Filesystem | ext4 with explicit discard via `fstrim` | Proposed |
 | Default maximum size | A setting; the file only uses what is written | Proposed |
 | Contents | `/var/lib/docker`, `/var/lib/containerd`, Marsa guest state | Decided |
 
@@ -111,11 +111,14 @@ sequenceDiagram
     A->>FS: fstrim /var/lib/marsa
     FS->>H: Discard freed blocks through virtio-blk
     H->>H: Sparse file releases blocks
-    A-->>D: Bytes trimmed
-    D-->>U: Space returned to the Mac
+    A-->>D: Report trim status
+    D->>H: Measure allocated file bytes
+    D-->>U: Report observed space reclaimed
 ```
 
-**Verify:** that the chosen backend passes discard requests from the guest to the image file so APFS actually releases blocks. If it does not, the fallback is an offline compaction step run while the VM is stopped. This must be proven by a test that deletes several gigabytes of images and measures the image file's real size.
+On the VZ backend, `fstrim` on the mounted ext4 data filesystem returned approximately 4 GiB of physical allocation to APFS after deleting 4 GiB of files from a sparse RAW image. Use automatic caching with full synchronization and request explicit trim after cleanup and when idle. Calculate the recovered bytes using the change in the image file's allocated size on the host. The guest's trim result counts bytes submitted for potential discard. [Measured results](spikes/M1-03-disk-reclaim.md)
+
+M9-03 tests the same path after deleting Docker images. A backend that cannot pass discard through will require offline compaction while the VM is stopped.
 
 ### Disk cleanup with a preview
 

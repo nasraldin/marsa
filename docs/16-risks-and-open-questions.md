@@ -6,7 +6,6 @@ These need a decision from a person. Agents must not decide them.
 
 | # | Question | Recommendation | Blocks |
 |---|---|---|---|
-| Q-01 | Which open-source licence? | Apache-2.0, matching the Docker engine, gpui-component and libkrun | M0-02 (adding `LICENSE`), first public release |
 | Q-03 | Is the name "Marsa" clear to use? Trademark search in the software class, domain, GitHub organisation, crates.io, Homebrew names | Check before any public release | M10 |
 | Q-04 | Who holds the Apple Developer Program account and the update signing key? | A project-owned account; the update key offline or hardware-backed | M10 |
 | Q-06 | Who reviews Arabic translations and terminology? | A fluent reviewer plus a term glossary | M6, M7 |
@@ -15,12 +14,19 @@ These need a decision from a person. Agents must not decide them.
 | Q-09 | Business model and governance (contributions, CLA or DCO, security contact)? | DCO, a `SECURITY.md` contact | First public release |
 | Q-10 | Is any telemetry wanted at all? | None by default (decided); decide whether an opt-in exists | M9 |
 
+## Resolved owner questions
+
+| # | Decision | Recorded in |
+|---|---|---|
+| Q-01 | MIT licence | [D-022](15-decisions.md#d-022-licence-marsa-under-mit) |
+
 ## Resolved platform and runner questions
 
 | # | Finding |
 |---|---|
 | Q-02 | The owner selected macOS 27 as the minimum supported version on 2026-11-21. |
 | Q-05 | The owner selected their current Apple silicon Mac as the planned Tier 2 host on 2026-11-21. Registration is pending. See the [runner setup](12-build-release-update.md#tier-2-runner-setup). |
+| V-01 | The macOS spike reproduced incorrect visual caret and click placement in GPUI Arabic input. The other four criteria passed. See the [M1-01 report](spikes/M1-01-gpui-rtl.md). |
 | V-13 | GitHub-hosted Apple silicon runners do not support nested virtualization. Tier 2 requires separate hardware. Verified on 2026-11-21 against [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#limitations-for-arm64-macos-runners). |
 
 ## Technical unknowns to verify
@@ -29,9 +35,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
-| V-01 | Does GPUI meet the right-to-left criteria on macOS? | [08](08-gui.md) | M1-01 |
 | V-04 | How much guest memory does the balloon actually return to macOS? | [04](04-virtualization-macos.md) | M9-04 |
-| V-05 | Does guest discard reach the sparse image so APFS frees blocks? | [07](07-file-sharing-and-storage.md) | M1-03, M9-03 |
 | V-06 | Verify the change relay and permission mapping in real containers. The VZ spike found missing host-origin events and a non-root write denial. | [07](07-file-sharing-and-storage.md), [M1-04](spikes/M1-04-virtiofs.md) | M4-06 |
 | V-07 | NAT attachment requirements; user-space attachment class | [06](06-networking.md) | M4-08, M4-10 |
 | V-08 | Binding privileged ports without root on current macOS | [06](06-networking.md) | M4-09 |
@@ -50,6 +54,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 |---|---|---|
 | V-02 | Both bridges booted the same stock Linux fixture and delivered start, vsock and shutdown callbacks. M1-02 recommends the Rust bindings for gate G2. | [M1-02](spikes/M1-02-vz-binding.md) |
 | V-03 | All planned VZ device and lifecycle classes are available by macOS 12. The full configuration booted on macOS 27.2.1 with a 27.0 deployment target and the virtualization entitlement. | [Availability and boot results](spikes/M1-02-vz-binding.md#verified-class-availability) |
+| V-05 | `fstrim` returned approximately 4 GiB of sparse RAW allocation to APFS in each VZ cache mode on macOS 27.2.1. M9-03 verifies the product cleanup path. | [Allocated byte measurements](spikes/M1-03-disk-reclaim.md#measured-allocated-bytes) |
 
 ## Risk register
 
@@ -68,7 +73,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | R-11 | Agent misuse through the MCP server causes data loss | Low to medium | High | Tiers, approvals, audit; volumes always need approval | M8 |
 | R-12 | Name or trademark conflict | Unknown | Medium | Q-03 before any public release | M10 |
 | R-13 | Accessibility falls short on GPUI | Medium | Medium | Verify early (V-11); keyboard operation is fully in Marsa's control | M6 |
-| R-14 | Disk space is not reclaimed, repeating Docker Desktop's most common complaint | Medium | High | Prove discard end to end in the spike (M1-03) | M1, M9 |
+| R-14 | Disk space is not reclaimed, repeating Docker Desktop's most common complaint | Medium | High | M1-03 proved VZ discard. Verify the product path in M9-03 | M1, M9 |
 | R-15 | Numbers quoted from other projects do not hold for Marsa | High | Low | Treat them as targets; publish only Marsa's own measurements | M11 |
 
 ## Assumptions

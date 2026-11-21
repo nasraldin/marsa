@@ -112,7 +112,7 @@ Requirements:
 
 ## `marsa-agent`
 
-The guest end of the control channel. It listens on a vsock port and speaks the protocol defined in `marsa-proto`.
+The guest end of the control channel. It listens on a vsock port and speaks the [versioned, size-limited guest protocol](../crates/marsa-proto/PROTOCOL.md#guest-control-channel).
 
 | Function | Direction | Detail |
 |---|---|---|

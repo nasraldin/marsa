@@ -130,6 +130,14 @@ flowchart LR
 - Downgrades are refused unless the user explicitly requests one.
 - Details in [12](12-build-release-update.md).
 
+### Rust dependency policy
+
+`cargo xtask check` checks the locked dependency graph with all features enabled against [the dependency policy](../deny.toml). All packages, including development and build dependencies, must have an allowed licence. The policy rejects duplicate versions, the unmaintained `failure` crate, wildcard registry requirements, and unknown dependency sources. Approved Git dependencies must specify a commit revision.
+
+The [daily dependency audit](../.github/workflows/dependency-audit.yml) checks `Cargo.lock` against the current RustSec advisory database. Vulnerabilities and audit warnings fail the job. The audit has read-only repository access.
+
+To verify licence enforcement, a disposable copy of the workspace added a local, unpublished crate outside the workspace as a dependency of `marsa-core` and regenerated its lockfile. With `license = "GPL-3.0-only"`, `cargo xtask check` exited 1 with a licence rejection. Changing only the fixture licence to MIT made the check pass. The audit command also exited 1 on a disposable lockfile containing a package version flagged by RustSec.
+
 ## Vulnerability response
 
 | Step | Target |
