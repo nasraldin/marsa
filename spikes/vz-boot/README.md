@@ -39,6 +39,12 @@ step. Reapply the entitlement after rebuilding the executable.
 
 ## Reuse the harness
 
+To verify the Marsa kernel with built-in devices, run `cargo xtask guest kernel`
+from the repository root. Add `--kernel ../../target/guest/Image` to the
+`fixtures.py` command above. The fixture then skips loading the stock Alpine
+modules and still verifies block devices, virtiofs and vsock through the same
+signed Rust runner.
+
 The runner accepts an optional fourth argument naming a local shell script of
 up to 16 KiB, with individual lines up to 2,048 bytes. It sends that script to the guest's interactive prompt after the
 vsock check, records its output in the selected transcript, and waits for the

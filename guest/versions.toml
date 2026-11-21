@@ -7,6 +7,9 @@ version = "3.24.4"
 sha256 = "4b14c18f7e90a063b61462ea1462a5732c154bf6adad594974fe6487cd98a8de"
 packages = ["alpine-base", "ca-certificates", "e2fsprogs", "util-linux"]
 
+[moby]
+sha256 = "07dd6666c6f1edb3c8f6e534aeb0926683967e4dca358c4e7df53582713f7f4d"
+
 [docker]
 version = "29.10.0"
 sha256 = "6e5159e8b5615e0c0c2954a2a1a2a12bc65f5d9b603595dba24a10cb367408cd"

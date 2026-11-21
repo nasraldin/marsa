@@ -15,12 +15,19 @@ struct Versions {
     kernel: Release,
     alpine: Alpine,
     docker: Release,
+    moby: Checksum,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Release {
     version: String,
+    sha256: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Checksum {
     sha256: String,
 }
 
@@ -87,11 +94,37 @@ fn build(stage: &str) -> io::Result<()> {
             "guest builder exited with {status}"
         )));
     }
+    if matches!(stage, "kernel" | "all") {
+        let image = docker_image(&guest.join("kernel"))?;
+        let status = Command::new("docker")
+            .args([
+                "run",
+                "--rm",
+                "--pull=never",
+                "--network=none",
+                "--cap-drop=ALL",
+            ])
+            .args(["--security-opt=no-new-privileges", "--user", &user])
+            .args([
+                "--mount",
+                &mount,
+                &image,
+                &versions.kernel.version,
+                &versions.kernel.sha256,
+                &versions.moby.sha256,
+            ])
+            .status()?;
+        if !status.success() {
+            return Err(io::Error::other(format!(
+                "kernel builder exited with {status}"
+            )));
+        }
+    }
     Ok(())
 }
 
 impl Versions {
-    fn inputs(&self) -> io::Result<[String; 6]> {
+    fn inputs(&self) -> io::Result<[String; 8]> {
         let kernel = version(&self.kernel.version)?;
         let alpine = version(&self.alpine.version)?;
         version(&self.docker.version)?;
@@ -99,6 +132,7 @@ impl Versions {
             &self.kernel.sha256,
             &self.alpine.sha256,
             &self.docker.sha256,
+            &self.moby.sha256,
         ] {
             digest(checksum)?;
         }
@@ -132,6 +166,10 @@ impl Versions {
             self.docker.sha256.clone(),
             format!(
                 "https://download.docker.com/linux/static/stable/aarch64/docker-{docker_version}.tgz"
+            ),
+            self.moby.sha256.clone(),
+            format!(
+                "https://raw.githubusercontent.com/moby/moby/docker-v{docker_version}/contrib/check-config.sh"
             ),
         ])
     }

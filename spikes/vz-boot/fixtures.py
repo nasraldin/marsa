@@ -51,7 +51,9 @@ def extract(iso: pathlib.Path, path: str) -> bytes:
     return subprocess.check_output(["bsdtar", "-xOf", str(iso), path])
 
 
-def prepare(iso: pathlib.Path, guest: pathlib.Path, output: pathlib.Path) -> None:
+def prepare(
+    iso: pathlib.Path, guest: pathlib.Path, output: pathlib.Path, kernel: pathlib.Path | None
+) -> None:
     digest = hashlib.sha256()
     with iso.open("rb") as source:
         while chunk := source.read(1024 * 1024):
@@ -59,13 +61,22 @@ def prepare(iso: pathlib.Path, guest: pathlib.Path, output: pathlib.Path) -> Non
     if digest.hexdigest() != ISO_SHA256:
         raise SystemExit(f"SHA-256 mismatch for {ISO}")
     output.mkdir(mode=0o700)
-    (output / "Image").write_bytes(raw_kernel(extract(iso, "boot/vmlinuz-virt")))
+    if kernel is None:
+        image = raw_kernel(extract(iso, "boot/vmlinuz-virt"))
+    else:
+        image = kernel.read_bytes()
+        if image[56:60] != b"ARM\x64":
+            raise SystemExit("expected a raw ARM64 Linux Image")
+    (output / "Image").write_bytes(image)
     (output / "modules.img").write_bytes(extract(iso, "boot/modloop-virt"))
     init = pathlib.Path(__file__).resolve().with_name("guest") / "init.sh"
-    appendix = newc([
+    entries = [
         ("marsa-spike-init", 0o100755, init.read_bytes()),
         ("marsa-vsock-fixture", 0o100755, guest.read_bytes()),
-    ])
+    ]
+    if kernel is not None:
+        entries.append(("marsa-builtin-kernel", 0o100444, b""))
+    appendix = newc(entries)
     (output / "initramfs").write_bytes(
         extract(iso, "boot/initramfs-virt") + gzip.compress(appendix, mtime=0)
     )
@@ -81,6 +92,7 @@ def main() -> None:
     parser.add_argument("guest", type=pathlib.Path)
     parser.add_argument("output", type=pathlib.Path)
     parser.add_argument("--iso", type=pathlib.Path, help="use an already downloaded Alpine ISO")
+    parser.add_argument("--kernel", type=pathlib.Path, help="boot a raw ARM64 Image with built-in drivers")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="marsa-vz-") as temp:
         iso = pathlib.Path(temp, ISO)
@@ -93,7 +105,7 @@ def main() -> None:
                  "--output", str(iso), URL],
                 check=True,
             )
-        prepare(iso, args.guest, args.output)
+        prepare(iso, args.guest, args.output, args.kernel)
 
 
 
