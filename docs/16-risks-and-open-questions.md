@@ -30,8 +30,6 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
 | V-01 | Does GPUI meet the right-to-left criteria on macOS? | [08](08-gui.md) | M1-01 |
-| V-02 | Rust bindings or a Swift shim for Virtualization.framework? | [04](04-virtualization-macos.md) | M1-02 |
-| V-03 | Exact Virtualization.framework classes and entitlements on the minimum macOS | [04](04-virtualization-macos.md), [12](12-build-release-update.md) | M1-02, M3-02 |
 | V-04 | How much guest memory does the balloon actually return to macOS? | [04](04-virtualization-macos.md) | M9-04 |
 | V-05 | Does guest discard reach the sparse image so APFS frees blocks? | [07](07-file-sharing-and-storage.md) | M1-03, M9-03 |
 | V-06 | virtiofs behaviour: change notifications, ownership mapping | [07](07-file-sharing-and-storage.md) | M4-06 |
@@ -45,6 +43,13 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | V-15 | Networking packages the pinned engine needs in the guest | [05](05-guest-image.md) | M2-03 |
 | V-16 | Licences of the fonts to bundle | [08](08-gui.md) | M6-02 |
 | V-17 | Root filesystem format support (EROFS versus SquashFS) in the chosen kernel and tools | [05](05-guest-image.md) | M2-04 |
+
+### Verified findings
+
+| # | Finding | Evidence |
+|---|---|---|
+| V-02 | Both bridges booted the same stock Linux fixture and delivered start, vsock and shutdown callbacks. M1-02 recommends the Rust bindings for gate G2. | [M1-02](spikes/M1-02-vz-binding.md) |
+| V-03 | All planned VZ device and lifecycle classes are available by macOS 12. The full configuration booted on macOS 27.2.1 with a 27.0 deployment target and the virtualization entitlement. | [Availability and boot results](spikes/M1-02-vz-binding.md#verified-class-availability) |
 
 ## Risk register
 

@@ -57,7 +57,7 @@ flowchart TB
 | Entropy | `VZVirtioEntropyDeviceConfiguration` | Randomness for the guest |
 | Console | `VZVirtioConsoleDeviceSerialPortConfiguration` | Kernel and init log to `console.log` |
 
-**Verify** each class and its availability on the minimum macOS version before implementing; the names above are from the framework as known at planning time.
+M1-02 verified these classes in the macOS 27.2 SDK and booted the complete device configuration through both bridges on macOS 27.2.1, with a 27.0 deployment target. See the [availability table and runtime evidence](spikes/M1-02-vz-binding.md#verified-class-availability).
 
 ### Entitlement and signing
 
@@ -71,7 +71,7 @@ Virtualization.framework objects must be used on the dispatch queue they were cr
 
 ### Calling the framework from Rust
 
-**Open, resolved by task M1-02.** Two options:
+M1-02 compared the two approaches and [recommended the generated Rust bindings](spikes/M1-02-vz-binding.md). The G2 decision is recorded in M1-05. The approaches compared were:
 
 | Option | For | Against |
 |---|---|---|

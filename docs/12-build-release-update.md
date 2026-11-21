@@ -84,7 +84,7 @@ Marsa.app/
 | Notarization | Submit the DMG, wait, staple the ticket |
 | Gatekeeper check | CI verifies the stapled, signed result on a clean machine |
 
-**Verify** the current entitlement requirements for Virtualization.framework and Hypervisor.framework with a Developer ID (outside the Mac App Store) before M10.
+M1-02 confirmed the `com.apple.security.virtualization` entitlement in ad hoc signed macOS builds. See the [boot and signing evidence](spikes/M1-02-vz-binding.md). **Verify** Developer ID signing and notarization for Virtualization.framework and Hypervisor.framework before M10.
 
 The Mac App Store is not a distribution target: the sandbox it requires conflicts with running a VM daemon, a shared socket and bundled CLIs.
 
