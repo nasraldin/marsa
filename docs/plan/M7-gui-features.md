@@ -53,7 +53,7 @@ Every task here carries these standing acceptance conditions in addition to its 
 - **Status:** todo
 - **Depends on:** M7-02
 - **Docs:** [08 Performance rules](../08-gui.md#performance-rules)
-- **Do:** Interactive terminal into a container through the exec API: shell detection with a fallback list, resize, copy and paste, bounded scrollback, multiple sessions. Verify the terminal emulator and streaming API on the pinned Tauri stack before building.
+- **Do:** Interactive terminal into a container through the exec API: shell detection with a fallback list, resize, copy and paste, bounded scrollback, multiple sessions. Verify the terminal component available for the pinned GPUI ecosystem before building.
 - **Deliver:** terminal view and tests.
 - **Accept when:**
   - Full-screen programs (an editor, `top`) render and resize correctly.

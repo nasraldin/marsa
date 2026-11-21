@@ -23,7 +23,7 @@ flowchart TB
 
     subgraph vzb["marsa-vm-vz"]
         vzrs["Rust backend"]
-        bridge["Apple bridge<br/>(direct objc2 bindings)"]
+        bridge["Apple bridge<br/>(objc2 bindings or Swift shim)"]
         vzf["Virtualization.framework"]
     end
 
@@ -71,14 +71,14 @@ Virtualization.framework objects must be used on the dispatch queue they were cr
 
 ### Calling the framework from Rust
 
-**Decided.** Use direct Rust bindings. The following table compares the approaches tested in M1-02.
+M1-02 compared the two approaches and [recommended the generated Rust bindings](spikes/M1-02-vz-binding.md). The G2 decision is recorded in M1-05. The approaches compared were:
 
 | Option | For | Against |
 |---|---|---|
 | Rust bindings (`objc2` family) | One language, no second build system, no FFI layer to maintain | Bindings must cover every class Marsa needs; verify completeness |
 | Small Swift shim with a C ABI | Uses the framework in its native language; delegate callbacks are simple | Adds Swift to the build and a hand-written FFI boundary |
 
-The direct Rust bindings satisfied the spike's device and callback criteria. [Boot results](spikes/M1-02-vz-binding.md) · [D-024](15-decisions.md#d-024-use-direct-rust-bindings-for-virtualizationframework).
+Decision rule for the spike: choose Rust bindings if they can configure and boot the full device list above and deliver state-change callbacks reliably. Otherwise choose the Swift shim. Record the outcome in the decision records.
 
 ### Boot sequence
 

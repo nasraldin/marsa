@@ -22,8 +22,8 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 - **Status:** todo
 - **Depends on:** M3-01, M2-02, Q-02
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [04 Threading](../04-virtualization-macos.md#threading)
-- **Do:** Implement `marsa-vm-vz` using the direct Rust bindings chosen at gate G2. Build the VM configuration from `VmSpec`, validate it, start it and report state changes as a stream. Own a single serial queue for all framework calls.
-- **Deliver:** `crates/marsa-vm-vz`.
+- **Do:** Implement `marsa-vm-vz` using the bridge chosen at gate G2. Build the VM configuration from `VmSpec`, validate it, start it and report state changes as a stream. Own a single serial queue for all framework calls.
+- **Deliver:** `crates/marsa-vm-vz` (and the Swift shim package if that was the choice).
 - **Accept when:**
   - The Marsa kernel and image boot to `marsa-init`.
   - State events arrive for start, stop and unexpected exit.

@@ -8,7 +8,7 @@ Marsa (Arabic: مرسى, "harbour") is a fast, lightweight, open-source desktop 
 
 - The unmodified Docker engine (dockerd, containerd, runc, BuildKit, Compose) running in a minimal Linux VM.
 - A small Rust host daemon (`marsad`) that owns the VM, networking, file sharing and the Docker socket.
-- A desktop GUI built with Tauri 2, in English (US) and Arabic (Modern Standard), with full left-to-right and right-to-left layouts and light and dark themes.
+- A native, GPU-rendered GUI built with GPUI, in English (US) and Arabic (Modern Standard), with full left-to-right and right-to-left layouts and light and dark themes.
 - A CLI (`marsa`) and an MCP server so AI coding agents can drive containers safely.
 
 ## First release target
@@ -19,7 +19,7 @@ Marsa (Arabic: مرسى, "harbour") is a fast, lightweight, open-source desktop 
 | Container images | linux/arm64 only (no Rosetta, no x86 emulation) |
 | Hypervisor | Apple Virtualization.framework (libkrun evaluated as a second backend) |
 | Guest | Alpine-based minimal root filesystem, read-only, with a separate data disk |
-| GUI | Tauri 2 with a system webview |
+| GUI | GPUI with gpui-component, gated by a right-to-left spike |
 | Licence | [MIT](LICENSE) |
 
 Windows (WSL2) and Linux (native engine) follow after the macOS release, on the same daemon.
