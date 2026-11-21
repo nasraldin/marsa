@@ -57,3 +57,19 @@ fn invalid_invocations_fail() {
         assert!(!run(arguments).status.success(), "{arguments:?}");
     }
 }
+
+#[test]
+fn guest_help_lists_build_stages() {
+    let output = run(&["guest", "--help"]);
+    assert!(output.status.success());
+    let help = str::from_utf8(&output.stdout).expect("UTF-8 help");
+    for stage in ["kernel", "rootfs", "image", "all"] {
+        assert!(help.contains(stage), "{help}");
+    }
+}
+
+#[test]
+fn guest_rejects_unknown_build_stages() {
+    let output = run(&["guest", "unknown"]);
+    assert_eq!(output.status.code(), Some(2));
+}
