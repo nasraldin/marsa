@@ -68,7 +68,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-06 `marsa-agent`: handshake, time and health
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M0-05, M2-05
 - **Docs:** [05 marsa-agent](../05-guest-image.md#marsa-agent)
 - **Do:** Implement the agent's vsock listener, the versioned handshake with boot timings, time setting, and engine health reporting based on the engine's ping endpoint, including restart events.
