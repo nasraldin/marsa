@@ -79,7 +79,7 @@ Must include:
 
 Must exclude: physical hardware drivers, sound, graphics, wireless, loadable modules where a built-in suffices.
 
-**Verify** the full option list against Docker's `check-config.sh` script in CI; that script is the acceptance test for the kernel config.
+Tier 1 verifies the resolved config with the upstream Moby 29.10.0 `check-config.sh`. The Linux 7.3.5 kernel booted on macOS 27.2.1 through the signed Rust VZ fixture, reached PID 1 and the shell, and detected both disks, virtiofs, vsock and the cgroup v2 CPU, cpuset, I/O, memory and PID controllers. The guest shut down cleanly.
 
 ## `marsa-init`
 
