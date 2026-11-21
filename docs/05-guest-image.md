@@ -130,13 +130,13 @@ The guest end of the control channel. It listens on vsock port 5000 and accepts 
 | CA certificates | Host to guest | Host-trusted certificates added to the guest trust store |
 | Port events | Guest to host | A container published or released a port |
 | Engine health | Guest to host | dockerd ping status and restart events |
-| Stats | Guest to host | VM CPU, memory, disk usage stream |
+| Stats | Guest to host | One-second samples of CPU time, memory, disk usage and VM network-device counters |
 | Disk maintenance | Host to guest | Run `fstrim`, report usage |
-| Shares | Host to guest | Mount or unmount a virtiofs share |
-| Shutdown | Host to guest | Clean shutdown request |
-| Docker API bridge | Both | Bridges a second vsock port to dockerd's Unix socket |
+| Shares | Host to guest | Mount or unmount a preconfigured virtiofs tag at its boot-allowlisted path |
+| Shutdown | Host to guest | Reply to the request, then signal PID 1 to stop the engine and power off |
+| Docker API bridge | Both | Host-only vsock port 5001 streams bytes to and from dockerd's Unix socket, preserving half-closes and upgrades |
 
-How the agent learns about published ports: it subscribes to Docker engine events and inspects containers for port bindings (**Proposed**). An alternative is watching listening sockets in the guest network namespace; choose at implementation and record it.
+The agent subscribes to Docker container lifecycle events and inspects `NetworkSettings.Ports` for TCP and UDP bindings. It reports transitions by comparing the current bindings with the previous set. When the event stream reconnects, the agent inspects the running containers again.
 
 ## Build pipeline
 

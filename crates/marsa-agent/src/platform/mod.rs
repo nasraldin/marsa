@@ -1,19 +1,24 @@
 //! Linux-only AF_VSOCK and guest clock operations.
 
+mod bridge;
 mod network;
+mod operations;
 mod vsock;
 
 use std::io;
 
 use marsa_proto::guest::{
-    CONTROL_PORT,
-    v1::{ConfigureNetwork, InstallCertificates, SetTime},
+    CONTROL_PORT, DOCKER_API_PORT,
+    v1::{
+        ConfigureNetwork, InstallCertificates, PortEvent, SetTime, VmStats, guest_envelope,
+        host_envelope,
+    },
 };
 use nix::{
     sys::time::TimeSpec,
     time::{ClockId, clock_settime},
 };
-use tokio::fs::OpenOptions;
+use tokio::{fs::OpenOptions, sync::mpsc, task::JoinSet};
 
 use crate::{
     control::{self, GuestState},
@@ -63,6 +68,28 @@ impl GuestState for Linux {
             Err(error) => Err(error),
         }
     }
+
+    async fn command(&self, body: host_envelope::Body) -> io::Result<Option<guest_envelope::Body>> {
+        operations::command(body).await
+    }
+
+    async fn stats(&self) -> io::Result<Option<VmStats>> {
+        operations::stats().await.map(Some)
+    }
+
+    fn start_port_events(
+        &self,
+        path: &str,
+        output: mpsc::Sender<PortEvent>,
+        tasks: &mut JoinSet<()>,
+    ) {
+        let path = path.to_owned();
+        tasks.spawn(async move { operations::ports::watch(&path, output).await });
+    }
+
+    fn shutdown(&self) -> io::Result<()> {
+        operations::shutdown()
+    }
 }
 
 pub(crate) fn run() -> io::Result<()> {
@@ -75,6 +102,8 @@ pub(crate) fn run() -> io::Result<()> {
         .build()?
         .block_on(async {
             let listener = vsock::Listener::bind(CONTROL_PORT)?;
+            let bridge = vsock::Listener::bind(DOCKER_API_PORT)?;
+            tokio::spawn(async move { bridge::serve(&bridge, ENGINE_SOCKET).await });
             loop {
                 let stream = listener.accept_host().await?;
                 if let Err(error) =

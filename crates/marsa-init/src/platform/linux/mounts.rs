@@ -5,9 +5,12 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use nix::mount::{MsFlags, mount, umount};
+use nix::{
+    errno::Errno,
+    mount::{MsFlags, mount, umount},
+};
 
-use crate::settings::Share;
+use marsa_core::guest_boot::Share;
 
 const UNPRIVILEGED: MsFlags = MsFlags::MS_NOSUID.union(MsFlags::MS_NODEV);
 const NOEXEC: MsFlags = UNPRIVILEGED.union(MsFlags::MS_NOEXEC);
@@ -78,7 +81,9 @@ impl Mounts {
             .rev()
             .chain(self.share_roots.drain(..).rev())
         {
-            if let Err(error) = umount(path.as_path()) {
+            if let Err(error) = umount(path.as_path())
+                && error != Errno::EINVAL
+            {
                 first_error.get_or_insert_with(|| {
                     io::Error::other(format!("{}: {error}", path.display()))
                 });

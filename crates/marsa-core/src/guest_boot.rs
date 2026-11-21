@@ -6,20 +6,28 @@ const MAX_CMDLINE: usize = 4096;
 const MAX_SHARES: usize = 16;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Share {
-    pub(crate) tag: String,
-    pub(crate) path: PathBuf,
+/// An allowlisted virtiofs tag and its destination in the guest.
+pub struct Share {
+    /// Tag configured on the VM device.
+    pub tag: String,
+    /// Absolute guest mount point.
+    pub path: PathBuf,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Settings {
-    pub(crate) hostname: String,
-    pub(crate) interface: Option<String>,
-    pub(crate) shares: Vec<Share>,
+/// Guest boot options shared by PID 1 and the guest agent.
+pub struct Settings {
+    /// Guest hostname.
+    pub hostname: String,
+    /// DHCP interface, or none when the guest boots offline.
+    pub interface: Option<String>,
+    /// Preconfigured virtiofs mountpoints.
+    pub shares: Vec<Share>,
 }
 
 impl Settings {
-    pub(crate) fn parse(cmdline: &str) -> io::Result<Self> {
+    /// Validate and decode Marsa-owned kernel arguments.
+    pub fn parse(cmdline: &str) -> io::Result<Self> {
         if cmdline.len() > MAX_CMDLINE {
             return invalid("kernel command line exceeds the Marsa limit");
         }

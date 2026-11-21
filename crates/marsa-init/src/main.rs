@@ -5,8 +5,6 @@ use marsa_core as _;
 
 #[cfg(target_os = "linux")]
 mod platform;
-#[cfg(any(target_os = "linux", test))]
-mod settings;
 
 use std::process::ExitCode;
 

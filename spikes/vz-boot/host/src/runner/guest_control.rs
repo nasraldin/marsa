@@ -164,6 +164,7 @@ pub(super) fn verify(
                     engine_ready.get_or_insert_with(Instant::now);
                 }
             }
+            Some(GuestBody::Stats(_) | GuestBody::PortEvent(_)) => {},
             _ => return Err(invalid("unexpected guest control result or event")),
         }
         if time_set && let Some(engine_ready) = engine_ready {

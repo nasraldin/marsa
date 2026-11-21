@@ -6,12 +6,13 @@ use marsa_proto::guest::{
     decode_host, encode_guest, frame_length, negotiate,
     v1::{
         CommandResult, CommandStatus, ConfigureNetwork, GuestEnvelope, Hello, HostEnvelope,
-        InstallCertificates, SetTime, guest_envelope, host_envelope,
+        InstallCertificates, PortEvent, SetTime, VmStats, guest_envelope, host_envelope,
     },
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::mpsc,
+    task::JoinSet,
     time::{Duration, MissedTickBehavior, interval, timeout},
 };
 
@@ -20,15 +21,32 @@ use crate::health::{self, Health};
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const HEALTH_INTERVAL: Duration = Duration::from_millis(250);
+const STATS_INTERVAL: Duration = Duration::from_secs(1);
 
 pub(crate) trait GuestState {
     fn set_time(&self, time: SetTime) -> io::Result<()>;
     async fn mark_ready(&self) -> io::Result<()>;
+
     async fn configure_network(&self, _request: ConfigureNetwork) -> io::Result<bool> {
         Err(io::ErrorKind::Unsupported.into())
     }
     async fn install_certificates(&self, _request: InstallCertificates) -> io::Result<bool> {
         Err(io::ErrorKind::Unsupported.into())
+    }
+
+    async fn command(&self, body: host_envelope::Body) -> io::Result<Option<guest_envelope::Body>> {
+        let _ = body;
+        Ok(None)
+    }
+
+    fn start_port_events(&self, _: &str, _: mpsc::Sender<PortEvent>, _: &mut JoinSet<()>) {}
+
+    async fn stats(&self) -> io::Result<Option<VmStats>> {
+        Ok(None)
+    }
+
+    fn shutdown(&self) -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -79,6 +97,11 @@ async fn exchange(
     let mut ready = false;
     let mut sample = interval(HEALTH_INTERVAL);
     sample.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut statistics = interval(STATS_INTERVAL);
+    statistics.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let (port_sender, mut port_events) = mpsc::channel(64);
+    let mut port_tasks = JoinSet::new();
+    let mut pending = None;
     write(
         writer,
         0,
@@ -87,32 +110,81 @@ async fn exchange(
     .await?;
     loop {
         tokio::select! {
-            envelope = inbox.recv() => {
+            envelope = inbox.recv(), if pending.is_none() => {
                 let Some(envelope) = envelope else { return Ok(()) };
                 let envelope = envelope?;
-                let (status, detail) = match envelope.body {
-                    Some(host_envelope::Body::SetTime(time)) => {
+                let request_id = envelope.request_id;
+                let body = envelope.body.ok_or_else(|| invalid("missing host command"))?;
+                let shutdown = matches!(body, host_envelope::Body::Shutdown(_));
+                let response = match body {
+                    host_envelope::Body::SetTime(time) => {
+                        let previous = ready;
                         match update_time(state, time, &mut ready).await {
-                            Ok(()) => (CommandStatus::Ok, "Guest clock set"),
+                            Ok(()) => {
+                                if !previous {
+                                    state.start_port_events(engine_socket, port_sender.clone(), &mut port_tasks);
+                                }
+                                success("Guest clock set")
+                            }
                             Err(error) => {
                                 eprintln!("marsa-agent: set guest time: {error}");
-                                (CommandStatus::Failed, "Could not set the guest clock")
+                                result(CommandStatus::Failed, "Could not set the guest clock")
                             }
                         }
                     }
-                    Some(host_envelope::Body::ConfigureNetwork(request)) => configuration_result(
-                        state.configure_network(request).await, "Guest network applied",
-                        "DNS applied. Staged Docker settings require a controlled restart.",
-                    ),
-                    Some(host_envelope::Body::InstallCertificates(request)) => configuration_result(
-                        state.install_certificates(request).await, "Guest CA bundle installed",
-                        "CA bundle installed. Docker may need a controlled restart to reload trust.",
-                    ),
-                    _ => (CommandStatus::Unavailable, "Command is unavailable in this guest"),
+                    host_envelope::Body::HelloAck(_) => return Err(invalid("unexpected HelloAck")),
+                    _ if !ready && !shutdown && !matches!(
+                        body,
+                        host_envelope::Body::ConfigureNetwork(_) | host_envelope::Body::InstallCertificates(_)
+                    ) => result(CommandStatus::Unavailable, "Guest setup is incomplete"),
+                    body => {
+                        // Poll one operation at a time so a slow trim cannot stall health or events.
+                        pending = Some(Box::pin(async move {
+                            (request_id, shutdown, dispatch(state, body).await)
+                        }));
+                        continue;
+                    }
                 };
-                write(writer, envelope.request_id, guest_envelope::Body::CommandResult(
-                    CommandResult { status: status as i32, detail: detail.to_owned() }
-                )).await?;
+                write(writer, request_id, response).await?;
+            }
+            Some((request_id, shutdown, outcome)) = async {
+                match pending.as_mut() {
+                    Some(operation) => Some(operation.await),
+                    None => None,
+                }
+            }, if pending.is_some() => {
+                pending = None;
+                let response = match outcome {
+                    Ok(Some(response)) => response,
+                    Ok(None) => result(CommandStatus::Unavailable, "Command is unavailable in this guest"),
+                    Err(error) => {
+                        eprintln!("marsa-agent: guest operation: {error}");
+                        let status = match error.kind() {
+                            io::ErrorKind::InvalidInput => CommandStatus::Invalid,
+                            _ => CommandStatus::Failed,
+                        };
+                        result(status, "Guest operation failed")
+                    }
+                };
+                let accepted_shutdown = shutdown && matches!(
+                    &response,
+                    guest_envelope::Body::CommandResult(result) if result.status == CommandStatus::Ok as i32
+                );
+                write(writer, request_id, response).await?;
+                if accepted_shutdown {
+                    state.shutdown()?;
+                    return Ok(());
+                }
+            }
+            Some(event) = port_events.recv(), if ready => {
+                write(writer, 0, guest_envelope::Body::PortEvent(event)).await?;
+            }
+            _ = statistics.tick(), if ready => {
+                match state.stats().await {
+                    Ok(Some(stats)) => write(writer, 0, guest_envelope::Body::Stats(stats)).await?,
+                    Ok(None) => {},
+                    Err(error) => eprintln!("marsa-agent: guest statistics: {error}"),
+                }
             }
             _ = sample.tick(), if ready => {
                 if let Some(event) = health.observe(health::probe(engine_socket).await) {
@@ -123,21 +195,52 @@ async fn exchange(
     }
 }
 
+pub(crate) fn success(detail: &str) -> guest_envelope::Body {
+    result(CommandStatus::Ok, detail)
+}
+
+fn result(status: CommandStatus, detail: &str) -> guest_envelope::Body {
+    guest_envelope::Body::CommandResult(CommandResult {
+        status: status as i32,
+        detail: detail.to_owned(),
+    })
+}
+
+async fn dispatch(
+    state: &impl GuestState,
+    body: host_envelope::Body,
+) -> io::Result<Option<guest_envelope::Body>> {
+    let response = match body {
+        host_envelope::Body::ConfigureNetwork(request) => configuration_result(
+            state.configure_network(request).await,
+            "Guest network applied",
+            "DNS applied. Staged Docker settings require a controlled restart.",
+        ),
+        host_envelope::Body::InstallCertificates(request) => configuration_result(
+            state.install_certificates(request).await,
+            "Guest CA bundle installed",
+            "CA bundle installed. Docker may need a controlled restart to reload trust.",
+        ),
+        body => return state.command(body).await,
+    };
+    Ok(Some(response))
+}
+
 fn configuration_result(
-    result: io::Result<bool>,
+    outcome: io::Result<bool>,
     success: &'static str,
     staged: &'static str,
-) -> (CommandStatus, &'static str) {
-    match result {
-        Ok(false) => (CommandStatus::Ok, success),
-        Ok(true) => (CommandStatus::Unavailable, staged),
+) -> guest_envelope::Body {
+    match outcome {
+        Ok(false) => result(CommandStatus::Ok, success),
+        Ok(true) => result(CommandStatus::Unavailable, staged),
         Err(error) => {
             let status = match error.kind() {
                 io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => CommandStatus::Invalid,
                 io::ErrorKind::Unsupported => CommandStatus::Unavailable,
                 _ => CommandStatus::Failed,
             };
-            (status, "Guest configuration could not be applied")
+            result(status, "Guest configuration could not be applied")
         }
     }
 }

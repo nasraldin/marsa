@@ -49,7 +49,7 @@ applies permission and audit policy before sending any request to the engine.
 
 ## Guest control channel
 
-The guest listens on AF_VSOCK port 5000 and accepts the host CID. Send `HelloAck` and an initial `SetTime` before expecting the Docker engine to become ready. The agent publishes readiness to PID 1 after setting the clock.
+The guest listens on AF_VSOCK port 5000 and accepts the host CID. Port 5001 is a separate unframed, host-CID-only byte stream to the guest Docker socket. Send `HelloAck` and an initial `SetTime` before expecting the Docker engine to become ready. The agent publishes readiness to PID 1 after setting the clock.
 
 The host opens the control vsock connection to the guest. Each record begins
 with an unsigned four-byte big-endian integer containing the protobuf payload
