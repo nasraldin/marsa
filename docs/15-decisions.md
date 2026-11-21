@@ -29,6 +29,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-019 | Linux: native engine, no VM | Accepted |
 | D-020 | Rootful engine inside the VM on macOS | Accepted |
 | D-021 | Lima and Apple's container tool are not shipped | Accepted |
+| D-022 | Licence Marsa under MIT | Accepted |
 
 ---
 
@@ -150,6 +151,14 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Decision:** Neither is a dependency of the product.
 - **Why:** Lima adds a separate Go process driven by SSH that Marsa would not control. Apple's tool is not the Docker API.
 - **Allowed:** Lima may be used as a temporary bootstrap engine during early GUI development.
+
+---
+
+## D-022 Licence Marsa under MIT
+
+- **Decision:** The project owner chose the MIT licence for Marsa. This resolves the licence question left open by D-017 and Q-01.
+- **Consequence:** Add the project licence. Continue to track licence and redistribution obligations for each upstream component.
+- **Date and task:** 2026-11-21, M0-02.
 
 ---
 

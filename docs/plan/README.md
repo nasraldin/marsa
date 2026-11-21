@@ -121,7 +121,6 @@ These open questions block specific tasks. See [16 Risks and open questions](../
 
 | Question | Blocks |
 |---|---|
-| Q-01 Licence | M0-02 (the `LICENSE` file only) |
 | Q-02 Minimum macOS | M3-02 |
 | Q-05 CI hardware | M0-06 and every real-VM test |
 | Q-04 Apple developer account and keys | M3-10, M10 |
