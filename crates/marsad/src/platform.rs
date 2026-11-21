@@ -4,6 +4,8 @@ mod files;
 mod logging;
 #[cfg(target_os = "macos")]
 mod login;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod runtime;
 
 use std::{error::Error, io, time::Duration};
 
@@ -20,7 +22,7 @@ use tokio::{
 };
 
 type DaemonError = Box<dyn Error + Send + Sync>;
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub(super) fn run() -> Result<(), DaemonError> {
     let uid = require_unprivileged()?;
@@ -40,11 +42,15 @@ pub(super) fn run() -> Result<(), DaemonError> {
     let uid = uid.as_raw();
     let mut instance = files::Instance::acquire(&paths, uid)?;
     let settings = files::read_settings(&paths, uid)?;
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let vm_settings = settings.vm.clone();
     let api = TypedApi::new(paths.clone(), uid, settings)?;
     let _logging = logging::initialize(&paths, uid)?;
     let socket = instance.publish(&paths, uid)?;
     let serving = runtime.block_on(async {
         let socket = tokio::net::UnixListener::from_std(socket)?;
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        let api = configure_packaged_runtime(api, paths, uid, vm_settings)?;
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
         serve(socket, api, signals).await
     });
@@ -53,6 +59,37 @@ pub(super) fn run() -> Result<(), DaemonError> {
     cleanup?;
     tracing::info!("daemon stopped");
     Ok(())
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn configure_packaged_runtime(
+    api: TypedApi,
+    paths: MarsaPaths,
+    uid: u32,
+    settings: marsa_core::settings::VmSettings,
+) -> io::Result<TypedApi> {
+    use marsad::{guest_control::GuestControl, supervisor::SupervisorConfig};
+
+    let Some(package) = runtime::Packaged::discover()? else {
+        return Ok(api);
+    };
+    let config = SupervisorConfig {
+        // A fresh default disk can spend about 26 seconds in the guest blank
+        // check and initialization before DHCP and the control agent start.
+        boot_timeout: Duration::from_secs(75),
+        stop_timeout: Duration::from_secs(8),
+        idle_timeout: Duration::from_secs(u64::from(settings.idle_timeout)),
+        idle_stop: settings.idle_stop,
+        max_retries: 1,
+        initial_backoff: Duration::from_secs(1),
+        maximum_backoff: Duration::from_secs(4),
+    };
+    Ok(api.with_packaged_runtime(
+        package.capabilities(),
+        GuestControl::default().with_agent_connect_timeout(Duration::from_secs(50)),
+        config,
+        move |desired| package.prepare(&paths, uid, desired),
+    ))
 }
 
 fn require_unprivileged() -> io::Result<Uid> {

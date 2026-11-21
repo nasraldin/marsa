@@ -11,6 +11,7 @@ use tokio_stream::StreamExt;
 
 use super::{
     AlternateFailure, BootNetwork, BootStage, GuestProbe, GuestSession, NetworkResult,
+    launch::{Applied, Launch, Source},
     network::Selection,
 };
 
@@ -21,6 +22,7 @@ pub(super) struct LiveGuest {
     pub session: Option<Box<dyn GuestSession>>,
     pub events: VmEventStream,
     pub network: BootNetwork,
+    pub applied: Option<Applied>,
     network_lost: bool,
 }
 
@@ -65,30 +67,69 @@ impl Issue {
 
 pub(super) struct Activation {
     pub(super) spec: VmSpec,
-    pub(super) limit: Duration,
+    pub(super) deadline: Instant,
     pub(super) stop_limit: Duration,
     pub(super) selection: Selection,
 }
 
 pub(super) async fn run(
-    backend: Arc<dyn Hypervisor>,
+    source: Source,
     probe: Arc<dyn GuestProbe>,
-    activation: Activation,
+    limit: Duration,
+    stop_limit: Duration,
     mut cancel: oneshot::Receiver<()>,
     progress: watch::Sender<BootStage>,
 ) -> Outcome {
+    let deadline = Instant::now() + limit;
+    let launch = match source {
+        Source::Fixed(launch) => *launch,
+        Source::Package(prepare) => {
+            progress.send_replace(BootStage::Prepare);
+            match prepare_package(prepare, deadline, &mut cancel).await {
+                Ok(launch) => launch,
+                Err(issue) => return Outcome::Failed { vm: None, issue },
+            }
+        }
+    };
     let result = selection::select_and_start(
-        backend.as_ref(),
+        launch.backend.as_ref(),
         probe.as_ref(),
-        activation,
+        Activation {
+            spec: launch.spec,
+            deadline,
+            stop_limit,
+            selection: launch.selection,
+        },
         &mut cancel,
         &progress,
     )
     .await;
     match result {
-        Ok(guest) => Outcome::Ready(guest),
+        Ok(mut guest) => {
+            guest.applied = launch.applied;
+            Outcome::Ready(guest)
+        }
         Err(failure) => failure.into(),
     }
+}
+
+async fn prepare_package(
+    prepare: super::launch::Prepare,
+    deadline: Instant,
+    cancel: &mut oneshot::Receiver<()>,
+) -> Result<Launch, Issue> {
+    let mut worker = tokio::task::spawn_blocking(move || prepare());
+    let result = phase(BootStage::Prepare, deadline, cancel, async {
+        (&mut worker).await.map_err(io::Error::other)?
+    })
+    .await;
+    if result.is_err() && !worker.is_finished() {
+        // A started file operation cannot be cancelled. Keep the activation
+        // serialized until it finishes before allowing a new preparation.
+        worker.abort();
+        let _ = worker.await;
+    }
+    result
 }
 
 async fn attach(
@@ -131,6 +172,7 @@ async fn attach(
             session: Some(session),
             events,
             network_lost,
+            applied: None,
             network: BootNetwork {
                 active,
                 result: NetworkResult::Unchecked,
@@ -334,5 +376,44 @@ async fn guest_exit_observing(
             None => return "VM lifecycle event stream closed".into(),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, mpsc};
+
+    #[tokio::test]
+    async fn cancelling_preparation_waits_for_the_in_flight_file_operation() {
+        let (starting, started) = oneshot::channel();
+        let (release, waiting) = mpsc::channel();
+        let input = Mutex::new(Some((starting, waiting)));
+        let (cancel, mut canceled) = oneshot::channel();
+        let worker = tokio::spawn(async move {
+            prepare_package(
+                Arc::new(move || {
+                    let (starting, waiting) = input.lock().unwrap().take().unwrap();
+                    starting.send(()).unwrap();
+                    waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+                    Err(io::ErrorKind::InvalidData.into())
+                }),
+                Instant::now() + Duration::from_secs(2),
+                &mut canceled,
+            )
+            .await
+        });
+        started.await.unwrap();
+        cancel.send(()).unwrap();
+        tokio::task::yield_now().await;
+        assert!(!worker.is_finished());
+        release.send(()).unwrap();
+        assert!(matches!(
+            worker.await.unwrap(),
+            Err(Issue {
+                stage: BootStage::Prepare,
+                reason: Reason::Canceled,
+            })
+        ));
     }
 }

@@ -42,6 +42,12 @@ jobs:
           export MARSA_VZ_NETWORK_HELPER="$PWD/target/network-helper/marsa-net-helper"
           bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest
           MARSA_ENTITLED_DAEMON_NETWORK=1 bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest
+      - name: Exercise the packaged daemon
+        run: |
+          export MARSA_VZ_GUEST_DIR="$PWD/target/guest"
+          export MARSA_VZ_NETWORK_HELPER="$PWD/target/network-helper/marsa-net-helper"
+          MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
+            --test packaged_runtime -- --ignored --nocapture --test-threads=1
       - name: Build the entitled VZ test runner
         run: |
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked \

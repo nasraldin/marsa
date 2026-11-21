@@ -157,7 +157,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 
 ### M3-12 Compose the packaged VM runtime
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-03, M3-07, M3-08, M3-15, M3-16
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [04 Boot sequence](../04-virtualization-macos.md#boot-sequence), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
 - **Do:** Wire the packaged daemon to the native VZ backend, guest artefact validation, guest-control session and typed API. Create the private sparse data disk on first activation. Build each VM spec from the current settings and apply restart-scoped settings on the next activation. Publish health and stats from the active control session. Install the signed user-space helper and use the boot selector when network mode is automatic.
@@ -166,6 +166,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
   - A packaged daemon started with a fresh per-user state directory accepts a real `Engine.Start`, reaches Ready through the agent and Docker API, and reports guest health and stats.
   - Subsequent Stop and Restart use the same data disk. A restart-scoped settings change becomes effective on restart.
   - Invalid or missing guest files fail cleanly before a VM starts and preserve existing user data.
+- **Evidence:** An ad-hoc-signed bundle on macOS 27.2.1 reached Docker Ready over its Unix socket on a fresh default 64 GiB sparse disk. It verified the user-space fallback with the native route unavailable and exposed health and stats. Restart applied new memory on the same disk inode. A missing image, corrupt image, and broken resource seal preserved the disk.
 
 ### M3-13 Keep guest control available without an upstream lease
 

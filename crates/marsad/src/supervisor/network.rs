@@ -12,12 +12,12 @@ use super::{
 };
 
 #[derive(Clone)]
-pub(super) struct Selection {
+pub(crate) struct Selection {
     pub(super) host: Option<Arc<dyn HostCheck>>,
 }
 
 impl Selection {
-    pub(super) fn new(enabled: bool) -> Self {
+    pub(crate) fn new(enabled: bool) -> Self {
         Self {
             host: enabled.then(|| Arc::new(SystemHost) as Arc<dyn HostCheck>),
         }
@@ -155,10 +155,17 @@ pub(super) async fn verify_alternate(
         if !session.can_probe_egress() || host.verified_target().await.as_ref() != Some(target) {
             return Err(AlternateFailure::Inconclusive);
         }
-        let stage = session
-            .probe_egress(target.ip)
-            .await
-            .map_err(|_| AlternateFailure::Inconclusive)?;
+        let probe =
+            |stage: std::io::Result<EgressStage>| stage.map_err(|_| AlternateFailure::Inconclusive);
+        let mut stage = probe(session.probe_egress(target.ip).await)?;
+        // A firewall may defer the first outbound connection while it asks the
+        // owner. Give the same attachment one bounded retry through that policy.
+        if stage == EgressStage::Tcp {
+            if host.verified_target().await.as_ref() != Some(target) {
+                return Err(AlternateFailure::Inconclusive);
+            }
+            stage = probe(session.probe_egress(target.ip).await)?;
+        }
         if stage != EgressStage::Healthy {
             return Err(AlternateFailure::Egress(stage));
         }

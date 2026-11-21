@@ -16,19 +16,20 @@ use std::{
 use marsa_proto::guest::{
     ProtocolError,
     v1::{
-        CommandStatus, EgressStage, EngineHealthState, GuestEnvelope, ProbeEgress, Shutdown,
-        StartEngine, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
+        CommandStatus, EgressStage, EngineHealth, EngineHealthState, GuestEnvelope, ProbeEgress,
+        Shutdown, StartEngine, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
     },
 };
 use marsa_vm::{Vm, VsockStream, async_trait};
 use tokio::{
-    sync::{broadcast, mpsc, oneshot, watch},
+    sync::{mpsc, oneshot, watch},
     task::JoinHandle,
     time::{Instant, sleep, sleep_until, timeout, timeout_at},
 };
 
 use super::{
     CONNECT_RETRY, ENGINE_TIMEOUT, GuestControlError, GuestEvent, GuestResponse, REQUEST_TIMEOUT,
+    observations::{EventBus, SessionEvents},
     wire,
 };
 use crate::supervisor::GuestSession;
@@ -123,6 +124,7 @@ pub(super) struct Session {
     health: watch::Receiver<Option<EngineHealthState>>,
     failure: watch::Receiver<Option<Arc<GuestControlError>>>,
     worker: JoinHandle<()>,
+    events: SessionEvents,
     deferred: bool,
 }
 
@@ -130,28 +132,32 @@ impl Session {
     pub(super) fn start(
         stream: VsockStream,
         active: watch::Sender<Weak<Client>>,
-        events: broadcast::Sender<GuestEvent>,
+        events: EventBus,
         deferred: bool,
     ) -> Self {
         let (queue, requests) = mpsc::channel(REQUEST_CAPACITY);
         let (shutdown, stop) = oneshot::channel();
         let (publish_health, health) = watch::channel(None);
         let (publish_failure, failure) = watch::channel(None);
+        let client = Arc::new(Client {
+            queue,
+            next_id: AtomicU64::new(1),
+        });
+        let events = events.session(active.clone(), Arc::downgrade(&client));
+        let publish = events.clone();
         let worker = tokio::spawn(async move {
-            if let Err(error) = exchange(stream, requests, stop, publish_health, events).await {
+            if let Err(error) = exchange(stream, requests, stop, publish_health, publish).await {
                 publish_failure.send_replace(Some(Arc::new(error)));
             }
         });
         Self {
-            client: Arc::new(Client {
-                queue,
-                next_id: AtomicU64::new(1),
-            }),
+            client,
             active,
             shutdown: Some(shutdown),
             health,
             failure,
             worker,
+            events,
             deferred,
         }
     }
@@ -238,6 +244,13 @@ impl GuestSession for Session {
             }
         }
         self.active.send_replace(Arc::downgrade(&self.client));
+        if let Some(state) = *self.health.borrow() {
+            self.events
+                .publish_active(&GuestEvent::Health(EngineHealth {
+                    state: state.into(),
+                    ..Default::default()
+                }));
+        }
         Ok(())
     }
 
@@ -281,7 +294,7 @@ async fn exchange(
     requests: mpsc::Receiver<Request>,
     mut shutdown: oneshot::Receiver<Request>,
     health: watch::Sender<Option<EngineHealthState>>,
-    events: broadcast::Sender<GuestEvent>,
+    events: SessionEvents,
 ) -> Result<(), GuestControlError> {
     let (mut reader, mut writer) = tokio::io::split(stream);
     let mut requests = Some(requests);
@@ -346,7 +359,7 @@ fn accept(
     envelope: GuestEnvelope,
     current: &mut Option<Request>,
     health: &watch::Sender<Option<EngineHealthState>>,
-    events: &broadcast::Sender<GuestEvent>,
+    events: &SessionEvents,
 ) -> Result<(), GuestControlError> {
     let event = match envelope.body {
         Some(GuestBody::PortEvent(event)) => GuestEvent::Port(event),
@@ -392,7 +405,7 @@ fn accept(
         Some(GuestBody::Hello(_)) => return Err(GuestControlError::Sequence("unexpected Hello")),
         None => return Err(ProtocolError::InvalidField("body").into()),
     };
-    let _ = events.send(event);
+    events.publish(event);
     Ok(())
 }
 
@@ -408,4 +421,43 @@ fn matching_request(current: &mut Option<Request>, id: u64) -> Result<Request, G
         return Err(GuestControlError::TimedOut("waiting for a command result"));
     }
     Ok(request)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn only_the_current_ready_session_can_publish_to_the_daemon() {
+        let client = || {
+            Arc::new(Client {
+                queue: mpsc::channel(1).0,
+                next_id: AtomicU64::new(1),
+            })
+        };
+        let first = client();
+        let second = client();
+        let (active, _) = watch::channel(Weak::new());
+        let delivered = Arc::new(AtomicUsize::new(0));
+        let counter = delivered.clone();
+        let mut bus = EventBus::default();
+        bus.observer = Some(Arc::new(move |_| {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }));
+        let old = bus.clone().session(active.clone(), Arc::downgrade(&first));
+        let new = bus.session(active.clone(), Arc::downgrade(&second));
+        let sample = || GuestEvent::Stats(Default::default());
+
+        old.publish(sample());
+        assert_eq!(delivered.load(Ordering::Relaxed), 0);
+        active.send_replace(Arc::downgrade(&first));
+        old.publish(sample());
+        new.publish(sample());
+        assert_eq!(delivered.load(Ordering::Relaxed), 1);
+        active.send_replace(Arc::downgrade(&second));
+        old.publish(sample());
+        new.publish(sample());
+        assert_eq!(delivered.load(Ordering::Relaxed), 2);
+    }
 }
