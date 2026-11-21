@@ -10,7 +10,7 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 
 ### M6-01 GUI application skeleton
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M1-05, M0-01
 - **Docs:** [08 Architecture](../08-gui.md#architecture), [08 Framework version policy](../08-gui.md#framework-version-policy)
 - **Do:** Create `marsa-gui` and `marsa-ui`. Pin GPUI and gpui-component to the revisions validated in M1-01 and document the upgrade procedure. Open a window, handle app lifecycle, and exit the process when the window closes.
