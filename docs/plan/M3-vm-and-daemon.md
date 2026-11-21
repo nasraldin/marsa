@@ -157,7 +157,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 
 ### M3-12 Compose the packaged VM runtime
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M3-03, M3-07, M3-08, M3-15, M3-16
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [04 Boot sequence](../04-virtualization-macos.md#boot-sequence), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
 - **Do:** Wire the packaged daemon to the native VZ backend, guest artefact validation, guest-control session and typed API. Create the private sparse data disk on first activation. Build each VM spec from the current settings and apply restart-scoped settings on the next activation. Publish health and stats from the active control session. Install the signed user-space helper and use the boot selector when network mode is automatic.
