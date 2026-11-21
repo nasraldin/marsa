@@ -1,0 +1,30 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/marsa-agent",
+    "crates/marsa-cli",
+    "crates/marsa-client",
+    "crates/marsa-core",
+    "crates/marsa-dockerproxy",
+    "crates/marsa-gui",
+    "crates/marsa-init",
+    "crates/marsa-mcp",
+    "crates/marsa-net",
+    "crates/marsa-proto",
+    "crates/marsa-share",
+    "crates/marsa-ui",
+    "crates/marsa-vm",
+    "crates/marsa-vm-krun",
+    "crates/marsa-vm-vz",
+    "crates/marsad",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+publish = false
+
+[workspace.lints.rust]
+missing_docs = "deny"
+unsafe_code = "deny"
