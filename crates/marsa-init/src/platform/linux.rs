@@ -1,5 +1,6 @@
 //! Boot and orderly power-off for the Linux VM.
 
+mod console;
 mod disk;
 mod mounts;
 mod supervisor;
@@ -31,6 +32,9 @@ pub(crate) fn run() -> io::Result<()> {
         return Err(io::Error::other("marsa-init must run as guest PID 1"));
     }
 
+    if let Err(error) = console::replay_early_kernel_log() {
+        eprintln!("marsa-init: cannot replay early kernel boot log: {error}");
+    }
     let mut mounts = Mounts::default();
     let mut supervisor = Supervisor::new()?;
     let result = boot(&mut mounts, &mut supervisor).and_then(|()| supervisor.serve());

@@ -93,3 +93,34 @@ async fn rejects_cpu_count_above_the_framework_limit() {
         Err(VmError::InvalidSpec { field: "cpus", .. })
     ));
 }
+
+#[tokio::test]
+async fn rejects_console_symlinks_and_public_logs() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let scratch = tempfile::tempdir().unwrap();
+    let spec = write_spec(scratch.path());
+    let public_log = scratch.path().join("shared.log");
+    fs::write(&public_log, b"preserve").unwrap();
+    fs::set_permissions(&public_log, fs::Permissions::from_mode(0o644)).unwrap();
+
+    symlink(&public_log, &spec.console_log).unwrap();
+    assert!(matches!(
+        VzHypervisor.create(spec.clone()).await,
+        Err(VmError::InvalidSpec {
+            field: "console_log",
+            ..
+        })
+    ));
+    fs::remove_file(&spec.console_log).unwrap();
+    fs::rename(&public_log, &spec.console_log).unwrap();
+    let console = spec.console_log.clone();
+    assert!(matches!(
+        VzHypervisor.create(spec).await,
+        Err(VmError::InvalidSpec {
+            field: "console_log",
+            ..
+        })
+    ));
+    assert_eq!(fs::read(console).unwrap(), b"preserve");
+}

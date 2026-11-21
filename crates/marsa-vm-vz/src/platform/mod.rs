@@ -4,6 +4,7 @@ mod configuration;
 mod native;
 mod spec;
 mod state;
+mod vsock;
 
 use std::{
     sync::Arc,
@@ -113,8 +114,8 @@ impl Vm for VzVm {
         self.controller.lifecycle.events()
     }
 
-    async fn connect_vsock(&self, _port: u32) -> Result<VsockStream, VmError> {
-        Err(unsupported("VZ vsock connections"))
+    async fn connect_vsock(&self, port: u32) -> Result<VsockStream, VmError> {
+        vsock::connect(&self.controller, port).await
     }
 
     async fn set_memory_target(&self, _bytes: u64) -> Result<(), VmError> {

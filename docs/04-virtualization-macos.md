@@ -73,22 +73,38 @@ Tokio's blocking pool before submitting configuration. All Foundation and VZ
 allocation, validation, device setup, lifecycle calls and owned releases run
 on that queue. Jobs assert their queue and use an autorelease pool.
 
-The native VM and its retained delegate live in a private slot. The delegate
-holds a weak controller reference. Completion and delegate callbacks assert
-the queue and enqueue another job so an inline callback cannot reenter the
-slot. Only Rust payloads cross the queue boundary through oneshot replies,
-snapshots and the bounded event stream. A cancelled Rust start leaves the
-native completion in charge of the state transition. Dropping the last VM
-handle queues teardown and keeps the native objects alive through any
-in-flight start or forced stop.
+The native VM, retained delegate and active socket connections live in a
+private slot. Delegate and lifecycle completion callbacks assert the queue and
+enqueue a job to avoid reentering the slot. Cancelling a Rust start leaves
+the native completion in charge of the state transition. Dropping the last
+VM handle queues teardown and retains the VM through in-flight start and
+forced-stop calls. The socket connect call releases
+its slot borrow before calling VZ so the completion can retain the connection
+even when invoked inline. Tokio receives a close-on-exec descriptor duplicate,
+which it registers in nonblocking mode, and a Rust lease that releases the
+native connection on the VM queue. The lease also handles cancelled connect
+futures. The VM releases remaining connections on stop or teardown. Apple's
+[descriptor contract](https://developer.apple.com/documentation/virtualization/vzvirtiosocketconnection/filedescriptor)
+assigns ownership of the original descriptor to the connection.
 
-M3-02 attaches the boot and data disks, standard NAT, entropy and the virtio
-socket device. Its file-backed serial sink provides early boot diagnostics.
-M3-03 extends the storage and console paths and opens host vsock streams.
-M3-04 adds shares, network reporting, ballooning, and pause and resume.
+The backend attaches both raw images with automatic caching and full
+synchronization, as selected in [M1-03](spikes/M1-03-disk-reclaim.md). The root
+attachment is read-only. The virtio console writes directly to an append-only
+descriptor opened before the VM starts. Marsa opens a private user-owned
+regular file and checks for symbolic links and inode aliases.
 
-The [entitled system test](../crates/marsa-vm-vz/README.md) verified packaged
-PID 1 boot and native lifecycle events on the selected Apple silicon Mac.
+With the pinned Linux 7.3.5 kernel, virtio-console discards the kernel's
+initial replay while registering `hvc0`. The messages remain in the kernel
+ring. On entering PID 1, `marsa-init` reads a bounded, non-destructive snapshot
+and emits the messages before `hvc0` registration in a marked section of
+`console.log`. If the kernel stops before reaching PID 1, the file contains
+the output the guest managed to send over the live console.
+[Linux kernel mailing list investigation](https://lkml.iu.edu/hypermail/linux/kernel/2610.3/17591.html).
+
+The [entitled system tests](../crates/marsa-vm-vz/README.md) boot the packaged
+guest on Apple silicon. They check native lifecycle events, a versioned agent
+handshake, root device and filesystem write rejection, and ordered console
+output from the kernel through Docker API readiness.
 [Apple's initializer contract](https://developer.apple.com/documentation/virtualization/vzvirtualmachine/init(configuration:queue:)).
 
 ### Calling the framework from Rust
