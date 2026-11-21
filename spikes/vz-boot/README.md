@@ -206,7 +206,9 @@ and the seven PID 1 stage times. The kernel measurement ends at the Linux
 init handoff. The harness measures PID 1 to Hello and dockerd start to
 health readiness using its monotonic clock. Tier 2 uploads the report and logs.
 
-One run on the selected Apple silicon Mac measured 84 ms for the kernel
-against 300 ms, 593 ms from PID 1 to Hello against 300 ms, and 881 ms from
-dockerd start to readiness against 1,500 ms. Fresh disk preparation accounted
-for 453 ms. The runner measured 2,084 ms from startup to readiness.
+The integrated run on the selected Apple silicon Mac measured 70 ms for the
+kernel against 300 ms, 415 ms from PID 1 to Hello against 300 ms, and 674 ms
+from dockerd start to readiness against 1,500 ms. Fresh disk preparation
+accounted for 298 ms. The runner measured 1,560 ms from startup to readiness.
+[Private runner registration](../../docs/12-build-release-update.md#tier-2-runner-setup)
+is still pending.
