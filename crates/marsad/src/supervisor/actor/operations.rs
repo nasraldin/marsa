@@ -1,6 +1,6 @@
 //! Implement the actor's state transitions for requests, deadlines, and boot completion.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use marsa_vm::{Vm, VmState};
 use tokio::{
@@ -152,12 +152,18 @@ impl Actor {
             }
         }
         let mut limit = self.config.stop_timeout;
+        let mut failure = None;
         if let Some(guest) = ready {
-            let (running, remaining) = boot::graceful_stop(guest, limit).await;
+            let (running, remaining, exit_failure) =
+                boot::graceful_stop(guest, self.probe.as_ref(), limit).await;
             vm = Some(running);
             limit = remaining;
+            failure = exit_failure;
         }
-        if let Err(error) = self.stop_vm(vm, limit).await {
+        let outcome = self.stop_vm(vm, limit).await.and_then(|()| {
+            failure.map_or(Ok(()), |error| Err(SupervisorError::Vm(Arc::new(error))))
+        });
+        if let Err(error) = outcome {
             let failure = Arc::new(BootFailure {
                 stage: BootStage::Shutdown,
                 timed_out: false,
@@ -174,16 +180,23 @@ impl Actor {
     async fn stop_vm(
         &mut self,
         vm: Option<Box<dyn Vm>>,
-        limit: std::time::Duration,
+        limit: Duration,
     ) -> Result<(), SupervisorError> {
         self.cleanup = vm;
         if let Some(vm) = self.cleanup.as_mut()
-            && !matches!(
-                vm.state(),
-                VmState::Created | VmState::Failed | VmState::Stopped
-            )
+            && !matches!(vm.state(), VmState::Created | VmState::Stopped)
         {
-            vm.stop(limit).await.map_err(Arc::new)?;
+            // Allow a separate, bounded window for native forced-stop completion.
+            let completion_limit = limit.saturating_add(Duration::from_secs(5));
+            timeout(completion_limit, vm.stop(limit))
+                .await
+                .map_err(|_| {
+                    Arc::new(marsa_vm::VmError::Timeout {
+                        operation: "stop",
+                        limit: completion_limit,
+                    })
+                })?
+                .map_err(Arc::new)?;
         }
         self.cleanup = None;
         Ok(())

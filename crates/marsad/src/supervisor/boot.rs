@@ -2,7 +2,7 @@
 
 use std::{future::Future, io, sync::Arc, time::Duration};
 
-use marsa_vm::{Hypervisor, Vm, VmEvent, VmEventStream, VmSpec, VmState};
+use marsa_vm::{Hypervisor, Vm, VmError, VmEvent, VmEventStream, VmExitCause, VmSpec, VmState};
 use tokio::{
     sync::{oneshot, watch},
     time::{Instant, timeout_at},
@@ -140,30 +140,75 @@ async fn during_guest_execution<T>(
 
 pub(super) async fn graceful_stop(
     mut guest: LiveGuest,
+    probe: &dyn GuestProbe,
     limit: Duration,
-) -> (Box<dyn Vm>, Duration) {
+) -> (Box<dyn Vm>, Duration, Option<VmError>) {
     let deadline = Instant::now() + limit;
-    if guest.vm.state() == VmState::Running
-        && let Some(session) = guest.session.as_mut()
-    {
-        let _ = timeout_at(deadline, async {
-            session.shutdown().await?;
-            if !matches!(guest.vm.state(), VmState::Stopped | VmState::Failed) {
-                guest_exit(guest.vm.as_ref(), &mut guest.events).await;
-            }
-            Ok::<(), io::Error>(())
-        })
-        .await;
-    }
+    let outcome = timeout_at(deadline, async {
+        if guest.vm.state() == VmState::Paused {
+            guest.vm.resume().await.map_err(io::Error::other)?;
+            guest.session = Some(probe.handshake(guest.vm.as_ref()).await?);
+        }
+        let Some(session) = guest.session.as_mut() else {
+            return Ok(None);
+        };
+        session.shutdown().await?;
+        Ok::<_, io::Error>(
+            wait_for_power_off(guest.vm.as_ref(), &mut guest.events)
+                .await
+                .err(),
+        )
+    })
+    .await;
     // Release the control stream before falling back to native stop.
     drop(guest.session);
-    (guest.vm, deadline.saturating_duration_since(Instant::now()))
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    (
+        guest.vm,
+        remaining,
+        outcome.ok().and_then(Result::ok).flatten(),
+    )
+}
+
+async fn wait_for_power_off(vm: &dyn Vm, events: &mut VmEventStream) -> Result<(), VmError> {
+    fn failure(detail: String) -> VmError {
+        VmError::Backend {
+            operation: "shut down",
+            detail,
+        }
+    }
+    loop {
+        if vm.state() == VmState::Stopped {
+            return Ok(());
+        }
+        match events.next().await {
+            Some(VmEvent::UnexpectedExit {
+                cause: VmExitCause::GuestPowerOff,
+                ..
+            }) => return Ok(()),
+            Some(VmEvent::UnexpectedExit {
+                cause: VmExitCause::Failure,
+                detail,
+            }) => {
+                return Err(failure(detail));
+            }
+            Some(VmEvent::EventsDropped { .. }) if vm.state() == VmState::Failed => {
+                return Err(failure("guest exit details were unavailable".into()));
+            }
+            None => {
+                return Err(failure(
+                    "VM lifecycle event stream closed during shutdown".into(),
+                ));
+            }
+            _ => {}
+        }
+    }
 }
 
 pub(super) async fn guest_exit(vm: &dyn Vm, events: &mut VmEventStream) -> String {
     loop {
         match events.next().await {
-            Some(VmEvent::UnexpectedExit { detail }) => return detail,
+            Some(VmEvent::UnexpectedExit { detail, .. }) => return detail,
             Some(VmEvent::StateChanged {
                 current: VmState::Stopped,
                 ..

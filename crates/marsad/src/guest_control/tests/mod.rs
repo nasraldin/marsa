@@ -295,3 +295,71 @@ async fn requests_guest_shutdown_and_requires_its_acknowledgement() {
         }
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_native_failure_after_shutdown_ack_is_reported() {
+    let mut script = startup();
+    script.extend([
+        expect(2, HostBody::Shutdown(Shutdown {})),
+        command_result(2, CommandStatus::Ok),
+        AgentStep::Wait(WAIT),
+    ]);
+    let scenario = FakeScenario::default()
+        .with_agent(CONTROL_PORT, script)
+        .with_agent(DOCKER_API_PORT, docker_ping(200))
+        .with_exit_after(Duration::from_millis(100));
+    let (supervisor, _) = supervisor(scenario);
+    supervisor.ensure_ready().await.unwrap();
+
+    let error = supervisor.stop().await.unwrap_err();
+    assert!(error.to_string().contains("scripted guest exit"));
+    let snapshot = supervisor.snapshot();
+    assert_eq!(snapshot.state, State::Failed);
+    assert_eq!(snapshot.failure.unwrap().stage, BootStage::Shutdown);
+}
+
+#[tokio::test(start_paused = true)]
+async fn paused_stop_reconnects_to_request_shutdown_without_publish_ready() {
+    let mut script = startup();
+    script.extend([
+        expect(2, HostBody::Shutdown(Shutdown {})),
+        command_result(2, CommandStatus::Ok),
+        send(
+            0,
+            GuestBody::Stats(VmStats {
+                sample_uptime_millis: 700,
+                ..VmStats::default()
+            }),
+        ),
+        AgentStep::Wait(WAIT),
+    ]);
+    let scenario = FakeScenario::default()
+        .with_agent(CONTROL_PORT, script)
+        .with_agent(DOCKER_API_PORT, docker_ping(200));
+    let (supervisor, control) = supervisor(scenario);
+    supervisor.ensure_ready().await.unwrap();
+    supervisor.pause().await.unwrap();
+    let mut events = supervisor.events();
+    let mut messages = control.events();
+
+    supervisor.stop().await.unwrap();
+    let first = events.try_recv().unwrap();
+    let second = events.try_recv().unwrap();
+    assert_eq!(
+        (first.previous, first.current),
+        (State::Paused, State::Stopping)
+    );
+    assert_eq!(
+        (second.previous, second.current),
+        (State::Stopping, State::Stopped)
+    );
+    assert!(events.try_recv().is_err());
+
+    let mut requested_shutdown = false;
+    while let Ok(event) = messages.try_recv() {
+        if matches!(event, GuestEvent::Stats(stats) if stats.sample_uptime_millis == 700) {
+            requested_shutdown = true;
+        }
+    }
+    assert!(requested_shutdown);
+}

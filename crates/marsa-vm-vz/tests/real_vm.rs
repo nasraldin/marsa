@@ -17,8 +17,8 @@ use marsa_proto::guest::{
     },
 };
 use marsa_vm::{
-    DiskSpec, Hypervisor, NetworkSpec, VmError, VmEvent, VmEventStream, VmSpec, VmState,
-    VsockStream,
+    DiskSpec, Hypervisor, NetworkSpec, VmError, VmEvent, VmEventStream, VmExitCause, VmSpec,
+    VmState, VsockStream,
 };
 use marsa_vm_vz::VzHypervisor;
 use sha2::{Digest, Sha256};
@@ -126,7 +126,7 @@ async fn packaged_init_boot_and_native_lifecycle_events() {
     transition(&mut events, VmState::Running, VmState::Failed).await;
     assert!(matches!(
         timeout(LIMIT, events.next()).await.unwrap(),
-        Some(VmEvent::UnexpectedExit { detail }) if detail.contains("without a stop request"),
+        Some(VmEvent::UnexpectedExit { cause: VmExitCause::GuestPowerOff, detail }) if detail.contains("without a stop request"),
     ));
     assert_eq!(vm.state(), VmState::Failed);
     drop(vm);

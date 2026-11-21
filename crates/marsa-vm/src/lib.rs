@@ -59,6 +59,15 @@ pub enum VmState {
     Failed,
 }
 
+/// Native cause of guest execution ending outside a backend stop operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VmExitCause {
+    /// The backend received a guest power-off notification.
+    GuestPowerOff,
+    /// The backend reported a failure.
+    Failure,
+}
+
 /// A lifecycle notification from the backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VmEvent {
@@ -71,6 +80,8 @@ pub enum VmEvent {
     },
     /// The backend stopped guest execution outside a requested shutdown.
     UnexpectedExit {
+        /// Native cause of the exit.
+        cause: VmExitCause,
         /// Diagnostic supplied by the backend.
         detail: String,
     },
