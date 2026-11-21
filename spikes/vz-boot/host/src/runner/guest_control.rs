@@ -6,14 +6,73 @@ use std::time::Duration;
 use marsa_proto::guest::v1::guest_envelope::Body as GuestBody;
 use marsa_proto::guest::v1::host_envelope::Body as HostBody;
 use marsa_proto::guest::v1::{
-    CommandStatus, EngineHealthState, GuestEnvelope, HelloAck, HostEnvelope, ProtocolVersion,
-    SetTime,
+    CommandStatus, ConfigureNetwork, EngineHealthState, GuestEnvelope, HelloAck, HostAlias,
+    HostEnvelope, InstallCertificates, ProtocolVersion, Proxy, SetTime,
 };
 use marsa_proto::guest::{decode_guest, encode_host, frame_length};
 
 // The fixed past epoch deliberately differs from the Virtualization.framework RTC.
 const TEST_UNIX_SECONDS: i64 = 1_700_000_000;
 const SET_TIME_REQUEST: u64 = 1;
+const TEST_CA: &str = "MARSA_VZ_TEST_CA_DER";
+
+fn test_epoch() -> i64 {
+    if std::env::var_os(TEST_CA).is_some() {
+        1_800_000_000
+    } else {
+        TEST_UNIX_SECONDS
+    }
+}
+
+fn network(dns: &str) -> ConfigureNetwork {
+    ConfigureNetwork {
+        dns_servers: vec![dns.into()],
+        search_domains: vec!["marsa.test".into()],
+        proxy: Some(Proxy {
+            http_url: Some("http://198.18.0.99:3128".into()),
+            no_proxy: vec!["registry.marsa.test".into()],
+            ..Default::default()
+        }),
+        host_aliases: ["registry.marsa.test", "host.docker.internal"]
+            .into_iter()
+            .map(|name| HostAlias {
+                name: name.into(),
+                address: "198.18.0.10".into(),
+            })
+            .collect(),
+    }
+}
+
+fn command(stream: &mut (impl Read + Write), id: u64, body: HostBody) -> io::Result<()> {
+    expect_command(stream, id, body, CommandStatus::Ok)
+}
+
+fn expect_command(
+    stream: &mut (impl Read + Write),
+    id: u64,
+    body: HostBody,
+    expected: CommandStatus,
+) -> io::Result<()> {
+    send(stream, id, body)?;
+    for _ in 0..MAX_EVENTS {
+        let envelope = receive(stream)?;
+        match envelope.body {
+            Some(GuestBody::CommandResult(result)) if envelope.request_id == id => {
+                if result.status == expected as i32 {
+                    return Ok(());
+                }
+                return Err(invalid(format!(
+                    "guest command {id} failed: {}",
+                    result.detail
+                )));
+            }
+            Some(GuestBody::EngineHealth(_)) => {}
+            _ => return Err(invalid("unexpected guest command response")),
+        }
+    }
+    Err(invalid("guest command did not complete"))
+}
+
 const VERSION_1_0: ProtocolVersion = ProtocolVersion { major: 1, minor: 0 };
 const MAX_EVENTS: usize = 32;
 
@@ -44,11 +103,32 @@ pub(super) fn verify(stream: &mut (impl Read + Write)) -> io::Result<()> {
             protocol: Some(VERSION_1_0),
         }),
     )?;
+    if let Some(ca) = std::env::var_os(TEST_CA) {
+        command(
+            stream,
+            2,
+            HostBody::ConfigureNetwork(network("198.18.0.53")),
+        )?;
+        let mut certificate = Vec::new();
+        std::fs::File::open(ca)?
+            .take(64 * 1024 + 1)
+            .read_to_end(&mut certificate)?;
+        if certificate.len() > 64 * 1024 {
+            return Err(invalid("test CA is too large"));
+        }
+        command(
+            stream,
+            3,
+            HostBody::InstallCertificates(InstallCertificates {
+                certificates_der: vec![certificate],
+            }),
+        )?;
+    }
     send(
         stream,
         SET_TIME_REQUEST,
         HostBody::SetTime(SetTime {
-            unix_seconds: TEST_UNIX_SECONDS,
+            unix_seconds: test_epoch(),
             nanoseconds: 0,
         }),
     )?;
@@ -73,6 +153,23 @@ pub(super) fn verify(stream: &mut (impl Read + Write)) -> io::Result<()> {
             _ => return Err(invalid("unexpected guest control result or event")),
         }
         if time_set && engine_ready {
+            if std::env::var_os(TEST_CA).is_some() {
+                command(
+                    stream,
+                    4,
+                    HostBody::ConfigureNetwork(network("198.18.0.54")),
+                )?;
+                let mut staged = network("198.18.0.54");
+                if let Some(proxy) = &mut staged.proxy {
+                    proxy.http_url = Some("http://198.18.0.98:3128".into());
+                }
+                expect_command(
+                    stream,
+                    5,
+                    HostBody::ConfigureNetwork(staged),
+                    CommandStatus::Unavailable,
+                )?;
+            }
             return Ok(());
         }
     }
@@ -82,13 +179,14 @@ pub(super) fn verify(stream: &mut (impl Read + Write)) -> io::Result<()> {
 }
 
 pub(super) fn clock_assertions(deadline: Duration) -> Vec<u8> {
-    let latest = TEST_UNIX_SECONDS + deadline.as_secs() as i64;
+    let epoch = test_epoch();
+    let latest = epoch + deadline.as_secs() as i64;
     // A bug that creates agent.ready before SetTime leaves its mtime in the old epoch.
     format!(
         "marsa_fixture_clock=$(busybox date +%s)\n\
          marsa_fixture_ready=$(busybox stat -c %Y /run/marsa/agent.ready)\n\
          printf 'MARSA_GUEST_CLOCK=%s MARSA_AGENT_READY_MTIME=%s\\n' \"$marsa_fixture_clock\" \"$marsa_fixture_ready\"\n\
-         test \"$marsa_fixture_ready\" -ge {TEST_UNIX_SECONDS}\n\
+         test \"$marsa_fixture_ready\" -ge {epoch}\n\
          test \"$marsa_fixture_clock\" -ge \"$marsa_fixture_ready\"\n\
          test \"$marsa_fixture_clock\" -le {latest}\n"
     )

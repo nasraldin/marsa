@@ -5,8 +5,8 @@ use std::io;
 use marsa_proto::guest::{
     decode_host, encode_guest, frame_length, negotiate,
     v1::{
-        CommandResult, CommandStatus, GuestEnvelope, Hello, HostEnvelope, PortEvent, SetTime,
-        VmStats, guest_envelope, host_envelope,
+        CommandResult, CommandStatus, ConfigureNetwork, GuestEnvelope, Hello, HostEnvelope,
+        InstallCertificates, PortEvent, SetTime, VmStats, guest_envelope, host_envelope,
     },
 };
 use tokio::{
@@ -26,6 +26,13 @@ const STATS_INTERVAL: Duration = Duration::from_secs(1);
 pub(crate) trait GuestState {
     fn set_time(&self, time: SetTime) -> io::Result<()>;
     async fn mark_ready(&self) -> io::Result<()>;
+
+    async fn configure_network(&self, _request: ConfigureNetwork) -> io::Result<bool> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+    async fn install_certificates(&self, _request: InstallCertificates) -> io::Result<bool> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
 
     async fn command(&self, body: host_envelope::Body) -> io::Result<Option<guest_envelope::Body>> {
         let _ = body;
@@ -126,11 +133,14 @@ async fn exchange(
                         }
                     }
                     host_envelope::Body::HelloAck(_) => return Err(invalid("unexpected HelloAck")),
-                    _ if !ready && !shutdown => result(CommandStatus::Unavailable, "Guest setup is incomplete"),
+                    _ if !ready && !shutdown && !matches!(
+                        body,
+                        host_envelope::Body::ConfigureNetwork(_) | host_envelope::Body::InstallCertificates(_)
+                    ) => result(CommandStatus::Unavailable, "Guest setup is incomplete"),
                     body => {
                         // Poll one operation at a time so a slow trim cannot stall health or events.
                         pending = Some(Box::pin(async move {
-                            (request_id, shutdown, state.command(body).await)
+                            (request_id, shutdown, dispatch(state, body).await)
                         }));
                         continue;
                     }
@@ -194,6 +204,45 @@ fn result(status: CommandStatus, detail: &str) -> guest_envelope::Body {
         status: status as i32,
         detail: detail.to_owned(),
     })
+}
+
+async fn dispatch(
+    state: &impl GuestState,
+    body: host_envelope::Body,
+) -> io::Result<Option<guest_envelope::Body>> {
+    let response = match body {
+        host_envelope::Body::ConfigureNetwork(request) => configuration_result(
+            state.configure_network(request).await,
+            "Guest network applied",
+            "DNS applied. Staged Docker settings require a controlled restart.",
+        ),
+        host_envelope::Body::InstallCertificates(request) => configuration_result(
+            state.install_certificates(request).await,
+            "Guest CA bundle installed",
+            "CA bundle installed. Docker may need a controlled restart to reload trust.",
+        ),
+        body => return state.command(body).await,
+    };
+    Ok(Some(response))
+}
+
+fn configuration_result(
+    outcome: io::Result<bool>,
+    success: &'static str,
+    staged: &'static str,
+) -> guest_envelope::Body {
+    match outcome {
+        Ok(false) => result(CommandStatus::Ok, success),
+        Ok(true) => result(CommandStatus::Unavailable, staged),
+        Err(error) => {
+            let status = match error.kind() {
+                io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => CommandStatus::Invalid,
+                io::ErrorKind::Unsupported => CommandStatus::Unavailable,
+                _ => CommandStatus::Failed,
+            };
+            result(status, "Guest configuration could not be applied")
+        }
+    }
 }
 
 async fn update_time(state: &impl GuestState, time: SetTime, ready: &mut bool) -> io::Result<()> {

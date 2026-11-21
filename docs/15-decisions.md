@@ -33,6 +33,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-023 | Choose GPUI for the desktop | Accepted |
 | D-024 | Use direct Rust bindings for Virtualization.framework | Accepted |
 | D-025 | Pin the current stable Linux kernel | Accepted |
+| D-027 | Apply proxy settings at a controlled engine restart | Accepted |
 
 ---
 
@@ -97,6 +98,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Decision:** An Alpine-derived root filesystem, read-only and versioned with the app; a separate data disk; a Rust init instead of a general init system.
 - **Why:** A few megabytes instead of a hundred or more, faster boot, nothing extra running. musl is not a problem because containers bring their own userland and the engine ships as static binaries.
 - **Rejected:** Debian or Ubuntu (boot a general-purpose system); Fedora CoreOS and Flatcar (large, systemd-centred); a fully custom Buildroot image (a later optimisation).
+- **Implementation (M2-03):** Use the pinned Alpine minirootfs. Alpine 3.24's `alpine-base` meta-package depends on OpenRC and installs service packages outside the guest contents table. The recipe adds only the locked tools and dependencies required by Marsa.
 
 ## D-011 Kernel NAT by default with automatic user-space fallback
 
@@ -185,6 +187,13 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** The owner requires current stable dependencies. Kernel.org identified 7.3.5 as its latest stable release on 2026-11-21. The build uses kernel.org’s published SHA-256, and M2-02 validates the minimal configuration and boots the result. [Upstream releases](https://www.kernel.org/releases.json).
 - **Consequence:** Update the exact release and checksum together. Verify the Docker configuration requirements and boot the pinned kernel before shipping an update.
 - **Date and task:** 2026-11-21, M2-01.
+
+## D-027 Apply proxy settings at a controlled engine restart
+
+- **Decision:** Apply DNS settings immediately in the guest. Stage Docker proxy and host-gateway changes that arrive during a running session and report that they require a restart. Configure Docker before the first engine start. M4-15 owns restart orchestration.
+- **Why:** Docker 29.10.0 does not reload daemon proxies or host-gateway IPs. A restart can affect active workloads. Docker also retains system trust in some running clients. [Proxy configuration](https://docs.docker.com/engine/daemon/proxy/) · [Pinned daemon reload source](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/reload.go).
+- **Consequence:** The host tracks desired settings across guest boots. Connect the restart action to the daemon lifecycle and give the user control over any workload impact. M4-08 injects compatibility aliases for standard Docker clients.
+- **Date and task:** 2026-11-21, M2-07.
 
 ---
 
