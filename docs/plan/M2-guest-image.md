@@ -93,7 +93,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-08 `marsa-agent`: ports, stats, disk, shares, shutdown and API bridge
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M2-06
 - **Docs:** [05 marsa-agent](../05-guest-image.md#marsa-agent), [06 Published ports](../06-networking.md#published-ports)
 - **Do:** Implement port open and close events from engine events and container inspection, the VM stats stream, `fstrim` with a result report, mounting and unmounting virtiofs shares on request, clean shutdown, and the bridge from a second vsock port to dockerd's Unix socket.

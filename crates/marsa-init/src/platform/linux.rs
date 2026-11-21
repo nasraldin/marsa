@@ -17,7 +17,7 @@ use nix::{
     unistd::{getpid, sethostname, sync},
 };
 
-use crate::settings::Settings;
+use marsa_core::guest_boot::Settings;
 use mounts::Mounts;
 use supervisor::{Service, Supervisor};
 
