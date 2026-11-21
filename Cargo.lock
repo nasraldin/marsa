@@ -677,17 +677,24 @@ dependencies = [
 name = "marsad"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
+ "getrandom",
  "hyper-util",
  "marsa-core",
  "marsa-dockerproxy",
  "marsa-net",
  "marsa-proto",
  "marsa-share",
+ "marsa-vm",
  "marsa-vm-krun",
  "marsa-vm-vz",
  "nix",
+ "objc2",
+ "objc2-foundation",
+ "objc2-service-management",
  "serde_json",
  "tempfile",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -770,6 +777,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-core-foundation"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
+dependencies = [
+ "dispatch2",
+ "objc2",
+]
+
+[[package]]
 name = "objc2-encode"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -783,6 +800,29 @@ checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
  "bitflags",
  "objc2",
+]
+
+[[package]]
+name = "objc2-security"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "709fe137109bd1e8b5a99390f77a7d8b2961dafc1a1c5db8f2e60329ad6d895a"
+dependencies = [
+ "bitflags",
+ "objc2",
+ "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-service-management"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b213642d6959cc6023ceb1217aa595eaaf09b8094ce95127c103cab611fe65e8"
+dependencies = [
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-security",
 ]
 
 [[package]]

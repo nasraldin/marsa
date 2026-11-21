@@ -13,7 +13,12 @@ use std::{
 use hyper_util::rt::TokioIo;
 use marsa_proto::host::{
     API_MAJOR, API_MINOR,
-    v1::{CapabilitiesRequest, VersionRequest, meta_client::MetaClient},
+    v1::{
+        CapabilitiesRequest, EngineActionRequest, EngineState, EngineStatusRequest,
+        GetSettingsRequest, SubscribeRequest, UpdateSettingsRequest, VersionRequest,
+        daemon_event::Body, engine_client::EngineClient, events_client::EventsClient,
+        meta_client::MetaClient, settings_client::SettingsClient,
+    },
 };
 use nix::{
     sys::signal::{Signal, kill},
@@ -208,6 +213,91 @@ async fn rotates_the_daily_json_logs_and_keeps_the_current_path() {
     assert_eq!(fs::read_to_string(unrelated).unwrap(), "unrelated log");
 }
 
+#[tokio::test]
+async fn settings_updates_commit_before_ordered_events_and_leave_invalid_files_intact() {
+    let home = TempDir::new_in("/tmp").unwrap();
+    let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
+    let mut daemon = Daemon(start(home.path()).spawn().unwrap());
+    let channel = wait_for_channel(&mut daemon, paths.daemon_socket()).await;
+    let mut settings = SettingsClient::new(channel.clone());
+    let mut events = EventsClient::new(channel.clone())
+        .subscribe(SubscribeRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    let first = events.message().await.unwrap().unwrap();
+    let initial = settings
+        .get(GetSettingsRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(matches!(
+        first.body,
+        Some(Body::Snapshot(snapshot)) if snapshot.settings_revision == initial.revision
+    ));
+
+    let update = UpdateSettingsRequest {
+        request_id: "20000000-0000-4000-8000-000000000001".into(),
+        settings_toml: "[vm]\ncpus = 4\n".into(),
+        expected_revision: initial.revision,
+    };
+    let changed = settings.update(update.clone()).await.unwrap().into_inner();
+    let identical = settings.update(update.clone()).await.unwrap().into_inner();
+    assert_eq!(changed, identical);
+    let written = fs::read_to_string(paths.config_file()).unwrap();
+    assert_eq!(written, changed.settings_toml);
+    assert_eq!(mode(paths.config_file()), 0o600);
+    assert_eq!(changed.revision, initial.revision + 1);
+    assert!(changed.restart_required);
+    let stale = settings
+        .update(UpdateSettingsRequest {
+            request_id: "20000000-0000-4000-8000-000000000003".into(),
+            ..update.clone()
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code(), tonic::Code::Aborted);
+    assert_eq!(fs::read_to_string(paths.config_file()).unwrap(), written);
+
+    let invalid = settings
+        .update(UpdateSettingsRequest {
+            request_id: "20000000-0000-4000-8000-000000000002".into(),
+            expected_revision: changed.revision,
+            settings_toml: "[vm]\ncpus = 0\n".into(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(invalid.code(), tonic::Code::InvalidArgument);
+    assert_eq!(fs::read_to_string(paths.config_file()).unwrap(), written);
+
+    let event = events.message().await.unwrap().unwrap();
+    assert_eq!(event.stream_id, first.stream_id);
+    assert_eq!(event.sequence, first.sequence + 1);
+    assert!(
+        matches!(event.body, Some(Body::Settings(settings)) if settings.revision == changed.revision)
+    );
+    let mut engine = EngineClient::new(channel);
+    assert_eq!(
+        engine
+            .status(EngineStatusRequest {})
+            .await
+            .unwrap()
+            .into_inner()
+            .state(),
+        EngineState::Stopped
+    );
+    let unavailable = engine
+        .start(EngineActionRequest {
+            request_id: update.request_id,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(unavailable.code(), tonic::Code::Unavailable);
+    // A live subscription must close on daemon shutdown.
+    daemon.terminate().await;
+    assert!(events.message().await.unwrap().is_none());
+}
+
 fn start(home: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_marsad"));
     command
@@ -248,6 +338,10 @@ impl Drop for Daemon {
 }
 
 async fn wait_for_meta(daemon: &mut Daemon, path: PathBuf) -> MetaClient<Channel> {
+    MetaClient::new(wait_for_channel(daemon, path).await)
+}
+
+async fn wait_for_channel(daemon: &mut Daemon, path: PathBuf) -> Channel {
     let deadline = Instant::now() + WAIT;
     loop {
         let status: Option<ExitStatus> = daemon.0.try_wait().unwrap();
@@ -263,7 +357,7 @@ async fn wait_for_meta(daemon: &mut Daemon, path: PathBuf) -> MetaClient<Channel
             async move { UnixStream::connect(path).await.map(TokioIo::new) }
         });
         if let Ok(channel) = endpoint.connect_with_connector(connector).await {
-            return MetaClient::new(channel);
+            return channel;
         }
         assert!(
             Instant::now() < deadline,
