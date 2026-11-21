@@ -44,7 +44,7 @@ Spike code lives under `spikes/` and is never shipped. Each spike ends with a wr
 
 ### M1-04 Measure virtiofs sharing
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M1-02
 - **Docs:** [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
 - **Do:** Share a host directory into the spike VM with virtiofs. Measure small-file read latency, large-file throughput and a cold directory walk against native APFS. Check: file ownership seen in the guest and on the host for files created each way, permission bits, symlinks, and whether file-change notifications reach a watcher in the guest.

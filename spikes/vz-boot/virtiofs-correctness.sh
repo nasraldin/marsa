@@ -1,6 +1,7 @@
 busybox mkdir -p /mnt/marsa
 busybox mount -t virtiofs marsa-spike /mnt/marsa
 cd /mnt/marsa/observations
+busybox stat -c 'VF_GUEST directory=%n uid=%u gid=%g mode=%a' . ..
 busybox stat -c 'VF_GUEST stat=%n uid=%u gid=%g mode=%a inode=%i nlink=%h' host-file host-hard
 busybox stat -c 'VF_GUEST stat=%n uid=%u gid=%g mode=%a type=%F' host-relative host-dangling
 test "$(busybox readlink host-relative)" = host-file

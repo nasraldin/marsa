@@ -83,6 +83,7 @@ def correctness(root, iso):
     directory = share / "observations"
     directory.mkdir(mode=0o777)
     directory.chmod(0o777)
+    os.chown(directory, -1, os.getgid())
 
     host_file = directory / "host-file"
     host_file.write_bytes(b"host-file\n")
@@ -122,10 +123,13 @@ def correctness(root, iso):
             print(f"VF_HOST missing={filename}")
         else:
             stamp(candidate)
-    assert (directory / "guest-relative").readlink() == pathlib.Path("guest-root")
-    assert (directory / "guest-relative").read_bytes() == b"guest-root\n"
-    assert (directory / "guest-dangling").readlink() == pathlib.Path("absent")
-    assert not (directory / "guest-dangling").exists()
+    if (
+        (directory / "guest-relative").readlink() != pathlib.Path("guest-root")
+        or (directory / "guest-relative").read_bytes() != b"guest-root\n"
+        or (directory / "guest-dangling").readlink() != pathlib.Path("absent")
+        or (directory / "guest-dangling").exists()
+    ):
+        raise RuntimeError("host observed unexpected guest symlink semantics")
     xattr = subprocess.run(
         ["/usr/bin/xattr", "-p", "user.marsa.spike", directory / "guest-root"],
         check=False,
@@ -172,6 +176,7 @@ def benchmark(root, iso, first):
     fixtures = prepare(root, iso)
     native = root / "native"
     share = fixtures / "share"
+    (share / "fixture").unlink()
     images = []
     for name, mount in [("Native", native), ("Guest", share)]:
         image = root / f"{name.lower()}.img"

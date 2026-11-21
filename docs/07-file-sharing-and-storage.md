@@ -70,11 +70,14 @@ These were listed in planning as the quiet source of most bug reports.
 
 | Requirement | Design | Status |
 |---|---|---|
-| File-change events reach containers (hot reload) | Rely on virtiofs notification support if present; otherwise a host-side watcher forwards change events to the agent, which touches the guest view | **Verify** what the backend's virtiofs delivers; test with common dev servers |
-| Files created in a container are owned by the user on the host | Map ownership so host files appear owned by the container user and new files belong to the Mac user | **Verify** virtiofs ownership behaviour per backend |
-| Case sensitivity | APFS is usually case-insensitive; document it and detect collisions in diagnostics | Proposed |
-| Symlinks, hard links, extended attributes | Covered by a compatibility test suite | Proposed |
-| Performance | Benchmarked for small-file reads, large-file throughput and directory walks | Proposed |
+| File-change events reach containers (hot reload) | A host-side watcher forwards change events to the agent | The VZ spike saw file contents change with no inotify event. M4-06 verifies the relay with a dev server. |
+| Files created in a container are owned by the user on the host | Map ownership so container users can write appropriately and new files belong to the Mac user | The VZ spike mapped guest root to the Mac user. A tested non-root identity could not create a file. M4-06 verifies container-user handling. |
+| Case sensitivity | Document host case behavior and detect collisions in diagnostics | The default APFS share resolved a case-variant lookup in both macOS and Linux. |
+| Symlinks, hard links, extended attributes | Cover them in the compatibility suite | Relative and dangling symlinks, hard links, and one user extended attribute worked in both directions in the VZ spike. |
+| Performance | Benchmark small-file reads, large-file throughput, and directory walks | The VZ spike measured bulk reads at 5.86× native elapsed time in its cached workload. |
+
+See the [virtiofs spike](spikes/M1-04-virtiofs.md) for the test scope,
+measurements, and limitations.
 
 ### Performance guidance shown to users
 
