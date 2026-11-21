@@ -153,6 +153,26 @@ and from the readiness file's modification time before the runner requests
 shutdown. The wrapper starts the serial shell and forwards signals to the
 agent. The guest control agent creates the readiness file.
 
+### Verify guest network configuration and CA trust
+
+Use the PID 1 fixture with the real control agent. Add
+`--network-fixtures <private-directory>` to `pid1/prepare.py`. The directory
+contains the arm64 `registry` executable from the pinned
+[Distribution 3.1.2 image](https://hub.docker.com/_/registry), the test
+`registry.crt` and `registry.key`, `registry.yml`, and the pinned Alpine
+minirootfs copied as `alpine.tar.gz`. The registry config listens on
+`198.18.0.10:5443`, stores data under `/run/marsa/registry`, and names
+`/marsa-network-registry.crt` and `/marsa-network-registry.key` as the TLS inputs.
+Generate a disposable CA with a server certificate for `registry.marsa.test`
+valid at the fixture's fixed epoch in January 2027.
+
+Run the signed fixture with `MARSA_VZ_TEST_CA_DER` pointing to that CA's DER
+file and pass `pid1/network.sh` as the guest script. The host sends resolver
+and proxy settings and installs the CA before setting the clock. It then
+updates DNS and stages a different proxy. The guest checks the running
+proxy and the staged value, pushes and pulls through the local TLS registry,
+and checks DNS and the host-gateway override inside a new container.
+
 ## Verify the packaged guest
 
 From the repository root, install Python 3.11 or later, the pinned

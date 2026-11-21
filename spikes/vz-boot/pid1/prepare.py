@@ -17,7 +17,7 @@ def write_entry(output, number, name, mode, data):
     output.write(b"\0" * (-len(data) % 4))
 
 
-def entries(rootfs, init, vsock, docker_archive, control_agent=None):
+def entries(rootfs, init, vsock, docker_archive, control_agent=None, network_dir=None):
     """Stream the existing rootfs and overlay only the test binaries."""
     replacements = {"usr/bin/marsa-init", "usr/bin/marsa-agent"}
     with tarfile.open(rootfs) as source:
@@ -48,6 +48,15 @@ def entries(rootfs, init, vsock, docker_archive, control_agent=None):
     with tarfile.open(docker_archive) as source:
         with source.extractfile("docker/docker") as data:
             yield "marsa-test-docker", 0o100755, data.read()
+    if network_dir is not None:
+        for name, mode in [
+            ("registry", 0o100755),
+            ("registry.crt", 0o100644),
+            ("registry.key", 0o100600),
+            ("alpine.tar.gz", 0o100644),
+            ("registry.yml", 0o100644),
+        ]:
+            yield "marsa-network-" + name, mode, (network_dir / name).read_bytes()
     yield "TRAILER!!!", 0, b""
 
 
@@ -56,11 +65,12 @@ def main():
     for name in ("rootfs", "init", "vsock", "docker_archive", "output"):
         parser.add_argument(name, type=Path)
     parser.add_argument("--control-agent", type=Path, help="stage the actual guest control agent")
+    parser.add_argument("--network-fixtures", type=Path)
     args = parser.parse_args()
     with args.output.open("xb") as raw:
         with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0, compresslevel=3) as archive:
             for number, entry in enumerate(
-                entries(args.rootfs, args.init, args.vsock, args.docker_archive, args.control_agent),
+                entries(args.rootfs, args.init, args.vsock, args.docker_archive, args.control_agent, args.network_fixtures),
                 start=1,
             ):
                 write_entry(archive, number, *entry)

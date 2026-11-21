@@ -20,4 +20,5 @@ tar --append --file=/output/staged-rootfs.tar --owner=0 --group=0 --numeric-owne
 mkfs.erofs --quiet -b4096 -zlz4hc,level=12 -T0 -U00000000-0000-0000-0000-000000000000 \
     --workers=1 --sort=path --tar=f /output/rootfs.img /output/staged-rootfs.tar
 fsck.erofs --extract /output/rootfs.img
+sha256sum /rootfs.tar /output/rootfs.img > /output/rootfs-input.sha256
 printf 'rootfs.img: %s bytes\n' "$(wc -c < /output/rootfs.img)"

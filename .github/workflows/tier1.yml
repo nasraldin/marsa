@@ -28,7 +28,7 @@ jobs:
   guest:
     name: Build arm64 guest
     runs-on: ubuntu-26.04-arm
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,10 +37,12 @@ jobs:
         run: |
           bash .github/scripts/install-ci-tools.sh
           rustup target add aarch64-unknown-linux-musl
-      - name: Build the guest and verify upstream inputs
+      - name: Test guest provenance inventory
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s guest/provenance -p "*_test.py"
+      - name: Compare independent guest builds
+        run: bash .github/scripts/check-guest-reproducibility.sh
+      - name: Reject a mismatched upstream checksum
         run: |
-          cargo xtask guest all
-          (cd target/guest && sha256sum -c SHA256SUMS)
           original=$(mktemp)
           cp guest/versions.toml "$original"
           trap 'cp "$original" guest/versions.toml; rm -f "$original"' EXIT
@@ -65,11 +67,18 @@ jobs:
           fi
           printf '%s\n' "$result"
           grep -q 'Guest package checksum mismatch:' <<< "$result"
-      - name: Upload root filesystem size
+      - name: Upload guest source and provenance artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: guest-rootfs-size
-          path: target/guest/rootfs-size.txt
+          name: guest-provenance
+          path: |
+            target/guest/rootfs-size.txt
+            target/guest/guest-artifacts.sha256
+            target/guest/guest-manifest.json
+            target/guest/guest-sbom.cdx.json
+            target/guest/guest-sources.json
+            target/guest/guest-notices.tar
+            target/guest/kernel.config
           if-no-files-found: error
 
   docs:

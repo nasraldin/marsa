@@ -34,6 +34,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-024 | Use direct Rust bindings for Virtualization.framework | Accepted |
 | D-025 | Pin the current stable Linux kernel | Accepted |
 | D-026 | Use EROFS for the guest root filesystem | Accepted |
+| D-027 | Apply proxy settings at a controlled engine restart | Accepted |
 
 ---
 
@@ -194,6 +195,13 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** Alpine 3.24 provides `erofs-utils` 1.9.1-r0 with tar input and a full data check. Linux 7.3.5 with `CONFIG_EROFS_FS=y` and built-in compression support mounted that image directly as `/` in Virtualization.framework and returned `Read-only file system` when PID 1 attempted a write. [EROFS build documentation](https://erofs.docs.kernel.org/en/latest/mkfs.html), [reproduction](../spikes/vz-boot/README.md#read-only-erofs-root).
 - **Consequence:** Build and validate the image in the pinned Linux formatter container. Record its SHA-256 and the raw arm64 boot kernel's SHA-256 in the guest manifest.
 - **Date and task:** 2026-11-21, M2-04.
+
+## D-027 Apply proxy settings at a controlled engine restart
+
+- **Decision:** Apply DNS settings immediately in the guest. Stage Docker proxy and host-gateway changes that arrive during a running session and report that they require a restart. Configure Docker before the first engine start. M4-15 owns restart orchestration.
+- **Why:** Docker 29.10.0 does not reload daemon proxies or host-gateway IPs. A restart can affect active workloads. Docker also retains system trust in some running clients. [Proxy configuration](https://docs.docker.com/engine/daemon/proxy/) · [Pinned daemon reload source](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/reload.go).
+- **Consequence:** The host tracks desired settings across guest boots. Connect the restart action to the daemon lifecycle and give the user control over any workload impact. M4-08 injects compatibility aliases for standard Docker clients.
+- **Date and task:** 2026-11-21, M2-07.
 
 ---
 

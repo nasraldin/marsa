@@ -63,11 +63,11 @@ struct Alpine {
 pub fn run(args: &[OsString]) -> ExitCode {
     let stage = match args {
         [arg] if arg == "--help" || arg == "-h" => {
-            println!("Usage: cargo xtask guest <kernel|rootfs|image|all>");
+            println!("Usage: cargo xtask guest <kernel|rootfs|image|provenance|all>");
             return ExitCode::SUCCESS;
         }
         [arg] => match arg.to_str() {
-            Some(stage @ ("kernel" | "rootfs" | "image" | "all")) => stage,
+            Some(stage @ ("kernel" | "rootfs" | "image" | "provenance" | "all")) => stage,
             _ => return usage_error(),
         },
         _ => return usage_error(),
@@ -81,7 +81,7 @@ pub fn run(args: &[OsString]) -> ExitCode {
 
 fn usage_error() -> ExitCode {
     eprintln!(
-        "cargo xtask guest expects kernel, rootfs, image, or all. Run cargo xtask guest --help."
+        "cargo xtask guest expects kernel, rootfs, image, provenance, or all. Run cargo xtask guest --help."
     );
     ExitCode::from(2)
 }
@@ -94,6 +94,9 @@ fn build(stage: &str) -> io::Result<()> {
     let output = workspace.join("target/guest");
     fs::create_dir_all(&output)?;
     let output = output.canonicalize()?;
+    if stage == "provenance" {
+        return write_provenance(&guest, &output);
+    }
     let mount = format!("type=bind,source={},target=/output", output.display());
     let user = format!("{}:{}", native_id("-u")?, native_id("-g")?);
     if stage == "image" {
@@ -148,7 +151,35 @@ fn build(stage: &str) -> io::Result<()> {
     }
     if stage == "all" {
         assemble_image(&guest, &output, &user, &versions)?;
+        write_provenance(&guest, &output)?;
     }
+    Ok(())
+}
+
+fn write_provenance(guest: &Path, output: &Path) -> io::Result<()> {
+    let staging = tempfile::tempdir_in(output)?;
+    let status = Command::new("python3")
+        .arg(guest.join("provenance/build.py"))
+        .arg(output)
+        .arg(staging.path())
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .status()
+        .map_err(|error| {
+            io::Error::new(error.kind(), format!("could not run Python 3: {error}"))
+        })?;
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "guest provenance generation exited with {status}"
+        )));
+    }
+    for artifact in [
+        "guest-sbom.cdx.json",
+        "guest-sources.json",
+        "guest-notices.tar",
+    ] {
+        fs::rename(staging.path().join(artifact), output.join(artifact))?;
+    }
+    println!("Wrote guest SBOM, source references and licence archive");
     Ok(())
 }
 
@@ -248,6 +279,8 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
     )?;
     fs::rename(rootfs_path, output.join("rootfs.img"))?;
     fs::rename(manifest_path, output.join("guest-manifest.json"))?;
+    let input_digest = "rootfs-input.sha256";
+    fs::rename(staging.path().join(input_digest), output.join(input_digest))?;
     println!("Wrote rootfs.img and guest-manifest.json");
     Ok(())
 }
