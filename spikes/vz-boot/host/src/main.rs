@@ -24,12 +24,13 @@ fn main() -> ExitCode {
 
 fn run() -> io::Result<()> {
     let mut args = env::args_os().skip(1).peekable();
+    let read_only_root = args.next_if(|arg| arg == "--read-only-root").is_some();
     let writable_share = args.next_if(|arg| arg == "--writable-share").is_some();
     let via_init = args.next_if(|arg| arg == "--via-init").is_some();
     let guest_control = args.next_if(|arg| arg == "--guest-control").is_some();
     let usage = || {
         io::Error::other(
-            "usage: marsa-vz-spike [--writable-share] [--via-init] [--guest-control] <rust|swift> <fixture-directory> <console-log> [guest-script]",
+            "usage: marsa-vz-spike [--read-only-root | [--writable-share] [--via-init] [--guest-control]] <rust|swift> <fixture-directory> <console-log> [guest-script]",
         )
     };
     if guest_control && !via_init {
@@ -60,7 +61,10 @@ fn run() -> io::Result<()> {
     }
     let console = PathBuf::from(args.next().ok_or_else(usage)?);
     let script = args.next().map(PathBuf::from);
-    if args.next().is_some() {
+    if args.next().is_some()
+        || read_only_root
+            && (via_init || writable_share || script.is_some() || !matches!(backend, Backend::Rust))
+    {
         return Err(usage());
     }
     runner::run(
@@ -68,8 +72,11 @@ fn run() -> io::Result<()> {
         &fixtures,
         &console,
         script.as_deref(),
-        writable_share,
-        via_init,
-        guest_control,
+        runner::BootOptions {
+            writable_share,
+            read_only_root,
+            via_init,
+            guest_control,
+        },
     )
 }
