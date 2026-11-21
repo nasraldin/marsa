@@ -105,6 +105,33 @@ def write_notices(stage, notices):
                 archive.addfile(entry, io.BytesIO(contents))
 
 
+def project_inventory(root, notices):
+    source = "https://github.com/nasraldin/marsa"
+    commit = root.get("source_commit")
+    if commit is not None:
+        if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", commit):
+            raise ValueError("Invalid guest source commit")
+        source += f"/tree/{commit}"
+
+    location = notices / "marsa"
+    location.mkdir()
+    shutil.copyfile(WORKSPACE / "LICENSE", location / "LICENSE")
+
+    programs = []
+    for name in ("marsa-init", "marsa-agent"):
+        version = root["components"][name.replace("-", "_")]
+        if version != root["image_version"]:
+            raise ValueError(f"Missing guest program release for {name}")
+        programs.append({
+            "name": name,
+            "version": version,
+            "license": "MIT",
+            "source": source,
+            "files": [f"usr/bin/{name}"],
+        })
+    return programs, {"source": source, "git_commit": commit, "license": "MIT"}
+
+
 def build(output, stage):
     versions = tomllib.loads((WORKSPACE / "guest/versions.toml").read_text(encoding="utf-8"))
     root = json.loads((output / "guest-manifest.json").read_text(encoding="utf-8"))
@@ -116,17 +143,18 @@ def build(output, stage):
     image_digest = sha256(output / "rootfs.img")
     if image_digest != root["rootfs_sha256"]:
         raise ValueError("Root image does not match the guest manifest")
-    rootfs_tar = output / "rootfs.tar"
+    rootfs_tar = output / "image-rootfs.tar"
     input_digest = (output / "rootfs-input.sha256").read_text(encoding="ascii").splitlines()
     if input_digest != [
-        f"{sha256(rootfs_tar)}  /rootfs.tar",
+        f"{sha256(rootfs_tar)}  /output/image-rootfs.tar",
         f"{image_digest}  /output/rootfs.img",
     ]:
         raise ValueError("Root filesystem archive does not match the packed image")
     docker = engine.inventory(versions["docker"], notices)
+    programs, project_source = project_inventory(root, notices)
     with tarfile.open(rootfs_tar, "r:") as rootfs:
         packages, alpine_sources = alpine.inventory(rootfs, notices)
-        binaries.verify_inventory(rootfs, packages + docker)
+        binaries.verify_inventory(rootfs, packages + docker + programs)
 
     project_version = root["image_version"]
     bom = {
@@ -143,7 +171,7 @@ def build(output, stage):
         }},
         "components": [
             component(linux, "operating-system", "boot"),
-            *(component(item, "application", "rootfs") for item in docker),
+            *(component(item, "application", "rootfs") for item in docker + programs),
             *(component(item, "library", "rootfs") for item in packages),
         ],
     }
@@ -162,6 +190,9 @@ def build(output, stage):
                 {key: value for key, value in item.items() if key != "files"} for item in docker
             ],
         },
+        "marsa": dict(project_source, components=[
+            {key: value for key, value in item.items() if key != "files"} for item in programs
+        ]),
         "licence_texts": "guest-notices.tar",
     })
     write_notices(stage, notices)

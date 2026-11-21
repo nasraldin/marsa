@@ -33,6 +33,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install guest build tools
+        run: |
+          bash .github/scripts/install-ci-tools.sh
+          rustup target add aarch64-unknown-linux-musl
       - name: Test guest provenance inventory
         run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s guest/provenance -p "*_test.py"
       - name: Compare independent guest builds

@@ -13,10 +13,15 @@ while read -r digest package; do
             exit 1
             ;;
     esac
-    if ! wget -q -T 45 -O "$package" "$repository/$package"; then
-        printf 'Guest package download failed: %s\n' "$package" >&2
-        exit 1
-    fi
+    attempt=1
+    until wget -q -T 45 -O "$package" "$repository/$package"; do
+        if [ "$attempt" -eq 3 ]; then
+            printf 'Guest package download failed: %s\n' "$package" >&2
+            exit 1
+        fi
+        attempt=$((attempt + 1))
+        sleep "$attempt"
+    done
     if ! printf '%s  %s\n' "$digest" "$package" | sha256sum -c -; then
         printf 'Guest package checksum mismatch: %s\n' "$package" >&2
         exit 1

@@ -17,6 +17,8 @@ const ROOTFS: &str = "rootfs.img";
 pub struct GuestManifest {
     schema_version: u32,
     image_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_commit: Option<String>,
     architecture: Architecture,
     rootfs_format: RootFsFormat,
     components: GuestComponentVersions,
@@ -56,6 +58,12 @@ pub struct GuestComponentVersions {
     pub docker_init: String,
     /// Upstream image formatter release.
     pub erofs_utils: String,
+    /// Marsa's PID 1 release, present in images assembled with guest programs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marsa_init: Option<String>,
+    /// Marsa's control-agent release, present in images assembled with guest programs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marsa_agent: Option<String>,
 }
 
 /// Failure to parse, generate or check a guest manifest.
@@ -73,6 +81,9 @@ pub enum GuestManifestError {
     /// The image or component version is invalid.
     #[error("invalid guest version field {0}")]
     InvalidVersion(&'static str),
+    /// The recorded Git commit is not a full lowercase object ID.
+    #[error("invalid guest source commit")]
+    InvalidSourceCommit,
     /// An artifact digest is not a lowercase SHA-256 digest.
     #[error("invalid guest SHA-256 digest for {0}")]
     InvalidChecksum(&'static str),
@@ -98,12 +109,14 @@ impl GuestManifest {
     pub fn create(
         image_version: String,
         components: GuestComponentVersions,
+        source_commit: Option<String>,
         kernel: impl Read,
         rootfs: impl Read,
     ) -> Result<Self, GuestManifestError> {
         let manifest = Self {
             schema_version: SCHEMA_VERSION,
             image_version,
+            source_commit,
             architecture: Architecture::Aarch64,
             rootfs_format: RootFsFormat::Erofs,
             components,
@@ -169,6 +182,11 @@ impl GuestManifest {
         if self.schema_version != SCHEMA_VERSION {
             return Err(GuestManifestError::UnsupportedSchema(self.schema_version));
         }
+        if let Some(commit) = &self.source_commit
+            && (!matches!(commit.len(), 40 | 64) || !is_lower_hex(commit))
+        {
+            return Err(GuestManifestError::InvalidSourceCommit);
+        }
         let versions = &self.components;
         for (name, value) in [
             ("image_version", &self.image_version),
@@ -180,7 +198,16 @@ impl GuestManifest {
             ("runc", &versions.runc),
             ("docker_init", &versions.docker_init),
             ("erofs_utils", &versions.erofs_utils),
-        ] {
+        ]
+        .into_iter()
+        .chain(
+            [
+                ("marsa_init", versions.marsa_init.as_ref()),
+                ("marsa_agent", versions.marsa_agent.as_ref()),
+            ]
+            .into_iter()
+            .filter_map(|(name, value)| value.map(|value| (name, value))),
+        ) {
             if value.is_empty()
                 || value.len() > 128
                 || !value
@@ -191,16 +218,17 @@ impl GuestManifest {
             }
         }
         for (artifact, value) in [(KERNEL, &self.kernel_sha256), (ROOTFS, &self.rootfs_sha256)] {
-            if value.len() != 64
-                || !value
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-            {
+            if value.len() != 64 || !is_lower_hex(value) {
                 return Err(GuestManifestError::InvalidChecksum(artifact));
             }
         }
         Ok(())
     }
+}
+
+fn is_lower_hex(text: &str) -> bool {
+    text.bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn sha256(artifact: &'static str, mut source: impl Read) -> Result<String, GuestManifestError> {

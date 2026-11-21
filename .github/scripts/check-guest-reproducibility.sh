@@ -9,11 +9,13 @@ trap 'rm -rf -- "$first"' EXIT
 cargo xtask guest all
 (cd "$output" && sha256sum -c SHA256SUMS)
 mv -- "$output" "$first/guest"
+# Let Cargo reuse its host tooling while rebuilding all guest-target outputs.
+mv -- target/aarch64-unknown-linux-musl "$first/rust-target"
 cargo xtask guest all
 (cd "$output" && sha256sum -c SHA256SUMS)
 
 artifacts=(
-    Image vmlinux kernel.config check-config.txt rootfs.tar rootfs-size.txt rootfs.img rootfs-input.sha256
+    Image vmlinux kernel.config check-config.txt rootfs.tar rootfs-size.txt image-rootfs.tar rootfs.img rootfs-input.sha256
     guest-manifest.json guest-sbom.cdx.json guest-sources.json guest-notices.tar SHA256SUMS
 )
 for artifact in "${artifacts[@]}"; do

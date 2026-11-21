@@ -1,7 +1,9 @@
 //! Exercise the shipped agent over the same framed control protocol as the host.
 
 use std::io::{self, Read, Write};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use super::ControlTimings;
 
 use marsa_proto::guest::v1::guest_envelope::Body as GuestBody;
 use marsa_proto::guest::v1::host_envelope::Body as HostBody;
@@ -76,10 +78,14 @@ fn expect_command(
 const VERSION_1_0: ProtocolVersion = ProtocolVersion { major: 1, minor: 0 };
 const MAX_EVENTS: usize = 32;
 
-pub(super) fn verify(stream: &mut (impl Read + Write)) -> io::Result<()> {
+pub(super) fn verify(
+    stream: &mut (impl Read + Write),
+    use_host_time: bool,
+) -> io::Result<ControlTimings> {
     let Some(GuestBody::Hello(hello)) = receive(stream)?.body else {
         return Err(invalid("expected Hello as first control frame"));
     };
+    let hello_at = Instant::now();
     if hello.protocol != Some(VERSION_1_0)
         || hello.image_version.is_empty()
         || hello.components.is_empty()
@@ -103,7 +109,7 @@ pub(super) fn verify(stream: &mut (impl Read + Write)) -> io::Result<()> {
             protocol: Some(VERSION_1_0),
         }),
     )?;
-    if let Some(ca) = std::env::var_os(TEST_CA) {
+    if !use_host_time && let Some(ca) = std::env::var_os(TEST_CA) {
         command(
             stream,
             2,
@@ -124,17 +130,24 @@ pub(super) fn verify(stream: &mut (impl Read + Write)) -> io::Result<()> {
             }),
         )?;
     }
-    send(
-        stream,
-        SET_TIME_REQUEST,
-        HostBody::SetTime(SetTime {
+    let time = if use_host_time {
+        let since_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(invalid)?;
+        SetTime {
+            unix_seconds: i64::try_from(since_epoch.as_secs()).map_err(invalid)?,
+            nanoseconds: since_epoch.subsec_nanos(),
+        }
+    } else {
+        SetTime {
             unix_seconds: test_epoch(),
             nanoseconds: 0,
-        }),
-    )?;
+        }
+    };
+    send(stream, SET_TIME_REQUEST, HostBody::SetTime(time))?;
 
     let mut time_set = false;
-    let mut engine_ready = false;
+    let mut engine_ready = None;
     for _ in 0..MAX_EVENTS {
         let envelope = receive(stream)?;
         match envelope.body {
@@ -147,13 +160,15 @@ pub(super) fn verify(stream: &mut (impl Read + Write)) -> io::Result<()> {
                 time_set = true;
             }
             Some(GuestBody::EngineHealth(health)) => {
-                engine_ready |= health.state == EngineHealthState::Ready as i32;
+                if health.state == EngineHealthState::Ready as i32 {
+                    engine_ready.get_or_insert_with(Instant::now);
+                }
             }
             Some(GuestBody::Stats(_) | GuestBody::PortEvent(_)) => {},
             _ => return Err(invalid("unexpected guest control result or event")),
         }
-        if time_set && engine_ready {
-            if std::env::var_os(TEST_CA).is_some() {
+        if time_set && let Some(engine_ready) = engine_ready {
+            if !use_host_time && std::env::var_os(TEST_CA).is_some() {
                 command(
                     stream,
                     4,
@@ -170,7 +185,10 @@ pub(super) fn verify(stream: &mut (impl Read + Write)) -> io::Result<()> {
                     CommandStatus::Unavailable,
                 )?;
             }
-            return Ok(());
+            return Ok(ControlTimings {
+                hello: hello_at,
+                engine_ready,
+            });
         }
     }
     Err(invalid(

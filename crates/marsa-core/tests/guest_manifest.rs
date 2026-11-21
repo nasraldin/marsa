@@ -68,3 +68,19 @@ fn rejects_oversized_manifest_before_parsing() {
         Err(GuestManifestError::TooLarge)
     ));
 }
+
+#[test]
+fn accepts_full_source_object_ids_and_rejects_abbreviated_ones() {
+    let with_commit = |commit: &str| {
+        MANIFEST.replace(
+            "\"schema_version\": 1,",
+            &format!("\"schema_version\": 1, \"source_commit\": \"{commit}\","),
+        )
+    };
+    GuestManifest::parse(with_commit("0123456789abcdef0123456789abcdef01234567").as_bytes())
+        .unwrap();
+    assert!(matches!(
+        GuestManifest::parse(with_commit("0123456").as_bytes()),
+        Err(GuestManifestError::InvalidSourceCommit)
+    ));
+}

@@ -22,12 +22,21 @@ const READ_ONLY_BOOT: &str = concat!(
     "echo MARSA_EROFS_ROOT_OK; /bin/busybox sleep 1; /bin/busybox poweroff -f\"",
 );
 
+const SYSTEM_BOOT: &str = concat!(
+    "console=hvc0 printk.time=1 root=/dev/vda rootfstype=erofs ro panic=-1 init=/bin/sh ",
+    "marsa.interface=none marsa.share=marsa-spike:/mnt/marsa-test -- -c \"",
+    "export PS1='MARSA_SHELL# ' HISTFILE=/dev/null; ",
+    "/bin/busybox setsid /bin/sh -c 'exec /bin/sh -i </dev/hvc0 >/dev/hvc0 2>&1' & ",
+    "printf '\nMARSA_BOOT_INIT\nMARSA_DEVICES_READY\nMARSA_VSOCK_READY\n' >/dev/hvc0; ",
+    "exec /usr/bin/marsa-init\"",
+);
+
 pub(super) fn build(
     inputs: &VmInputs<'_>,
     network: BorrowedFd<'_>,
 ) -> io::Result<Retained<VZVirtualMachineConfiguration>> {
     let kernel = file_url(&inputs.fixtures.join("Image"))?;
-    let boot_disk = if inputs.read_only_root {
+    let boot_disk = if inputs.read_only_root || inputs.boot_test {
         "rootfs.img"
     } else {
         "modules.img"
@@ -42,6 +51,8 @@ pub(super) fn build(
         let loader = VZLinuxBootLoader::initWithKernelURL(VZLinuxBootLoader::alloc(), &kernel);
         let cmdline = if inputs.read_only_root {
             READ_ONLY_BOOT
+        } else if inputs.boot_test {
+            SYSTEM_BOOT
         } else {
             let initramfs = file_url(&inputs.fixtures.join("initramfs"))?;
             loader.setInitialRamdiskURL(Some(&initramfs));
@@ -71,7 +82,6 @@ pub(super) fn build(
             config.setStorageDevices(&NSArray::from_retained_slice(&[boot_disk.into_super()]));
         } else {
             let directory = file_url(&inputs.fixtures.join("share"))?;
-            let network = file_handle(network)?;
             let data_disk = image_block(
                 &inputs.fixtures.join("data.img"),
                 false,
@@ -96,23 +106,26 @@ pub(super) fn build(
             );
             share.setShare(Some(&directory));
 
-            let nat = VZVirtioNetworkDeviceConfiguration::new();
-            nat.setAttachment(Some(&VZNATNetworkDeviceAttachment::new()));
-            let file_handle = VZVirtioNetworkDeviceConfiguration::new();
-            let attachment = VZFileHandleNetworkDeviceAttachment::initWithFileHandle(
-                VZFileHandleNetworkDeviceAttachment::alloc(),
-                &network,
-            );
-            file_handle.setAttachment(Some(&attachment));
-
             config.setDirectorySharingDevices(&NSArray::from_retained_slice(&[share.into_super()]));
             config.setSocketDevices(&NSArray::from_retained_slice(&[
                 VZVirtioSocketDeviceConfiguration::new().into_super(),
             ]));
-            config.setNetworkDevices(&NSArray::from_retained_slice(&[
-                nat.into_super(),
-                file_handle.into_super(),
-            ]));
+            if !inputs.boot_test {
+                let network = file_handle(network)?;
+                let nat = VZVirtioNetworkDeviceConfiguration::new();
+                nat.setAttachment(Some(&VZNATNetworkDeviceAttachment::new()));
+                let file_handle = VZVirtioNetworkDeviceConfiguration::new();
+                let attachment = VZFileHandleNetworkDeviceAttachment::initWithFileHandle(
+                    VZFileHandleNetworkDeviceAttachment::alloc(),
+                    &network,
+                );
+                file_handle.setAttachment(Some(&attachment));
+
+                config.setNetworkDevices(&NSArray::from_retained_slice(&[
+                    nat.into_super(),
+                    file_handle.into_super(),
+                ]));
+            }
             config.setMemoryBalloonDevices(&NSArray::from_retained_slice(&[
                 VZVirtioTraditionalMemoryBalloonDeviceConfiguration::new().into_super(),
             ]));

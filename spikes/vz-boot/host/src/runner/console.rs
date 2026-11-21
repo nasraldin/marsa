@@ -3,6 +3,7 @@
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
+use std::time::Instant;
 
 use super::Progress;
 
@@ -77,6 +78,9 @@ impl SerialCapture {
 }
 
 fn accept_line(line: &[u8], progress: &mut Progress) -> io::Result<()> {
+    if progress.boot_test {
+        record_boot_line(line, progress);
+    }
     match line {
         b"MARSA_EROFS_ROOT_OK\n" | b"MARSA_EROFS_ROOT_OK\r\n" if progress.read_only_root => {
             progress.commands_finished = true;
@@ -95,6 +99,25 @@ fn accept_line(line: &[u8], progress: &mut Progress) -> io::Result<()> {
         _ => {}
     }
     Ok(())
+}
+
+fn record_boot_line(line: &[u8], progress: &mut Progress) {
+    let Ok(line) = std::str::from_utf8(line) else {
+        return;
+    };
+    let line = line.trim_end();
+    if line == "MARSA_BOOT_INIT" {
+        progress.pid1_started.get_or_insert_with(Instant::now);
+    } else if line.starts_with("marsa-init stage=dockerd duration_ms=") {
+        progress.dockerd_started.get_or_insert_with(Instant::now);
+    } else if let Some((timestamp, " Run /bin/sh as init process")) = line.split_once(']') {
+        let seconds = timestamp
+            .strip_prefix('[')
+            .and_then(|value| value.trim().parse::<f64>().ok());
+        if let Some(seconds) = seconds.filter(|value| (0.0..90.0).contains(value)) {
+            progress.kernel_ms = Some((seconds * 1000.0).round() as u64);
+        }
+    }
 }
 
 fn command_status(line: &[u8]) -> Option<u8> {
