@@ -197,7 +197,9 @@ Shipping a Linux kernel and Alpine packages brings GPL and other open-source dut
 - Ship licence texts and an SBOM for everything in the image.
 - Automate both in the guest build so they are never forgotten.
 
-This is not legal advice; have the release process reviewed.
+`cargo xtask guest all` writes the CycloneDX 1.7 inventory, exact source references, licence archive and resolved kernel configuration next to the image. Each Alpine package is tied to the aports commit recorded in its installed package metadata. The inventory maps shipped executables and BusyBox applets to their owning releases and rejects executable files whose provenance is missing. The build copies upstream notice text without rewriting it.
+
+Tier 1 builds the guest twice from separate output directories and compares the images, kernel, configuration, manifests, licence archive and build reports byte for byte. The guest provenance artifact includes the image hashes, inventory, source references, notices and exact kernel configuration. The release process must publish these with the corresponding guest payloads.
 
 ## Windows note
 

@@ -1,0 +1,4 @@
+# Preserve upstream notices byte for byte for the pinned SHA-256 digests.
+* -text -whitespace
+
+openssl/AUTHORS.md conflict-marker-size=32

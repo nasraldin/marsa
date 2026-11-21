@@ -1,0 +1,10 @@
+/*
+ * blkid.c - User command-line interface for libblkid
+ *
+ * Copyright (C) 2001 Andreas Dilger
+ *
+ * %Begin-Header%
+ * This file may be redistributed under the terms of the
+ * GNU Lesser General Public License.
+ * %End-Header%
+ */
