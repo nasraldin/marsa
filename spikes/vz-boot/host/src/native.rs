@@ -103,9 +103,9 @@ impl Vm for DirectVm {
             let connection = unsafe { Retained::retain(connection) };
             let event = match connection {
                 Some(socket) => duplicate_socket(socket, &keep_alive),
-                None => {
-                    Event::Error(objc_error(error).unwrap_or_else(|| "vsock connect failed".into()))
-                }
+                None => Event::ConnectFailed(
+                    objc_error(error).unwrap_or_else(|| "vsock connect failed".into()),
+                ),
             };
             let _ = sender.send(event);
         });

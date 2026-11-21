@@ -55,7 +55,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-05 Implement `marsa-init`
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-04, M2-02
 - **Docs:** [05 marsa-init](../05-guest-image.md#marsa-init)
 - **Do:** Implement PID 1 as a static musl binary following the boot flow: mounts, cgroup v2, tmpfs overlays, data-disk create or check, grow, mount, virtiofs shares, network, start the agent, apply host config, start containerd and dockerd, supervise and reap, clean shutdown. Read variable input only from the kernel command line and the agent.
@@ -68,7 +68,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-06 `marsa-agent`: handshake, time and health
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-05, M2-05
 - **Docs:** [05 marsa-agent](../05-guest-image.md#marsa-agent)
 - **Do:** Implement the agent's vsock listener, the versioned handshake with boot timings, time setting, and engine health reporting based on the engine's ping endpoint, including restart events.

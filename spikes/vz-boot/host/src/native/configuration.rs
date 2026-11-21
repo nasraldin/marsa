@@ -40,15 +40,18 @@ pub(super) fn build(
     // Setters receive retained/copyable objects. No VM starts until validation succeeds.
     unsafe {
         let loader = VZLinuxBootLoader::initWithKernelURL(VZLinuxBootLoader::alloc(), &kernel);
-        if inputs.read_only_root {
-            loader.setCommandLine(&NSString::from_str(READ_ONLY_BOOT));
+        let cmdline = if inputs.read_only_root {
+            READ_ONLY_BOOT
         } else {
             let initramfs = file_url(&inputs.fixtures.join("initramfs"))?;
             loader.setInitialRamdiskURL(Some(&initramfs));
-            loader.setCommandLine(&NSString::from_str(
-                "console=hvc0 rdinit=/marsa-spike-init panic=-1",
-            ));
-        }
+            if inputs.via_init {
+                "console=hvc0 rdinit=/usr/bin/marsa-init marsa.interface=none panic=-1"
+            } else {
+                "console=hvc0 rdinit=/marsa-spike-init panic=-1"
+            }
+        };
+        loader.setCommandLine(&NSString::from_str(cmdline));
 
         let console = VZVirtioConsoleDeviceSerialPortConfiguration::new();
         let serial =
