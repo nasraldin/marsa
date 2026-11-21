@@ -102,7 +102,7 @@ Forwarder requirements:
 | `gateway.docker.internal` | The guest's default gateway | Compatibility |
 | `host.marsa.internal` | Same as `host.docker.internal` | Marsa's own name |
 
-The agent configures these names in the engine's DNS or `/etc/hosts` injection (**Proposed:** through dockerd's `host-gateway` support and an extra hosts entry).
+The agent updates the guest hosts file and supplies Docker’s configured host gateway IPs. M4-08 applies the standard aliases to containers created through the Marsa Docker socket.
 
 ## DNS
 
@@ -125,7 +125,7 @@ Corporate networks were identified in planning as a top reason Docker alternativ
 
 | Need | Design |
 |---|---|
-| HTTP and HTTPS proxy | `marsad` reads system proxy settings (and manual overrides) and the agent configures dockerd and BuildKit with them |
+| HTTP and HTTPS proxy | `marsad` sends system or manual settings. The agent stages the Docker configuration before the engine starts and reports restart requirements on later changes. M4-15 integrates a controlled restart. |
 | Custom CA certificates | `marsad` exports the certificates the user trusts in the macOS keychain and the agent installs them into the guest trust store before dockerd starts |
 | Registry mirrors and insecure registries | Exposed in settings and written to the engine configuration |
 | Proxy for containers | Optional injection of proxy variables into containers, off by default |

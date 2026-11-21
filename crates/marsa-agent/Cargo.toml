@@ -16,6 +16,10 @@ workspace = true
 nix = { version = "0.32.0", features = ["socket", "time"] }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.2.2"
+http = "1.5.0"
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+x509-cert = "0.3.1"
 tokio = { version = "1.54.1", features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
 
 [dev-dependencies]
