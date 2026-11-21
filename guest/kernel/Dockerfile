@@ -7,6 +7,7 @@ RUN apk add --no-cache \
     make=4.4.1-r4 \
     musl-dev=1.2.6-r3 \
     bison=3.8.2-r3 \
+    coreutils=9.11-r0 \
     findutils=4.10.0-r1 \
     flex=2.6.4-r8 \
     bc=1.08.2-r1 \
