@@ -106,7 +106,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-09 Reproducible build, SBOM and source bundle
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M2-04, M2-05, M2-08
 - **Docs:** [05 Licence obligations](../05-guest-image.md#licence-obligations), [11 Updates and supply chain](../11-security.md#updates-and-supply-chain)
 - **Do:** Make the guest build bit-for-bit reproducible. Generate an SBOM for the image and a source bundle reference (exact kernel source, config, Alpine package sources) with licence texts.
