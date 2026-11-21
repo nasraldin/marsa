@@ -8,7 +8,6 @@ RUN apk add --no-cache \
     musl-dev=1.2.6-r3 \
     bison=3.8.2-r3 \
     findutils=4.10.0-r1 \
-
     flex=2.6.4-r8 \
     bc=1.08.2-r1 \
     openssl-dev=3.5.9-r1 \
