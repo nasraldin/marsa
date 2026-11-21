@@ -25,9 +25,10 @@ fn main() -> ExitCode {
 fn run() -> io::Result<()> {
     let mut args = env::args_os().skip(1).peekable();
     let writable_share = args.next_if(|arg| arg == "--writable-share").is_some();
+    let via_init = args.next_if(|arg| arg == "--via-init").is_some();
     let usage = || {
         io::Error::other(
-            "usage: marsa-vz-spike [--writable-share] <rust|swift> <fixture-directory> <console-log> [guest-script]",
+            "usage: marsa-vz-spike [--writable-share] [--via-init] <rust|swift> <fixture-directory> <console-log> [guest-script]",
         )
     };
     let backend = match args
@@ -42,6 +43,10 @@ fn run() -> io::Result<()> {
         Some("swift") => return Err(io::Error::other("build with --features swift")),
         _ => return Err(usage()),
     };
+    #[cfg(feature = "swift")]
+    if via_init && matches!(backend, Backend::Swift) {
+        return Err(io::Error::other("--via-init requires the Rust bridge"));
+    }
     let fixtures = PathBuf::from(args.next().ok_or_else(usage)?).canonicalize()?;
     if fixtures.to_str().is_none() {
         return Err(io::Error::other("fixture paths must be UTF-8"));
@@ -57,5 +62,6 @@ fn run() -> io::Result<()> {
         &console,
         script.as_deref(),
         writable_share,
+        via_init,
     )
 }

@@ -87,3 +87,24 @@ creates and ejects only its temporary APFS images. Keep the Mac idle during
 timings. The correctness helper opts into `--writable-share` for its newly
 created fixture only. The runner otherwise uses a read-only virtiofs share.
 [Measurements and findings](../../docs/spikes/M1-04-virtiofs.md)
+
+## Verify Marsa PID 1
+
+Build the arm64 rootfs, kernel, static Linux `marsa-init` binary and vsock test
+binary. Prepare a private fixture directory with `fixtures.py --kernel`. Keep
+the original initramfs until the replacement is built.
+
+```sh
+python3 pid1/prepare.py ../../target/guest/rootfs.tar \
+  ../../target/aarch64-unknown-linux-musl/release/marsa-init \
+  target/aarch64-unknown-linux-musl/release/marsa-vsock-spike-guest \
+  ../../target/guest/docker-29.10.0.tgz "$scratch/pid1-initramfs"
+mv "$scratch/pid1-initramfs" "$scratch/fixtures/initramfs"
+target/debug/marsa-vz-spike --via-init rust "$scratch/fixtures" \
+  "$scratch/pid1-console.log" pid1/check.sh
+```
+
+The boot fixture substitutes a local readiness signal for the host handshake
+that M2-06 provides. It exercises actual guest mounts, Docker and containerd,
+orphan reaping and PID 1 shutdown. The runner sends SIGTERM to PID 1 and waits
+for the Virtualization.framework shutdown callback.

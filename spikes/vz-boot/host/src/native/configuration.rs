@@ -34,9 +34,12 @@ pub(super) fn build(
     unsafe {
         let loader = VZLinuxBootLoader::initWithKernelURL(VZLinuxBootLoader::alloc(), &kernel);
         loader.setInitialRamdiskURL(Some(&initramfs));
-        loader.setCommandLine(&NSString::from_str(
-            "console=hvc0 rdinit=/marsa-spike-init panic=-1",
-        ));
+        let cmdline = if inputs.via_init {
+            "console=hvc0 rdinit=/usr/bin/marsa-init marsa.interface=none panic=-1"
+        } else {
+            "console=hvc0 rdinit=/marsa-spike-init panic=-1"
+        };
+        loader.setCommandLine(&NSString::from_str(cmdline));
 
         let console = VZVirtioConsoleDeviceSerialPortConfiguration::new();
         let serial =

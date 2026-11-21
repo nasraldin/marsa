@@ -9,5 +9,8 @@ license.workspace = true
 [dependencies]
 marsa-core = { path = "../marsa-core" }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { version = "0.32.0", features = ["fs", "hostname", "mount", "poll", "reboot", "signal"] }
+
 [lints]
 workspace = true
