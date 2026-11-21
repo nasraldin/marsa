@@ -29,7 +29,7 @@
 
 ### M0-03 Build the `xtask` runner
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [12 Toolchain](../12-build-release-update.md#toolchain)
 - **Do:** Create the `xtask` crate with the following subcommands: `check`, `test`, `guest`, `fetch-upstream`, `bundle`, `sign`, `package`, `bench`. Implement `check` (fmt, clippy, deny) and `test` now. Commit a baseline permissive licence policy so `check` is usable before M0-07 expands it. Future commands appear in help and fail until their implementation lands.
