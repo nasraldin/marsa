@@ -17,6 +17,7 @@ members = [
     "crates/marsa-vm-krun",
     "crates/marsa-vm-vz",
     "crates/marsad",
+    "xtask",
 ]
 
 [workspace.package]

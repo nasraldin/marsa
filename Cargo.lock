@@ -117,3 +117,7 @@ dependencies = [
  "marsa-vm-krun",
  "marsa-vm-vz",
 ]
+
+[[package]]
+name = "xtask"
+version = "0.1.0"
