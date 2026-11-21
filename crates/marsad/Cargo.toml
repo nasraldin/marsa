@@ -11,6 +11,8 @@ marsa-dockerproxy = { path = "../marsa-dockerproxy" }
 marsa-net = { path = "../marsa-net" }
 marsa-proto = { path = "../marsa-proto" }
 marsa-share = { path = "../marsa-share" }
+marsa-vm = { path = "../marsa-vm" }
+thiserror = "=2.0.21"
 marsa-vm-krun = { path = "../marsa-vm-krun" }
 marsa-vm-vz = { path = "../marsa-vm-vz" }
 
@@ -26,6 +28,10 @@ tonic = "=0.14.9"
 tracing = "=0.1.44"
 tracing-appender = "=0.2.5"
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "json", "std"] }
+
+[dev-dependencies]
+marsa-vm = { path = "../marsa-vm", features = ["fake"] }
+tokio = { version = "=1.54.1", features = ["test-util"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 hyper-util = { version = "=0.1.21", features = ["tokio"] }

@@ -29,6 +29,7 @@ const CONNECTION_BUFFER: usize = 16 * 1024;
 pub struct FakeScenario {
     start_timeout: Option<Duration>,
     exit_after: Option<Duration>,
+    failed_stops: u32,
     agents: BTreeMap<u32, Vec<AgentStep>>,
     network_info: Option<NetworkInfo>,
 }
@@ -43,6 +44,12 @@ impl FakeScenario {
     /// Make the running guest exit unexpectedly after this delay.
     pub fn with_exit_after(mut self, delay: Duration) -> Self {
         self.exit_after = Some(delay);
+        self
+    }
+
+    /// Fail this many stop requests before allowing shutdown.
+    pub fn with_failed_stops(mut self, count: u32) -> Self {
+        self.failed_stops = count;
         self
     }
 
@@ -94,6 +101,7 @@ impl Hypervisor for FakeHypervisor {
             connections: Arc::new(Mutex::new(JoinSet::new())),
             exit: None,
             memory_bytes: spec.memory_bytes,
+            failed_stops: self.scenario.failed_stops,
         }))
     }
 }
@@ -104,6 +112,7 @@ struct FakeVm {
     connections: Arc<Mutex<JoinSet<()>>>,
     exit: Option<JoinHandle<()>>,
     memory_bytes: u64,
+    failed_stops: u32,
 }
 
 #[async_trait]
@@ -151,6 +160,13 @@ impl Vm for FakeVm {
     async fn stop(&mut self, _timeout: Duration) -> Result<(), VmError> {
         if self.state() == VmState::Stopped {
             return Ok(());
+        }
+        if self.failed_stops > 0 {
+            self.failed_stops -= 1;
+            return Err(VmError::Backend {
+                operation: "stop",
+                detail: "scripted stop failure".into(),
+            });
         }
         self.lifecycle.transition(
             "stop",
