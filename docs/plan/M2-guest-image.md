@@ -118,7 +118,7 @@ Design: [05 Guest image](../05-guest-image.md).
 
 ### M2-10 Guest boot test
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M2-04, M2-05, M2-06
 - **Docs:** [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
 - **Do:** Add a system test that boots the built image in the spike harness (later replaced by `marsad`), waits for the agent handshake and engine health, runs `hello-world`, and shuts down cleanly. Record boot stage timings as a CI artifact.
