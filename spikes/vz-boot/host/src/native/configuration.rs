@@ -46,8 +46,11 @@ pub(super) fn build(
             VZVirtioFileSystemDeviceConfiguration::alloc(),
             &NSString::from_str("marsa-spike"),
         );
-        let directory =
-            VZSharedDirectory::initWithURL_readOnly(VZSharedDirectory::alloc(), &directory, true);
+        let directory = VZSharedDirectory::initWithURL_readOnly(
+            VZSharedDirectory::alloc(),
+            &directory,
+            !inputs.writable_share,
+        );
         let directory =
             VZSingleDirectoryShare::initWithDirectory(VZSingleDirectoryShare::alloc(), &directory);
         share.setShare(Some(&directory));
