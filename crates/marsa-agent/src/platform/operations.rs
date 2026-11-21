@@ -2,7 +2,7 @@
 
 pub(super) mod ports;
 mod shares;
-mod stats;
+pub(super) mod stats;
 
 use std::{io, process::Stdio};
 

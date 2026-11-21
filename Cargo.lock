@@ -693,6 +693,7 @@ dependencies = [
  "block2",
  "dispatch2",
  "libc",
+ "marsa-core",
  "marsa-proto",
  "marsa-vm",
  "objc2",

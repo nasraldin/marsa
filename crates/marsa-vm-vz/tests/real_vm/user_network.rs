@@ -8,14 +8,14 @@ use std::{
 };
 
 use marsa_proto::guest::DOCKER_API_PORT;
-use marsa_vm::{Hypervisor, NetworkSpec, Vm};
+use marsa_vm::{Hypervisor, NetworkSpec, Vm, VmState};
 use marsa_vm_vz::VzHypervisor;
 use tokio::{
     io::{AsyncReadExt as _, AsyncWriteExt as _},
     time::timeout,
 };
 
-use super::{LIMIT, connect_control, handshake, spec};
+use super::{LIMIT, connect_control, handshake, spec, transition};
 
 fn scoped_query() -> Option<(String, IpAddr)> {
     let name = env::var("MARSA_VZ_SPLIT_DNS_NAME").ok()?;
@@ -82,9 +82,22 @@ async fn packaged_userspace_network_reaches_registry_with_verified_tls() {
     let backend = VzHypervisor::with_userspace(helper);
     assert!(backend.capabilities().userspace_network);
     let mut vm = backend.create(settings).await.unwrap();
+    let mut events = vm.events();
+    assert!(vm.network_info().is_none());
     timeout(LIMIT, vm.start()).await.unwrap().unwrap();
+    transition(&mut events, VmState::Created, VmState::Starting).await;
+    transition(&mut events, VmState::Starting, VmState::Running).await;
     let mut control = connect_control(vm.as_ref(), &console).await;
     timeout(LIMIT, handshake(&mut control)).await.unwrap();
+
+    let facts = super::network_with_gateway(vm.as_ref(), &console).await;
+    assert!(facts.address.is_ipv4());
+    assert!(facts.gateway.is_some_and(|gateway| gateway.is_ipv4()));
+
+    timeout(LIMIT, vm.pause()).await.unwrap().unwrap();
+    transition(&mut events, VmState::Running, VmState::Paused).await;
+    timeout(LIMIT, vm.resume()).await.unwrap().unwrap();
+    transition(&mut events, VmState::Paused, VmState::Running).await;
 
     // A fresh disk can only inspect this image once the upstream registry pull succeeds.
     // Dockerd uses its normal registry TLS verification and guest clock was set by handshake.
@@ -125,4 +138,5 @@ async fn packaged_userspace_network_reaches_registry_with_verified_tls() {
         .await
         .unwrap()
         .unwrap();
+    assert!(vm.network_info().is_none());
 }

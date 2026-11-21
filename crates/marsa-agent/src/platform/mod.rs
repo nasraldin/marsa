@@ -2,6 +2,7 @@
 
 mod bridge;
 mod network;
+mod network_facts;
 mod operations;
 mod vsock;
 
@@ -112,6 +113,9 @@ pub(crate) fn run() -> io::Result<()> {
         .block_on(async {
             let listener = vsock::Listener::bind(CONTROL_PORT)?;
             let bridge = vsock::Listener::bind(DOCKER_API_PORT)?;
+            let facts = vsock::Listener::bind(marsa_proto::guest::NETWORK_FACTS_PORT)?;
+            let interface = network_facts::interface()?;
+            tokio::spawn(network_facts::serve(facts, interface));
             tokio::spawn(async move { bridge::serve(&bridge, ENGINE_SOCKET).await });
             loop {
                 let stream = listener.accept_host().await?;

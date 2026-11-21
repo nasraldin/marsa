@@ -1,9 +1,14 @@
 //! Bounded protobuf messages and version negotiation for guest control.
 
 mod frame;
+mod network_facts;
 mod validation;
 
 pub use frame::{decode_guest, decode_host, encode_guest, encode_host, frame_length};
+pub use network_facts::{
+    NETWORK_FACTS_BYTES, NETWORK_FACTS_PORT, NetworkFacts, decode_network_facts,
+    encode_network_facts,
+};
 use thiserror::Error;
 
 use v1::ProtocolVersion;

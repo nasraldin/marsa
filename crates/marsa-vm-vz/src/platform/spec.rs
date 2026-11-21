@@ -1,24 +1,27 @@
 //! Resolve host files before asking the framework to consume the configuration.
 
 use std::{
-    fs::{File, Metadata, OpenOptions},
+    fmt::Write as _,
+    fs::{self, File, Metadata, OpenOptions},
     io::{self, Read},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::Path,
 };
 
-use marsa_vm::{VmError, VmSpec};
+use marsa_core::guest_boot::Settings;
+use marsa_vm::{ShareSpec, VmError, VmSpec};
 
-use super::state::{invalid_spec, unsupported};
+use super::state::invalid_spec;
 
-const MIB: u64 = 1024 * 1024;
+pub(super) const MIB: u64 = 1024 * 1024;
 
 pub(super) struct Prepared {
     pub(super) spec: VmSpec,
     pub(super) console_out: File,
+    pub(super) discover_network: bool,
 }
 
-pub(super) fn prepare(spec: VmSpec) -> Result<Prepared, VmError> {
+pub(super) fn prepare(mut spec: VmSpec) -> Result<Prepared, VmError> {
     spec.validate()?;
     if !spec.memory_bytes.is_multiple_of(MIB) {
         return Err(invalid_spec(
@@ -26,9 +29,7 @@ pub(super) fn prepare(spec: VmSpec) -> Result<Prepared, VmError> {
             "memory must be a multiple of 1 MiB",
         ));
     }
-    if !spec.shares.is_empty() {
-        return Err(unsupported("VZ shared folders"));
-    }
+    let boot = prepare_shares(&mut spec)?;
 
     let mut kernel = open_regular("kernel", &spec.kernel, false)?;
     let mut header = [0; 64];
@@ -91,7 +92,79 @@ pub(super) fn prepare(spec: VmSpec) -> Result<Prepared, VmError> {
             "the console log must be a private, distinct file",
         ));
     }
-    Ok(Prepared { spec, console_out })
+    Ok(Prepared {
+        spec,
+        console_out,
+        discover_network: boot.interface.is_some(),
+    })
+}
+
+fn prepare_shares(spec: &mut VmSpec) -> Result<Settings, VmError> {
+    if spec
+        .cmdline
+        .split_ascii_whitespace()
+        .any(|arg| arg.starts_with("marsa.share="))
+    {
+        return Err(invalid_spec(
+            "cmdline",
+            "guest mounts are constructed from the VM shares",
+        ));
+    }
+    let mut arguments = String::new();
+    for share in &spec.shares {
+        append_share_argument(&mut arguments, share)?;
+    }
+    if !arguments.is_empty() {
+        let tail = spec.cmdline.split_once(" -- ").map(|(boot, _)| boot.len());
+        spec.cmdline
+            .insert_str(tail.unwrap_or(spec.cmdline.len()), &arguments);
+    }
+    // The pinned arm64 kernel copies at most COMMAND_LINE_SIZE bytes, including NUL.
+    if spec.cmdline.len() >= 2048 {
+        return Err(invalid_spec(
+            "cmdline",
+            "guest kernel arguments exceed 2047 bytes",
+        ));
+    }
+    Settings::parse(&spec.cmdline).map_err(|error| invalid_file("cmdline", error))
+}
+
+fn append_share_argument(arguments: &mut String, share: &ShareSpec) -> Result<(), VmError> {
+    let path = &share.host_path;
+    let path_text = path
+        .to_str()
+        .ok_or_else(|| invalid_spec("shares.host_path", "expected a UTF-8 path"))?;
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| invalid_file("shares.host_path", error))?;
+    // macOS provides /tmp as an alias for /private/tmp. Keep its original guest mount path.
+    let expected = path.strip_prefix("/tmp").map_or_else(
+        |_| path.clone(),
+        |suffix| Path::new("/private/tmp").join(suffix),
+    );
+    if canonical != expected
+        || !fs::metadata(&canonical)
+            .map_err(|error| invalid_file("shares.host_path", error))?
+            .is_dir()
+    {
+        return Err(invalid_spec(
+            "shares.host_path",
+            "expected a directory without redirects",
+        ));
+    }
+
+    arguments.push_str(" marsa.share=");
+    arguments.push_str(&share.tag);
+    arguments.push(':');
+    for byte in path_text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._".contains(&byte) {
+            arguments.push(char::from(byte));
+        } else {
+            write!(arguments, "%{byte:02X}")
+                .map_err(|error| invalid_spec("shares.host_path", error.to_string()))?;
+        }
+    }
+    Ok(())
 }
 
 fn open_regular(field: &'static str, path: &Path, write: bool) -> Result<File, VmError> {

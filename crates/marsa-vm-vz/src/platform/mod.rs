@@ -2,6 +2,7 @@
 
 mod configuration;
 mod native;
+mod network;
 mod spec;
 mod state;
 mod userspace;
@@ -19,7 +20,7 @@ use marsa_vm::{
 };
 use tokio::sync::watch;
 
-use native::{Controller, StopRequest};
+use native::{Controller, Power, StopRequest};
 use state::{backend, unsupported};
 use userspace::Transport;
 
@@ -58,8 +59,8 @@ impl Hypervisor for VzHypervisor {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             name: "vz",
-            memory_balloon: false,
-            pause_resume: false,
+            memory_balloon: true,
+            pause_resume: true,
             dynamic_shares: false,
             userspace_network: false,
         }
@@ -86,21 +87,30 @@ async fn create(spec: VmSpec, helper: Option<PathBuf>) -> Result<Box<dyn Vm>, Vm
     .map_err(|error| backend("prepare", error.to_string()))??;
     let (transport, socket) = network.unzip();
     // Arm queue teardown before the first job so a cancelled create releases native state.
-    let vm = VzVm {
+    let discover_network = prepared.discover_network;
+    let mut vm = VzVm {
         controller: Controller::new(),
         transport,
+        network_probe: None,
     };
     vm.controller
         .call("create", move |controller| {
             controller.create(prepared, socket)
         })
         .await?;
+    if discover_network {
+        vm.network_probe = Some(tokio::spawn(network::discover(
+            Arc::downgrade(&vm.controller),
+            vm.controller.lifecycle.watch(),
+        )));
+    }
     Ok(Box::new(vm))
 }
 
 struct VzVm {
     controller: Arc<Controller>,
     transport: Option<Transport>,
+    network_probe: Option<tokio::task::JoinHandle<()>>,
 }
 
 #[async_trait]
@@ -131,11 +141,11 @@ impl Vm for VzVm {
     }
 
     async fn pause(&mut self) -> Result<(), VmError> {
-        Err(unsupported("VZ pause"))
+        self.change_power(Power::Pause).await
     }
 
     async fn resume(&mut self) -> Result<(), VmError> {
-        Err(unsupported("VZ resume"))
+        self.change_power(Power::Resume).await
     }
 
     async fn stop(&mut self, timeout: Duration) -> Result<(), VmError> {
@@ -160,41 +170,67 @@ impl Vm for VzVm {
         vsock::connect(&self.controller, port).await
     }
 
-    async fn set_memory_target(&self, _bytes: u64) -> Result<(), VmError> {
-        Err(unsupported("VZ memory balloon"))
+    async fn set_memory_target(&self, bytes: u64) -> Result<(), VmError> {
+        self.controller
+            .call("set memory target", move |controller| {
+                controller.set_memory_target(bytes)
+            })
+            .await
     }
 
     fn network_info(&self) -> Option<NetworkInfo> {
-        None
+        self.controller.lifecycle.network()
     }
 }
 
 impl VzVm {
+    async fn change_power(&self, power: Power) -> Result<(), VmError> {
+        let (reply, result) = tokio::sync::oneshot::channel();
+        self.controller
+            .submit(move |controller| controller.change_power(power, reply));
+        result
+            .await
+            .map_err(|_| backend(power.name(), "the VZ queue lost the transition result"))?
+    }
+
     async fn stop_vm(&mut self, timeout: Duration) -> Result<(), VmError> {
         let start = Instant::now();
         let mut state = self.controller.lifecycle.watch();
-        let request = |controller: &Arc<Controller>| controller.request_stop();
-        let mut stop = self.controller.call("request stop", request).await?;
-        if stop == StopRequest::WaitForStart {
-            // A cancelled start future cannot cancel the native start. Wait for its callback.
-            tokio::time::timeout(
-                timeout.saturating_sub(start.elapsed()),
-                state.wait_for(|state| *state != VmState::Starting),
-            )
-            .await
-            .map_err(|_| VmError::Timeout {
-                operation: "stop",
-                limit: timeout,
-            })?
-            .map_err(|_| backend("stop", "the VZ state channel closed"))?;
-            stop = self.controller.call("request stop", request).await?;
-        }
-        if stop == StopRequest::Graceful
-            && let Ok(result) =
-                tokio::time::timeout(timeout.saturating_sub(start.elapsed()), stopped(&mut state))
+        let remaining = || timeout.saturating_sub(start.elapsed());
+        let expired = |_| VmError::Timeout {
+            operation: "stop",
+            limit: timeout,
+        };
+        loop {
+            match self
+                .controller
+                .call("request stop", |controller| controller.request_stop())
+                .await?
+            {
+                StopRequest::WaitForStart => {
+                    tokio::time::timeout(
+                        remaining(),
+                        state.wait_for(|state| *state != VmState::Starting),
+                    )
                     .await
-        {
-            return result;
+                    .map_err(expired)?
+                    .map_err(|_| backend("stop", "the VZ state channel closed"))?;
+                }
+                StopRequest::WaitForPowerChange(mut finished) => {
+                    tokio::time::timeout(remaining(), finished.wait_for(|finished| *finished))
+                        .await
+                        .map_err(expired)?
+                        .map_err(|_| backend("stop", "the VZ power transition channel closed"))?;
+                }
+                StopRequest::Graceful => {
+                    if let Ok(result) = tokio::time::timeout(remaining(), stopped(&mut state)).await
+                    {
+                        return result;
+                    }
+                    break;
+                }
+                StopRequest::Force => break,
+            }
         }
         self.controller
             .call("stop", |controller| controller.force_stop())
@@ -205,6 +241,9 @@ impl VzVm {
 
 impl Drop for VzVm {
     fn drop(&mut self) {
+        if let Some(probe) = &self.network_probe {
+            probe.abort();
+        }
         self.controller.submit(|controller| controller.close());
     }
 }
