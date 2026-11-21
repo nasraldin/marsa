@@ -33,7 +33,7 @@ struct CallbackState {
 
 struct SwiftVm {
     handle: NonNull<c_void>,
-    _callback: Box<CallbackState>,
+    callback: NonNull<CallbackState>,
 }
 
 pub fn start(inputs: &VmInputs<'_>, sender: Sender<Event>) -> io::Result<Box<dyn Vm>> {
@@ -43,26 +43,33 @@ pub fn start(inputs: &VmInputs<'_>, sender: Sender<Event>) -> io::Result<Box<dyn
         ));
     }
     let path = CString::new(inputs.fixtures.as_os_str().as_bytes())?;
-    let mut callback = Box::new(CallbackState {
+    let callback = Box::into_non_null(Box::new(CallbackState {
         sender,
         last_error: RefCell::new(None),
-    });
-    let state = std::ptr::from_mut(&mut *callback).cast::<c_void>();
-    // SAFETY: The path is live for the call, and the callback allocation is owned by the VM
-    // until marsa_vz_destroy disables all callbacks. Swift duplicates the live console FD.
-    let handle =
-        unsafe { marsa_vz_start(path.as_ptr(), inputs.serial.as_raw_fd(), state, receive) };
+    }));
+    // SAFETY: The path and console FD are live for the call. The context allocation
+    // remains live until marsa_vz_destroy disables all callbacks after a successful start.
+    let handle = unsafe {
+        marsa_vz_start(
+            path.as_ptr(),
+            inputs.serial.as_raw_fd(),
+            callback.cast::<c_void>().as_ptr(),
+            receive,
+        )
+    };
     match NonNull::new(handle) {
-        Some(handle) => Ok(Box::new(SwiftVm {
-            handle,
-            _callback: callback,
-        })),
-        None => Err(io::Error::other(
-            callback
-                .last_error
-                .take()
-                .unwrap_or_else(|| "Swift VM configuration failed".into()),
-        )),
+        Some(handle) => Ok(Box::new(SwiftVm { handle, callback })),
+        None => {
+            // SAFETY: Swift returns null only after reporting its synchronous setup failure.
+            // It retains no session or callback, so this reclaims the allocation exactly once.
+            let callback = unsafe { Box::from_non_null(callback) };
+            Err(io::Error::other(
+                callback
+                    .last_error
+                    .take()
+                    .unwrap_or_else(|| "Swift VM configuration failed".into()),
+            ))
+        }
     }
 }
 
@@ -76,8 +83,12 @@ impl Vm for SwiftVm {
 
 impl Drop for SwiftVm {
     fn drop(&mut self) {
-        // SAFETY: Swift callbacks are disabled on this main queue before the Rust context is freed.
-        unsafe { marsa_vz_destroy(self.handle.as_ptr()) };
+        // SAFETY: The handle is live on the main queue. Destroy disables Swift callbacks before
+        // the allocation from Box::into_non_null is reclaimed exactly once.
+        unsafe {
+            marsa_vz_destroy(self.handle.as_ptr());
+            drop(Box::from_non_null(self.callback));
+        }
     }
 }
 

@@ -52,7 +52,7 @@ The Swift bridge calls the same framework APIs with Swift's typed results and
 delegate methods. Its build additionally invokes Swift, links a dylib, and
 tracks ownership of the C callback context and retained Swift session. The
 comparison still uses unsafe Rust at the C boundary. The direct bridge uses
-263 source lines. The Swift route uses 314 lines across its Swift code, Rust
+263 source lines. The Swift route uses 325 lines across its Swift code, Rust
 adapter, and build script. These counts include comments and exclude the
 shared runner. Both routes use the published APIs for all exercised devices.
 

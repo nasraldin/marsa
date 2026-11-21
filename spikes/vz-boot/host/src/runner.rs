@@ -3,7 +3,7 @@
 use std::fs::{File, OpenOptions, symlink_metadata};
 use std::io::{self, Read, Write};
 use std::os::fd::{BorrowedFd, OwnedFd};
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::mpsc::{self, Sender};
@@ -72,6 +72,7 @@ pub fn run(
     let mut transcript = OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(console)?;
     let (sender, receiver) = mpsc::channel();
     use std::os::fd::AsFd;
@@ -111,8 +112,10 @@ pub fn run(
                     println!("verified 16-byte serial-independent vsock challenge");
                 }
                 Event::Stopped => {
-                    if !progress.commands_finished {
-                        return Err(io::Error::other("guest stopped before completing the test"));
+                    if !progress.shutdown_sent {
+                        return Err(io::Error::other(
+                            "guest stopped before the runner requested shutdown",
+                        ));
                     }
                     transcript.flush()?;
                     println!("received guest shutdown delegate callback");
@@ -194,6 +197,10 @@ fn exchange(fd: OwnedFd, sender: Sender<Event>) {
 }
 
 fn validate_fixtures(root: &Path) -> io::Result<()> {
+    let directory = symlink_metadata(root)?;
+    if !directory.is_dir() || directory.mode() & 0o077 != 0 {
+        return Err(io::Error::other("fixture root must be a private directory"));
+    }
     for name in ["Image", "initramfs", "modules.img", "data.img"] {
         let metadata = symlink_metadata(root.join(name))?;
         if !metadata.is_file() || metadata.len() == 0 {

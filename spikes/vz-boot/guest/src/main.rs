@@ -8,7 +8,7 @@ fn main() -> std::io::Result<()> {
     use vsock::{VMADDR_CID_ANY, VsockListener};
 
     let listener = VsockListener::bind_with_cid_port(VMADDR_CID_ANY, 5_000)?;
-    println!("MARSA_VSOCK_READY");
+    println!("\nMARSA_VSOCK_READY");
     let (mut stream, _) = listener.accept()?;
     let timeout = Some(Duration::from_secs(5));
     stream.set_read_timeout(timeout)?;

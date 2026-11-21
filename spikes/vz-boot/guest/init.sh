@@ -25,7 +25,7 @@ busybox mkdir -p /mnt/marsa
 busybox mount -t virtiofs -o ro marsa-spike /mnt/marsa
 test "$(busybox cat /mnt/marsa/fixture)" = marsa-vz-fixture
 busybox umount /mnt/marsa
-printf 'MARSA_DEVICES_READY\n'
+printf '\nMARSA_DEVICES_READY\n'
 /marsa-vsock-fixture &
 
 export PS1='MARSA_SHELL# '
