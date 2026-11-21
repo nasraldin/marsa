@@ -197,7 +197,11 @@ Shipping a Linux kernel and Alpine packages brings GPL and other open-source dut
 - Ship licence texts and an SBOM for everything in the image.
 - Automate both in the guest build so they are never forgotten.
 
-This is not legal advice; have the release process reviewed.
+`cargo xtask guest all` writes the CycloneDX 1.7 inventory, exact source references, licence archive and resolved kernel configuration next to the image. Each Alpine package is tied to the aports commit recorded in its installed package metadata. The inventory maps shipped executables and BusyBox applets to their owning releases and rejects executable files whose provenance is missing. The build copies upstream notice text without rewriting it.
+
+Tier 1 builds the guest twice from separate output directories and compares the images, kernel, configuration, manifests, licence archive and build reports byte for byte. The guest provenance artifact includes the image hashes, inventory, source references, notices and exact kernel configuration. The release process must publish these with the corresponding guest payloads.
+
+When changing Alpine pins, derive package versions, licences, origins and aports commits from the rebuilt archive's `lib/apk/db/installed`. For each origin, record the exact APKBUILD digest and verify its source files against the recipe's SHA-512 checksums. Refresh the matching source records and SHA-256 checksums in [the Alpine notice lock](../guest/provenance/alpine-lock.json). Copy upstream licence, copyright and notice text byte for byte, and label SPDX reference text separately. Remove notices for packages that are no longer shipped. `cargo xtask guest provenance` verifies the resulting coverage against the packed image.
 
 ## Windows note
 
