@@ -29,8 +29,8 @@ target/debug/marsa-vz-spike swift "$scratch/fixtures" "$scratch/swift-console.lo
 ```
 
 `fixtures.py --iso <path>` reuses a downloaded Alpine 3.24.4 ARM64 virt ISO.
-Preparation verifies the official SHA-256 and the decompressed kernel digest
-before using them. The archive and generated guest image belong in the
+Preparation copies a supplied ISO to a private temporary directory and
+verifies that copy and its decompressed kernel before use. The archive and generated guest image belong in the
 temporary directory. The macOS command opens no host listener. The guest echo
 listener is vsock-only and exits after one connection.
 
@@ -43,7 +43,7 @@ The runner accepts an optional fourth argument naming a local shell script of
 up to 16 KiB, with individual lines up to 2,048 bytes. It sends that script to the guest's interactive prompt after the
 vsock check, records its output in the selected transcript, and waits for the
 guest shutdown callback. Each run requires a new transcript filename and has a
-90-second deadline.
+90-second deadline. The runner creates transcripts with owner-only permissions.
 
 The verified Alpine module image is the guest's read-only `/dev/vda`. The
 writable `/dev/vdb` is the fixture directory's sparse `data.img`. Prepare
@@ -51,4 +51,6 @@ the fixture before resizing or replacing that image for a storage experiment.
 The read-only virtiofs tag `marsa-spike` exposes the fixture directory's
 `share/` child. The setup script unmounts the verification mount before the
 test shell, so another script can mount it with its own mount options. Use a
-fresh fixture directory and temporary data for each experiment.
+fresh, owner-only fixture directory and temporary data for each experiment.
+Keep the fixture tree under your control for the whole run. The framework
+opens the checked files by path.

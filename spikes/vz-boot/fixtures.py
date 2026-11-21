@@ -4,6 +4,7 @@ import argparse
 import gzip
 import hashlib
 import pathlib
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -51,7 +52,12 @@ def extract(iso: pathlib.Path, path: str) -> bytes:
 
 
 def prepare(iso: pathlib.Path, guest: pathlib.Path, output: pathlib.Path) -> None:
-    checked_digest(iso.read_bytes(), ISO_SHA256, ISO)
+    digest = hashlib.sha256()
+    with iso.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    if digest.hexdigest() != ISO_SHA256:
+        raise SystemExit(f"SHA-256 mismatch for {ISO}")
     output.mkdir(mode=0o700)
     (output / "Image").write_bytes(raw_kernel(extract(iso, "boot/vmlinuz-virt")))
     (output / "modules.img").write_bytes(extract(iso, "boot/modloop-virt"))
@@ -76,17 +82,19 @@ def main() -> None:
     parser.add_argument("output", type=pathlib.Path)
     parser.add_argument("--iso", type=pathlib.Path, help="use an already downloaded Alpine ISO")
     args = parser.parse_args()
-    if args.iso:
-        prepare(args.iso.resolve(), args.guest, args.output)
-        return
     with tempfile.TemporaryDirectory(prefix="marsa-vz-") as temp:
         iso = pathlib.Path(temp, ISO)
-        subprocess.run(
-            ["curl", "--proto", "=https", "--fail", "--location", "--silent", "--show-error",
-             "--max-time", "180", "--output", str(iso), URL],
-            check=True,
-        )
+        if args.iso:
+            shutil.copyfile(args.iso, iso)
+        else:
+            subprocess.run(
+                ["curl", "--proto", "=https", "--proto-redir", "=https", "--fail",
+                 "--location", "--silent", "--show-error", "--max-time", "180",
+                 "--output", str(iso), URL],
+                check=True,
+            )
         prepare(iso, args.guest, args.output)
+
 
 
 if __name__ == "__main__":
