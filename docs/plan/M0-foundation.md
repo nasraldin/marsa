@@ -40,7 +40,7 @@
 
 ### M0-04 Implement `marsa-core`
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [03 Settings](../03-host-daemon.md#settings), [03 Filesystem layout](../03-host-daemon.md#filesystem-layout-on-the-host)
 - **Do:** Implement shared types: the paths module (all `~/.marsa` locations behind one API, overridable for tests), the settings model with validation and defaults, versioned settings migration, the common error types, and a `platform` trait module with a macOS implementation stub.
