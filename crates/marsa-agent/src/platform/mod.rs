@@ -1,10 +1,14 @@
 //! Linux-only AF_VSOCK and guest clock operations.
 
+mod network;
 mod vsock;
 
 use std::io;
 
-use marsa_proto::guest::{CONTROL_PORT, v1::SetTime};
+use marsa_proto::guest::{
+    CONTROL_PORT,
+    v1::{ConfigureNetwork, InstallCertificates, SetTime},
+};
 use nix::{
     sys::time::TimeSpec,
     time::{ClockId, clock_settime},
@@ -19,9 +23,19 @@ use crate::{
 const ENGINE_SOCKET: &str = "/var/run/docker.sock";
 const READY_FILE: &str = "/run/marsa/agent.ready";
 
-struct Linux;
+struct Linux {
+    network: network::Config,
+}
 
 impl GuestState for Linux {
+    async fn configure_network(&self, request: ConfigureNetwork) -> io::Result<bool> {
+        self.network.configure(request).await
+    }
+
+    async fn install_certificates(&self, request: InstallCertificates) -> io::Result<bool> {
+        self.network.certificates(request).await
+    }
+
     fn set_time(&self, time: SetTime) -> io::Result<()> {
         if time.unix_seconds < 0 || time.nanoseconds >= 1_000_000_000 {
             return Err(io::Error::new(
@@ -53,6 +67,9 @@ impl GuestState for Linux {
 
 pub(crate) fn run() -> io::Result<()> {
     let hello = metadata::hello()?;
+    let state = Linux {
+        network: network::Config::load()?,
+    };
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
@@ -61,7 +78,7 @@ pub(crate) fn run() -> io::Result<()> {
             loop {
                 let stream = listener.accept_host().await?;
                 if let Err(error) =
-                    control::session(stream, hello.clone(), &Linux, ENGINE_SOCKET).await
+                    control::session(stream, hello.clone(), &state, ENGINE_SOCKET).await
                     && error.kind() != io::ErrorKind::UnexpectedEof
                 {
                     eprintln!("marsa-agent: control connection: {error}");
