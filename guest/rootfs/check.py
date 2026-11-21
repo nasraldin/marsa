@@ -53,6 +53,7 @@ with (
         "var/cache/apk", "etc/inittab", "sbin/init", "sbin/openrc", "sbin/getty", "usr/sbin/crond",
     }
     for path, member in entries.items():
+        assert (member.uid, member.gid) == (0, 0), (path, member.uid, member.gid)
         name = PurePosixPath(path).name
         assert not path.startswith(("var/cache/apk/", "etc/init.d/", "etc/runlevels/", "etc/ssh/")), path
         assert path not in forbidden and name not in {"sshd", "dropbear"}, path

@@ -20,27 +20,8 @@ trap 'exit 1' HUP INT TERM
 root=$work/root
 mkdir "$work/apks" "$root" "$work/upstream"
 
-# Only the lockfile determines which packages are downloaded. No index or
-# repository participates in the install, and apk still verifies signatures.
-(
-    cd "$work/apks"
-    while read -r digest package; do
-        case "$package" in
-            ""|*[!a-zA-Z0-9_.+-]*|.*)
-                printf 'Invalid guest package filename: %s\n' "$package" >&2
-                exit 1
-                ;;
-        esac
-        if ! wget -q -T 45 -O "$package" "$repository/$package"; then
-            printf 'Guest package download failed: %s\n' "$package" >&2
-            exit 1
-        fi
-        if ! printf '%s  %s\n' "$digest" "$package" | sha256sum -c -; then
-            printf 'Guest package checksum mismatch: %s\n' "$package" >&2
-            exit 1
-        fi
-    done < "$lock"
-)
+# The APK files are authenticated before an offline, signed install.
+/bin/sh "$recipe/fetch-packages.sh" "$repository" "$lock" "$work/apks"
 tar -xf "$alpine_archive" -C "$root"
 apk --root "$root" --arch "$architecture" --cache=no --network=no \
     --repositories-file /dev/null --logfile=no --scripts=no \
@@ -69,7 +50,8 @@ if [ "$(apk --print-arch)" = "$architecture" ]; then
     PATH="$root/usr/local/bin:$PATH" dockerd --validate --config-file "$root/etc/docker/daemon.json"
 fi
 
-tar -cf "$output_scratch/rootfs.tar" -C "$root" .
+# Set guest ownership in the archive headers without chown or capabilities.
+tar --numeric-owner --owner=0 --group=0 -cf "$output_scratch/rootfs.tar" -C "$root" .
 size=$(wc -c < "$output_scratch/rootfs.tar")
 printf 'rootfs.tar: %s bytes\n' "$size" > "$output_scratch/rootfs-size.txt"
 mv -fT -- "$output_scratch/rootfs.tar" rootfs.tar
