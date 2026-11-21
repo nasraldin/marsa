@@ -169,3 +169,15 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
   - A packaged daemon started with a fresh per-user state directory accepts a real `Engine.Start`, reaches Ready through the agent and Docker API, and reports guest health and stats.
   - Subsequent Stop and Restart use the same data disk. A restart-scoped settings change becomes effective on restart.
   - Invalid or missing guest files fail cleanly before a VM starts and preserve existing user data.
+
+### M3-13 Keep guest control available without an upstream lease
+
+- **Status:** in progress
+- **Depends on:** M2-05, M2-07
+- **Docs:** [05 Boot and init](../05-guest-image.md), [06 Network modes](../06-networking.md#network-modes)
+- **Do:** Bring up guest loopback as a boot requirement. Keep the bounded initial upstream setup, but continue with the control agent and Docker if the upstream link or DHCP setup fails. Record the reason on the guest console. Keep the data disk and service failure handling.
+- **Deliver:** Guest init change, regression tests for the setup sequence, and an entitled boot test with no upstream link or DHCP.
+- **Accept when:**
+  - Successful startup still uses DHCP, and an explicitly disabled interface still skips it.
+  - A failed upstream link or DHCP attempt keeps the control agent and the local Docker API available. The guest logs why upstream setup failed.
+  - A failure to configure loopback still stops startup.

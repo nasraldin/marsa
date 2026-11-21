@@ -119,7 +119,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 ### M4-10 User-space network mode and automatic selection
 
 - **Status:** todo
-- **Depends on:** M4-09
+- **Depends on:** M4-09, M3-13
 - **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection), V-07
 - **Do:** Verify the attachment class for user-space networking and the current gvisor-tap-vsock release and interface. Bundle `gvproxy` as a supervised helper, implement the `userspace` mode including port forwarding through it, and implement the `auto` probe and switch with events. Respect a pinned mode.
 - **Deliver:** user-space mode, the probe, `Network.SetMode`.
