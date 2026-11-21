@@ -1,6 +1,7 @@
 //! Drive the guest-input builder inside a pinned Linux container.
 
 use std::{
+    env,
     ffi::OsString,
     fs::{self, File},
     io::{self, Write},
@@ -173,7 +174,9 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
         "type=bind,source={},target=/rootfs.tar,readonly",
         rootfs_tar.display()
     );
-    let bin_dir = build_guest_programs(guest, output)?;
+    let workspace = guest.join("..").canonicalize()?;
+    let source_commit = exact_source_commit(&workspace);
+    let bin_dir = build_guest_programs(&workspace, output)?;
     let init_mount = format!(
         "type=bind,source={},target=/programs/marsa-init,readonly",
         bin_dir.join("marsa-init").display()
@@ -228,6 +231,7 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
             marsa_init: Some(env!("CARGO_PKG_VERSION").to_owned()),
             marsa_agent: Some(env!("CARGO_PKG_VERSION").to_owned()),
         },
+        source_commit,
         kernel,
         rootfs,
     )
@@ -248,14 +252,48 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
     Ok(())
 }
 
-fn build_guest_programs(guest: &Path, output: &Path) -> io::Result<PathBuf> {
+fn exact_source_commit(workspace: &Path) -> Option<String> {
+    let mut git = Command::new("git");
+    git.current_dir(workspace);
+    let status = git
+        .args(["status", "--porcelain", "--untracked-files=normal"])
+        .output()
+        .ok()?;
+    if !status.status.success() || !status.stdout.is_empty() {
+        return None;
+    }
+    let revision = Command::new("git")
+        .current_dir(workspace)
+        .args(["rev-parse", "--verify", "HEAD"])
+        .output()
+        .ok()?;
+    if !revision.status.success() {
+        return None;
+    }
+    String::from_utf8(revision.stdout)
+        .ok()
+        .map(|value| value.trim().to_owned())
+}
+
+fn build_guest_programs(workspace: &Path, output: &Path) -> io::Result<PathBuf> {
     const TARGET: &str = "aarch64-unknown-linux-musl";
     let target_dir = output
         .parent()
         .ok_or_else(|| io::Error::other("missing target directory"))?;
+    let cargo_home = env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::home_dir().map(|home| home.join(".cargo")))
+        .ok_or_else(|| io::Error::other("could not find Cargo home"))?
+        .canonicalize()?;
+    let remap_flags = format!(
+        "--remap-path-prefix={}=/marsa-source\u{1f}--remap-path-prefix={}=/cargo-source",
+        workspace.display(),
+        cargo_home.display(),
+    );
     let status = Command::new("cargo")
-        .current_dir(guest.join(".."))
+        .current_dir(workspace)
         .env("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER", "rust-lld")
+        .env("CARGO_ENCODED_RUSTFLAGS", remap_flags)
         .args([
             "build",
             "--locked",

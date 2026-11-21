@@ -17,6 +17,8 @@ const ROOTFS: &str = "rootfs.img";
 pub struct GuestManifest {
     schema_version: u32,
     image_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_commit: Option<String>,
     architecture: Architecture,
     rootfs_format: RootFsFormat,
     components: GuestComponentVersions,
@@ -79,6 +81,9 @@ pub enum GuestManifestError {
     /// The image or component version is invalid.
     #[error("invalid guest version field {0}")]
     InvalidVersion(&'static str),
+    /// The recorded Git commit is not a full lowercase object ID.
+    #[error("invalid guest source commit")]
+    InvalidSourceCommit,
     /// An artifact digest is not a lowercase SHA-256 digest.
     #[error("invalid guest SHA-256 digest for {0}")]
     InvalidChecksum(&'static str),
@@ -104,12 +109,14 @@ impl GuestManifest {
     pub fn create(
         image_version: String,
         components: GuestComponentVersions,
+        source_commit: Option<String>,
         kernel: impl Read,
         rootfs: impl Read,
     ) -> Result<Self, GuestManifestError> {
         let manifest = Self {
             schema_version: SCHEMA_VERSION,
             image_version,
+            source_commit,
             architecture: Architecture::Aarch64,
             rootfs_format: RootFsFormat::Erofs,
             components,
@@ -175,6 +182,11 @@ impl GuestManifest {
         if self.schema_version != SCHEMA_VERSION {
             return Err(GuestManifestError::UnsupportedSchema(self.schema_version));
         }
+        if let Some(commit) = &self.source_commit
+            && (!matches!(commit.len(), 40 | 64) || !is_lower_hex(commit))
+        {
+            return Err(GuestManifestError::InvalidSourceCommit);
+        }
         let versions = &self.components;
         for (name, value) in [
             ("image_version", &self.image_version),
@@ -206,16 +218,17 @@ impl GuestManifest {
             }
         }
         for (artifact, value) in [(KERNEL, &self.kernel_sha256), (ROOTFS, &self.rootfs_sha256)] {
-            if value.len() != 64
-                || !value
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-            {
+            if value.len() != 64 || !is_lower_hex(value) {
                 return Err(GuestManifestError::InvalidChecksum(artifact));
             }
         }
         Ok(())
     }
+}
+
+fn is_lower_hex(text: &str) -> bool {
+    text.bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn sha256(artifact: &'static str, mut source: impl Read) -> Result<String, GuestManifestError> {
