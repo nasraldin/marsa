@@ -11,7 +11,7 @@ use tokio::{
 };
 
 use crate::supervisor::{
-    BootFailure, BootStage, State, SupervisorError,
+    BootFailure, BootStage, NetworkObservation, State, SupervisorError,
     boot::{self, Issue, Outcome, Reason},
     platform,
 };
@@ -58,12 +58,24 @@ impl Actor {
                 self.connect_docker(reply).await;
                 return;
             }
-            Command::Network(reply) => {
-                let active = self
+            Command::Network(desired, reply) => {
+                let attachment = self
                     .guest
                     .as_ref()
                     .map(|guest| (guest.network, guest.vm.network_info()));
-                let _ = reply.send(active);
+                let restart_pending = match self.state() {
+                    State::Stopped => Some(false),
+                    State::Ready | State::Idle | State::Paused => self
+                        .guest
+                        .as_ref()
+                        .and_then(|guest| guest.configured_mode)
+                        .map(|mode| mode != desired),
+                    _ => None,
+                };
+                let _ = reply.send(NetworkObservation {
+                    attachment,
+                    restart_pending,
+                });
                 return;
             }
             Command::Stop(reply) => (reply, self.stop().await),

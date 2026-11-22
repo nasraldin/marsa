@@ -5,14 +5,11 @@ use marsa_proto::host::v1::{
     ListForwardedPortsRequest, ListForwardedPortsResponse, NetworkMode, NetworkStatus,
     NetworkStatusRequest, SetNetworkModeRequest, network_server::Network,
 };
-use marsa_vm::NetworkInfo;
 use tonic::{Request, Response, Status};
 
-use crate::supervisor::BootNetwork;
+use crate::supervisor::NetworkObservation;
 
 use super::{TypedApi, events};
-
-type ActiveAttachment = Option<(BootNetwork, Option<NetworkInfo>)>;
 
 #[tonic::async_trait]
 impl Network for TypedApi {
@@ -21,8 +18,8 @@ impl Network for TypedApi {
         request: Request<NetworkStatusRequest>,
     ) -> Result<Response<NetworkStatus>, Status> {
         self.authorize(request)?;
-        let active = self.observe_network().await?;
         let configured = self.inner.events.configured_network_mode();
+        let active = self.observe_network(configured).await?;
         Ok(Response::new(network_status(configured, active)))
     }
 
@@ -52,7 +49,7 @@ impl Network for TypedApi {
                 })
                 .await?;
                 // The edit has committed even if the VM observation is unavailable.
-                let active = api.observe_network().await.unwrap_or_default();
+                let active = api.observe_network(mode).await.unwrap_or_default();
                 Ok(network_status(mode, active))
             })
             .await?;
@@ -71,25 +68,30 @@ impl Network for TypedApi {
 }
 
 impl TypedApi {
-    async fn observe_network(&self) -> Result<ActiveAttachment, Status> {
+    async fn observe_network(&self, desired: ConfigMode) -> Result<NetworkObservation, Status> {
         match &self.supervisor {
             Some(supervisor) => supervisor
-                .active_network()
+                .observe_network(desired)
                 .await
                 .map_err(|_| Status::unavailable("guest supervisor is unavailable")),
-            None => Ok(None),
+            None => Ok(NetworkObservation {
+                restart_pending: Some(false),
+                ..Default::default()
+            }),
         }
     }
 }
 
-fn network_status(configured: ConfigMode, active: ActiveAttachment) -> NetworkStatus {
-    let Some((boot, facts)) = active else {
+fn network_status(configured: ConfigMode, observed: NetworkObservation) -> NetworkStatus {
+    let Some((boot, facts)) = observed.attachment else {
         return NetworkStatus {
             configured_mode: events::mode(configured).into(),
+            restart_pending: observed.restart_pending,
             ..Default::default()
         };
     };
     let mut status = events::network_status(configured, boot);
+    status.restart_pending = observed.restart_pending;
     if let Some(facts) = facts {
         status.guest_address = Some(facts.address.to_string());
         status.gateway_address = facts.gateway.map(|address| address.to_string());

@@ -134,7 +134,7 @@ impl TypedApi {
             spec,
             config,
             Arc::new(move |transition| events.engine(transition)),
-            automatic,
+            Selection::new(automatic).with_configured_mode(settings.network.mode),
         );
         self.supervisor = Some(supervisor.clone());
         (self, supervisor)
@@ -171,7 +171,7 @@ impl TypedApi {
             Ok(Launch {
                 backend,
                 spec,
-                selection: Selection::new(automatic),
+                selection: Selection::new(automatic).with_configured_mode(desired.network.mode),
                 network_policy: proxy.guest_configuration(),
                 applied: Some(Arc::new(move || bus.runtime_applied(&effective))),
             })

@@ -101,6 +101,7 @@ async fn network_mode_preserves_the_active_attachment_and_other_settings() {
     assert_eq!(replay.unwrap().into_inner(), first);
     assert_eq!(first.configured_mode(), NetworkMode::Userspace);
     assert_eq!(first.active_mode(), NetworkMode::Nat);
+    assert_eq!(first.restart_pending, Some(true));
     assert_eq!(first.guest_address.as_deref(), Some("192.0.2.2"));
     assert_eq!(first.gateway_address.as_deref(), Some("192.0.2.1"));
     assert_eq!(first.reason.as_deref(), Some("probe_unavailable"));
@@ -174,6 +175,7 @@ async fn network_mode_preserves_the_active_attachment_and_other_settings() {
         .into_inner();
     assert_eq!(stopped.configured_mode(), NetworkMode::Userspace);
     assert_eq!(stopped.active_mode(), NetworkMode::Unspecified);
+    assert_eq!(stopped.restart_pending, Some(false));
     assert_eq!(
         (
             stopped.guest_address,

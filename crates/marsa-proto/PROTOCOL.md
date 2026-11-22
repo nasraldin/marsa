@@ -64,8 +64,13 @@ It persists a single-field settings edit. A successful response reports the
 mode saved by that request, plus the independently observed VM attachment
 and addresses when available. Active fields remain empty when the observer
 has no guest. Replay the same UUID and mode for the original mutation
-response, or call `Network.Status` for a fresh observation. Engine restart
-is a separate action.
+response, or call `Network.Status` for a fresh observation. Both replies can
+carry `NetworkStatus.restart_pending`. It compares the configured value in
+the response with the mode captured when the current VM launched and is
+false when no VM is running. It is absent when the boot policy is unknown
+or still being applied, including replies from older daemons. An automatic
+fallback changes the active attachment without making a restart pending.
+Engine restart is a separate action.
 
 
 API 1.1 adds `SettingsSnapshot.restart_required` and

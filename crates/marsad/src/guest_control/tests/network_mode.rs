@@ -91,6 +91,7 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
         .into_inner();
     assert_eq!(changed.configured_mode(), NetworkMode::Userspace);
     assert_eq!(changed.active_mode(), NetworkMode::Nat);
+    assert_eq!(changed.restart_pending, Some(true));
     let mut settings = SettingsClient::new(channel);
     assert!(
         settings
@@ -110,6 +111,7 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
         .into_inner();
     assert_eq!(actual.configured_mode(), NetworkMode::Userspace);
     assert_eq!(actual.active_mode(), NetworkMode::Userspace);
+    assert_eq!(actual.restart_pending, Some(false));
     assert!(actual.reason.is_none());
     assert!(
         !settings
