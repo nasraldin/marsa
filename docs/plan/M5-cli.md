@@ -33,7 +33,7 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 ### M5-03 Engine commands
 
 - **Status:** todo
-- **Depends on:** M5-02
+- **Depends on:** M5-02, M4-16
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
 - **Do:** Implement `status`, `start`, `stop`, `restart`, `version`, `logs` (with `--follow`) and `env`.
 - **Deliver:** command implementations and tests.

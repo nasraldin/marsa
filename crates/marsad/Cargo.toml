@@ -30,6 +30,7 @@ tar = { version = "=0.4.46", default-features = false }
 serde_json = "=1.0.154"
 marsa-core = { path = "../marsa-core" }
 nix = { version = "=0.32.0", features = ["fs", "user"] }
+rustix = { version = "=1.1.6", features = ["fs"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 tokio = { version = "=1.54.1", features = ["io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
 tokio-stream = { version = "=0.1.19", features = ["net"] }

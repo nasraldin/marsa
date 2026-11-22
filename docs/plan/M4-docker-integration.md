@@ -41,17 +41,17 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - A wrong checksum fails the step.
   - The binaries run and report the pinned versions.
 
-### M4-04 Docker context, `DOCKER_HOST` and the optional socket symlink
+### M4-04 Optional Docker socket symlink
 
-- **Status:** todo
-- **Depends on:** M4-01, M4-03
-- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), V-12, Q-08
-- **Do:** Create and maintain the `marsa` Docker context without touching other contexts; ask before switching the current context if another is active. Provide the data for `marsa env`. Implement the opt-in `/var/run/docker.sock` symlink as a single, auditable administrator action with a matching removal. Research which common tools ignore contexts (V-12) and document the recommended setting for each.
-- **Deliver:** context management in `marsad`, the symlink helper, a compatibility note in [09](../09-cli-and-docker-compat.md).
+- **Status:** blocked (owner decision Q-08)
+- **Depends on:** M4-01
+- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), Q-08
+- **Do:** Implement the opt-in `/var/run/docker.sock` symlink as a single, auditable administrator action with a matching removal.
+- **Deliver:** the symlink helper.
 - **Accept when:**
-  - Other contexts and an existing `config.json` are never modified beyond adding the `marsa` context (tested with fixtures).
   - Creating and removing the symlink leaves no other change on the system.
-  - V-12 is resolved in the docs.
+
+Q-08 governs where the optional administrator action is offered. Context registration and environment discovery have their own task, M4-16.
 
 ### M4-05 Shared-folder allowlist
 
@@ -113,7 +113,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 - **Depends on:** M3-04, M2-07
 - **Docs:** [06 Network modes](../06-networking.md#network-modes), [06 DNS](../06-networking.md#dns), [06 Container to host](../06-networking.md#container-to-host), V-07
 - **Do:** Verify the NAT attachment requirements (V-07). Implement reading the host resolver configuration and pushing DNS to the guest at boot and on network change, and the `host.docker.internal`, `gateway.docker.internal` and `host.marsa.internal` names.
-- **Deliver:** network manager NAT path, the `Network.Status` call.
+- **Deliver:** native NAT DNS and automatic Docker host aliases. M4-18 owns the shared `Network.Status` call and verification of the user-space resolver.
 - **Accept when:**
   - A container can pull from a public registry and resolve names.
   - A container reaches a service listening on the Mac through `host.docker.internal`.
@@ -162,7 +162,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 ### M4-12 Registry credentials
 
 - **Status:** todo
-- **Depends on:** M4-03, M4-04
+- **Depends on:** M4-03, M4-16
 - **Docs:** [11 Registry credentials](../11-security.md#registry-credentials)
 - **Do:** Offer to set the keychain credential helper as the Docker CLI credential store, never overwriting an existing store. Confirm that no credential is written to disk in plain text or stored in the guest.
 - **Deliver:** credential-store setup logic and tests with config fixtures.
@@ -207,6 +207,17 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - Active workloads are preserved, or the action reports the impact and requires explicit approval before stopping them.
   - A failed engine restart reports the failure and restores the last working configuration.
 
+### M4-16 Docker context and endpoint discovery
+
+- **Status:** done
+- **Depends on:** M4-01, M4-03
+- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), V-12
+- **Do:** Register the `marsa` context with the bundled upstream Docker CLI. Preserve current context selection and let users select Marsa explicitly. Expose the Docker socket and endpoint for `marsa env` through the authenticated host API. Verify common client discovery behavior.
+- **Deliver:** typed backend context and endpoint service, isolated integration tests, and the client compatibility note.
+- **Accept when:**
+  - Explicit context registration is repeatable, preserves other contexts and the existing `config.json`, and refuses to overwrite an unrelated `marsa` context.
+  - The bundled upstream CLI sees the registered context and the host API returns the correct `DOCKER_HOST` data.
+  - V-12 is resolved in the docs.
 
 ### M4-17 Explicit SSH agent access for containers
 
@@ -219,3 +230,25 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - An authorized container can use an explicitly chosen host agent with a disposable test key.
   - An unapproved container and a guest-initiated connection without a current grant cannot use the agent.
   - Revocation closes active streams and rejects subsequent connections. Host private key bytes stay on the host.
+
+### M4-18 Qualify fallback DNS recovery and expose network status
+
+- **Status:** done
+- **Depends on:** M2-07, M3-12, M3-14, M3-15, M5-01
+- **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 DNS](../06-networking.md#dns)
+- **Do:** Verify live scoped resolver changes through the existing user-space DNS gateway. Expose the configured and active attachment, current guest IPv4 and gateway, and available connectivity reason through the authenticated typed API. Keep native NAT and Docker host aliases in M4-08.
+- **Deliver:** `Network.Status`, typed client access, and a signed packaged-runtime DNS test.
+- **Accept when:**
+  - An authenticated caller can read the configured mode while the engine is stopped. While it is running, the result reports the active mode, available connectivity reason, and separately observed IPv4 and gateway. A stopped guest has no stale addresses.
+  - A signed packaged user-space VM resolves a controlled macOS-scoped name from existing default-bridge and custom-network containers. Both containers observe a changed scoped answer without restart, and the Docker API remains available.
+  - The existing registry TLS and host-security checks still pass. The live test uses disposable DNS records and leaves host networking and firewall settings alone.
+
+- **Evidence:** On macOS 27.2.1, the signed packaged runtime returned the current user-space guest and gateway addresses through `Network.Status`. Existing default-bridge and custom-network containers saw the macOS local-only DNS answer change from `192.0.2.64` to `192.0.2.65` with unchanged startup timestamps. The signed registry pull with TLS verification and the helper's loopback-isolation fixture also passed.
+
+With the pinned Docker CLI on `PATH` and the built guest and network-helper paths set for the [packaged runtime tests](../../crates/marsad/tests/packaged_runtime.rs), run:
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+  fallback_dns::scoped_dns_updates_reach_existing_containers_without_restart \
+  -- --exact --ignored --nocapture --test-threads=1
+```

@@ -17,6 +17,30 @@ service Shares {
   rpc ResolveBind(ResolveBindRequest) returns (ResolveBindResponse);
 }
 
+// Discover the private Docker endpoint and explicitly register a local context.
+service DockerDiscovery {
+  rpc GetEndpoint(GetDockerEndpointRequest) returns (DockerEndpoint);
+  rpc EnsureContext(EnsureDockerContextRequest) returns (EnsureDockerContextResponse);
+}
+
+message GetDockerEndpointRequest {}
+
+message DockerEndpoint {
+  string socket_path = 1;
+  string docker_host = 2;
+  string context_name = 3;
+}
+
+message EnsureDockerContextRequest {
+  string request_id = 1;
+}
+
+message EnsureDockerContextResponse {
+  DockerEndpoint endpoint = 1;
+  // False when an identical context was already installed.
+  bool created = 2;
+}
+
 // Report and configure the engine's networking.
 service Network {
   rpc Status(NetworkStatusRequest) returns (NetworkStatus);

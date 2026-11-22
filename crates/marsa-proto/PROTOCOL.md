@@ -43,6 +43,10 @@ that cursor in order. Sequence numbers are scoped to the stream ID of the
 daemon process. If a subscriber falls behind the bounded buffer, the daemon
 ends the stream with `RESOURCE_EXHAUSTED`. Clients replace their view with the
 new snapshot on reconnect.
+Host minor 2 introduces `DockerDiscovery.GetEndpoint` and
+`DockerDiscovery.EnsureContext`. Registration is explicit, and the request has
+no shell command, executable path, or context selection fields.
+
 The API design and service table live in the daemon design.
 [Host typed API](../../docs/03-host-daemon.md#typed-api)
 

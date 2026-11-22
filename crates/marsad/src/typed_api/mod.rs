@@ -4,9 +4,11 @@ mod bind_policy;
 mod bind_prompts;
 mod diagnostics;
 mod disk;
+mod docker_discovery;
 mod engine;
 mod events;
 mod meta;
+mod network;
 mod requests;
 mod settings;
 mod shares;
@@ -19,9 +21,11 @@ use marsa_core::{
     settings::{NetworkMode, Settings},
 };
 use marsa_proto::host::v1::{
-    CollectDiagnosticsResponse, diagnostics_server::DiagnosticsServer, disk_server::DiskServer,
+    CollectDiagnosticsResponse, EnsureDockerContextResponse, diagnostics_server::DiagnosticsServer,
+    disk_server::DiskServer, docker_discovery_server::DockerDiscoveryServer,
     engine_server::EngineServer, events_server::EventsServer, meta_server::MetaServer,
-    settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
+    network_server::NetworkServer, settings_server::SettingsServer, shares_server::SharesServer,
+    stats_server::StatsServer,
 };
 use marsa_share::{Allowlist, SharePolicy};
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
@@ -49,6 +53,7 @@ pub struct TypedApi {
     inner: Arc<Shared>,
     supervisor: Option<Supervisor>,
     capabilities: Option<Capabilities>,
+    docker_contexts: Option<Arc<docker_discovery::Registration>>,
 }
 
 struct Shared {
@@ -64,6 +69,7 @@ struct Shared {
     remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
     bind_resolutions: requests::Cache<(String, i32), marsa_proto::host::v1::ResolveBindResponse>,
     bind_edit: tokio::sync::Mutex<()>,
+    docker_context_requests: requests::Cache<(), EnsureDockerContextResponse>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
 }
@@ -91,11 +97,13 @@ impl TypedApi {
                 remove_share_requests: requests::Cache::new(),
                 bind_resolutions: requests::Cache::new(),
                 bind_edit: tokio::sync::Mutex::new(()),
+                docker_context_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
                 closing,
             }),
             supervisor: None,
             capabilities: None,
+            docker_contexts: None,
         })
     }
 
@@ -225,8 +233,14 @@ impl TypedApi {
                     .max_decoding_message_size(CONTROL_LIMIT)
                     .max_encoding_message_size(CONFIG_LIMIT),
             )
+            .add_service(
+                DockerDiscoveryServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT)
+                    .max_encoding_message_size(CONTROL_LIMIT),
+            )
             .add_service(EventsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(StatsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
+            .add_service(NetworkServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 stop.await;
                 self.inner.closing.send_replace(true);
