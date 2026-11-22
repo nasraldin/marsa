@@ -83,7 +83,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-19 Qualify host edits in a container development server
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M4-06, M4-03
 - **Docs:** [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
 - **Do:** Test an upstream development server that relies on file-change events in the signed default Apple virtualization runtime. Use scoped Compose Watch sync to writable container storage. Record limitations for development servers using direct virtiofs binds.
