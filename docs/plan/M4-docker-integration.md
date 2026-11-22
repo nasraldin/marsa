@@ -96,7 +96,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 - **Depends on:** M3-04, M2-07
 - **Docs:** [06 Network modes](../06-networking.md#network-modes), [06 DNS](../06-networking.md#dns), [06 Container to host](../06-networking.md#container-to-host), V-07
 - **Do:** Verify the NAT attachment requirements (V-07). Implement reading the host resolver configuration and pushing DNS to the guest at boot and on network change, and the `host.docker.internal`, `gateway.docker.internal` and `host.marsa.internal` names.
-- **Deliver:** network manager NAT path, the `Network.Status` call.
+- **Deliver:** native NAT DNS and automatic Docker host aliases. M4-18 owns the shared `Network.Status` call and verification of the user-space resolver.
 - **Accept when:**
   - A container can pull from a public registry and resolve names.
   - A container reaches a service listening on the Mac through `host.docker.internal`.
@@ -188,3 +188,15 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - The host keeps desired settings when an update requires a later guest boot.
   - Active workloads are preserved, or the action reports the impact and requires explicit approval before stopping them.
   - A failed engine restart reports the failure and restores the last working configuration.
+
+### M4-18 Qualify fallback DNS recovery and expose network status
+
+- **Status:** in progress
+- **Depends on:** M2-07, M3-12, M3-14, M3-15, M5-01
+- **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 DNS](../06-networking.md#dns)
+- **Do:** Verify live scoped resolver changes through the existing user-space DNS gateway. Expose the configured and active attachment, current guest IPv4 and gateway, and available connectivity reason through the authenticated typed API. Keep native NAT and Docker host aliases in M4-08.
+- **Deliver:** `Network.Status`, typed client access, and a signed packaged-runtime DNS test.
+- **Accept when:**
+  - An authenticated caller can read the configured mode while the engine is stopped. While it is running, the result reports the active mode, available connectivity reason, and separately observed IPv4 and gateway. A stopped guest has no stale addresses.
+  - A signed packaged user-space VM resolves a controlled macOS-scoped name from existing default-bridge and custom-network containers. Both containers observe a changed scoped answer without restart, and the Docker API remains available.
+  - The existing registry TLS and host-security checks still pass. The live test uses disposable DNS records and leaves host networking and firewall settings alone.
