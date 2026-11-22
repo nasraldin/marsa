@@ -5,7 +5,10 @@ use std::{
     io,
     os::{
         fd::{AsRawFd as _, OwnedFd},
-        unix::{fs::PermissionsExt as _, net::UnixDatagram},
+        unix::{
+            fs::PermissionsExt as _,
+            net::{UnixDatagram, UnixStream},
+        },
     },
     path::{Path, PathBuf},
     process::Stdio,
@@ -70,31 +73,30 @@ impl Transport {
         self.stop().await;
         self.clear_frames().map_err(io_failure)?;
         let input = self.peer.try_clone().map_err(io_failure)?;
+        let (control, helper_control) = UnixStream::pair().map_err(io_failure)?;
+        control.set_nonblocking(true).map_err(io_failure)?;
+        let mut control = tokio::net::UnixStream::from_std(control).map_err(io_failure)?;
+        let helper_control = File::from(OwnedFd::from(helper_control));
         let mut child = Command::new(&self.helper)
             .env_clear()
             .stdin(Stdio::from(input))
-            .stdout(Stdio::piped())
+            .stdout(Stdio::from(helper_control))
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
             .map_err(io_failure)?;
 
-        let mut output = child
-            .stdout
-            .take()
-            .ok_or_else(|| backend(START, "missing readiness pipe"))?;
         let mut buffer = [0; READY.len()];
-        timeout(START_LIMIT, output.read_exact(&mut buffer))
+        timeout(START_LIMIT, control.read_exact(&mut buffer))
             .await
             .map_err(|_| VmError::Timeout {
                 operation: START,
                 limit: START_LIMIT,
             })?
-            .map_err(|err| backend(START, format!("readiness pipe: {err}")))?;
+            .map_err(|err| backend(START, format!("readiness socket: {err}")))?;
         if &buffer != READY {
             return Err(backend(START, "invalid readiness signal"));
         }
-        drop(output);
         if let Some(status) = child.try_wait().map_err(io_failure)? {
             return Err(backend(START, format!("helper exited: {status}")));
         }
@@ -103,6 +105,8 @@ impl Transport {
         let mut state = controller.lifecycle.watch();
         let controller = Arc::downgrade(controller);
         let worker = tokio::spawn(async move {
+            // The helper keeps running only while this daemon owns the control peer.
+            let _control = control;
             tokio::select! {
                 biased;
                 _ = shutdown => { let _ = child.kill().await; }
