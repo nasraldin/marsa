@@ -37,7 +37,7 @@ The active filesystem grants used to enforce binds are supplied by M4-06. M8-10 
 
 ### M8-03 Audit log
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M8-02
 - **Docs:** [10 Audit log](../10-mcp-server.md#audit-log)
 - **Do:** Record every agent call: time, client, tool, arguments with secrets redacted, decision, approver, result. Store it append-only with rotation and expose it through the API with filters.
