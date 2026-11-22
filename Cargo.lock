@@ -663,6 +663,8 @@ name = "marsa-share"
 version = "0.1.0"
 dependencies = [
  "marsa-core",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]
@@ -1803,6 +1805,8 @@ version = "0.1.0"
 dependencies = [
  "marsa-core",
  "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "toml",
 ]
