@@ -149,7 +149,16 @@ A version 1 feature. The GUI and CLI show what would be removed and how much spa
 
 ### Backup and Time Machine
 
-**Proposed:** exclude `data.img` from Time Machine by default (it is large and changes constantly) and say so in settings, with a switch. Volume backup and export is a later feature.
+The packaged daemon excludes `data.img` from Time Machine by default. Set
+`disk.exclude_from_backup = false` to clear that file's exclusion on the
+next VM activation. This setting applies to the raw image in the private VM
+directory. Volume backup and export is a later feature.
+[Apple backup resource key](https://developer.apple.com/documentation/foundation/urlresourcekey/isexcludedfrombackupkey).
+
+`Disk.Usage` reports the actual host allocation and logical image capacity.
+Guest usage and capacity describe the mounted filesystem and are available
+after the ready VM publishes its statistics. The service distinguishes
+unavailable guest usage from an empty filesystem.
 
 ## Registry credentials
 

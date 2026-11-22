@@ -22,6 +22,7 @@ use nix::libc;
 
 use crate::diagnostics::localized;
 
+mod backup;
 mod disk;
 mod shares;
 use disk::ensure_disk;
@@ -139,6 +140,7 @@ impl Packaged {
         spec.validate()
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         ensure_disk(paths, uid, settings.disk.data_size_limit)?;
+        backup::set_excluded(&paths.data_disk(), settings.disk.exclude_from_backup)?;
         Ok((self.backend(), spec))
     }
 
