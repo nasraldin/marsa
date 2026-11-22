@@ -36,7 +36,7 @@ async fn scoped_dns_updates_reach_existing_containers_without_restart() {
     let logs = scratch.path().join("daemon.log");
     let mut process = Daemon(
         Command::new(daemon)
-            .env("HOME", home)
+            .env("HOME", &home)
             .env("LC_ALL", "C")
             .stdout(fs::File::create(&logs).unwrap())
             .stderr(fs::File::options().append(true).open(&logs).unwrap())
@@ -53,6 +53,11 @@ async fn scoped_dns_updates_reach_existing_containers_without_restart() {
         .into_inner();
     assert_eq!(stopped_network.configured_mode(), NetworkMode::Userspace);
     assert_eq!(stopped_network.active_mode(), NetworkMode::Unspecified);
+    let stopped_cli = cli_status(&home).await;
+    assert_eq!(stopped_cli["configured_mode"], "userspace");
+    assert!(stopped_cli["active_mode"].is_null());
+    assert!(stopped_cli["guest_address"].is_null());
+    assert!(stopped_cli["gateway_address"].is_null());
 
     let started = timeout(BOOT, engine.start(action(1)))
         .await
@@ -84,6 +89,10 @@ async fn scoped_dns_updates_reach_existing_containers_without_restart() {
         running_network.gateway_address.as_deref(),
         Some("192.168.127.1")
     );
+    let active_cli = cli_status(&home).await;
+    assert_eq!(active_cli["active_mode"], "userspace");
+    assert_eq!(active_cli["guest_address"], "192.168.127.2");
+    assert_eq!(active_cli["gateway_address"], "192.168.127.1");
 
     let guest = PathBuf::from(env::var_os("MARSA_VZ_GUEST_DIR").expect("set MARSA_VZ_GUEST_DIR"));
     let output = tokio::process::Command::new("python3")
@@ -116,4 +125,21 @@ async fn scoped_dns_updates_reach_existing_containers_without_restart() {
             .into_inner(),
         stopped_network
     );
+    assert_eq!(cli_status(&home).await, stopped_cli);
+}
+
+async fn cli_status(home: &Path) -> serde_json::Value {
+    let cli = env::var_os("MARSA_TEST_CLI").expect("set MARSA_TEST_CLI to the built Marsa CLI");
+    let output = tokio::process::Command::new(cli)
+        .env("HOME", home)
+        .env("LC_ALL", "C")
+        .args(["network", "status", "--json"])
+        .kill_on_drop(true)
+        .output()
+        .await
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["kind"], "network_status");
+    result
 }

@@ -4,6 +4,8 @@ mod command;
 #[cfg(unix)]
 mod engine;
 #[cfg(unix)]
+mod network;
+#[cfg(unix)]
 mod settings;
 #[cfg(unix)]
 mod share_folders;
@@ -161,6 +163,12 @@ async fn execute(
     }
     if name == "completion" {
         return completions(args);
+    }
+    #[cfg(unix)]
+    if name == "network" && args.subcommand_matches("status").is_some() {
+        return network::status(language)
+            .await
+            .unwrap_or_else(Outcome::Failure);
     }
     #[cfg(unix)]
     if name == "config" {
