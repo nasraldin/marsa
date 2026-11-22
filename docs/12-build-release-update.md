@@ -246,11 +246,25 @@ The default guest archive path is
 `--guest-archive` for another read-only volume path. The runner uses `tart exec`
 to check IPv4, the gateway and HTTPS, verify the guest ZIP against the host's
 SHA-256, assess the app with a test quarantine marker, and wait for the daemon
-socket after first launch. Run the full check with a graphical Tart session
-available for the standard macOS first-open confirmation. Use
-`--assessment-only` for an unattended check that ends after Gatekeeper's
-assessment. Use a fresh clone for the full run because launch creates Marsa
-state in the guest account.
+socket after first launch. Use a fresh clone for the full run because launch
+creates Marsa state in the guest account. Keep the graphical Tart window visible
+so the agent can confirm the standard macOS first-open prompt for the verified
+Marsa app. Use `--assessment-only` for a headless run that ends after assessment.
+
+If native window automation times out while other Tart processes are running,
+give the qualification window a dedicated app identity. Create the local
+viewer from an installed, verified Tart app into a private directory:
+
+```sh
+viewer=$(bash packaging/macos/prepare-tart-window.sh \
+  "/path/to/installed/Tart.app" "/path/to/private/Marsa Tart Qualification.app")
+```
+
+Use `"$viewer"` for the qualification VM's `run` command with the existing
+`--net-fd` and read-only volume arguments. Address the resulting window by
+bundle identifier `io.github.nasraldin.marsa.tart-qualification-viewer`.
+The local viewer uses ad hoc signing with only Apple's virtualization
+entitlement. The host runner still uses the installed Tart CLI for `exec`.
 
 G3 additionally requires the second physical Mac boot, and app release
 qualification includes downloading the DMG through a browser with quarantine
