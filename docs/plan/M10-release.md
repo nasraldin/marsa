@@ -43,7 +43,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 ### M10-04 Updater implementation and rollback
 
 - **Status:** todo
-- **Depends on:** M10-03, M10-02
+- **Depends on:** M10-03, M10-02, M10-11
 - **Docs:** [12 Auto-update](../12-build-release-update.md#auto-update), [11 Updates and supply chain](../11-security.md#updates-and-supply-chain)
 - **Do:** Implement the `Updates` service: check, verify the manifest signature, download, verify hash and code signature, stop the VM cleanly, swap the bundle atomically while keeping the previous version, relaunch, health-check, and roll back automatically on failure.
 - **Deliver:** updater module and tests with a local update server.
@@ -119,3 +119,15 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
   - Every checklist item is ticked with evidence.
   - Update and rollback both work on the released artifacts.
   - The owner has recorded the go decision.
+
+
+### M10-11 Qualify maintained Rust update verifier candidates
+
+- **Status:** in progress
+- **Depends on:** M10-03, M0-07
+- **Docs:** [12 Auto-update](../12-build-release-update.md#auto-update), [Update manifest](../reference/update-manifest.md)
+- **Do:** Evaluate current released Rust TUF verification candidates against the unchanged workspace dependency policy in disposable checkouts. Record exact versions, configuration, and findings for M10-04.
+- **Deliver:** reproducible qualification results in the update manifest reference.
+- **Accept when:**
+  - The candidate graph is evaluated for licences, advisories, and dependency bans using the normal workspace lockfile and strict checks.
+  - The evaluation records which options remain eligible for release integration and why. The production graph and update trust policy are unchanged.
