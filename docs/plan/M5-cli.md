@@ -42,17 +42,16 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
   - `marsa status --json` includes VM state, versions and resource use.
   - `eval "$(marsa env)"` makes `docker ps` work in a shell with no context set.
 
-### M5-04 Settings, sharing and network commands
+### M5-04 Network commands
 
 - **Status:** todo
-- **Depends on:** M5-02, M4-05, M4-10
+- **Depends on:** M5-02, M4-10, M4-18
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
-- **Do:** Implement `config get|set|list`, `share list|add|remove` and `network status|mode`. `share add` answers pending bind-mount approvals from the terminal.
-- **Deliver:** command implementations and tests.
+- **Do:** Implement `network status|mode` using authenticated network RPCs. M5-10 owns independent settings and folder management. M5-09 owns Docker bind approvals.
+- **Deliver:** network command implementations and tests.
 - **Accept when:**
-  - Invalid settings are rejected with the daemon's validation message.
-  - Adding a protected path fails with an explanation.
-  - A pending approval raised by `docker run -v` can be granted from the CLI.
+  - Status reports the configured and active modes, including an automatic fallback reason.
+  - Explicit configuration stages the selected mode and reports any restart requirement.
 
 ### M5-05 Disk commands
 
@@ -86,3 +85,16 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 - **Accept when:**
   - Every CLI message has both translations (build fails otherwise).
   - Arabic output with embedded container names and paths reads correctly in a terminal that supports bidirectional text, and remains unambiguous in one that does not.
+
+
+### M5-10 Settings and shared-folder CLI commands
+
+- **Status:** in progress
+- **Depends on:** M5-02, M4-05
+- **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
+- **Do:** Implement `config get|set|list` and `share list|add|remove` through the authenticated typed client. Use the current revision for settings updates and expose the daemon's validation and restart results.
+- **Deliver:** command implementations and tests in English, Arabic, and JSON.
+- **Accept when:**
+  - The daemon's validation message explains an invalid setting.
+  - Adding a protected path fails safely with an explanation.
+  - The owner can list, add and remove an ordinary folder without changing other settings.
