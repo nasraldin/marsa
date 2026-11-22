@@ -36,7 +36,7 @@ M8-10 owns bind preparation and active host share policy checks. Operate tools r
 
 ### M8-03 Audit log
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M8-02
 - **Docs:** [10 Audit log](../10-mcp-server.md#audit-log)
 - **Do:** Record every agent call: time, client, tool, arguments with secrets redacted, decision, approver, result. Store it append-only with rotation and expose it through the API with filters.

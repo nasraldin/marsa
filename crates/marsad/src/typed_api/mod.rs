@@ -107,7 +107,7 @@ impl TypedApi {
         let (closing, _) = watch::channel(false);
         Ok(Self {
             inner: Arc::new(Shared {
-                agents: agents::State::new(),
+                agents: agents::State::new(paths.clone(), uid),
                 grants: GrantStore::new(paths.clone(), uid),
                 paths,
                 uid,
