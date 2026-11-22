@@ -36,6 +36,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-026 | Use EROFS for the guest root filesystem | Accepted |
 | D-027 | Apply proxy settings at a controlled engine restart | Accepted |
 | D-028 | Qualify native IPv4 independently of runtime and power management | Accepted |
+| D-031 | Scope development file sync with Compose Watch | Accepted |
 
 ---
 
@@ -211,6 +212,16 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Consequence:** M3-16 owns common device support. M3-11 and M3-12 depend on those capabilities and M3-12 uses M3-15 for automatic egress selection. M3-04 keeps native DHCP, IPv4 address, default gateway, and verified HTTPS as its own acceptance gate.
 - **Reopen if:** The fallback and native attachments require different stop, pause, resume or guest control semantics.
 - **Date and task:** 2026-11-22, M3-16.
+
+---
+
+## D-031 Scope development file sync with Compose Watch
+
+- **Decision:** Support explicitly selected development source directories through Compose Watch sync into the container filesystem.
+- **Why:** The production Apple virtiofs configuration reflected the updated bytes from a Mac atomic save without generating an inotify event. With signed Compose 5.8.0 on the same backend, an atomic save produced native Linux create, modify and close-write notifications. The fixture confirmed initial sync, exact updated contents, and exclusion of ignored and out-of-scope files.
+- **Consequence:** Show the scoped configuration in the development guide and keep the ordinary bind-mount workflow for shared files. Qualify a common development server in M4-19. [Compose Watch](https://docs.docker.com/compose/how-tos/file-watch/)
+- **Reopen if:** A supported Apple virtiofs interface provides host-origin notifications with the same share isolation.
+- **Date and task:** 2026-11-22, M4-06.
 
 ---
 

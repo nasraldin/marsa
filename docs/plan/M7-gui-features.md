@@ -117,7 +117,7 @@ Every task here carries these standing acceptance conditions in addition to its 
 ### M7-10 Settings
 
 - **Status:** todo
-- **Depends on:** M6-09, M4-05, M4-10, M4-11
+- **Depends on:** M6-09, M4-05, M4-06, M4-10, M4-11
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Settings sections: General (language, theme, start at login), Resources, Sharing (allowlist management with protected-path explanations), Network (mode, LAN exposure, proxy, registries, DNS), Docker (context, optional socket symlink, CLI links, credential store), Updates, About (versions of every component, licences).
 - **Deliver:** screens and tests.
@@ -125,6 +125,7 @@ Every task here carries these standing acceptance conditions in addition to its 
   - Every setting in the daemon's settings model is reachable.
   - Language and theme changes apply live.
   - About lists the versions from the guest manifest and the upstream binaries.
+  - Sharing shows exact pending bind paths and offers once, always and deny. An approved static share displays the restart requirement and preserves workloads until the owner explicitly applies it.
 
 ### M7-11 Disk and cleanup
 
