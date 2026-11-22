@@ -192,3 +192,14 @@ CLI rules:
 - Human output is localised (English and Arabic); `--json` output is not.
 - Destructive commands require an explicit flag or a typed confirmation, and never run destructively when stdin is not a terminal unless `--yes` is given.
 - `marsa` starts `marsad` if it is not running.
+
+Run `eval "$(marsa env)"` in a POSIX-compatible shell to export the per-user
+Docker socket for the current shell. `marsa env --json` returns the same
+address in the `docker_host` field. An existing `DOCKER_CONTEXT` setting
+continues to take precedence in the Docker client.
+
+`marsa start` shows progress on standard error and returns when the engine
+is ready. `marsa status --json` shows engine state, the installed component
+versions and the latest resource observation from the guest. `marsa logs`
+shows a bounded tail of classified daemon, guest console and engine records.
+Use `--follow` to continue receiving new records.

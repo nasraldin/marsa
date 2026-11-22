@@ -53,4 +53,22 @@ Designate the project custodians under Q-04. Keep root and targets private keys 
 3. On suspected exposure, stop publication and isolate the signer. Use the trusted root threshold to revoke the affected key and publish freshly signed metadata with advanced versions. Reject expired, replayed or untrusted metadata. Verify the Apple signature of each retained archive and notify users of affected releases.
 4. If the old root threshold is compromised or unavailable, stop serving the affected update repository and re-establish trust out of band with a newly notarized app through a verified release channel. Publish manual recovery instructions. Revoke a compromised Apple identity through Apple's procedures and re-establish that trust separately.
 
-M10-04 integrates an audited Rust TUF verifier. The current candidate is `tough` 0.24.0. Its published API covers bounded metadata loading, expiry, persistent rollback detection and replaceable transport. Check and pin the reviewed release when integrating it. [Verifier release](https://github.com/awslabs/tough/releases/tag/tough-v0.24.0), [loader API](https://docs.rs/tough/0.24.0/tough/struct.RepositoryLoader.html).
+## Verifier qualification
+
+M10-04 requires an audited, maintained Rust verifier. On 2026-11-22, M10-11
+resolved each candidate separately as an exact `marsad` dependency in a disposable
+copy of `main` at `1b4899d`, keeping the workspace lockfile and `deny.toml`.
+The policy command was `cargo deny --locked --config deny.toml check -D warnings`.
+
+| Candidate | Features checked | Result |
+|---|---|---|
+| [`tough` 0.24.0](https://docs.rs/tough/0.24.0/tough/struct.RepositoryLoader.html) | `default-features = false` | Compiles. AWS-LC brings `untrusted` 0.7.1 alongside `untrusted` 0.9.0 from the guest TLS provider. The duplicate-version ban rejects the graph. |
+| [`sigstore-tuf` 0.16.0](https://docs.rs/sigstore-tuf/0.16.0/sigstore_tuf/) | `default-features = false` | Seven duplicate-version groups, including `base64`, `der`, and `x509-cert`. The duplicate-version ban rejects the graph. |
+| [`tuffet` 0.1.0](https://github.com/rf-signing-experiment/tuffet/tree/tuffet-v0.1.0) | Default RustCrypto backend | Pins `rsa` 0.10.0-rc.19, which the advisory check rejects under [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html). |
+| `tuffet` 0.1.0 | `default-features = false`, `features = ["aws-lc-rs"]` | Same conflicting `untrusted` versions as `tough`. |
+
+`tuffet` without either backend passes the dependency check but has no usable
+verifier. Its source requires a backend at compile time. None of these published
+configurations qualifies for the production workspace. Recheck maintained
+releases in M10-04 before choosing a verifier. Preserve TUF expiry, rollback,
+root rotation, target verification and the independent Apple signing check.

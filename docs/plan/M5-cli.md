@@ -32,10 +32,10 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 
 ### M5-03 Engine commands
 
-- **Status:** todo
-- **Depends on:** M5-02, M4-16
+- **Status:** done
+- **Depends on:** M5-02, M4-16, M9-13
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
-- **Do:** Implement `status`, `start`, `stop`, `restart`, `version`, `logs` (with `--follow`) and `env`.
+- **Do:** Implement `status`, `start`, `stop`, `restart`, `version`, `logs` (with `--follow`) and `env`. Complete the diagnostic service’s bounded, sanitized log stream.
 - **Deliver:** command implementations and tests.
 - **Accept when:**
   - `marsa start` returns when the engine is ready and shows progress while waiting.
