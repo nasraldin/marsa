@@ -1,6 +1,7 @@
 //! Serve typed host APIs from one state and a composable VM supervisor.
 
 mod diagnostics;
+mod disk;
 mod engine;
 mod events;
 mod meta;
@@ -17,8 +18,9 @@ use marsa_core::{
 };
 use marsa_proto::host::v1::{
     CollectDiagnosticsResponse, ComponentVersion, diagnostics_server::DiagnosticsServer,
-    engine_server::EngineServer, events_server::EventsServer, meta_server::MetaServer,
-    settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
+    disk_server::DiskServer, engine_server::EngineServer, events_server::EventsServer,
+    meta_server::MetaServer, settings_server::SettingsServer, shares_server::SharesServer,
+    stats_server::StatsServer,
 };
 use marsa_share::SharePolicy;
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
@@ -186,6 +188,7 @@ impl TypedApi {
                     .max_decoding_message_size(CONTROL_LIMIT)
                     .max_encoding_message_size(CONTROL_LIMIT),
             )
+            .add_service(DiskServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(EngineServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(
                 SettingsServer::new(self.clone())
