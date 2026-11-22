@@ -37,14 +37,18 @@ impl Fixture {
 
     fn command(&self, source: &Path) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_xtask"));
+        self.append_args(&mut command, source, &self.tree.join("release"));
+        command
+    }
+
+    fn append_args(&self, command: &mut Command, source: &Path, output: &Path) {
         command
             .args(["stage-release-resources", "--guest-dir"])
             .arg(source)
             .arg("--guest-manifest-sha256")
             .arg(&self.manifest_checksum)
             .arg("--output")
-            .arg(self.tree.join("release"));
-        command
+            .arg(output);
     }
 
     fn reject(&self, source: &Path, message: &str) {
@@ -173,12 +177,9 @@ fn an_existing_output_symlink_is_left_alone() {
 
 #[test]
 fn wrong_supplier_bytes_never_publish_the_verified_guest() {
-    use std::os::unix::fs::PermissionsExt;
-
     let fixture = Fixture::new();
-    let curl = fixture.tree.join("curl");
-    fs::write(
-        &curl,
+    install_curl(
+        &fixture.tree,
         r#"#!/bin/sh
 while [ "$1" != "--output" ]; do
     [ "$#" -gt 0 ] || exit 1
@@ -186,11 +187,96 @@ while [ "$1" != "--output" ]; do
 done
 printf 'unverified fixture' > "$2"
 "#,
-    )
-    .unwrap();
-    fs::set_permissions(curl, fs::Permissions::from_mode(0o700)).unwrap();
-
+    );
     let mut command = fixture.command(&fixture.tree.join("guest"));
     command.env("PATH", &fixture.tree);
     fixture.reject_command(command, "bin/docker SHA-256 mismatch");
+}
+
+#[test]
+fn scratch_is_private_under_a_permissive_umask() {
+    let fixture = Fixture::new();
+    let parent = fixture.tree.join("output");
+    fs::create_dir(&parent).unwrap();
+    let tools = fixture.tree.join("tools");
+    fs::create_dir(&tools).unwrap();
+    install_curl(
+        &tools,
+        r#"#!/bin/sh
+while [ "$1" != "--output" ]; do
+    [ "$#" -gt 0 ] || exit 1
+    shift
+done
+ls -ld "${2%/*}" > "$SCRATCH_MODE"
+printf 'unverified fixture' > "$2"
+"#,
+    );
+    let report = fixture.tree.join("scratch-mode");
+    let mut command = Command::new("/bin/sh");
+    command
+        .args(["-c", "umask 000; exec \"$@\"", "release-test"])
+        .arg(env!("CARGO_BIN_EXE_xtask"));
+    fixture.append_args(
+        &mut command,
+        &fixture.tree.join("guest"),
+        &parent.join("release"),
+    );
+    let result = command
+        .env("PATH", format!("{}:/bin", tools.display()))
+        .env("SCRATCH_MODE", &report)
+        .output()
+        .unwrap();
+
+    assert!(!result.status.success());
+    let mode = fs::read_to_string(report).unwrap();
+    assert!(mode.starts_with("drwx------"), "{mode}");
+    assert_eq!(fs::read_dir(parent).unwrap().count(), 0);
+}
+
+#[test]
+fn supplier_stage_and_cleanup_stay_in_the_open_parent_after_a_path_change() {
+    let fixture = Fixture::new();
+    let output_parent = fixture.tree.join("output");
+    let moved_parent = fixture.tree.join("moved");
+    fs::create_dir(&output_parent).unwrap();
+    let tools = fixture.tree.join("tools");
+    fs::create_dir(&tools).unwrap();
+    install_curl(
+        &tools,
+        r#"#!/bin/sh
+while [ "$1" != "--output" ]; do
+    [ "$#" -gt 0 ] || exit 1
+    shift
+done
+mv "$OUTPUT_PARENT" "$MOVED_PARENT" || exit 1
+mkdir "$OUTPUT_PARENT" || exit 1
+printf 'unverified fixture' > "$2"
+"#,
+    );
+    let mut command = Command::new(env!("CARGO_BIN_EXE_xtask"));
+    fixture.append_args(
+        &mut command,
+        &fixture.tree.join("guest"),
+        &output_parent.join("release"),
+    );
+    let result = command
+        .env("PATH", format!("{}:/bin", tools.display()))
+        .env("OUTPUT_PARENT", &output_parent)
+        .env("MOVED_PARENT", &moved_parent)
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8(result.stderr).unwrap();
+    assert!(!result.status.success());
+    assert!(stderr.contains("bin/docker SHA-256 mismatch"), "{stderr}");
+    assert_eq!(fs::read_dir(moved_parent).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(output_parent).unwrap().count(), 0);
+}
+
+fn install_curl(directory: &Path, script: &str) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let curl = directory.join("curl");
+    fs::write(&curl, script).unwrap();
+    fs::set_permissions(curl, fs::Permissions::from_mode(0o700)).unwrap();
 }

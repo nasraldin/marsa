@@ -102,8 +102,9 @@ the manifest and guest bytes, then fetches and verifies the four
 [pinned Docker artifacts](09-cli-and-docker-compat.md#bundled-upstream-binaries).
 
 Use paths without symlink components and a new output directory inside a
-workspace you own and control. The command publishes the complete stage
-atomically on macOS and GNU/Linux. Copy the staged `Resources/guest` and
+workspace you own and control. The stage uses a private scratch directory
+under the checked output parent and verifies the parent path again before
+publishing the complete stage atomically on macOS and GNU/Linux. Copy the staged `Resources/guest` and
 `Resources/bin` trees into `Contents/Resources/` and use
 `upstream-sbom-input.json` as an input to the combined release SBOM and
 third-party notices (M10-08).

@@ -87,7 +87,12 @@ fn stage(inputs: Inputs<'_>, workspace: &Path) -> io::Result<PathBuf> {
         .file_name()
         .ok_or(io::ErrorKind::InvalidInput)?;
     let parent_path = inputs.output.parent().ok_or(io::ErrorKind::InvalidInput)?;
-    let parent = platform::directory(parent_path)?;
+    let parent_path = if parent_path.as_os_str().is_empty() {
+        std::env::current_dir()?
+    } else {
+        std::path::absolute(parent_path)?
+    };
+    let parent = platform::directory(&parent_path)?;
     platform::owned_output_parent(&parent)?;
     platform::require_absent(&parent, output_name)?;
     let source_metadata = source.metadata()?;
@@ -101,29 +106,50 @@ fn stage(inputs: Inputs<'_>, workspace: &Path) -> io::Result<PathBuf> {
         ));
     }
 
-    let work = tempfile::Builder::new()
-        .prefix(".marsa-release-")
-        .tempdir_in(parent_path)?;
+    platform::with_current_directory(&parent, || {
+        prepare_and_publish(
+            &source,
+            inputs.manifest_sha256,
+            workspace,
+            &parent,
+            &parent_path,
+            output_name,
+        )
+    })?;
+    Ok(inputs.output.to_owned())
+}
+
+fn prepare_and_publish(
+    source: &File,
+    manifest_sha256: &str,
+    workspace: &Path,
+    parent: &File,
+    parent_path: &Path,
+    output_name: &std::ffi::OsStr,
+) -> io::Result<()> {
+    let work = platform::Scratch::create()?;
     let output = work.path().join("publish");
     let resources = output.join("Resources");
     let staged_guest = resources.join("guest");
     fs::create_dir_all(&staged_guest)?;
     fs::set_permissions(&output, Permissions::from_mode(0o700))?;
     let pins = fs::read_to_string(workspace.join("guest/versions.toml"))?;
-    stage_guest(&source, inputs.manifest_sha256, &pins, &staged_guest)?;
+    stage_guest(source, manifest_sha256, &pins, &staged_guest)?;
     let pins = fs::read_to_string(workspace.join("packaging/upstream-versions.toml"))?;
     upstream::stage_release(&pins, work.path(), &resources, &output)?;
 
     sync_tree(&output)?;
     let temporary = platform::directory(work.path())?;
-    platform::publish(&temporary, "publish", &parent, output_name)?;
-    parent.sync_all().map_err(|error| {
-        io::Error::new(
-            error.kind(),
-            format!("release resources were published, but directory sync failed: {error}"),
-        )
-    })?;
-    Ok(inputs.output.to_owned())
+    platform::publish_release(&temporary, parent, parent_path, output_name)?;
+    temporary
+        .sync_all()
+        .and_then(|()| parent.sync_all())
+        .map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("release resources were published, but directory sync failed: {error}"),
+            )
+        })
 }
 
 fn stage_guest(source: &File, expected: &str, pins: &str, output: &Path) -> io::Result<()> {

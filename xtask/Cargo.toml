@@ -18,4 +18,5 @@ toml = "1.2.2"
 workspace = true
 
 [target.'cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))'.dependencies]
+getrandom = "=0.4.3"
 nix = { version = "=0.32.0", features = ["dir", "user"] }
