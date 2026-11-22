@@ -223,7 +223,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 
 ### M3-17 Reserve lifecycle admission for maintenance
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-06, M4-02
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle)
 - **Do:** Add an exclusive supervisor permit for daemon maintenance. Optionally compare the caller's preview with the lifecycle revision in the actor. Suspend automatic retry and idle stop, and block ordinary lifecycle and new Docker connections while the permit is held. Let the holder stop the guest or start one candidate.
