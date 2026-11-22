@@ -1,5 +1,6 @@
 use std::{
     env, fs,
+    io::Read,
     os::unix::{fs::PermissionsExt, process::ExitStatusExt},
     process::Command,
 };
@@ -91,6 +92,23 @@ fn rollback_can_itself_be_interrupted_and_retried() {
             assert_generation(&paths, original, false);
         }
     }
+}
+
+#[test]
+fn staging_recovery_refuses_a_redirected_member() {
+    let (_scratch, paths, original) = fixture(7);
+    let stage = paths.root().join(STAGING);
+    let layout = Layout::open(&paths, uid()).unwrap();
+    layout.root.create_directory(STAGING).unwrap();
+    let unrelated = paths.root().join("unrelated");
+    std::os::unix::fs::symlink(&unrelated, stage.join("new-config")).unwrap();
+
+    assert!(recover(&paths, uid()).is_err());
+    assert_eq!(fs::read(&unrelated).unwrap(), b"untouched");
+    assert!(stage.join("new-config").is_symlink());
+    fs::remove_file(stage.join("new-config")).unwrap();
+    recover(&paths, uid()).unwrap();
+    assert_generation(&paths, original, false);
 }
 
 #[test]
@@ -207,4 +225,5 @@ fn assert_generation(paths: &MarsaPaths, original: [Option<Inode>; 3], committed
     );
     assert!(!paths.root().join(ACTIVE).exists());
     assert!(!paths.root().join(FINISHED).exists());
+    assert!(!paths.root().join(STAGING).exists());
 }
