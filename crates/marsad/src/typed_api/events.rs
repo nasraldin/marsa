@@ -174,6 +174,10 @@ impl Bus {
         snapshot
     }
 
+    pub(super) fn startup_settings(&self) -> Settings {
+        self.lock().startup.clone()
+    }
+
     pub(super) fn runtime_applied(&self, applied: &Settings) {
         let mut state = self.lock();
         state.startup = applied.clone();
