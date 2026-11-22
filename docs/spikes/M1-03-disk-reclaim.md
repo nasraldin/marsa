@@ -3,8 +3,8 @@
 Guest-initiated discard returned approximately 4 GiB of actual allocation
 to APFS in every tested cache mode. Marsa will run ext4 `fstrim` after
 cleanup and during idle reclaim, using the sparse RAW virtio-blk attachment.
-The production test in M9-03 will exercise the same path after Docker image
-cleanup.
+M9-03 exercises explicit reclaim after removing disposable data. M9-14
+verifies automatic reclaim after confirmed Docker image cleanup.
 
 ## Environment and method
 
@@ -55,7 +55,7 @@ reported reclamation. The tested VZ path reclaimed space without an offline
 copy, so the offline fallback remains untested.
 
 This spike covers sparse RAW images on APFS with the tested macOS release.
-M9-03 will verify the full product path. Any other VM backend must establish
-its own reclaim behavior.
+M9-03 verifies the explicit reclaim path. M9-14 qualifies automatic reclaim
+after cleanup. Any other VM backend must establish its own reclaim behavior.
 
 [Reproduction commands](../../spikes/disk-reclaim/README.md)

@@ -860,3 +860,61 @@ mod factory_reset;
 
 #[path = "typed_api/network_mode.rs"]
 mod network_mode;
+
+#[tokio::test]
+async fn disk_reclaim_authenticates_request_ids_and_does_not_start_a_vm() {
+    use marsa_proto::host::v1::{DiskReclaimRequest, disk_client::DiskClient, disk_server::Disk};
+
+    let fixture = Fixture::new(vec![]).await;
+    let request = DiskReclaimRequest {
+        request_id: action(41).request_id,
+    };
+    let unauthorized = fixture
+        .api
+        .reclaim(tonic::Request::new(request.clone()))
+        .await
+        .unwrap_err();
+    assert_eq!(unauthorized.code(), Code::PermissionDenied);
+
+    let mut disk = DiskClient::new(fixture.channel.clone());
+    let invalid = disk
+        .reclaim(DiskReclaimRequest {
+            request_id: "invalid".into(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(invalid.code(), Code::InvalidArgument);
+    let stopped = disk.reclaim(request).await.unwrap_err();
+    assert_eq!(stopped.code(), Code::FailedPrecondition);
+    let engine = EngineClient::new(fixture.channel.clone())
+        .status(EngineStatusRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(engine.state(), EngineState::Stopped);
+}
+
+#[tokio::test]
+async fn disk_reclaim_cannot_admit_while_an_existing_permit_owns_a_ready_vm() {
+    use marsa_proto::host::v1::{DiskReclaimRequest, disk_client::DiskClient};
+
+    let fixture = Fixture::new(vec![AgentStep::Send(b"HR".to_vec())]).await;
+    let permit = fixture.supervisor.reserve(None).await.unwrap();
+    permit.start().await.unwrap();
+    let before = fixture.supervisor.snapshot();
+    assert_eq!(before.state, marsad::supervisor::State::Ready);
+
+    let mut disk = DiskClient::new(fixture.channel.clone());
+    let failure = disk
+        .reclaim(DiskReclaimRequest {
+            request_id: action(42).request_id,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(failure.code(), Code::ResourceExhausted);
+    assert_eq!(
+        fixture.supervisor.snapshot().lifecycle_revision,
+        before.lifecycle_revision
+    );
+    permit.stop().await.unwrap();
+}

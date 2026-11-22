@@ -55,6 +55,12 @@ Host API minor 6 adds the separate owner Agents service and capability-scoped
 AgentOps endpoint. They negotiate through the daemon and keep owner approval
 authentication separate from delegated agent sessions.
 
+`Disk.Reclaim` requests discard of unused blocks from the current ready
+guest's data disk. It returns the guest's submitted discard bytes and the
+observed decrease in allocated bytes on the same host image. A stopped
+VM is not started for reclaim. The daemon admits one trim at a time and
+replays the result when the caller retries the same request UUID.
+
 `Events.Subscribe` emits a snapshot before live updates on each connection.
 The daemon takes that snapshot at an event cursor and then emits events after
 that cursor in order. Sequence numbers are scoped to the stream ID of the

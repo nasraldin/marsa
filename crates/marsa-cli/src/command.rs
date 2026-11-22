@@ -264,7 +264,10 @@ static ROOT: Spec = command(
                 ),
                 leaf(
                     "reclaim",
-                    ("Return free space to macOS", "أعد المساحة الحرة إلى macOS"),
+                    (
+                        "Return free space from a running VM to macOS",
+                        "أعد المساحة الحرة من آلة افتراضية قيد التشغيل إلى macOS",
+                    ),
                 ),
             ],
         ),

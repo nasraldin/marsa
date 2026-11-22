@@ -10,7 +10,7 @@ use marsa_proto::guest::{
     CONTROL_PORT, DEFER_ENGINE_START_MINOR, ProtocolError, negotiate,
     v1::{
         CommandResult, CommandStatus, ConfigureNetwork, EgressStage, EngineHealth, HelloAck,
-        PortEvent, SetTime, TrimResult, VmStats, guest_envelope::Body as GuestBody,
+        PortEvent, SetTime, Trim, TrimResult, VmStats, guest_envelope::Body as GuestBody,
         host_envelope::Body as HostBody,
     },
 };
@@ -91,6 +91,9 @@ pub enum GuestControlError {
     /// The running guest rejected orderly shutdown.
     #[error("guest rejected shutdown ({0:?})")]
     ShutdownRejected(CommandStatus),
+    /// The running guest rejected the requested disk trim.
+    #[error("guest rejected trim ({0:?})")]
+    TrimRejected(CommandStatus),
     /// The host clock could not be represented as a guest time.
     #[error("host clock cannot be represented as Unix epoch time")]
     InvalidClock,
@@ -141,6 +144,26 @@ impl Default for GuestControl {
     }
 }
 
+pub(crate) struct TrimSession(Arc<session::Client>);
+
+impl TrimSession {
+    pub(crate) fn is_current(&self, control: &GuestControl) -> bool {
+        control.active.borrow().ptr_eq(&Arc::downgrade(&self.0))
+    }
+
+    pub(crate) async fn run(&self) -> Result<TrimResult, GuestControlError> {
+        match self
+            .0
+            .request(HostBody::Trim(Trim {}), REQUEST_TIMEOUT)
+            .await?
+        {
+            GuestResponse::Trim(result) => Ok(result),
+            GuestResponse::Command(result) => Err(GuestControlError::TrimRejected(result.status())),
+            GuestResponse::Egress(_) => Err(GuestControlError::Sequence("expected trim result")),
+        }
+    }
+}
+
 impl GuestControl {
     pub(crate) fn authorize_binds(mut self, policy: impl BindPolicy + 'static) -> Self {
         self.bind_policy = Some(Arc::new(policy));
@@ -168,6 +191,14 @@ impl GuestControl {
     /// receive a broadcast lag notice and must refresh their view.
     pub fn events(&self) -> broadcast::Receiver<GuestEvent> {
         self.events.subscribe()
+    }
+
+    pub(crate) fn trim_session(&self) -> Result<TrimSession, GuestControlError> {
+        self.active
+            .borrow()
+            .upgrade()
+            .map(TrimSession)
+            .ok_or(GuestControlError::Disconnected)
     }
 
     /// Submit a command after the supervisor establishes engine readiness.

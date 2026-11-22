@@ -241,11 +241,10 @@ fn disk_usage_does_not_report_success_when_the_daemon_cannot_be_reached() {
 }
 
 #[test]
-fn unsupported_cleanup_and_reclaim_report_nonzero() {
+fn unsupported_cleanup_reports_nonzero() {
     for arguments in [
         &["disk", "cleanup", "--dry-run", "--json"][..],
         &["disk", "cleanup", "--yes", "--json"],
-        &["disk", "reclaim", "--json"],
     ] {
         let result = marsa(arguments);
         assert_eq!(result.status.code(), Some(1));
@@ -286,4 +285,17 @@ fn unavailable_message_preserves_localized_text_and_english_json() {
             "message": "This command is not available yet.",
         }),
     );
+}
+
+#[test]
+#[cfg(unix)]
+fn disk_reclaim_reaches_the_authenticated_endpoint() {
+    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+        .args(["disk", "reclaim", "--json"])
+        .env("HOME", "/")
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(4));
+    let json: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(json["code"], "home_unavailable");
 }
