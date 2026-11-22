@@ -126,7 +126,7 @@ the complete defaults.
 
 ### M9-18 Recover private storage with confirmed factory reset
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M9-17, M4-07, M8-01
 - **Docs:** [07 Integrity](../07-file-sharing-and-storage.md#integrity), [12 Uninstall](../12-build-release-update.md#uninstall)
 - **Do:** Implement factory preparation and confirmation in `Engine.Reset`. Quiesce activation and permission writes, recreate the data disk, clear grants and reset settings. Recover any interrupted transaction on daemon restart.
@@ -135,6 +135,14 @@ the complete defaults.
   - Factory reset works even when the engine cannot start.
   - The confirmed reset recreates the data disk, clears grants and restores settings defaults. Unconfirmed or stale requests leave all three intact.
   - After interruption the daemon either restores the prior disk, grants and settings together or completes the confirmed reset before serving requests. Unrelated files remain intact.
+
+**Implementation plan.** Quiesce the supervisor actor before taking custody
+of storage. Serialize state readers and writers during the transaction.
+Prepare replacements in a private journal on the same filesystem and record
+the expected member inodes before renaming any live member. Keep originals
+until a durable commit record exists. Recover before reading settings or
+binding sockets and refuse any unrecognized member. Exercise every rename
+and journal boundary with disposable storage.
 
 ### M9-09 Data-disk versioning and upgrade path
 
