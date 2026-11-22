@@ -1,6 +1,6 @@
 //! Connect the real packaged launch and control paths to a deterministic fake VM.
 
-use std::{sync::Arc, time::Duration};
+use std::{fs, os::unix::fs::PermissionsExt, sync::Arc, time::Duration};
 
 use hyper_util::rt::TokioIo;
 use marsa_core::{
@@ -31,7 +31,8 @@ use super::fixtures::{client, docker_ping, normal_session, spec};
 async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
     let home = tempfile::tempdir_in("/tmp").unwrap();
     let paths = MarsaPaths::from_home(home.path()).unwrap();
-    std::fs::create_dir(paths.root()).unwrap();
+    fs::create_dir_all(paths.state_dir()).unwrap();
+    fs::set_permissions(paths.state_dir(), fs::Permissions::from_mode(0o700)).unwrap();
     let socket = paths.root().join("control.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let mut settings = Settings::default();
@@ -54,7 +55,9 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
                 maximum_backoff: Duration::ZERO,
             },
             move |_| Ok((backend.clone(), spec())),
-        );
+        )
+        .await
+        .unwrap();
     let (shutdown, stop) = oneshot::channel();
     let server = tokio::spawn(async move {
         api.serve(listener, async {

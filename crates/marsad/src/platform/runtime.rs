@@ -129,12 +129,25 @@ impl Packaged {
                 ),
             ));
         }
-        if !settings.network.dns.is_empty() || settings.network.proxy != ProxySettings::default() {
+        if !settings.network.dns.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 localized(
-                    "custom DNS and proxy settings require the guest network policy",
-                    "تتطلب إعدادات DNS والوكيل المخصصة سياسة شبكة الضيف",
+                    "custom DNS settings require the guest network policy",
+                    "تتطلب إعدادات DNS المخصصة سياسة شبكة الضيف",
+                ),
+            ));
+        }
+        let proxy = &settings.network.proxy;
+        if proxy.inject_into_containers
+            || (*proxy != ProxySettings::default()
+                && settings.network.mode != NetworkMode::Userspace)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                localized(
+                    "the manual daemon proxy requires user-space networking and cannot be injected into containers",
+                    "يتطلب وكيل الخادم اليدوي شبكة مساحة المستخدم ولا يمكن تمريره إلى الحاويات",
                 ),
             ));
         }
