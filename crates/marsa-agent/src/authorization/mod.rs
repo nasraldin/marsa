@@ -2,6 +2,8 @@
 
 mod channel;
 
+use std::borrow::Cow;
+
 use base64::{Engine, engine::general_purpose::STANDARD};
 use http::Uri;
 use marsa_core::docker_mounts::{MAX_CREATE_BYTES, sources};
@@ -41,8 +43,9 @@ impl Decision {
 struct Request<'a> {
     #[serde(rename = "RequestMethod")]
     method: &'a str,
-    #[serde(rename = "RequestUri")]
-    uri: &'a str,
+    // Go's JSON encoder escapes characters such as ampersands in query strings.
+    #[serde(borrow, rename = "RequestUri")]
+    uri: Cow<'a, str>,
 }
 
 #[derive(Deserialize)]
@@ -162,7 +165,12 @@ mod tests {
 
     #[test]
     fn matches_versioned_and_decoded_create_paths_only_for_post() {
-        let inspect = |method, uri| operation(&Request { method, uri });
+        let inspect = |method, uri| {
+            operation(&Request {
+                method,
+                uri: Cow::Borrowed(uri),
+            })
+        };
         for uri in [
             "/containers/create?name=example",
             "/v1.53/containers/create",
@@ -180,7 +188,12 @@ mod tests {
 
     #[test]
     fn protects_reserved_name_and_keeps_normal_plugin_routes() {
-        let inspect = |method, uri| operation(&Request { method, uri });
+        let inspect = |method, uri| {
+            operation(&Request {
+                method,
+                uri: Cow::Borrowed(uri),
+            })
+        };
         for uri in [
             "/plugins/MarsaBindAuthorization/disable",
             "/v1.53/plugins/%4DarsaBindAuthorization%3Alatest/upgrade",
@@ -236,7 +249,7 @@ mod tests {
         );
         assert_eq!(
             authorize(
-                br#"{"RequestMethod":"POST","RequestUri":"/build","RequestBody":"ignored"}"#,
+                br#"{"RequestMethod":"POST","RequestUri":"/build?t=example\u0026pull=false","RequestBody":"ignored"}"#,
                 &policy
             )
             .await,
