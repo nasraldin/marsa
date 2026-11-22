@@ -37,6 +37,8 @@ enum Event {
     Progress(BootStage),
     Boot(Result<Outcome, JoinError>),
     GuestExited(String),
+    DockerClients,
+    Workloads(Option<io::Result<u32>>),
     Retry,
     Idle,
 }
@@ -52,6 +54,7 @@ pub(super) struct Actor {
     probe: Arc<dyn GuestProbe>,
     config: SupervisorConfig,
     commands: mpsc::Receiver<Command>,
+    docker_clients: watch::Receiver<usize>,
     output: TransitionOutput,
     boot: Option<JoinHandle<Outcome>>,
     progress: Option<watch::Receiver<BootStage>>,
@@ -63,6 +66,7 @@ pub(super) struct Actor {
     retries_left: u32,
     backoff: Duration,
     idle_at: Option<Instant>,
+    sample_at: Option<Instant>,
     empty: bool,
 }
 
@@ -72,6 +76,7 @@ impl Actor {
         probe: Arc<dyn GuestProbe>,
         config: SupervisorConfig,
         commands: mpsc::Receiver<Command>,
+        docker_clients: watch::Receiver<usize>,
         output: TransitionOutput,
     ) -> Self {
         Self {
@@ -79,6 +84,7 @@ impl Actor {
             probe,
             config,
             commands,
+            docker_clients,
             output,
             boot: None,
             progress: None,
@@ -90,19 +96,26 @@ impl Actor {
             retries_left: 0,
             backoff: Duration::ZERO,
             idle_at: None,
+            sample_at: None,
             empty: false,
         }
     }
 
     pub(super) async fn run(mut self) {
         loop {
+            let sample = self
+                .sample_at
+                .map(|at| self.idle_at.map_or(at, |idle| idle.min(at)))
+                .filter(|_| self.docker_quiet());
+            let manual_idle = self.idle_at.filter(|_| self.sample_at.is_none());
             let event = tokio::select! {
                 command = self.commands.recv() => Event::Command(command),
                 stage = watch_progress(&mut self.progress) => Event::Progress(stage),
                 outcome = wait_boot(&mut self.boot) => Event::Boot(outcome),
-                detail = watch_guest(&mut self.guest) => Event::GuestExited(detail),
+                guest = watch_guest(&mut self.guest, self.probe.as_ref(), sample) => guest,
+                Ok(()) = self.docker_clients.changed() => Event::DockerClients,
                 () = wait_deadline(self.retry_at) => Event::Retry,
-                () = wait_deadline(self.idle_at) => Event::Idle,
+                () = wait_deadline(manual_idle) => Event::Idle,
             };
             match event {
                 Event::Command(Some(command)) => self.command(command).await,
@@ -120,6 +133,8 @@ impl Actor {
                     self.failed(vm, boot::Issue::failed(BootStage::Running, detail))
                         .await;
                 }
+                Event::DockerClients => self.docker_activity(),
+                Event::Workloads(count) => self.workload_sample(count).await,
                 Event::Retry => self.begin(),
                 Event::Idle => self.idle().await,
             }
@@ -173,6 +188,7 @@ impl Actor {
         let (progress, updates) = watch::channel(BootStage::Create);
         self.retry_at = None;
         self.idle_at = None;
+        self.sample_at = None;
         self.empty = false;
         self.transition(State::Starting);
         self.cancel_boot = Some(cancel_boot);
@@ -195,13 +211,28 @@ impl Actor {
 
     fn ready(&mut self) {
         self.set_state(State::Ready, None);
+        self.sample_at = Some(Instant::now());
         self.reset_idle();
         self.reply_waiters(Ok(()));
     }
 
     fn reset_idle(&mut self) {
-        self.idle_at = (self.empty && self.state() == State::Ready)
+        self.idle_at = (self.empty && self.docker_quiet() && self.state() == State::Ready)
             .then(|| Instant::now() + self.config.idle_timeout);
+    }
+
+    fn docker_quiet(&self) -> bool {
+        *self.docker_clients.borrow() == 0
+    }
+
+    fn docker_activity(&mut self) {
+        self.docker_clients.borrow_and_update();
+        if self.docker_quiet() && self.sample_at.is_some() {
+            // Activity may have started a container on the just-closed connection.
+            self.empty = false;
+            self.sample_at = Some(Instant::now());
+        }
+        self.reset_idle();
     }
 }
 
@@ -222,17 +253,28 @@ async fn watch_progress(progress: &mut Option<watch::Receiver<BootStage>>) -> Bo
     pending().await
 }
 
-async fn watch_guest(guest: &mut Option<LiveGuest>) -> String {
+async fn watch_guest(
+    guest: &mut Option<LiveGuest>,
+    probe: &dyn GuestProbe,
+    sample: Option<Instant>,
+) -> Event {
     match guest {
-        Some(guest) => tokio::select! {
-            detail = boot::guest_exit(guest.vm.as_ref(), &mut guest.events) => detail,
-            error = async {
-                match guest.session.as_mut() {
-                    Some(session) => session.disconnected().await,
-                    None => pending().await,
-                }
-            } => error.to_string(),
-        },
+        Some(guest) => {
+            let vm = guest.vm.as_ref();
+            tokio::select! {
+                detail = boot::guest_exit(vm, &mut guest.events) => Event::GuestExited(detail),
+                error = async {
+                    match guest.session.as_mut() {
+                        Some(session) => session.disconnected().await,
+                        None => pending().await,
+                    }
+                } => Event::GuestExited(error.to_string()),
+                count = async {
+                    wait_deadline(sample).await;
+                    probe.active_containers(vm).await
+                } => Event::Workloads(count),
+            }
+        }
         None => pending().await,
     }
 }

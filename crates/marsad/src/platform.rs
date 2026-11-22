@@ -23,6 +23,8 @@ use tokio::{
 
 type DaemonError = Box<dyn Error + Send + Sync>;
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(20);
+// Cover the packaged runtime's original attempt, cleanup and bounded retry.
+const DOCKER_START_TIMEOUT: Duration = Duration::from_secs(180);
 
 pub(super) fn run() -> Result<(), DaemonError> {
     let uid = require_unprivileged()?;
@@ -134,7 +136,18 @@ async fn serve(
     tokio::pin!(server);
     let relay = {
         let docker_api = api.clone();
-        let proxy = marsa_dockerproxy::serve(docker, uid, move || {
+        let startup = marsa_dockerproxy::Startup {
+            timeout: DOCKER_START_TIMEOUT,
+            timed_out: crate::diagnostics::localized(
+                "Marsa timed out waiting for the Docker engine to start. Check Marsa's daemon logs and retry.",
+                "انتهت مهلة انتظار مارسا لبدء محرك دوكر. راجع سجلات خدمة مارسا وأعد المحاولة.",
+            ),
+            unavailable: crate::diagnostics::localized(
+                "Marsa could not connect to the Docker engine. Check Marsa's daemon logs and retry.",
+                "تعذر على مارسا الاتصال بمحرك دوكر. راجع سجلات خدمة مارسا وأعد المحاولة.",
+            ),
+        };
+        let proxy = marsa_dockerproxy::serve(docker, uid, startup, move || {
             let api = docker_api.clone();
             async move { api.connect_docker().await }
         });
