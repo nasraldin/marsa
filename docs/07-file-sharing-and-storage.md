@@ -96,6 +96,14 @@ measurements, and limitations.
 | Default maximum size | A setting; the file only uses what is written | Proposed |
 | Contents | `/var/lib/docker`, `/var/lib/containerd`, Marsa guest state | Decided |
 
+### Inspecting usage
+
+Run `marsa disk usage` to see the bytes allocated to the sparse image on
+macOS and the image's logical capacity. These values are available with
+the VM stopped. If the VM has reported a current filesystem sample, the
+CLI also shows guest used bytes and capacity. JSON output preserves this
+distinction through the [CLI response schema](reference/cli-response.schema.json).
+
 ### Returning space to macOS
 
 ```mermaid

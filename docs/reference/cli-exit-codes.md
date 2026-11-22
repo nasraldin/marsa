@@ -3,9 +3,11 @@
 | Exit code | JSON error code | Meaning |
 |---|---|---|
 | 0 | | The command succeeded. Help and shell completion generation also return this status. |
-| 1 | `not_available` | The command handler is awaiting implementation. A response write failure also exits with status 1. |
+| 1 | `not_available`, `operation_failed` | A command is awaiting implementation, its operation failed, or a response could not be written. |
 | 2 | `invalid_invocation` | The command, its options or its arguments are invalid. |
 | 3 | `confirmation_required` | A destructive command needs the explicit `--yes` flag in a non-interactive invocation. |
+| 4 | `connection_failed`, `home_unavailable`, `unprivileged_user_required` | The CLI could not establish an authenticated daemon connection or resolve the per-user socket. |
+| 5 | `incompatible_daemon` | The daemon and CLI have incompatible API versions. |
 
 In human-readable mode, help and completion scripts go to standard output.
 Errors go to standard error. The command reads `LC_ALL`, `LC_MESSAGES` and
@@ -25,3 +27,8 @@ JSON mode uses non-interactive confirmation rules. The regular `disk cleanup`
 command requires confirmation when run non-interactively. `disk cleanup
 --dry-run` is a preview. When invoking shell completion with `--json`,
 read the script from the response's `script` field.
+
+`marsa disk usage --json` reports the sparse image's allocated bytes and
+logical capacity under `host`. The `guest` field is `null` until the
+daemon has a current filesystem observation. `categories` lists the
+breakdown supplied by the daemon.

@@ -635,6 +635,7 @@ dependencies = [
  "clap_complete",
  "marsa-client",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
