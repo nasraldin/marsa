@@ -244,7 +244,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Date and task:** 2026-11-22, M4-13.
 
 
-## D-031 Use IBM Plex for desktop typography
+## D-032 Use IBM Plex for desktop typography
 
 - **Decision:** Use the Figma Foundations' IBM Plex typography. Bundle unmodified IBM Plex Sans and IBM Plex Sans Arabic for UI text and IBM Plex Mono for Latin technical text.
 - **Why:** The dedicated Arabic faces supply the same regular, medium and semibold roles as the Latin design. HarfBuzz verified joining in each Arabic weight, and CoreText read the original native files on macOS.
