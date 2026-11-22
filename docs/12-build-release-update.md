@@ -103,6 +103,30 @@ into `Contents/Resources/bin/`. Feed the staging directory’s
 
 M1-02 confirmed the `com.apple.security.virtualization` entitlement in ad hoc signed macOS builds. See the [boot and signing evidence](spikes/M1-02-vz-binding.md). **Verify** Developer ID signing and notarization for Virtualization.framework and Hypervisor.framework before M10.
 
+Run the pre-notarization verifier on a private staging directory after signing
+the app and before submission. Supply the trusted Team ID from release
+configuration.
+
+```sh
+cargo xtask verify-signature --team-id "$MARSA_TEAM_ID" target/release/Marsa.app
+```
+
+The verifier checks the app identifier and resource seal, then independently
+checks the documented native roles and every additional Mach-O, including
+code under `Contents/Resources`. It accepts thin arm64 code. It uses Apple's
+`codesign` with a strict requirement for Apple-issued Developer ID
+Application signatures from the supplied team. It checks the Hardened
+Runtime flag on each file and requires the virtualization entitlement on
+`marsad` alone for the VZ release. All other code has an empty entitlement
+dictionary. [Apple code requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements/)
+· [Apple's distribution signing guide](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac)
+· [Apple's Hardened Runtime flag](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/cs_blobs.h).
+
+A hardened ad-hoc fixture passed strict structural verification and failed
+the Developer ID requirement on macOS 27.2.1. Developer ID signing,
+notarization, stapling, and clean-Mac installation are M10-02 acceptance.
+[Apple's notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
+
 The Mac App Store is not a distribution target: the sandbox it requires conflicts with running a VM daemon, a shared socket and bundled CLIs.
 
 ## Distribution channels

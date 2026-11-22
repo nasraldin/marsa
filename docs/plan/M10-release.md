@@ -134,7 +134,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 
 ### M10-14 Validate release signatures before notarization
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [12 App bundle layout](../12-build-release-update.md#app-bundle-layout), [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization)
 - **Do:** Add a macOS release verification command for the documented arm64 VZ bundle. Require an explicit trusted Team ID, verify the app and every Mach-O with Apple tools, and check hardened runtime and the expected role entitlements.
