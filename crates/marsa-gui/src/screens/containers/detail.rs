@@ -90,16 +90,14 @@ pub(super) fn render(
             &entity,
         ));
     }
-    if !external {
-        title = title.child(list::action_button(
-            entry,
-            target.clone(),
-            ContainerAction::Restart,
-            view.command_pending,
-            screen.locale,
-            &entity,
-        ));
-    }
+    title = title.child(list::action_button(
+        entry,
+        target.clone(),
+        ContainerAction::Restart,
+        view.command_pending,
+        screen.locale,
+        &entity,
+    ));
 
     let short_id = entry.id.as_str().get(..12).unwrap_or(entry.id.as_str());
     let subtitle = format!("{}  ·  {short_id}", entry.image);
@@ -116,10 +114,10 @@ pub(super) fn render(
                 Tab::Inspect,
                 Tab::Stats,
             ]
-            .map(|tab| tab_button(tab, tab == view.tab, target.supports(tab), &screen, cx)),
+            .map(|tab| tab_button(tab, tab == view.tab, &screen, cx)),
         );
     let content = match view.tab {
-        Tab::Overview => overview(entry, &view.inspection, target, &screen, cx).into_any_element(),
+        Tab::Overview => overview(entry, &view.inspection, &screen, cx).into_any_element(),
         Tab::Logs => logs::render(view, entry, &screen, cx),
         Tab::Terminal => super::terminal::render(view, entry, &screen, window, cx),
         Tab::Inspect => inspect(view, entry, &view.inspection, &screen, cx).into_any_element(),
@@ -168,7 +166,6 @@ pub(super) fn render(
 fn tab_button(
     tab: Tab,
     active: bool,
-    enabled: bool,
     screen: &ScreenContext<'_>,
     cx: &Context<ContainerView>,
 ) -> Button {
@@ -201,13 +198,11 @@ fn tab_button(
     } else {
         button.ghost()
     };
-    button
-        .disabled(!enabled)
-        .on_click(cx.listener(move |view, _, _, cx| {
-            if view.tab != tab {
-                view.set_tab(tab, cx);
-            }
-        }))
+    button.on_click(cx.listener(move |view, _, _, cx| {
+        if view.tab != tab {
+            view.set_tab(tab, cx);
+        }
+    }))
 }
 
 fn overview_action(tab: Tab, screen: &ScreenContext<'_>, cx: &Context<ContainerView>) -> Button {
@@ -241,7 +236,6 @@ fn overview_action(tab: Tab, screen: &ScreenContext<'_>, cx: &Context<ContainerV
 fn overview(
     entry: &ContainerSummary,
     inspection: &Inspection,
-    target: &ContainerTarget,
     screen: &ScreenContext<'_>,
     cx: &Context<ContainerView>,
 ) -> Div {
@@ -346,16 +340,12 @@ fn overview(
                     div()
                         .text_size(px(12.))
                         .text_color(color(screen.palette, ColorToken::TextMuted))
-                        .child(if target.supports(Tab::Terminal) {
-                            message(screen.locale, gui::GUI_DESKTOP_REVIEW_OUTPUT_OPEN_A_SHELL_OR_CHECK_HOW_THE_CONTAINER_RUNS)
-                        } else {
-                            label(screen, "Review logs or inspect this container.", "راجع السجلات أو افحص هذه الحاوية.")
-                        }),
+                        .child(message(screen.locale, gui::GUI_DESKTOP_REVIEW_OUTPUT_OPEN_A_SHELL_OR_CHECK_HOW_THE_CONTAINER_RUNS)),
                 )
                 .child(
                     row(cx).gap_2().children(
                         [Tab::Logs, Tab::Terminal, Tab::Inspect]
-                            .into_iter().filter(|tab| target.supports(*tab))
+                            .into_iter()
                             .map(|tab| overview_action(tab, screen, cx)),
                     ),
                 ),

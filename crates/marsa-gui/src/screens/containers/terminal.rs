@@ -116,6 +116,21 @@ fn start(
     let Some(services) = view.services.as_ref() else {
         return;
     };
+    let Some(target) = view
+        .focused
+        .as_ref()
+        .filter(|target| target.id() == &container)
+    else {
+        return;
+    };
+    if !view
+        .target_state(target)
+        .and_then(|state| state.container(&container))
+        .is_some_and(|entry| entry.state == "running")
+    {
+        return;
+    }
+    let endpoint = target.endpoint().cloned();
     let terminal = &mut view.terminal;
     if terminal.sessions.len() >= MAX_SESSIONS {
         return;
@@ -125,6 +140,7 @@ fn start(
     let parser = Parser::new(Parser::DEFAULT_ROWS, Parser::DEFAULT_COLS, SCROLLBACK);
     let mut wire = services.terminal(
         container,
+        endpoint,
         Parser::DEFAULT_COLS.get(),
         Parser::DEFAULT_ROWS.get(),
     );
@@ -383,10 +399,8 @@ impl Render for Detached {
         self.owner
             .update(cx, |view, cx| {
                 let screen = view.screen();
-                let entry = view.focused.as_ref().and_then(|target| match target {
-                    super::ContainerTarget::Marsa(id) => screen.state.container(id),
-                    super::ContainerTarget::External { .. } => None,
-                })?;
+                let target = view.focused.as_ref()?;
+                let entry = view.target_state(target)?.container(target.id())?;
                 let palette = screen.palette;
                 let heading = format!("{}  ·  /bin/sh", name(entry));
                 Some(

@@ -11,10 +11,10 @@ use marsa_client::{
     docker::{
         ContainerAction, ContainerDetails, ContainerId, ContainerRemoval, ContainerSummary,
         CreatedNetwork, DockerClient, DockerError, DockerLogs, DockerStats, EnvironmentReveal,
-        ExecControl, ImageDetails, ImageId, ImagePull, ImageReference, ImageRemoval, ImageRun,
-        ImageSummary, LogLine, MAX_TERMINAL_INPUT, NetworkRemoval, NetworkSummary, PullProgress,
-        ResourceName, RevealedEnvironment, StatsSample, TerminalSize, VolumeRemoval, VolumeSummary,
-        VolumeUsage,
+        ExecControl, ExternalEndpoint, ImageDetails, ImageId, ImagePull, ImageReference,
+        ImageRemoval, ImageRun, ImageSummary, LogLine, MAX_TERMINAL_INPUT, NetworkRemoval,
+        NetworkSummary, PullProgress, ResourceName, RevealedEnvironment, StatsSample, TerminalSize,
+        VolumeRemoval, VolumeSummary, VolumeUsage,
     },
     runtime::{Background, Cancellation, Receiver, Sender, Spawner, Task, delay, queue},
 };
@@ -205,6 +205,22 @@ impl Services {
     }
 
     #[cfg(target_os = "macos")]
+    pub(crate) fn remove_external(
+        &self,
+        endpoint: ExternalEndpoint,
+        removal: ContainerRemoval,
+    ) -> Pending<(bool, Option<Vec<ContainerSummary>>)> {
+        self.pending(async move {
+            let failed = endpoint
+                .management_client()
+                .remove_container(removal)
+                .await
+                .is_err();
+            Ok((failed, endpoint.containers().await.ok()))
+        })
+    }
+
+    #[cfg(target_os = "macos")]
     pub(crate) fn external_logs(
         &self,
         endpoint: marsa_client::docker::ExternalEndpoint,
@@ -257,8 +273,14 @@ impl Services {
     }
 
     /// Read metadata for an existing image.
-    pub fn inspect_image(&self, id: ImageId) -> Pending<ImageDetails> {
-        let docker = self.session.backend.docker.clone();
+    pub fn inspect_image(
+        &self,
+        id: ImageId,
+        endpoint: Option<ExternalEndpoint>,
+    ) -> Pending<ImageDetails> {
+        let docker = endpoint
+            .map(|endpoint| endpoint.management_client())
+            .unwrap_or_else(|| self.session.backend.docker.clone());
         self.pending(async move { Ok(docker.inspect_image(&id).await?) })
     }
 
@@ -278,8 +300,14 @@ impl Services {
     }
 
     /// Pull a public image and stream layer progress. Dropping the batches cancels it.
-    pub fn pull_image(&self, image: ImageReference) -> Batches<PullProgress> {
-        let docker = self.session.backend.docker.clone();
+    pub fn pull_image(
+        &self,
+        image: ImageReference,
+        endpoint: Option<ExternalEndpoint>,
+    ) -> Batches<PullProgress> {
+        let docker = endpoint
+            .map(|endpoint| endpoint.management_client())
+            .unwrap_or_else(|| self.session.backend.docker.clone());
         batch_stream(
             &self.session.runtime,
             async move { Ok(docker.pull_image(&image).await?) },
@@ -302,6 +330,12 @@ impl Services {
         self.pending(async move { Ok(docker.run_image(&image, name.as_ref()).await?) })
     }
 
+    /// Add an image tag through Marsa's engine.
+    pub fn tag_image(&self, image: ImageId, destination: String) -> Pending<()> {
+        let docker = self.session.backend.docker.clone();
+        self.pending(async move { Ok(docker.tag_image(&image, &destination).await?) })
+    }
+
     /// Create a local volume with the chosen name.
     pub fn create_volume(&self, name: ResourceName) -> Pending<VolumeSummary> {
         let docker = self.session.backend.docker.clone();
@@ -320,7 +354,7 @@ impl Services {
         self.pending(async move { Ok(docker.create_network(&name).await?) })
     }
 
-    fn pending<T: Send + 'static>(
+    pub(crate) fn pending<T: Send + 'static>(
         &self,
         work: impl Future<Output = Result<T, ServiceError>> + Send + 'static,
     ) -> Pending<T> {
@@ -335,14 +369,23 @@ impl Services {
     }
 
     /// Open a bounded interactive terminal for the selected container.
-    pub fn terminal(&self, id: ContainerId, columns: u16, rows: u16) -> Terminal {
+    pub fn terminal(
+        &self,
+        id: ContainerId,
+        endpoint: Option<ExternalEndpoint>,
+        columns: u16,
+        rows: u16,
+    ) -> Terminal {
         let docker = self.session.backend.docker.clone();
         let (write, controls) = queue(32);
         let (publish, output) = queue(16);
         let task = self.session.runtime.spawn(async move {
             let result = async {
                 let size = TerminalSize::new(columns, rows)?;
-                let session = docker.start_terminal(&id, size).await?;
+                let session = match endpoint {
+                    Some(endpoint) => endpoint.start_terminal(&id, size).await?,
+                    None => docker.start_terminal(&id, size).await?,
+                };
                 session.drive(controls, &publish).await
             }
             .await;
@@ -367,8 +410,12 @@ impl Services {
     }
 
     /// Follow the latest container stats sample at a capped display rate.
-    pub fn stats(&self, id: ContainerId) -> Batches<StatsSample> {
-        self.session.stats(id)
+    pub fn stats(
+        &self,
+        id: ContainerId,
+        endpoint: Option<ExternalEndpoint>,
+    ) -> Batches<StatsSample> {
+        self.session.stats(id, endpoint)
     }
 }
 
@@ -496,20 +543,32 @@ impl<B: Clients> Session<B> {
         log_batches(&self.runtime, async move { backend.logs(&id).await })
     }
 
-    fn stats(&self, id: ContainerId) -> Batches<StatsSample> {
+    fn stats(&self, id: ContainerId, endpoint: Option<ExternalEndpoint>) -> Batches<StatsSample> {
         let backend = Arc::clone(&self.backend);
-        batch_stream(
-            &self.runtime,
-            async move { backend.stats(&id).await },
-            Rate {
-                interval: STATS_RATE,
-                maximum: 64,
-                budget: usize::MAX,
-                latest: true,
-            },
-            |_| 1,
-        )
+        match endpoint {
+            Some(endpoint) => {
+                stats_batches(&self.runtime, async move { Ok(endpoint.stats(&id).await?) })
+            }
+            None => stats_batches(&self.runtime, async move { backend.stats(&id).await }),
+        }
     }
+}
+
+fn stats_batches<F: Feed<StatsSample>>(
+    runtime: &Background,
+    open: impl Future<Output = Result<F, ServiceError>> + Send + 'static,
+) -> Batches<StatsSample> {
+    batch_stream(
+        runtime,
+        open,
+        Rate {
+            interval: STATS_RATE,
+            maximum: 64,
+            budget: usize::MAX,
+            latest: true,
+        },
+        |_| 1,
+    )
 }
 
 fn log_batches<F: Feed<LogLine>>(

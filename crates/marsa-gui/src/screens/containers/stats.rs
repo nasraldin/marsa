@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use marsa_client::docker::{ContainerId, StatsSample};
+use marsa_client::docker::StatsSample;
 use marsa_ui::{
     ColorToken, Palette,
     direction::{LogicalStyle as _, isolate_technical_text, row},
@@ -20,7 +20,7 @@ use marsa_ui::{
 
 use crate::{
     screens::common::{ScreenContext, label},
-    services::Services,
+    services::Batches,
 };
 
 use super::{ContainerView, color, detail::card};
@@ -107,12 +107,7 @@ impl StatsState {
     }
 }
 
-pub(super) fn follow(
-    services: &Services,
-    id: ContainerId,
-    cx: &Context<ContainerView>,
-) -> Task<()> {
-    let mut stream = services.stats(id);
+pub(super) fn follow(mut stream: Batches<StatsSample>, cx: &Context<ContainerView>) -> Task<()> {
     cx.spawn(async move |view, cx| {
         while let Some(batch) = stream.next().await {
             if view

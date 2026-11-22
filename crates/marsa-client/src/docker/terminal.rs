@@ -16,15 +16,9 @@ use tokio::{
     time::timeout,
 };
 
-use crate::{
-    platform,
-    runtime::{Receiver, Sender},
-};
+use crate::runtime::{Receiver, Sender};
 
-use super::{
-    API_PREFIX, ContainerId, DockerClient, DockerError, RAW, REQUEST_TIMEOUT,
-    stream::ConnectionTask,
-};
+use super::{ContainerId, DockerClient, DockerError, RAW, REQUEST_TIMEOUT, stream::ConnectionTask};
 
 /// Maximum bytes accepted from a single terminal input action.
 pub const MAX_TERMINAL_INPUT: usize = 4096;
@@ -114,9 +108,7 @@ impl DockerClient {
             "ConsoleSize": size.docker(),
         }))?;
         let stream = timeout(REQUEST_TIMEOUT, async {
-            let socket = platform::open_socket(self.socket.clone())
-                .await
-                .map_err(DockerError::Socket)?;
+            let socket = self.request_socket(&Method::POST, &path, true).await?;
             let (mut sender, connection) = http1::Builder::new()
                 .max_buf_size(16 * 1024)
                 .handshake(TokioIo::new(socket))
@@ -125,7 +117,7 @@ impl DockerClient {
                 ConnectionTask::new(tokio::spawn(connection.with_upgrades()).abort_handle());
             let request = Request::builder()
                 .method(Method::POST)
-                .uri(format!("{API_PREFIX}{path}"))
+                .uri(self.request_uri(&path))
                 .header(header::HOST, "docker")
                 .header(header::CONNECTION, "Upgrade")
                 .header(header::UPGRADE, "tcp")

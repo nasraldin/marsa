@@ -80,10 +80,6 @@ impl ContainerTarget {
             Self::External { endpoint, .. } => Some(endpoint),
         }
     }
-
-    fn supports(&self, tab: Tab) -> bool {
-        self.endpoint().is_none() || matches!(tab, Tab::Overview | Tab::Logs | Tab::Inspect)
-    }
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -301,13 +297,6 @@ impl ContainerView {
     }
 
     fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        if self
-            .focused
-            .as_ref()
-            .is_some_and(|target| !target.supports(tab))
-        {
-            return;
-        }
         self.stream_tasks.clear();
         self.terminal.close_detached(cx);
         self.terminal = terminal::State::default();
@@ -361,7 +350,10 @@ impl ContainerView {
                 }
                 self.logs.set_stream_count(self.stream_tasks.len());
             }
-            Tab::Stats => self.stream_tasks.push(stats::follow(services, id, cx)),
+            Tab::Stats => self.stream_tasks.push(stats::follow(
+                services.stats(id, target.endpoint().cloned()),
+                cx,
+            )),
             Tab::Overview | Tab::Inspect => {
                 self.inspection = Inspection::Loading;
                 let mut pending = match target.endpoint() {
@@ -451,8 +443,7 @@ impl ContainerView {
             self.dispatch(vec![target.id().clone()], action, cx);
             return;
         };
-        if self.command_pending || !matches!(action, ContainerAction::Start | ContainerAction::Stop)
-        {
+        if self.command_pending {
             return;
         }
         let Some(inventory) = self
@@ -472,7 +463,17 @@ impl ContainerView {
         let Some(services) = self.services.as_ref() else {
             return;
         };
-        let mut pending = services.act_external(endpoint.clone(), id.clone(), action);
+        let pending = services.act_external(endpoint.clone(), id.clone(), action);
+        self.watch_external(endpoint, id, pending, cx);
+    }
+
+    fn watch_external(
+        &mut self,
+        endpoint: ExternalEndpoint,
+        id: ContainerId,
+        mut pending: crate::services::Pending<(bool, Option<Vec<ContainerSummary>>)>,
+        cx: &mut Context<Self>,
+    ) {
         self.command_failed = false;
         self.command_pending = true;
         cx.spawn(async move |view, cx| {
@@ -496,7 +497,18 @@ impl ContainerView {
                         selected.id() == &id && selected.endpoint() == Some(&endpoint)
                     })
                 {
-                    view.set_tab(view.tab, cx);
+                    if view
+                        .target_state(&ContainerTarget::External {
+                            id: id.clone(),
+                            endpoint: endpoint.clone(),
+                        })
+                        .and_then(|state| state.container(&id))
+                        .is_some()
+                    {
+                        view.set_tab(view.tab, cx);
+                    } else {
+                        view.close_detail(cx);
+                    }
                 }
                 cx.notify();
             });
@@ -511,7 +523,7 @@ impl ContainerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        removal::open(self, ids, window, cx);
+        removal::open(self, ids, None, window, cx);
     }
 
     fn run_commands(
@@ -593,6 +605,8 @@ fn eligible(entry: &ContainerSummary, action: ContainerAction) -> bool {
         ContainerAction::Stop => {
             matches!(entry.state.as_str(), "running" | "paused" | "restarting")
         }
+        ContainerAction::Pause => entry.state == "running",
+        ContainerAction::Unpause => entry.state == "paused",
         ContainerAction::Restart => matches!(
             entry.state.as_str(),
             "created" | "running" | "exited" | "paused" | "restarting"
@@ -624,6 +638,8 @@ fn action_label(action: ContainerAction) -> (&'static str, &'static str) {
         ContainerAction::Start => ("Start", "تشغيل"),
         ContainerAction::Stop => ("Stop", "إيقاف"),
         ContainerAction::Restart => ("Restart", "إعادة التشغيل"),
+        ContainerAction::Pause => ("Pause", "إيقاف مؤقت"),
+        ContainerAction::Unpause => ("Resume", "استئناف"),
     }
 }
 

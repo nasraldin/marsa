@@ -130,6 +130,13 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
             } else {
                 46.
             }));
+    let groups = rows
+        .iter()
+        .filter_map(|entry| match entry {
+            TableRow::Group { key, .. } => Some(key.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     if loaded {
         toolbar = toolbar
             .px_2()
@@ -179,6 +186,39 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     if loaded {
         toolbar = toolbar
             .child(view_mode_rail(mode, &screen, cx))
+            .children((!groups.is_empty()).then(|| {
+                let weak = entity.downgrade();
+                Button::new("container-group-actions")
+                    .outline()
+                    .size(px(Space::S36.pixels()))
+                    .icon(IconName::Ellipsis)
+                    .accessibility_label(message(locale, gui::GUI_DESKTOP_GROUPS))
+                    .dropdown_menu(move |menu, _, _| {
+                        [true, false].into_iter().fold(menu, |menu, expand| {
+                            let weak = weak.clone();
+                            let groups = groups.clone();
+                            let key = if expand {
+                                gui::GUI_DESKTOP_EXPAND_ALL_GROUPS
+                            } else {
+                                gui::GUI_DESKTOP_COLLAPSE_ALL_GROUPS
+                            };
+                            menu.item(PopupMenuItem::new(message(locale, key)).on_click(
+                                move |_, _, cx| {
+                                    let _ = weak.update(cx, |view, cx| {
+                                        if expand {
+                                            for group in &groups {
+                                                view.collapsed.remove(group);
+                                            }
+                                        } else {
+                                            view.collapsed.extend(groups.iter().cloned());
+                                        }
+                                        cx.notify();
+                                    });
+                                },
+                            ))
+                        })
+                    })
+            }))
             .child(div().flex_1());
         toolbar = if view.selected.is_empty() {
             toolbar.child(
@@ -663,7 +703,7 @@ fn container_row(
     let detail_view = view.downgrade();
     let detail_target = target.clone();
     let menu_view = view.downgrade();
-    let menu_id = id.clone();
+    let menu_target = target.clone();
     let action = if eligible(entry, ContainerAction::Stop) {
         ContainerAction::Stop
     } else {
@@ -724,9 +764,14 @@ fn container_row(
             }))
     };
     let menu_name = isolate_technical_text(name(entry));
-    let more = local.map(|_| {
+    let state = entry.state.clone();
+    let more = {
         Button::new((
-            ElementId::from("container-menu"),
+            ElementId::from(if local.is_some() {
+                "container-menu"
+            } else {
+                "external-container-menu"
+            }),
             SharedString::from(id.as_str().to_owned()),
         ))
         .ghost()
@@ -736,48 +781,48 @@ fn container_row(
         .tooltip(gui::GUI_DESKTOP_CONTAINER_ACTIONS.text(locale))
         .dropdown_menu(move |menu, _, _| {
             let remove_view = menu_view.clone();
-            let remove_id = menu_id.clone();
+            let remove_target = menu_target.clone();
             let detail_view = menu_view.clone();
-            let detail_id = menu_id.clone();
+            let detail_target = menu_target.clone();
             let first = menu.label(menu_name.clone()).separator().item(
                 PopupMenuItem::new(gui::GUI_DESKTOP_OPEN_DETAILS.text(locale))
                     .icon(IconName::ChevronLeft)
                     .on_click(move |_, _, cx| {
-                        let _ = detail_view.update(cx, |view, cx| {
-                            view.open_detail(ContainerTarget::Marsa(detail_id.clone()), cx)
-                        });
+                        let _ = detail_view
+                            .update(cx, |view, cx| view.open_detail(detail_target.clone(), cx));
                     }),
             );
             let menu = [
                 ContainerAction::Start,
                 ContainerAction::Stop,
                 ContainerAction::Restart,
+                ContainerAction::Pause,
+                ContainerAction::Unpause,
             ]
             .into_iter()
             .fold(first, |menu, action| {
                 let weak = menu_view.clone();
-                let id = menu_id.clone();
+                let target = menu_target.clone();
                 let enabled = match action {
                     ContainerAction::Start => can_start,
                     ContainerAction::Stop => can_stop,
                     ContainerAction::Restart => can_restart,
+                    ContainerAction::Pause => state == "running",
+                    ContainerAction::Unpause => state == "paused",
                 };
                 if !enabled {
                     return menu;
                 }
-                let icon = match action {
-                    ContainerAction::Start => IconName::Play,
-                    ContainerAction::Stop => IconName::Square,
-                    ContainerAction::Restart => IconName::RefreshCw,
-                };
+                let icon = action_icon(action);
                 let (en, ar) = action_label(action);
                 menu.item(
                     PopupMenuItem::new(copy(locale, en, ar))
                         .icon(icon)
                         .disabled(busy)
                         .on_click(move |_, _, cx| {
-                            let _ = weak
-                                .update(cx, |view, cx| view.dispatch(vec![id.clone()], action, cx));
+                            let _ = weak.update(cx, |view, cx| {
+                                view.dispatch_target(target.clone(), action, cx)
+                            });
                         }),
                 )
             });
@@ -791,12 +836,18 @@ fn container_row(
                 .disabled(busy)
                 .on_click(move |_, window, cx| {
                     let _ = remove_view.update(cx, |view, cx| {
-                        view.request_remove(vec![remove_id.clone()], window, cx)
+                        super::removal::open(
+                            view,
+                            vec![remove_target.id().clone()],
+                            remove_target.endpoint().cloned(),
+                            window,
+                            cx,
+                        )
                     });
                 }),
             )
         })
-    });
+    };
     let lifecycle = action_button(entry, target, action, busy, locale, view)
         .ghost()
         .bg(color(palette, ColorToken::GlassControl));
@@ -860,7 +911,7 @@ fn container_row(
                     .gap_2()
                     .justify_row_end()
                     .child(lifecycle)
-                    .children(more),
+                    .child(more),
             );
     }
     let mut result = cell_row(palette, cx);
@@ -909,11 +960,16 @@ fn container_row(
     if mode != ViewMode::Tree {
         result = result.child(fixed_column(78., age_text(entry.created, locale)));
     }
-    let result = result.child(lifecycle);
-    if local.is_none() && mode == ViewMode::Table {
-        return result.child(div().w(px(28.)).flex_shrink_0());
+    result.child(lifecycle).child(more)
+}
+
+fn action_icon(action: ContainerAction) -> IconName {
+    match action {
+        ContainerAction::Start | ContainerAction::Unpause => IconName::Play,
+        ContainerAction::Stop => IconName::Square,
+        ContainerAction::Restart => IconName::RefreshCw,
+        ContainerAction::Pause => IconName::Pause,
     }
-    result.children(more)
 }
 
 pub(super) fn action_button(
@@ -927,14 +983,14 @@ pub(super) fn action_button(
     let id = entry.id.as_str().to_owned();
     let external = target.endpoint().is_some();
     let weak = entity.downgrade();
-    let icon = match action {
-        ContainerAction::Start => IconName::Play,
-        ContainerAction::Stop => IconName::Square,
-        ContainerAction::Restart => IconName::RefreshCw,
-    };
+    let icon = action_icon(action);
     let (en, ar) = action_label(action);
     Button::new((
-        ElementId::from(if external { "external-lifecycle" } else { en }),
+        ElementId::from(if external {
+            SharedString::from(format!("external-{en}"))
+        } else {
+            SharedString::from(en)
+        }),
         SharedString::from(id),
     ))
     .outline()

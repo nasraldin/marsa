@@ -9,7 +9,8 @@ use hyper::Method;
 
 use super::{
     ContainerAction, ContainerDetails, ContainerId, ContainerSummary, DockerClient, DockerError,
-    DockerLogs, DockerScope, ImageSummary, NetworkSummary, VolumeSummary, docker_socket_path,
+    DockerLogs, DockerScope, DockerStats, ExecSession, ImageSummary, NetworkSummary, ResourceName,
+    TerminalSize, VolumeSummary, docker_socket_path,
 };
 use crate::platform;
 
@@ -41,9 +42,28 @@ impl ExternalEndpoint {
         self.client(true).logs(id).await
     }
 
-    /// Start or stop the selected container on this engine.
+    /// Follow live container resource usage on the discovered engine.
+    pub async fn stats(&self, id: &ContainerId) -> Result<DockerStats, DockerError> {
+        self.client(true).stats(id).await
+    }
+
+    /// Open a bounded interactive shell on the discovered engine.
+    pub async fn start_terminal(
+        &self,
+        id: &ContainerId,
+        size: TerminalSize,
+    ) -> Result<ExecSession, DockerError> {
+        self.client(true).start_terminal(id, size).await
+    }
+
+    /// Start, stop, or restart the selected container on this engine.
     pub async fn act(&self, id: &ContainerId, action: ContainerAction) -> Result<(), DockerError> {
         self.client(true).act(id, action).await
+    }
+
+    /// Open this engine's typed management client. Every request is pinned to discovery.
+    pub fn management_client(&self) -> DockerClient {
+        self.client(true)
     }
 
     /// Refresh this engine's container snapshot without searching for another endpoint.
@@ -52,8 +72,14 @@ impl ExternalEndpoint {
     }
 }
 
-pub(super) fn external_route(method: &Method, path: &str, containers: bool) -> bool {
-    if method == Method::GET
+pub(super) fn external_route(
+    method: &Method,
+    path: &str,
+    containers: bool,
+    has_body: bool,
+) -> bool {
+    if !has_body
+        && method == Method::GET
         && matches!(
             path,
             "/containers/json?all=true" | "/images/json?all=true" | "/volumes" | "/networks"
@@ -64,27 +90,128 @@ pub(super) fn external_route(method: &Method, path: &str, containers: bool) -> b
     if !containers {
         return false;
     }
+    if resource_route(method, path, has_body) {
+        return true;
+    }
+    if let Some((id, action)) = path
+        .strip_prefix("/exec/")
+        .and_then(|tail| tail.split_once('/'))
+    {
+        return method == Method::POST
+            && valid_id(id)
+            && match action {
+                "start" => has_body,
+                query if !has_body => query
+                    .strip_prefix("resize?h=")
+                    .and_then(|size| size.split_once("&w="))
+                    .is_some_and(|(rows, columns)| {
+                        [rows, columns].into_iter().all(|value| {
+                            value.parse::<u16>().is_ok_and(|n| (1..=1024).contains(&n))
+                        })
+                    }),
+                _ => false,
+            };
+    }
     let Some((id, action)) = path
         .strip_prefix("/containers/")
         .and_then(|tail| tail.split_once('/'))
     else {
         return false;
     };
-    if id.len() != 64
-        || !id
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-    {
+    if !valid_id(id) {
         return false;
     }
     match *method {
-        Method::GET => matches!(
+        Method::GET if !has_body => matches!(
             action,
-            "json" | "logs?stdout=true&stderr=true&follow=true&tail=200"
+            "json" | "logs?stdout=true&stderr=true&follow=true&tail=200" | "stats?stream=true"
         ),
-        Method::POST => matches!(action, "start" | "stop"),
+        Method::POST if has_body => action == "exec",
+        Method::POST => matches!(action, "start" | "stop" | "restart" | "pause" | "unpause"),
         _ => false,
     }
+}
+
+fn resource_route(method: &Method, path: &str, has_body: bool) -> bool {
+    match *method {
+        Method::POST if has_body => {
+            matches!(
+                path,
+                "/containers/create" | "/volumes/create" | "/networks/create"
+            ) || path
+                .strip_prefix("/containers/create?name=")
+                .is_some_and(|name| ResourceName::parse(name).is_ok())
+        }
+        Method::POST => {
+            path.strip_prefix("/images/create?fromImage=")
+                .is_some_and(valid_pull_query)
+                || path
+                    .strip_prefix("/images/sha256:")
+                    .and_then(|path| path.split_once("/tag?repo="))
+                    .is_some_and(|(digest, query)| {
+                        valid_id(digest)
+                            && query.split_once("&tag=").is_some_and(|(repo, tag)| {
+                                valid_pull_query(repo) && super::images::valid_tag(tag)
+                            })
+                    })
+        }
+        Method::GET if !has_body => {
+            path == "/system/df?type=volume&verbose=true"
+                || path
+                    .strip_prefix("/images/sha256:")
+                    .and_then(|digest| digest.strip_suffix("/json"))
+                    .is_some_and(valid_id)
+        }
+        Method::DELETE if !has_body => {
+            path.strip_prefix("/images/sha256:")
+                .and_then(with_force)
+                .is_some_and(valid_id)
+                || path.strip_prefix("/networks/").is_some_and(valid_id)
+                || path
+                    .strip_prefix("/volumes/")
+                    .and_then(|name| name.strip_suffix("?force=false"))
+                    .is_some_and(|name| ResourceName::parse(name).is_ok())
+                || path
+                    .strip_prefix("/containers/")
+                    .and_then(with_force)
+                    .is_some_and(valid_id)
+        }
+        _ => false,
+    }
+}
+
+fn with_force(path: &str) -> Option<&str> {
+    path.strip_suffix("?force=false")
+        .or_else(|| path.strip_suffix("?force=true"))
+}
+
+fn valid_pull_query(reference: &str) -> bool {
+    let mut bytes = reference.bytes();
+    let mut length = 0;
+    while let Some(byte) = bytes.next() {
+        length += 1;
+        if byte == b'%' {
+            if !matches!(
+                (bytes.next(), bytes.next()),
+                (Some(b'3'), Some(b'A'))
+                    | (Some(b'2'), Some(b'F'))
+                    | (Some(b'4'), Some(b'0'))
+                    | (Some(b'5'), Some(b'B' | b'D'))
+            ) {
+                return false;
+            }
+        } else if !byte.is_ascii_alphanumeric() && !matches!(byte, b'.' | b'_' | b'-') {
+            return false;
+        }
+    }
+    (1..=512).contains(&length)
+}
+
+fn valid_id(id: &str) -> bool {
+    id.len() == 64
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 /// Containers and images reported by a detected local Docker engine.
@@ -283,7 +410,13 @@ mod tests {
             }
             listener
         });
-        assert!(endpoint.act(&id, ContainerAction::Restart).await.is_err());
+        assert!(
+            endpoint
+                .client(false)
+                .act(&id, ContainerAction::Restart)
+                .await
+                .is_err()
+        );
         endpoint.act(&id, ContainerAction::Start).await.unwrap();
         endpoint.act(&id, ContainerAction::Stop).await.unwrap();
         let _original = server.await.unwrap();
@@ -294,6 +427,79 @@ mod tests {
         assert!(matches!(
             endpoint.act(&id, ContainerAction::Start).await,
             Err(DockerError::Socket(error)) if error.kind() == std::io::ErrorKind::PermissionDenied
+        ));
+    }
+
+    #[test]
+    fn external_terminal_and_stats_accept_only_the_typed_routes() {
+        let id = "a".repeat(64);
+        let stats = format!("/containers/{id}/stats?stream=true");
+        let create = format!("/containers/{id}/exec");
+        let start = format!("/exec/{id}/start");
+        let resize = format!("/exec/{id}/resize?h=24&w=80");
+        assert!(external_route(&Method::GET, &stats, true, false));
+        assert!(external_route(&Method::POST, &create, true, true));
+        assert!(external_route(&Method::POST, &start, true, true));
+        assert!(external_route(&Method::POST, &resize, true, false));
+        assert!(!external_route(&Method::POST, &start, false, true));
+        assert!(!external_route(&Method::GET, &stats, true, true));
+        assert!(!external_route(&Method::POST, &create, true, false));
+        assert!(!external_route(
+            &Method::POST,
+            "/exec/short/start",
+            true,
+            true
+        ));
+        assert!(!external_route(
+            &Method::POST,
+            &format!("{resize}&force=1"),
+            true,
+            false
+        ));
+    }
+
+    #[test]
+    fn external_resource_routes_require_supported_operations_and_valid_identifiers() {
+        let digest = "b".repeat(64);
+        for (method, path, has_body) in [
+            (Method::GET, format!("/images/sha256:{digest}/json"), false),
+            (
+                Method::POST,
+                format!("/images/sha256:{digest}/tag?repo=registry%3A5000%2Ftest&tag=dev"),
+                false,
+            ),
+            (
+                Method::DELETE,
+                format!("/images/sha256:{digest}?force=false"),
+                false,
+            ),
+            (Method::POST, "/volumes/create".into(), true),
+            (
+                Method::DELETE,
+                "/volumes/database?force=false".into(),
+                false,
+            ),
+            (Method::DELETE, format!("/networks/{digest}"), false),
+        ] {
+            assert!(
+                external_route(&method, &path, true, has_body),
+                "{method} {path}"
+            );
+            assert!(!external_route(&method, &path, false, has_body));
+        }
+        for path in [
+            "/volumes/database?force=true",
+            "/volumes/database%2Fother?force=false",
+            "/images/alpine?force=false",
+            "/networks/prune",
+        ] {
+            assert!(!external_route(&Method::DELETE, path, true, false));
+        }
+        assert!(!external_route(
+            &Method::POST,
+            "/images/create?fromImage=test&platform=windows",
+            true,
+            false
         ));
     }
 

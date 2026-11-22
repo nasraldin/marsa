@@ -4,7 +4,7 @@ use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
 use std::collections::VecDeque;
 
-use marsa_client::docker::ContainerId;
+use marsa_client::docker::{ContainerId, ExternalEndpoint};
 use marsa_ui::{
     ColorToken,
     gpui::{Context, Div, Entity, ParentElement, Styled, Task, div, px},
@@ -24,6 +24,7 @@ const MAX_LINE_BYTES: usize = 1024;
 
 pub(super) struct ProjectLogs {
     project: String,
+    endpoint: Option<ExternalEndpoint>,
     lines: VecDeque<(String, String)>,
     failed: bool,
     _streams: Vec<Task<()>>,
@@ -34,12 +35,17 @@ impl ProjectLogs {
         project: String,
         members: Vec<(ContainerId, String)>,
         service: &Services,
+        endpoint: Option<ExternalEndpoint>,
         cx: &Context<ResourcesView>,
     ) -> Self {
         let streams = members
             .into_iter()
+            .take(32)
             .map(|(id, source)| {
-                let mut stream = service.logs(id);
+                let mut stream = match &endpoint {
+                    Some(endpoint) => service.external_logs(endpoint.clone(), id),
+                    None => service.logs(id),
+                };
                 let project = project.clone();
                 cx.spawn(async move |view, cx| {
                     while let Some(batch) = stream.next().await {
@@ -76,6 +82,7 @@ impl ProjectLogs {
             .collect();
         Self {
             project,
+            endpoint,
             lines: VecDeque::new(),
             failed: false,
             _streams: streams,
@@ -90,7 +97,9 @@ pub(super) fn render(
     selected: Option<&ProjectLogs>,
 ) -> Div {
     let mut target = panel(screen).gap(px(Space::S8.pixels()));
-    let selected = selected.filter(|logs| logs.project == row.id);
+    let selected =
+        selected.filter(|logs| logs.project == row.id && logs.endpoint.as_ref() == row.endpoint());
+    let endpoint = row.endpoint().cloned();
     let enabled = selected.is_none() && screen.services.is_some() && !row.members.is_empty();
     let project = row.id.clone();
     let members = row.members.clone();
@@ -116,13 +125,16 @@ pub(super) fn render(
                     .disabled(!enabled && selected.is_none())
                     .on_click(move |_, _, cx| {
                         view.update(cx, |view, cx| {
-                            if view.logs.is_some() {
+                            if view.logs.as_ref().is_some_and(|logs| {
+                                logs.project == project && logs.endpoint == endpoint
+                            }) {
                                 view.logs = None;
                             } else if let Some(service) = &service {
                                 view.logs = Some(ProjectLogs::follow(
                                     project.clone(),
                                     members.clone(),
                                     service,
+                                    endpoint.clone(),
                                     cx,
                                 ));
                             }

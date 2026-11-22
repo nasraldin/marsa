@@ -173,6 +173,10 @@ pub enum ContainerAction {
     Stop,
     /// Stop and start an existing container.
     Restart,
+    /// Pause the processes in a running container.
+    Pause,
+    /// Resume the processes in a paused container.
+    Unpause,
 }
 
 /// Errors returned by the Docker socket and typed response decoders.
@@ -317,6 +321,8 @@ impl DockerClient {
             ContainerAction::Start => "start",
             ContainerAction::Stop => "stop",
             ContainerAction::Restart => "restart",
+            ContainerAction::Pause => "pause",
+            ContainerAction::Unpause => "unpause",
         };
         let path = format!("/containers/{}/{action}", id.as_str());
         self.request(Method::POST, &path).await?;
@@ -365,15 +371,45 @@ impl DockerClient {
         self.request_payload(method, path, Bytes::new()).await
     }
 
+    fn request_uri(&self, path: &str) -> String {
+        match self.scope {
+            DockerScope::Marsa => format!("{API_PREFIX}{path}"),
+            DockerScope::External { .. } => path.to_owned(),
+        }
+    }
+
+    async fn request_socket(
+        &self,
+        method: &Method,
+        path: &str,
+        has_body: bool,
+    ) -> Result<tokio::net::UnixStream, DockerError> {
+        if geteuid().is_root() {
+            return Err(ClientError::Root.into());
+        }
+        match self.scope {
+            DockerScope::Marsa => platform::open_socket(self.socket.clone()).await,
+            DockerScope::External {
+                identity,
+                containers,
+            } => {
+                if !inventory::external_route(method, path, containers, has_body) {
+                    return Err(DockerError::Socket(
+                        std::io::ErrorKind::PermissionDenied.into(),
+                    ));
+                }
+                platform::open_external_socket(self.socket.clone(), identity).await
+            }
+        }
+        .map_err(DockerError::Socket)
+    }
+
     async fn request_payload(
         &self,
         method: Method,
         path: &str,
         payload: Bytes,
     ) -> Result<(hyper::HeaderMap, stream::ResponseBody), DockerError> {
-        if geteuid().is_root() {
-            return Err(ClientError::Root.into());
-        }
         let deadline = if matches!(
             self.scope,
             DockerScope::External {
@@ -388,36 +424,17 @@ impl DockerClient {
             REQUEST_TIMEOUT
         };
         timeout(deadline, async {
-            let socket = match self.scope {
-                DockerScope::Marsa => platform::open_socket(self.socket.clone()).await,
-                DockerScope::External {
-                    identity,
-                    containers,
-                } => {
-                    if !inventory::external_route(&method, path, containers) || !payload.is_empty()
-                    {
-                        return Err(DockerError::Socket(
-                            std::io::ErrorKind::PermissionDenied.into(),
-                        ));
-                    }
-                    platform::open_external_socket(self.socket.clone(), identity).await
-                }
-            }
-            .map_err(DockerError::Socket)?;
+            let socket = self
+                .request_socket(&method, path, !payload.is_empty())
+                .await?;
             let (mut sender, connection) = http1::Builder::new()
                 .max_buf_size(16 * 1024)
                 .handshake(TokioIo::new(socket))
                 .await?;
             let task = stream::ConnectionTask::new(tokio::spawn(connection).abort_handle());
-            // These inventory routes are available directly on the external daemon.
-            // The fixed Marsa API version may be newer than that daemon supports.
-            let uri = match self.scope {
-                DockerScope::Marsa => format!("{API_PREFIX}{path}"),
-                DockerScope::External { .. } => path.to_owned(),
-            };
             let mut request = Request::builder()
                 .method(method.clone())
-                .uri(uri)
+                .uri(self.request_uri(path))
                 .header(header::HOST, "docker")
                 .header(header::CONNECTION, "close");
             if !payload.is_empty() {

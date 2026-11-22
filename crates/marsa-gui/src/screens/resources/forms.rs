@@ -28,6 +28,10 @@ pub(super) enum FormKind {
         id: String,
         reference: String,
     },
+    TagImage {
+        id: String,
+        reference: String,
+    },
     RemoveImage {
         id: String,
         reference: String,
@@ -60,7 +64,9 @@ pub(super) enum FormKind {
 impl FormKind {
     pub(super) fn page(&self) -> ResourceKind {
         match self {
-            Self::Pull | Self::Run { .. } | Self::RemoveImage { .. } => ResourceKind::Images,
+            Self::Pull | Self::Run { .. } | Self::RemoveImage { .. } | Self::TagImage { .. } => {
+                ResourceKind::Images
+            }
             Self::CreateVolume | Self::RemoveVolume { .. } => ResourceKind::Volumes,
             Self::CreateNetwork | Self::RemoveNetwork { .. } => ResourceKind::Networks,
             Self::ComposeUp { .. } | Self::ComposeRestart { .. } | Self::ComposeDown { .. } => {
@@ -73,6 +79,7 @@ impl FormKind {
         match self {
             Self::Pull => gui::GUI_DESKTOP_PULL_IMAGE.text(locale),
             Self::Run { .. } => gui::GUI_DESKTOP_RUN_IMAGE.text(locale),
+            Self::TagImage { .. } => gui::GUI_DESKTOP_TAG_IMAGE.text(locale),
             Self::RemoveImage { .. } => gui::GUI_DESKTOP_REMOVE_IMAGE.text(locale),
             Self::CreateVolume => gui::GUI_DESKTOP_CREATE_VOLUME.text(locale),
             Self::RemoveVolume { .. } => gui::GUI_DESKTOP_REMOVE_VOLUME.text(locale),
@@ -91,7 +98,9 @@ impl FormKind {
 
     fn target(&self) -> Option<&str> {
         match self {
-            Self::Run { reference, .. } | Self::RemoveImage { reference, .. } => Some(reference),
+            Self::Run { reference, .. }
+            | Self::RemoveImage { reference, .. }
+            | Self::TagImage { reference, .. } => Some(reference),
             Self::RemoveVolume { name, .. } | Self::RemoveNetwork { name, .. } => Some(name),
             Self::ComposeUp { project }
             | Self::ComposeRestart { project }
@@ -103,6 +112,7 @@ impl FormKind {
     fn placeholder(&self, locale: Locale) -> Option<&'static str> {
         match self {
             Self::Pull => Some(gui::GUI_DESKTOP_IMAGE_REFERENCE.text(locale)),
+            Self::TagImage { .. } => Some(gui::GUI_DESKTOP_TARGET_IMAGE_TAG.text(locale)),
             Self::Run { .. } => Some(gui::GUI_DESKTOP_CONTAINER_NAME_OPTIONAL.text(locale)),
             Self::CreateNetwork => Some(gui::GUI_DESKTOP_NETWORK_NAME.text(locale)),
             Self::CreateVolume => Some(gui::GUI_DESKTOP_VOLUME_NAME.text(locale)),
@@ -144,6 +154,10 @@ pub(crate) enum ResourceRequest {
         id: String,
         name: Option<String>,
     },
+    TagImage {
+        id: String,
+        destination: String,
+    },
     RemoveImage {
         id: String,
         force: bool,
@@ -166,6 +180,7 @@ pub(crate) enum ResourceRequest {
 
 pub(super) struct Form {
     pub kind: FormKind,
+    source: Option<super::ResourceSource>,
     input: Option<Entity<InputState>>,
     force: bool,
 }
@@ -173,6 +188,7 @@ pub(super) struct Form {
 impl Form {
     pub(super) fn new(
         kind: FormKind,
+        source: Option<super::ResourceSource>,
         locale: Locale,
         window: &mut Window,
         cx: &mut Context<ResourcesView>,
@@ -188,6 +204,7 @@ impl Form {
         });
         Self {
             kind,
+            source,
             input,
             force: false,
         }
@@ -206,6 +223,10 @@ impl Form {
             FormKind::Run { id, .. } => ResourceRequest::Run {
                 id: id.clone(),
                 name: nonempty().map(str::to_owned),
+            },
+            FormKind::TagImage { id, .. } => ResourceRequest::TagImage {
+                id: id.clone(),
+                destination: nonempty()?.to_owned(),
             },
             FormKind::RemoveImage { id, users, .. } if users.is_empty() || self.force => {
                 ResourceRequest::RemoveImage {
@@ -253,6 +274,14 @@ impl Form {
     ) -> Div {
         let title = self.kind.title(screen.locale);
         let mut form = div().flex().flex_col().gap(px(Space::S12.pixels()));
+        form = form.child(
+            logical_row(screen.locale).child(crate::screens::external_inventory::source_badge(
+                screen.palette,
+                self.source
+                    .as_ref()
+                    .map_or_else(|| "Marsa".into(), |source| source.badge.clone()),
+            )),
+        );
         if let Some(target) = self.kind.target() {
             let affected = self.kind.users();
             form = form.child(
@@ -375,14 +404,18 @@ impl Form {
                     let Some(service) = &service else { return };
                     let request = submit.update(cx, |view, cx| {
                         let form = view.form.as_ref()?;
-                        let request = (form.kind.page(), form.request(cx)?);
+                        let request = (
+                            form.kind.page(),
+                            form.request(cx)?,
+                            form.source.as_ref().map(|source| source.endpoint.clone()),
+                        );
                         view.form = None;
                         Some(request)
                     });
-                    if let Some((kind, request)) = request {
+                    if let Some((kind, request, endpoint)) = request {
                         window.close_dialog(cx);
                         submit.update(cx, |view, cx| {
-                            view.dispatch(kind, request, service.clone(), locale, cx)
+                            view.dispatch(kind, (request, endpoint), service.clone(), locale, cx)
                         });
                     }
                 })),

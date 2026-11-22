@@ -11,17 +11,19 @@ use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
 use std::{collections::BTreeMap, sync::Arc};
 
-use marsa_client::docker::{ImageDetails, VolumeUsage};
+use marsa_client::docker::{ExternalEndpoint, ImageDetails, VolumeUsage};
 
 use marsa_ui::{
     ColorToken, Locale, Palette,
     gpui::{
-        App, AppContext, Context, Div, Entity, ParentElement, Styled, Task, Window, div, px, svg,
+        App, AppContext, Context, Div, Entity, IntoElement, ParentElement, Styled, Task, Window,
+        div, px, svg,
     },
     gpui_component::{
         Disableable, IconName, WindowExt,
         button::{Button, ButtonVariants},
         input::InputState,
+        menu::{DropdownMenu as _, PopupMenuItem},
     },
     tokens::{
         scale::{Radius, Space},
@@ -72,6 +74,7 @@ impl ResourceKind {
 pub(crate) struct ResourcesView {
     filter: Entity<InputState>,
     selection: Option<(ResourceKind, String)>,
+    selected_endpoint: Option<ExternalEndpoint>,
     reveal_selection: bool,
     form: Option<Form>,
     logs: Option<logs::ProjectLogs>,
@@ -89,6 +92,24 @@ pub(crate) struct ResourcesView {
     volume_scan_failed: bool,
 }
 
+#[derive(Clone)]
+struct ResourceSource {
+    endpoint: ExternalEndpoint,
+    badge: marsa_ui::gpui::SharedString,
+}
+
+impl From<&crate::screens::external_inventory::ExternalWorkspace> for ResourceSource {
+    fn from(workspace: &crate::screens::external_inventory::ExternalWorkspace) -> Self {
+        Self {
+            endpoint: workspace.endpoint.clone(),
+            badge: technical(&workspace.source),
+        }
+    }
+}
+
+pub(crate) struct ExternalResourcesChanged;
+impl marsa_ui::gpui::EventEmitter<ExternalResourcesChanged> for ResourcesView {}
+
 impl ResourcesView {
     /// Create the content state on the desktop window.
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -101,6 +122,7 @@ impl ResourcesView {
         Self {
             filter,
             selection: None,
+            selected_endpoint: None,
             reveal_selection: false,
             form: None,
             logs: None,
@@ -139,6 +161,7 @@ impl ResourcesView {
         cx: &mut Context<Self>,
     ) {
         self.selection = Some((kind, key));
+        self.selected_endpoint = None;
         self.reveal_selection = true;
         self.form = None;
         self.logs = None;
@@ -151,6 +174,7 @@ impl ResourcesView {
     /// Stop viewing resource details when leaving the route.
     pub(crate) fn leave(&mut self) {
         self.selection = None;
+        self.selected_endpoint = None;
         self.reveal_selection = false;
         self.form = None;
         self.logs = None;
@@ -162,15 +186,16 @@ impl ResourcesView {
 
     fn open_form(
         &mut self,
-        kind: FormKind,
+        action: (FormKind, Option<ResourceSource>),
         locale: Locale,
         palette: Palette,
         service: Arc<Services>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let (kind, source) = action;
         let title = kind.title(locale);
-        self.form = Some(Form::new(kind, locale, window, cx));
+        self.form = Some(Form::new(kind, source, locale, window, cx));
         let view = cx.entity();
         let snapshot = service.store().select(Clone::clone);
         let state = snapshot.current().clone();
@@ -218,32 +243,7 @@ pub(crate) fn render(
             ),
         );
     if let Some(action) = kind.main_action() {
-        let state = view.clone();
-        let locale = screen.locale;
-        let palette = screen.palette;
-        let service = screen.services.cloned();
-        toolbar = toolbar.child(
-            Button::new("primary-resource-action")
-                .primary()
-                .h(px(Space::S36.pixels()))
-                .rounded(px(Radius::R8.pixels()))
-                .label(action.title(locale))
-                .disabled(screen.services.is_none())
-                .on_click(move |_, window, cx| {
-                    if let Some(service) = &service {
-                        state.update(cx, |state, cx| {
-                            state.open_form(
-                                action.clone(),
-                                locale,
-                                palette,
-                                Arc::clone(service),
-                                window,
-                                cx,
-                            );
-                        });
-                    }
-                }),
-        );
+        toolbar = toolbar.child(primary_action(screen, view, action, external));
     }
 
     if kind == ResourceKind::Volumes {
@@ -277,14 +277,18 @@ pub(crate) fn render(
         resources.extend(
             rows::snapshot_rows(&foreign_screen, kind, &BTreeMap::new())
                 .into_iter()
-                .map(|row| row.with_source(&external.source)),
+                .map(|row| row.with_source(external.into())),
         );
     }
     let selected = data
         .selection
         .as_ref()
         .filter(|(page, _)| *page == kind)
-        .and_then(|(_, key)| resources.iter().find(|row| row.selected(key)));
+        .and_then(|(_, key)| {
+            resources
+                .iter()
+                .find(|row| row.selected(key) && row.endpoint() == data.selected_endpoint.as_ref())
+        });
     let rows = resources
         .iter()
         .filter(|row| row.matches(&filter))
@@ -327,9 +331,7 @@ pub(crate) fn render(
             ),
         ));
     }
-    if data.reveal_selection {
-        content = content.children(selected.map(|row| details(screen, kind, row, view, data)));
-    }
+    content = content.children(selected.map(|row| details(screen, kind, row, view, data)));
     content = content.child(table(
         screen,
         kind,
@@ -366,15 +368,83 @@ pub(crate) fn render(
     if let Some(notice) = operations::notice(screen, kind, data) {
         content = content.child(notice);
     }
-    if let Some(row) = selected {
-        if !data.reveal_selection {
-            content = content.child(details(screen, kind, row, view, data));
-        }
-        if kind == ResourceKind::Compose {
-            content = content.child(logs::render(screen, row, view, data.logs.as_ref()));
-        }
+    if let Some(row) = selected
+        && kind == ResourceKind::Compose
+    {
+        content = content.child(logs::render(screen, row, view, data.logs.as_ref()));
     }
     content
+}
+
+fn primary_action(
+    screen: &ScreenContext<'_>,
+    view: &Entity<ResourcesView>,
+    action: FormKind,
+    external: Option<&crate::screens::external_inventory::ExternalWorkspace>,
+) -> impl marsa_ui::gpui::IntoElement {
+    let state = view.clone();
+    let locale = screen.locale;
+    let palette = screen.palette;
+    let service = screen.services.cloned();
+    let title = action.title(locale);
+    let button = Button::new("primary-resource-action")
+        .primary()
+        .h(px(Space::S36.pixels()))
+        .rounded(px(Radius::R8.pixels()))
+        .label(title)
+        .disabled(service.is_none());
+    if let Some(external) = external {
+        let source = ResourceSource::from(external);
+        return button
+            .icon(IconName::ChevronDown)
+            .dropdown_menu(move |menu, _, _| {
+                [
+                    (None, None),
+                    (Some(source.clone()), Some(source.badge.clone())),
+                ]
+                .into_iter()
+                .fold(menu, |menu, (source, badge)| {
+                    let state = state.clone();
+                    let service = service.clone();
+                    let action = action.clone();
+                    menu.item(
+                        PopupMenuItem::new(badge.unwrap_or_else(|| "Marsa".into())).on_click(
+                            move |_, window, cx| {
+                                if let Some(service) = &service {
+                                    state.update(cx, |state, cx| {
+                                        state.open_form(
+                                            (action.clone(), source.clone()),
+                                            locale,
+                                            palette,
+                                            Arc::clone(service),
+                                            window,
+                                            cx,
+                                        )
+                                    });
+                                }
+                            },
+                        ),
+                    )
+                })
+            })
+            .into_any_element();
+    }
+    button
+        .on_click(move |_, window, cx| {
+            if let Some(service) = &service {
+                state.update(cx, |state, cx| {
+                    state.open_form(
+                        (action.clone(), None),
+                        locale,
+                        palette,
+                        Arc::clone(service),
+                        window,
+                        cx,
+                    )
+                });
+            }
+        })
+        .into_any_element()
 }
 
 fn details(
@@ -393,6 +463,7 @@ fn details(
             let view = view.clone();
             let palette = screen.palette;
             let service = screen.services.cloned();
+            let source = row.source().cloned();
             Button::new(("resource-detail-action", index))
                 .label(action.title(locale))
                 .disabled(screen.services.is_none())
@@ -400,7 +471,7 @@ fn details(
                     if let Some(service) = &service {
                         view.update(cx, |view, cx| {
                             view.open_form(
-                                action.clone(),
+                                (action.clone(), source.clone()),
                                 locale,
                                 palette,
                                 Arc::clone(service),
@@ -417,6 +488,12 @@ fn details(
             logical_row(locale)
                 .gap(px(Space::S12.pixels()))
                 .child(resource_icon(screen, kind))
+                .children(row.source().map(|source| {
+                    crate::screens::external_inventory::source_badge(
+                        screen.palette,
+                        source.badge.clone(),
+                    )
+                }))
                 .child(
                     div()
                         .flex_1()
@@ -447,6 +524,61 @@ fn details(
                 .flex_wrap()
                 .children(actions),
         );
+    if kind == ResourceKind::Compose
+        && let Some(source) = row.source()
+    {
+        let controls = [
+            (
+                marsa_client::docker::ContainerAction::Start,
+                "Start project",
+                "ابدأ المشروع",
+            ),
+            (
+                marsa_client::docker::ContainerAction::Stop,
+                "Stop project",
+                "أوقف المشروع",
+            ),
+            (
+                marsa_client::docker::ContainerAction::Restart,
+                "Restart project",
+                "أعد تشغيل المشروع",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (action, en, ar))| {
+            let service = screen.services.cloned();
+            let endpoint = source.endpoint.clone();
+            let members = row
+                .members
+                .iter()
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>();
+            let view = view.clone();
+            Button::new(("external-compose-action", index))
+                .label(crate::screens::common::label(screen, en, ar))
+                .disabled(service.is_none() || data.busy.is_some() || members.is_empty())
+                .on_click(move |_, _, cx| {
+                    if let Some(service) = &service {
+                        view.update(cx, |view, cx| {
+                            view.external_project_action(
+                                service,
+                                endpoint.clone(),
+                                members.clone(),
+                                action,
+                                cx,
+                            )
+                        });
+                    }
+                })
+        });
+        detail = detail.child(
+            logical_row(locale)
+                .gap(px(Space::S8.pixels()))
+                .flex_wrap()
+                .children(controls),
+        );
+    }
     if kind == ResourceKind::Images {
         detail = detail.children(operations::image_metadata(screen, row, data));
     }

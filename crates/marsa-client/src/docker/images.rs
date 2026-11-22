@@ -122,18 +122,47 @@ pub enum ImageRun {
     },
 }
 
+pub(super) fn valid_tag(tag: &str) -> bool {
+    (1..=128).contains(&tag.len())
+        && tag
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        && tag
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
+}
+
 impl DockerClient {
-    /// Start an anonymous public-registry pull for the guest's Linux/ARM64 platform.
+    /// Start an anonymous public-registry pull using the selected engine's platform.
     pub async fn pull_image(&self, image: &ImageReference) -> Result<ImagePull, DockerError> {
-        let path = format!(
-            "/images/create?fromImage={}&platform=linux%2Farm64",
-            image.query()
-        );
+        let mut path = format!("/images/create?fromImage={}", image.query());
+        if matches!(self.scope, super::DockerScope::Marsa) {
+            path.push_str("&platform=linux%2Farm64");
+        }
         let (_, source) = self.request(Method::POST, &path).await?;
         Ok(ImagePull {
             source,
             line: Vec::new(),
         })
+    }
+
+    /// Add the requested repository and tag to an existing image on this engine.
+    pub async fn tag_image(&self, image: &ImageId, destination: &str) -> Result<(), DockerError> {
+        let (repository, tag) = destination
+            .rsplit_once(':')
+            .ok_or(DockerError::InvalidResourceName)?;
+        if repository.contains('@') || !valid_tag(tag) {
+            return Err(DockerError::InvalidResourceName);
+        }
+        let repository = ImageReference::parse(repository)?;
+        let path = format!(
+            "/images/{}/tag?repo={}&tag={tag}",
+            image.as_str(),
+            repository.query()
+        );
+        self.request(Method::POST, &path).await?;
+        Ok(())
     }
 
     /// Create a local container from an existing image ID and start it with image defaults.

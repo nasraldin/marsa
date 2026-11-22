@@ -19,7 +19,10 @@ use marsa_ui::{
 
 use crate::screens::common::{ScreenContext, copy, label};
 
-use super::{ResourceKind, ResourcesView, forms::FormKind, logical_row, resource_icon, text, tone};
+use super::{
+    ResourceKind, ResourceSource, ResourcesView, forms::FormKind, logical_row, resource_icon, text,
+    tone,
+};
 
 pub(super) struct Columns(Vec<(SharedString, f32)>);
 
@@ -68,7 +71,7 @@ pub(super) struct ResourceRow {
     pub details: Vec<(SharedString, String)>,
     status: Option<(ColorToken, ColorToken)>,
     action_target: String,
-    source: Option<SharedString>,
+    source: Option<ResourceSource>,
     users: Vec<String>,
     references: Option<u64>,
     pub members: Vec<(marsa_client::docker::ContainerId, String)>,
@@ -76,13 +79,21 @@ pub(super) struct ResourceRow {
 
 impl ResourceRow {
     pub(super) fn selected(&self, key: &str) -> bool {
-        self.source.is_none() && (self.key == key || self.id == key)
+        self.key == key || (self.source.is_none() && self.id == key)
     }
 
-    pub(super) fn with_source(mut self, source: &str) -> Self {
-        self.key = format!("external:{}", self.key);
-        self.source = Some(super::super::common::technical(source));
+    pub(super) fn with_source(mut self, source: ResourceSource) -> Self {
+        self.key = external_key(&self.key);
+        self.source = Some(source);
         self
+    }
+
+    pub(super) fn source(&self) -> Option<&ResourceSource> {
+        self.source.as_ref()
+    }
+
+    pub(super) fn endpoint(&self) -> Option<&marsa_client::docker::ExternalEndpoint> {
+        self.source.as_ref().map(|source| &source.endpoint)
     }
 
     pub(super) fn key(&self) -> &str {
@@ -107,16 +118,22 @@ impl ResourceRow {
     }
 
     pub(super) fn actions(&self, kind: ResourceKind) -> Vec<FormKind> {
-        if self.source.is_some() {
+        if self.source.is_some() && kind == ResourceKind::Compose {
             return Vec::new();
         }
         match kind {
             ResourceKind::Images => {
-                let mut actions = vec![FormKind::RemoveImage {
-                    id: self.id.clone(),
-                    reference: self.action_target.clone(),
-                    users: self.users.clone(),
-                }];
+                let mut actions = vec![
+                    FormKind::TagImage {
+                        id: self.id.clone(),
+                        reference: self.action_target.clone(),
+                    },
+                    FormKind::RemoveImage {
+                        id: self.id.clone(),
+                        reference: self.action_target.clone(),
+                        users: self.users.clone(),
+                    },
+                ];
                 if !self.action_target.is_empty() {
                     actions.insert(
                         0,
@@ -156,6 +173,10 @@ impl ResourceRow {
             ],
         }
     }
+}
+
+fn external_key(key: &str) -> String {
+    format!("external:{key}")
 }
 
 pub(super) fn table(
@@ -239,9 +260,9 @@ pub(super) fn table(
         let key_id = row.id.clone();
         let key_service = screen.services.cloned();
         let entry = entry.id(SharedString::from(id.clone()));
-        let entry = if row.source.is_some() {
-            entry
-        } else {
+        let click_endpoint = row.endpoint().cloned();
+        let key_endpoint = click_endpoint.clone();
+        let entry = {
             entry
                 .tab_stop(true)
                 .cursor_pointer()
@@ -257,7 +278,7 @@ pub(super) fn table(
                         view.select(
                             kind,
                             click_key.clone(),
-                            &click_id,
+                            (&click_id, click_endpoint.clone()),
                             click_service.as_deref(),
                             cx,
                         );
@@ -266,7 +287,13 @@ pub(super) fn table(
                 .on_key_down(move |event, _, cx| {
                     if matches!(event.keystroke.key.as_str(), "enter" | "space") {
                         key_select.update(cx, |view, cx| {
-                            view.select(kind, id.clone(), &key_id, key_service.as_deref(), cx);
+                            view.select(
+                                kind,
+                                id.clone(),
+                                (&key_id, key_endpoint.clone()),
+                                key_service.as_deref(),
+                                cx,
+                            );
                         });
                         cx.stop_propagation();
                     }
@@ -307,7 +334,8 @@ pub(super) fn table(
                         .children(show_sources.then(|| {
                             super::super::external_inventory::source_badge(
                                 screen.palette,
-                                row.source.clone().unwrap_or_else(|| "Marsa".into()),
+                                row.source()
+                                    .map_or_else(|| "Marsa".into(), |source| source.badge.clone()),
                             )
                         }))
                 } else {
@@ -702,9 +730,7 @@ mod tests {
         };
         assert!(row.selected("database"));
         assert!(!row.actions(ResourceKind::Volumes).is_empty());
-        let external = row.with_source("Lima · docker");
-        assert_ne!(external.key(), "database");
-        assert!(!external.selected("database"));
-        assert!(external.actions(ResourceKind::Volumes).is_empty());
+        assert_ne!(external_key(row.key()), row.key());
+        assert!(!row.selected(&external_key(row.key())));
     }
 }

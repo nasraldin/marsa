@@ -7,7 +7,8 @@ use std::sync::Arc;
 use marsa_client::{
     compose::ComposeOperation,
     docker::{
-        ImageId, ImageRemoval, ImageRun, NetworkRemoval, RemovalMode, ResourceName, VolumeRemoval,
+        ContainerAction, ContainerId, ExternalEndpoint, ImageId, ImageRemoval, ImageRun,
+        NetworkRemoval, RemovalMode, ResourceName, VolumeRemoval,
     },
 };
 use marsa_ui::{
@@ -62,11 +63,13 @@ impl ResourcesView {
         &mut self,
         kind: ResourceKind,
         key: String,
-        id: &str,
+        resource: (&str, Option<ExternalEndpoint>),
         services: Option<&Services>,
         cx: &mut Context<Self>,
     ) {
-        if !self.reveal_selection
+        let (id, endpoint) = resource;
+        if self.selected_endpoint == endpoint
+            && !self.reveal_selection
             && self
                 .selection
                 .as_ref()
@@ -75,6 +78,7 @@ impl ResourcesView {
             return;
         }
         self.selection = Some((kind, key.clone()));
+        self.selected_endpoint = endpoint.clone();
         self.reveal_selection = false;
         self.form = None;
         self.logs = None;
@@ -83,7 +87,7 @@ impl ResourcesView {
         self.inspection_failed = false;
         if kind == ResourceKind::Images {
             if let (Some(services), Ok(id)) = (services, ImageId::parse(id)) {
-                let mut request = services.inspect_image(id);
+                let mut request = services.inspect_image(id, endpoint);
                 self.inspection_task = Some(cx.spawn(async move |view, cx| {
                     let result = request.result().await;
                     let _ =
@@ -106,10 +110,46 @@ impl ResourcesView {
         cx.refresh_windows();
     }
 
+    pub(super) fn external_project_action(
+        &mut self,
+        service: &Services,
+        endpoint: ExternalEndpoint,
+        members: Vec<ContainerId>,
+        action: ContainerAction,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() {
+            return;
+        }
+        let mut operation = service.pending(async move {
+            let mut failed = false;
+            for id in members {
+                failed |= endpoint.act(&id, action).await.is_err();
+            }
+            Ok(!failed)
+        });
+        self.busy = Some(ResourceKind::Compose);
+        self.outcome = None;
+        self.operation = Some(cx.spawn(async move |view, cx| {
+            let outcome = if matches!(operation.result().await, Some(Ok(true))) {
+                Outcome::Success
+            } else {
+                Outcome::Rejected
+            };
+            let _ = view.update(cx, |view, cx| {
+                view.busy = None;
+                view.outcome = Some((ResourceKind::Compose, outcome));
+                cx.emit(super::ExternalResourcesChanged);
+                cx.refresh_windows();
+            });
+        }));
+        cx.refresh_windows();
+    }
+
     pub(super) fn dispatch(
         &mut self,
         kind: ResourceKind,
-        request: ResourceRequest,
+        request: (ResourceRequest, Option<ExternalEndpoint>),
         service: Arc<Services>,
         locale: Locale,
         cx: &mut Context<Self>,
@@ -117,9 +157,10 @@ impl ResourcesView {
         if self.busy.is_some() {
             return;
         }
+        let (request, endpoint) = request;
         let request = match request {
             ResourceRequest::Pull(reference) => {
-                self.pull(reference, service, cx);
+                self.pull(reference, endpoint, service, cx);
                 return;
             }
             ResourceRequest::ComposeUp(project) => {
@@ -161,10 +202,16 @@ impl ResourcesView {
         self.busy = Some(kind);
         self.outcome = None;
         self.operation = Some(cx.spawn(async move |view, cx| {
-            let result = dispatch(&service, request).await;
+            let external = endpoint.is_some();
+            let result = match endpoint {
+                Some(endpoint) => dispatch_external(&service, endpoint, request).await,
+                None => dispatch(&service, request).await,
+            };
             let outcome = match result {
                 Ok(Some(outcome)) => {
-                    let _ = service.refresh().result().await;
+                    if !external {
+                        let _ = service.refresh().result().await;
+                    }
                     outcome
                 }
                 Ok(None) => Outcome::Unavailable,
@@ -176,11 +223,73 @@ impl ResourcesView {
                     view.volume_usage.clear();
                 }
                 view.outcome = Some((kind, outcome));
+                if external {
+                    cx.emit(super::ExternalResourcesChanged);
+                }
                 cx.refresh_windows();
             });
         }));
         cx.refresh_windows();
     }
+}
+
+async fn dispatch_external(
+    service: &Services,
+    endpoint: ExternalEndpoint,
+    request: ResourceRequest,
+) -> Result<Option<Outcome>, ServiceError> {
+    let docker = endpoint.management_client();
+    service
+        .pending(async move {
+            match request {
+                ResourceRequest::Run { id, name } => {
+                    let name = name.map(ResourceName::parse).transpose()?;
+                    return Ok(
+                        match docker
+                            .run_image(&ImageId::parse(id)?, name.as_ref())
+                            .await?
+                        {
+                            ImageRun::Started(_) => Outcome::Success,
+                            ImageRun::Created { .. } => Outcome::ImageCreated,
+                        },
+                    );
+                }
+                ResourceRequest::TagImage { id, destination } => {
+                    docker.tag_image(&ImageId::parse(id)?, &destination).await?;
+                }
+                ResourceRequest::CreateVolume(name) => {
+                    docker.create_volume(&ResourceName::parse(name)?).await?;
+                }
+                ResourceRequest::CreateNetwork(name) => {
+                    docker.create_network(&ResourceName::parse(name)?).await?;
+                }
+                ResourceRequest::RemoveVolume { name, typed } => {
+                    docker
+                        .remove_volume(VolumeRemoval::confirm(ResourceName::parse(name)?, &typed)?)
+                        .await?;
+                }
+                ResourceRequest::RemoveNetwork(id) => {
+                    docker
+                        .remove_network(NetworkRemoval::confirmed(id)?)
+                        .await?;
+                }
+                ResourceRequest::RemoveImage { id, force } => {
+                    let mode = if force {
+                        RemovalMode::Force
+                    } else {
+                        RemovalMode::StoppedOnly
+                    };
+                    docker
+                        .remove_image(ImageRemoval::confirmed(ImageId::parse(id)?, mode))
+                        .await?;
+                }
+                _ => return Ok(Outcome::Unavailable),
+            }
+            Ok(Outcome::Success)
+        })
+        .result()
+        .await
+        .transpose()
 }
 
 async fn dispatch(
@@ -200,6 +309,12 @@ async fn dispatch(
         }));
     }
     let result = match request {
+        ResourceRequest::TagImage { id, destination } => {
+            service
+                .tag_image(ImageId::parse(id)?, destination)
+                .result()
+                .await
+        }
         ResourceRequest::CreateVolume(name) => service
             .create_volume(ResourceName::parse(name)?)
             .result()

@@ -240,3 +240,46 @@ app is still running. Notification actions reopen the relevant review screen.
 - **Accept when:**
   - Every screen passes every checklist item in all four variants.
   - The reviewer signs off the Arabic strings and glossary.
+
+---
+
+### M7-15 Manage containers on detected Docker engines
+
+- **Status:** in progress
+- **Depends on:** M7-01's existing source-tagged table and M7-02's container detail route
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Route terminal, stats, and lifecycle requests through the selected row's pinned endpoint. Add expand and collapse controls to the grouped Containers views.
+- **Deliver:** Desktop controls and endpoint regression coverage.
+- **Accept when:**
+  - An external terminal uses the selected socket for create, upgrade, and resize.
+  - Live stats use the selected socket and the existing bounded charts.
+  - Group controls work across the visible Marsa and external Compose groups.
+
+On this Mac, the signed app opened an interactive shell and streamed live usage on Lima with the Marsa engine stopped. Expand and collapse worked on the selected group. The four-variant visual check remains open after the accessibility tool timed out.
+
+### M7-16 Manage resources on detected Docker engines
+
+- **Status:** in progress
+- **Depends on:** M7-15
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Carry the selected endpoint through resource rows, dialogs, transfers, and Compose operations. Offer explicit engine selection for creation and pulls. Enable Docker actions according to the resource state and the selected engine's capabilities.
+- **Deliver:** Engine-scoped resource actions in the existing Images, Volumes, Networks, and Compose views.
+- **Accept when:**
+  - Resource IDs and names shared by two engines resolve only on the selected one.
+  - Confirmations identify the engine before removing data.
+  - Compose execution uses trusted local project configuration and an authenticated connection.
+
+Verified on Lima that the image tag resolves to the original image and volume creation uses the engine chosen in the dialog. External Compose currently operates on existing project containers. Deploying and bringing down a project from a trusted Compose file remain open.
+
+
+### M7-17 Capability and context coverage
+
+- **Status:** todo
+- **Depends on:** M7-16
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Add configured contexts, authenticated remote transports, and the remaining resource actions across engines. Keep context selection visible in project, registry, and destructive workflows.
+- **Deliver:** Context list, capability-driven action availability and workflows for image transfer, network attachment, and Compose deployment from trusted files.
+- **Accept when:**
+  - The desktop can show multiple configured engines simultaneously and scopes operations to the selected engine even when object identifiers coincide.
+  - Authenticated remote transports use the selected context's identity and security settings.
+  - Registry push, image import and export, and network attachment are available where the chosen engine supports them.

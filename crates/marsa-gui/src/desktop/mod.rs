@@ -90,6 +90,7 @@ pub(crate) struct Desktop {
     palette_scroll: ScrollHandle,
     _subscription: Subscription,
     _search_subscription: Subscription,
+    _resource_subscription: marsa_ui::gpui::Subscription,
     _route_subscription: Subscription,
     _store: Option<Task<()>>,
     _setup_probe: Option<Task<()>>,
@@ -108,6 +109,13 @@ impl Desktop {
         let resources = cx.new(|cx| ResourcesView::new(window, cx));
         let system = cx.new(|cx| SystemView::new(services.clone(), window, cx));
         let query = cx.new(|cx| InputState::new(window, cx));
+        let _resource_subscription = cx.subscribe(
+            &resources,
+            |this, _, crate::screens::resources::ExternalResourcesChanged, cx| {
+                this.system
+                    .update(cx, |view, cx| view.refresh_external_inventory(cx));
+            },
+        );
         let _route_subscription = cx.subscribe(&system, |this, _, OpenRoute(route), cx| {
             this.navigate(*route, cx);
         });
@@ -214,6 +222,7 @@ impl Desktop {
             palette_scroll: ScrollHandle::new(),
             _subscription,
             _search_subscription,
+            _resource_subscription,
             _route_subscription,
             _store: store,
             _setup_probe,

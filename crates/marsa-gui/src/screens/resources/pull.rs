@@ -4,7 +4,7 @@ use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
 use std::{collections::BTreeMap, sync::Arc};
 
-use marsa_client::docker::{DockerError, ImageReference, PullProgress};
+use marsa_client::docker::{DockerError, ExternalEndpoint, ImageReference, PullProgress};
 use marsa_ui::{
     ColorToken,
     gpui::{Context, Div, Entity, ParentElement, Styled, px},
@@ -31,6 +31,7 @@ impl ResourcesView {
     pub(super) fn pull(
         &mut self,
         reference: String,
+        endpoint: Option<ExternalEndpoint>,
         service: Arc<Services>,
         cx: &mut Context<Self>,
     ) {
@@ -45,7 +46,8 @@ impl ResourcesView {
             reference,
             layers: BTreeMap::new(),
         });
-        let mut stream = service.pull_image(request);
+        let external = endpoint.is_some();
+        let mut stream = service.pull_image(request, endpoint);
         self.operation = Some(cx.spawn(async move |view, cx| {
             let mut outcome = Outcome::Success;
             while let Some(batch) = stream.next().await {
@@ -83,11 +85,14 @@ impl ResourcesView {
                     return;
                 }
             }
-            if matches!(outcome, Outcome::Success) {
+            if !external && matches!(outcome, Outcome::Success) {
                 let _ = service.refresh().result().await;
             }
             let _ = view.update(cx, |view, cx| {
                 view.busy = None;
+                if external {
+                    cx.emit(super::ExternalResourcesChanged);
+                }
                 view.outcome = Some((ResourceKind::Images, outcome));
                 cx.refresh_windows();
             });

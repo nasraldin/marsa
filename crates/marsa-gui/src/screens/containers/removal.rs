@@ -3,7 +3,7 @@
 use marsa_ui::gui_keys as gui;
 use std::{cell::Cell, rc::Rc};
 
-use marsa_client::docker::{ContainerId, ContainerRemoval, RemovalMode};
+use marsa_client::docker::{ContainerId, ContainerRemoval, ExternalEndpoint, RemovalMode};
 use marsa_ui::{
     ColorToken, Locale,
     direction::{LogicalStyle as _, isolate_technical_text, row},
@@ -32,6 +32,7 @@ struct Target {
 pub(super) fn open(
     view: &ContainerView,
     ids: Vec<ContainerId>,
+    endpoint: Option<ExternalEndpoint>,
     window: &mut Window,
     cx: &mut Context<ContainerView>,
 ) {
@@ -41,10 +42,20 @@ pub(super) fn open(
     if view.command_pending || window.has_active_dialog(cx) {
         return;
     }
+    let inventory = view
+        .external_inventory
+        .as_ref()
+        .filter(|inventory| Some(&inventory.endpoint) == endpoint.as_ref());
+    let state = match (&endpoint, inventory) {
+        (None, _) => &view.state,
+        (Some(_), Some(inventory)) => &inventory.state,
+        _ => return,
+    };
+    let badge = inventory.map(|inventory| isolate_technical_text(&inventory.source));
     let targets: Rc<Vec<_>> = Rc::new(
         ids.into_iter()
             .filter_map(|id| {
-                let entry = view.state.container(&id)?;
+                let entry = state.container(&id)?;
                 Some(Target {
                     id,
                     name: name(entry).to_owned(),
@@ -81,6 +92,7 @@ pub(super) fn open(
         let force_for_action = force.clone();
         let services = services.clone();
         let pending_view = view.clone();
+        let endpoint = endpoint.clone();
         let submit = Rc::new(move |cx: &mut marsa_ui::gpui::App| {
             if force_required && !force_for_action.get() {
                 return false;
@@ -89,6 +101,33 @@ pub(super) fn open(
                 .update(cx, |view, cx| {
                     if view.command_pending {
                         return false;
+                    }
+                    if let Some(endpoint) = &endpoint {
+                        let Some(inventory) = view
+                            .external_inventory
+                            .as_ref()
+                            .filter(|inventory| &inventory.endpoint == endpoint)
+                        else {
+                            return false;
+                        };
+                        let [target] = targets_for_action.as_slice() else {
+                            return false;
+                        };
+                        if inventory.state.container(&target.id).is_none() {
+                            return false;
+                        }
+                        let id = target.id.clone();
+                        let mode = if target.requires_force {
+                            RemovalMode::Force
+                        } else {
+                            RemovalMode::StoppedOnly
+                        };
+                        let pending = services.remove_external(
+                            endpoint.clone(),
+                            ContainerRemoval::confirmed(id.clone(), mode),
+                        );
+                        view.watch_external(endpoint.clone(), id, pending, cx);
+                        return true;
                     }
                     let commands = targets_for_action
                         .iter()
@@ -158,6 +197,12 @@ pub(super) fn open(
                     .text_color(color(palette, ColorToken::TextMuted))
                     .child(description),
             )
+            .children(badge.as_ref().map(|badge| {
+                row(cx).child(super::super::external_inventory::source_badge(
+                    palette,
+                    badge.clone(),
+                ))
+            }))
             .child(targets_list)
             .child(
                 div()
