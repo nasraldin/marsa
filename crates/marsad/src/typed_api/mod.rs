@@ -337,7 +337,7 @@ impl TypedApi {
             .add_service(
                 AgentOpsServer::new(self.clone())
                     .max_decoding_message_size(CONTROL_LIMIT * 3)
-                    .max_encoding_message_size(CONTROL_LIMIT),
+                    .max_encoding_message_size(CONTROL_LIMIT * 10),
             )
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 let _ = closing.wait_for(|closing| *closing).await;
