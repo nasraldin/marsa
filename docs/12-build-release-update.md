@@ -84,6 +84,8 @@ Marsa.app/
 
 Use `io.github.nasraldin.marsa` as the app's `CFBundleIdentifier` for the checked-in [LaunchAgent template](../packaging/macos/LaunchAgents/io.github.nasraldin.marsa.marsad.plist). If the bundle identifier changes, update the plist filename and its `Label` together.
 
+Verify the checksums in the [font asset inventory](../assets/fonts/README.md) before copying the native fonts and their original notice into the bundle.
+
 Copy the verified `bin/` tree from the directory printed by
 [`cargo xtask fetch-upstream`](09-cli-and-docker-compat.md#bundled-upstream-binaries)
 into `Contents/Resources/bin/`. Feed the staging directory’s
