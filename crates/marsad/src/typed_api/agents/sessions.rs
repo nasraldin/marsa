@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use marsa_proto::host::v1::AgentClientRegistration;
 use tokio::time::Instant;
 use tonic::Status;
 
@@ -61,6 +62,32 @@ impl Sessions {
             }),
         );
         Ok(token)
+    }
+
+    pub(super) fn list(&self) -> Result<Vec<AgentClientRegistration>, Status> {
+        let now = Instant::now();
+        let mut sessions = self
+            .0
+            .lock()
+            .map_err(|_| Status::internal("agent sessions unavailable"))?;
+        sessions.retain(|_, session| session.expires > now);
+        let mut clients: Vec<_> = sessions
+            .values()
+            .map(|session| AgentClientRegistration {
+                client_id: session.client_id.clone(),
+                client_name: session.name.clone(),
+                project_path: session.scope.project().to_owned(),
+            })
+            .collect();
+        clients.sort_unstable_by(|a, b| {
+            (&a.client_id, &a.project_path, &a.client_name).cmp(&(
+                &b.client_id,
+                &b.project_path,
+                &b.client_name,
+            ))
+        });
+        clients.dedup();
+        Ok(clients)
     }
 
     pub(super) fn authenticate(&self, token: &str) -> Option<Arc<Session>> {

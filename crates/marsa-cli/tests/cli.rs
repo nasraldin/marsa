@@ -305,3 +305,35 @@ fn disk_reclaim_reaches_the_authenticated_endpoint() {
     let json: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(json["code"], "home_unavailable");
 }
+
+#[test]
+fn agent_approval_requires_terminal_review_even_with_yes() {
+    let result = marsa(&["agents", "approve", "fixture-id", "--yes", "--json"]);
+    assert_eq!(result.status.code(), Some(3));
+    assert!(result.stderr.is_empty());
+    let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(response["code"], "confirmation_required");
+}
+
+#[test]
+fn mcp_requires_a_client_and_project_and_reserves_stdout_for_protocol() {
+    for args in [
+        &["mcp"][..],
+        &["mcp", "--client-id", "fixture"],
+        &["mcp", "--client-id", "fixture", "--project", "relative"],
+    ] {
+        let result = marsa(args);
+        assert_eq!(result.status.code(), Some(2), "{args:?}");
+        assert!(result.stdout.is_empty());
+    }
+    let result = marsa(&[
+        "mcp",
+        "--client-id",
+        "fixture",
+        "--project",
+        "/tmp",
+        "--json",
+    ]);
+    // A configured launcher may print one JSON error for this rejected combination.
+    assert_eq!(result.status.code(), Some(2));
+}

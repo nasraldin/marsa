@@ -6,6 +6,7 @@ package marsa.v1;
 service Agents {
   rpc ListAudit(ListAgentAuditRequest) returns (ListAgentAuditResponse);
   rpc OpenSession(OpenAgentSessionRequest) returns (OpenAgentSessionResponse);
+  rpc ListClients(ListAgentClientsRequest) returns (ListAgentClientsResponse);
   rpc ListPendingApprovals(ListPendingApprovalsRequest) returns (ListPendingApprovalsResponse);
   rpc Approve(ApproveRequest) returns (DecisionResponse);
   rpc Deny(DenyRequest) returns (DecisionResponse);
@@ -31,6 +32,20 @@ message OpenAgentSessionResponse {
   // Do not show or log this value.
   string token = 1;
   string project_path = 2;
+}
+
+// Unexpired local client registrations, visible only to the owner.
+message ListAgentClientsRequest {}
+
+message ListAgentClientsResponse {
+  repeated AgentClientRegistration clients = 1;
+}
+
+// Public identity metadata. Authorization tokens are never included.
+message AgentClientRegistration {
+  string client_id = 1;
+  string client_name = 2;
+  string project_path = 3;
 }
 
 message ListPendingApprovalsRequest {}

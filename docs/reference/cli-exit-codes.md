@@ -4,8 +4,10 @@
 |---|---|---|
 | 0 | | The command succeeded. Help and shell completion generation also return this status. |
 | 1 | `not_available`, `operation_failed` | A command is awaiting implementation, its operation failed, or a response could not be written. |
+| 1 | `daemon_unavailable`, `agent_request_failed`, `agent_approval_missing`, `agent_grant_missing`, `mcp_unavailable` | The local daemon or MCP executable is unavailable, or it could not complete the agent command. |
 | 2 | `invalid_invocation` | The command, its options or its arguments are invalid. |
-| 3 | `confirmation_required` | A destructive command needs explicit confirmation. Non-interactive invocations require `--yes`. |
+| 3 | `confirmation_required` | A destructive command needs explicit confirmation. Non-interactive invocations require `--yes`. Agent approval requires an interactive review. |
+| 3 | `confirmation_declined` | The terminal review ended without an affirmative response. |
 | 4 | `connection_failed`, `home_unavailable`, `unprivileged_user_required` | The CLI could not establish an authenticated daemon connection or resolve the per-user socket. |
 | 5 | `incompatible_daemon` | The daemon and CLI have incompatible API versions. |
 
@@ -23,7 +25,7 @@ $ marsa reset --factory --json
 {"code":"confirmation_required","kind":"error","message":"This operation requires --yes when run non-interactively.","schema_version":1}
 ```
 
-JSON mode uses non-interactive confirmation rules. The regular `disk cleanup`
+The regular `disk cleanup`
 command requires confirmation when run non-interactively. `disk cleanup
 --dry-run` is a preview. When invoking shell completion with `--json`,
 read the script from the response's `script` field.
@@ -67,3 +69,7 @@ or `factory`. With an older daemon that lacks reset support, the CLI reports
 `marsa disk reclaim --json` returns bytes the guest submitted for discard,
 the observed decrease in allocated host bytes, and the disk usage after
 the request. A stopped VM causes an operation error without booting it.
+
+`marsa agents list --json` returns kind `agents`. Its `data` object contains `clients`, `grants` and `pending_requests` arrays. The client list shows unexpired local registrations. Each array is read from the daemon independently.
+
+Successful approval, denial and revocation return kind `agent_decision` with `data.decision` and either `data.approval_id` or `data.grant_id`. Approval still requires terminal input and terminal standard error with `--json`. Standard output carries the JSON result.
