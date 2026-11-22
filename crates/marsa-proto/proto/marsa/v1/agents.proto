@@ -4,6 +4,7 @@ package marsa.v1;
 
 // Manage user decisions and project-specific MCP grants.
 service Agents {
+  rpc ListAudit(ListAgentAuditRequest) returns (ListAgentAuditResponse);
   rpc OpenSession(OpenAgentSessionRequest) returns (OpenAgentSessionResponse);
   rpc ListPendingApprovals(ListPendingApprovalsRequest) returns (ListPendingApprovalsResponse);
   rpc Approve(ApproveRequest) returns (DecisionResponse);
@@ -165,4 +166,60 @@ message AgentOperationError {
   string code = 1;
   string message = 2;
   optional string denial_reason = 3;
+}
+
+// Filtering and paging of the owner-only local audit log, newest first.
+message ListAgentAuditRequest {
+  optional string client_ref = 1;
+  optional AgentOperation operation = 2;
+  optional AuditDecision decision = 3;
+  optional int64 since_unix_millis = 4;
+  uint32 limit = 5;
+  optional string cursor = 6;
+}
+
+message ListAgentAuditResponse {
+  repeated AgentAuditRecord records = 1;
+  optional string next_cursor = 2;
+}
+
+message AgentAuditRecord {
+  string id = 1;
+  int64 received_at_unix_millis = 2;
+  // Fingerprint of the registered client, present only for verified sessions.
+  optional string client_ref = 3;
+  AgentOperation operation = 4;
+  AuditArguments arguments = 5;
+  AuditDecision decision = 6;
+  AuditApprover approver = 7;
+  AuditResult result = 8;
+}
+
+// Only reviewed argument shapes are logged. User values never enter a record.
+enum AuditArguments {
+  AUDIT_ARGUMENTS_OMITTED = 0;
+  AUDIT_ARGUMENTS_EMPTY = 1;
+  AUDIT_ARGUMENTS_CONTAINER_TARGET_REDACTED = 2;
+}
+
+enum AuditDecision {
+  AUDIT_DECISION_REFUSED = 0;
+  AUDIT_DECISION_ALLOWED = 1;
+  AUDIT_DECISION_APPROVED = 2;
+  AUDIT_DECISION_DENIED = 3;
+  AUDIT_DECISION_EXPIRED = 4;
+}
+
+enum AuditApprover {
+  AUDIT_APPROVER_NONE = 0;
+  AUDIT_APPROVER_LOCAL_OWNER = 1;
+}
+
+enum AuditResult {
+  AUDIT_RESULT_REJECTED = 0;
+  AUDIT_RESULT_SUCCEEDED = 1;
+  AUDIT_RESULT_FAILED = 2;
+  AUDIT_RESULT_DENIED = 3;
+  AUDIT_RESULT_TIMED_OUT = 4;
+  AUDIT_RESULT_UNAUTHENTICATED = 5;
 }

@@ -127,7 +127,7 @@ async fn packaged_daemon_preserves_volume_and_grows_disk_after_sigkill() {
     );
 }
 
-fn userspace_helper(daemon_pid: u32) -> u32 {
+pub(super) fn userspace_helper(daemon_pid: u32) -> u32 {
     let processes = Command::new("/bin/ps")
         .args(["-axww", "-o", "pid=,ppid=,comm="])
         .output()

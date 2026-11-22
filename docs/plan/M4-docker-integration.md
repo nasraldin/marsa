@@ -236,7 +236,7 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 
 ### M4-17 Explicit SSH agent access for containers
 
-- **Status:** todo
+- **Status:** blocked (stock Docker and VZ do not provide host-verifiable container identity)
 - **Depends on:** M4-06, M4-13, M4-24
 - **Docs:** [09 SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding), [11 SSH agent access](../11-security.md#ssh-agent-access)
 - **Do:** Design explicit authorization for a named container to mount an SSH agent socket at a documented guest path. Enforce the grant on the host, restrict the approved agent operations, authenticate the guest transport, and revoke access on container exit, VM stop or user request. Qualify the VSock transport needed by that design.
@@ -245,6 +245,8 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - An authorized container can use an explicitly chosen host agent with a disposable test key.
   - An unapproved container and a guest-initiated connection without a current grant cannot use the agent.
   - Revocation closes active streams and rejects subsequent connections. Host private key bytes stay on the host.
+
+- **Blocker:** M4-24 proved Linux opener checks and stream teardown in a disposable VM. Stock Docker admits exec into the approved container through the supported guest Docker socket. The process then has the approved container's real Linux identity. The host's vsock carries VM-level provenance, so it cannot distinguish that request from one initiated by the approved workload. The acceptance criteria require a host-verifiable workload boundary or an owner-approved change to the trust model. [Identity and lifecycle review](../11-security.md#container-agent-grant-boundary)
 
 ### M4-18 Qualify fallback DNS recovery and expose network status
 

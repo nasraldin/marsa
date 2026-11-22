@@ -2,10 +2,10 @@
 
 use super::*;
 use marsa_proto::host::v1::{
-    AgentOperation, AgentOperationRequest, AgentOperationResponse, ApproveRequest,
-    ListPendingApprovalsRequest, OpenAgentSessionRequest,
-    agent_operation_response::Result as WireResult, agent_ops_client::AgentOpsClient,
-    agents_client::AgentsClient,
+    AgentOperation, AgentOperationRequest, AgentOperationResponse, ApproveRequest, AuditApprover,
+    AuditArguments, AuditDecision, AuditResult, ListAgentAuditRequest, ListPendingApprovalsRequest,
+    OpenAgentSessionRequest, agent_operation_response::Result as WireResult,
+    agent_ops_client::AgentOpsClient, agents_client::AgentsClient,
 };
 
 const TARGET: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -262,5 +262,121 @@ async fn delegated_exact_id_stop_is_rejected_without_queuing_on_a_running_engine
             .into_inner()
             .state(),
         EngineState::Ready
+    );
+    let raw = std::fs::read_to_string(
+        fixture
+            .fixture
+            .home
+            .path()
+            .join(".marsa/state/agent-audit.jsonl"),
+    )
+    .unwrap();
+    assert_eq!(raw.lines().count(), 1);
+    for private in [
+        TARGET,
+        &fixture.project,
+        &fixture.token,
+        "fixture-agent",
+        "container_id",
+        &action(71).request_id,
+    ] {
+        assert!(!raw.contains(private));
+    }
+    let audit = fixture
+        .owner()
+        .list_audit(ListAgentAuditRequest::default())
+        .await
+        .unwrap()
+        .into_inner();
+    let [receipt] = audit.records.as_slice() else {
+        panic!("expected a single refusal receipt")
+    };
+    assert_eq!(receipt.operation(), AgentOperation::StopContainer);
+    assert_eq!(receipt.decision(), AuditDecision::Refused);
+    assert_eq!(receipt.result(), AuditResult::Rejected);
+    assert_eq!(receipt.approver(), AuditApprover::None);
+    assert_eq!(receipt.arguments(), AuditArguments::Omitted);
+}
+
+#[tokio::test]
+async fn refused_agent_call_has_one_audit_entry_without_request_secrets() {
+    let fixture = AgentFixture::new().await;
+    let mut request = fixture.request(56, TARGET);
+    request.operation = AgentOperation::RunContainer.into();
+    request.arguments_json = r#"{"env":["AWS_SECRET_ACCESS_KEY=fixture-secret-never-log"],"password":"another-fixture-secret"}"#.into();
+    let response = AgentOpsClient::new(fixture.restricted.clone())
+        .execute(fixture.auth(tonic::Request::new(request)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(error_code(response), "unsupported_operation");
+    let log = fixture
+        .fixture
+        .home
+        .path()
+        .join(".marsa/state/agent-audit.jsonl");
+    let records = std::fs::read_to_string(log).expect("refused call must be recorded");
+    assert_eq!(records.lines().count(), 1);
+    for secret in [
+        "AWS_SECRET_ACCESS_KEY",
+        "fixture-secret-never-log",
+        "another-fixture-secret",
+    ] {
+        assert!(!records.contains(secret));
+    }
+}
+
+#[tokio::test]
+async fn owner_can_page_and_filter_audit_without_exposing_it_to_the_agent() {
+    let fixture = AgentFixture::new().await;
+    let mut rpc = AgentOpsClient::new(fixture.restricted.clone());
+    let mut request = fixture.request(57, TARGET);
+    request.operation = AgentOperation::EngineStatus.into();
+    request.arguments_json = "{}".into();
+    for _ in 0..2 {
+        rpc.execute(fixture.auth(tonic::Request::new(request.clone())))
+            .await
+            .unwrap();
+    }
+    let mut owner = fixture.owner();
+    let filter = ListAgentAuditRequest {
+        operation: Some(AgentOperation::EngineStatus.into()),
+        decision: Some(AuditDecision::Allowed.into()),
+        limit: 1,
+        ..Default::default()
+    };
+    let newest = owner.list_audit(filter.clone()).await.unwrap().into_inner();
+    assert_eq!(newest.records.len(), 1);
+    assert_eq!(newest.records[0].result(), AuditResult::Succeeded);
+    assert_eq!(newest.records[0].arguments(), AuditArguments::Empty);
+    let client_ref = newest.records[0].client_ref.clone().unwrap();
+    assert_eq!(client_ref.len(), 64);
+    let prior = owner
+        .list_audit(ListAgentAuditRequest {
+            client_ref: Some(client_ref),
+            cursor: newest.next_cursor,
+            ..filter
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(prior.records.len(), 1);
+    assert_ne!(prior.records[0].id, newest.records[0].id);
+    assert!(prior.next_cursor.is_none());
+    assert_eq!(
+        AgentsClient::new(fixture.restricted.clone())
+            .list_audit(fixture.auth(tonic::Request::new(ListAgentAuditRequest::default())))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::Unimplemented
+    );
+    assert_eq!(
+        owner
+            .list_audit(fixture.auth(tonic::Request::new(ListAgentAuditRequest::default())))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied
     );
 }

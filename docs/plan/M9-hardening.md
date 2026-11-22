@@ -44,6 +44,12 @@ host bytes from the same sparse image, and the guest passed the ext4
 clean-shutdown check. The CLI and request UUID replay were verified against
 the same running guest.
 
+The updated signed test with lifecycle admission and the current guest
+agent freed 2,974,916,608 guest bytes and released 3,221,213,184 host
+bytes. It verified CLI output, UUID replay and clean ext4 shutdown.
+The fake-runtime regression shows that a held maintenance permit
+rejects reclaim before the guest receives a trim.
+
 ### M9-04 Memory behaviour
 
 - **Status:** done

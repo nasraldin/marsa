@@ -194,10 +194,16 @@ async fn execute(
         return completions(args);
     }
     #[cfg(unix)]
-    if name == "network" && args.subcommand_matches("status").is_some() {
-        return network::status(language)
-            .await
-            .unwrap_or_else(Outcome::Failure);
+    if name == "network" {
+        let result = match args.subcommand() {
+            Some(("status", _)) => network::status(language).await,
+            Some(("mode", mode)) => {
+                let requested = mode.get_one::<String>("mode").map(String::as_str);
+                network::mode(requested, language).await
+            }
+            _ => Err(Failure::Usage),
+        };
+        return result.unwrap_or_else(Outcome::Failure);
     }
     #[cfg(unix)]
     if name == "config" {

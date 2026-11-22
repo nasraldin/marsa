@@ -48,6 +48,12 @@ returns `request_rejected` with exit status 1 and the daemon's explanation.
 The guest and gateway fields are IPv4 strings when observed. When the VM is
 stopped, the active mode and both addresses are `null`.
 
+`marsa network mode --json` reports the configured and active network modes
+and `restart_pending`. The value is true when the running guest uses an
+earlier configured policy, false when the mode is current or the VM is
+stopped, and `null` when the daemon has no boot-policy observation. A
+successful explicit setting returns the same fields for the saved mode.
+
 `marsa share approvals --json` shows exact requested directories and expiry
 times. `marsa share resolve ID once|always|deny --json` reports whether the
 owner needs to restart the VM before retrying Docker. A request that cannot be

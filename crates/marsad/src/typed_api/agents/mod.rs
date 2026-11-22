@@ -1,5 +1,7 @@
 //! Expose only typed operations on the restricted transport and decisions on the owner transport.
 
+mod attempt;
+mod audit;
 pub(super) mod queue;
 mod sessions;
 
@@ -12,15 +14,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use marsa_core::settings::Language;
+use marsa_core::{paths::MarsaPaths, settings::Language};
 use marsa_proto::host::v1::{
-    AffectedResource, AgentOperation, AgentOperationError, AgentOperationRequest,
-    AgentOperationResponse, AgentOutput, ApproveRequest, DecisionResponse, DenyRequest,
-    ListGrantsRequest, ListGrantsResponse, ListPendingApprovalsRequest,
-    ListPendingApprovalsResponse, OpenAgentSessionRequest, OpenAgentSessionResponse,
-    PendingApproval, RevokeGrantRequest, RevokeGrantResponse,
-    agent_operation_response::Result as WireResult, agent_ops_server::AgentOps,
-    agents_server::Agents,
+    AffectedResource, AgentOperation, AgentOperationError, AgentOperationResponse, AgentOutput,
+    ApproveRequest, AuditArguments, AuditDecision, DecisionResponse, DenyRequest,
+    ListAgentAuditRequest, ListAgentAuditResponse, ListGrantsRequest, ListGrantsResponse,
+    ListPendingApprovalsRequest, ListPendingApprovalsResponse, OpenAgentSessionRequest,
+    OpenAgentSessionResponse, PendingApproval, RevokeGrantRequest, RevokeGrantResponse,
+    agent_operation_response::Result as WireResult, agents_server::Agents,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -36,6 +37,7 @@ const ARGUMENT_LIMIT: usize = 4096;
 
 pub(super) struct State {
     sessions: sessions::Sessions,
+    audit: Arc<audit::Store>,
     open: requests::Cache<OpenAgentSessionRequest, OpenAgentSessionResponse>,
     decisions: requests::Cache<(String, Outcome), DecisionResponse>,
     revoke: requests::Cache<String, RevokeGrantResponse>,
@@ -43,9 +45,10 @@ pub(super) struct State {
 }
 
 impl State {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(paths: MarsaPaths, uid: u32) -> Self {
         Self {
             sessions: sessions::Sessions::default(),
+            audit: Arc::new(audit::Store::new(paths, uid)),
             open: requests::Cache::new(),
             decisions: requests::Cache::new(),
             revoke: requests::Cache::new(),
@@ -82,62 +85,43 @@ impl Prepared {
             Self::EngineStatus => AgentOperation::EngineStatus,
         }
     }
+    fn audit_arguments(&self) -> AuditArguments {
+        match self {
+            Self::EngineStatus => AuditArguments::Empty,
+        }
+    }
 }
 
-#[tonic::async_trait]
-impl AgentOps for TypedApi {
-    async fn execute(
-        &self,
-        request: Request<AgentOperationRequest>,
-    ) -> Result<Response<AgentOperationResponse>, Status> {
-        let session = request
-            .metadata()
-            .get("authorization")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .and_then(|token| self.inner.agents.sessions.authenticate(token));
-        let request = self.authorize(request)?;
-        let session =
-            session.ok_or_else(|| Status::unauthenticated("valid agent session required"))?;
-        if request.client_id != session.client_id || request.project_path != session.scope.project()
-        {
-            return Err(Status::permission_denied(
-                "request is outside the registered agent scope",
-            ));
-        }
-        let operation = request.operation();
-        // A full ID is not an immutable mutation selector in Docker's HTTP API:
-        // the Engine can fall back to a mutable name after a separate inspect.
-        if operation != AgentOperation::EngineStatus {
-            return Ok(Response::new(self.operation_error(
-                "unsupported_operation",
-                "This agent operation is unavailable.",
-                "عملية الوكيل هذه غير متاحة.",
-                None,
-            )));
-        }
-        let Some(operation) = Prepared::parse(operation, &request.arguments_json) else {
-            return Ok(Response::new(self.operation_error(
-                "invalid_arguments",
-                "Invalid agent operation arguments.",
-                "وسائط عملية الوكيل غير صالحة.",
-                None,
-            )));
-        };
-        let api = self.clone();
-        let principal = session.clone();
-        let result = session
-            .requests
-            .run(&request.request_id, operation.clone(), || async move {
-                Ok(api.execute_prepared(principal, operation).await)
-            })
-            .await?;
-        Ok(Response::new(result))
-    }
+#[derive(Clone)]
+struct Execution {
+    response: AgentOperationResponse,
+    decision: AuditDecision,
 }
 
 #[tonic::async_trait]
 impl Agents for TypedApi {
+    async fn list_audit(
+        &self,
+        request: Request<ListAgentAuditRequest>,
+    ) -> Result<Response<ListAgentAuditResponse>, Status> {
+        let filter = self.owner_request(request)?;
+        let store = self.inner.agents.audit.clone();
+        tokio::task::spawn_blocking(move || store.list(filter))
+            .await
+            .map_err(|_| self.audit_unavailable())?
+            .map(Response::new)
+            .map_err(|error| match error.kind() {
+                std::io::ErrorKind::InvalidInput => Status::invalid_argument(
+                    self.agent_text("Invalid audit filter.", "عامل تصفية سجل التدقيق غير صالح."),
+                ),
+                std::io::ErrorKind::NotFound => Status::aborted(self.agent_text(
+                    "The audit cursor has expired. Start a new query.",
+                    "انتهت صلاحية مؤشر سجل التدقيق. ابدأ استعلامًا جديدًا.",
+                )),
+                _ => self.audit_unavailable(),
+            })
+    }
+
     async fn open_session(
         &self,
         request: Request<OpenAgentSessionRequest>,
@@ -301,17 +285,29 @@ impl TypedApi {
         })
     }
 
-    async fn execute_prepared(
-        &self,
-        principal: Arc<Session>,
-        operation: Prepared,
-    ) -> AgentOperationResponse {
-        let result = self
-            .allow_operation(&principal, operation.operation(), || {
-                ("{}".into(), Vec::new())
-            })
+    async fn execute_prepared(&self, principal: Arc<Session>, operation: Prepared) -> Execution {
+        let mut decision = AuditDecision::Refused;
+        let response = self
+            .run_reviewed(&principal, operation, &mut decision)
             .await;
-        if let Err(result) = result {
+        Execution { response, decision }
+    }
+
+    async fn run_reviewed(
+        &self,
+        principal: &Session,
+        operation: Prepared,
+        decision: &mut AuditDecision,
+    ) -> AgentOperationResponse {
+        if let Err(result) = self
+            .allow_operation(
+                principal,
+                operation.operation(),
+                || ("{}".into(), Vec::new()),
+                decision,
+            )
+            .await
+        {
             return result;
         }
         match operation {
@@ -327,13 +323,18 @@ impl TypedApi {
         principal: &Session,
         kind: AgentOperation,
         details: impl FnOnce() -> (String, Vec<AffectedResource>),
+        audit_decision: &mut AuditDecision,
     ) -> Result<(), AgentOperationResponse> {
         if !self.scope_is_current(principal).await {
             return Err(self.project_changed());
         }
         let (settings, _) = self.inner.events.settings();
         match decide(kind, Effect::Ordinary, &settings.agents) {
-            Decision::Allow => return Ok(()),
+            Decision::Allow => {
+                *audit_decision = AuditDecision::Allowed;
+                return Ok(());
+            }
+
             Decision::Refuse(_) => return Err(self.policy_refusal()),
             Decision::Approve { tier, .. } => {
                 let expires = principal.expires.min(Instant::now() + queue::LIFETIME);
@@ -379,8 +380,9 @@ impl TypedApi {
                 };
                 self.inner.events.discard_approval(&id);
                 match answer {
-                    Some(Outcome::Approved) => {}
+                    Some(Outcome::Approved) => *audit_decision = AuditDecision::Approved,
                     Some(Outcome::Denied) => {
+                        *audit_decision = AuditDecision::Denied;
                         return Err(self.operation_error(
                             "denied",
                             "The owner denied this request.",
@@ -389,6 +391,7 @@ impl TypedApi {
                         ));
                     }
                     None => {
+                        *audit_decision = AuditDecision::Expired;
                         return Err(self.operation_error(
                             "approval_timed_out",
                             "The request expired before approval.",
@@ -453,6 +456,23 @@ impl TypedApi {
         ar: &str,
         reason: Option<&str>,
     ) -> AgentOperationResponse {
+        AgentOperationResponse {
+            result: Some(WireResult::Error(AgentOperationError {
+                code: code.into(),
+                message: self.agent_text(en, ar).into(),
+                denial_reason: reason.map(str::to_owned),
+            })),
+        }
+    }
+
+    fn audit_unavailable(&self) -> Status {
+        Status::unavailable(self.agent_text(
+            "The agent audit log is unavailable.",
+            "سجل تدقيق الوكيل غير متاح.",
+        ))
+    }
+
+    fn agent_text<'a>(&self, en: &'a str, ar: &'a str) -> &'a str {
         let language = self.inner.events.settings().0.ui.language;
         let arabic = language == Language::Arabic
             || (language == Language::System
@@ -461,13 +481,7 @@ impl TypedApi {
                     .filter_map(|key| std::env::var(key).ok())
                     .find(|value| !value.is_empty())
                     .is_some_and(|value| value.split(['_', '-', '.', '@']).next() == Some("ar")));
-        AgentOperationResponse {
-            result: Some(WireResult::Error(AgentOperationError {
-                code: code.into(),
-                message: if arabic { ar } else { en }.into(),
-                denial_reason: reason.map(str::to_owned),
-            })),
-        }
+        if arabic { ar } else { en }
     }
 }
 

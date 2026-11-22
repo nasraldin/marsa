@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use marsa_core::{paths::MarsaPaths, settings::Settings};
-use marsa_proto::host::v1::PermissionTier;
+use marsa_proto::host::v1::{AgentOperationRequest, PermissionTier, agent_ops_server::AgentOps};
 use tokio::{net::UnixStream, task::yield_now, time::timeout};
 use tonic::{Code, transport::server::Connected};
 
@@ -49,18 +49,25 @@ async fn owner_authorizes_the_exact_fixture_and_denial_and_expiry_release_it() {
         let service = api.clone();
         let principal = session.clone();
         let mut waiting = tokio::spawn(async move {
-            service
-                .allow_operation(&principal, AgentOperation::StopContainer, || {
-                    (
-                        evidence.into(),
-                        vec![AffectedResource {
-                            kind: "test".into(),
-                            name: "reviewed".into(),
-                            ..Default::default()
-                        }],
-                    )
-                })
-                .await
+            let mut audit_decision = AuditDecision::Refused;
+            let result = service
+                .allow_operation(
+                    &principal,
+                    AgentOperation::StopContainer,
+                    || {
+                        (
+                            evidence.into(),
+                            vec![AffectedResource {
+                                kind: "test".into(),
+                                name: "reviewed".into(),
+                                ..Default::default()
+                            }],
+                        )
+                    },
+                    &mut audit_decision,
+                )
+                .await;
+            (result, audit_decision)
         });
         let approval = timeout(Duration::from_secs(2), async {
             loop {
@@ -137,10 +144,18 @@ async fn owner_authorizes_the_exact_fixture_and_denial_and_expiry_release_it() {
                 );
             }
         }
-        let result = timeout(Duration::from_secs(2), &mut waiting)
+        let (result, recorded_decision) = timeout(Duration::from_secs(2), &mut waiting)
             .await
             .unwrap()
             .unwrap();
+        assert_eq!(
+            recorded_decision,
+            match decision {
+                Some(Outcome::Approved) => AuditDecision::Approved,
+                Some(Outcome::Denied) => AuditDecision::Denied,
+                None => AuditDecision::Expired,
+            }
+        );
         match expected_error {
             None => assert!(result.is_ok()),
             Some(expected) => {

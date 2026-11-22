@@ -124,6 +124,12 @@ fn global_json_handles_help_and_errors_at_any_depth() {
             Some("not_available"),
         ),
         (
+            &["network", "mode", "invalid", "--json"],
+            2,
+            "error",
+            Some("invalid_invocation"),
+        ),
+        (
             &["--json", "completion", "invalid"],
             2,
             "error",

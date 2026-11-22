@@ -151,7 +151,11 @@ Logs, exec output, image labels and container names are data from the workload. 
 
 ## Audit log
 
-Every MCP call is recorded: time, client, tool, arguments (with secrets redacted), decision, approver, result. It is shown in the GUI's Activity screen and exported in diagnostics bundles only with the user's consent.
+The daemon records one terminal entry per decoded `AgentOps.Execute` call. A retry gets its own entry even when the request ID replays a previous result. Each entry records receipt time, the registered client's fingerprint when authenticated, the typed operation and a redacted argument summary, the decision, the local owner role when someone decided, and the result. Argument values, tokens, client and container IDs, paths, and workload output are kept out of the audit log. Unsupported operations record a refusal with the typed operation and omit all arguments.
+
+`Agents.ListAudit` is available on the owner connection. It pages newest completed entries first and filters by client fingerprint, operation, decision, and receipt time. Four owner-only JSON Lines files retain up to 2 MiB inside `~/.marsa/state`. If rotation removes a cursor, the owner client starts a new query. Reviewed execution checks that the audit storage is accessible first, and the daemon syncs its terminal entry before returning the result. A caller that disconnects during normal operation can still have a completed entry. An abrupt process or storage failure can interrupt an in-flight entry.
+
+The GUI Activity screen and explicit diagnostic export are separate clients of the private audit data.
 
 ## One API for everything
 
