@@ -8,7 +8,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-01 Docker socket proxy
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-07, M2-08
 - **Docs:** [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy)
 - **Do:** Implement `marsa-dockerproxy`: listen on `docker.sock`, forward each connection to the guest's Docker API bridge over vsock, and pass through streaming bodies, chunked responses and connection upgrades without buffering whole bodies. Handle client disconnects and cancellation.
@@ -20,7 +20,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-02 Start the VM on demand
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-01, M3-06
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle)
 - **Do:** Make the proxy call `ensure_ready` before forwarding. Requests wait during boot up to a timeout and then return a clear error. Track running containers to drive the idle state.

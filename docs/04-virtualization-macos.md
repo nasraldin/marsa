@@ -159,10 +159,10 @@ Boot-time budget (**Proposed**, measured by the agent handshake timings): kernel
 ## The `krun` backend
 
 - Links libkrun into `marsad` (or a small helper process if isolation of the VMM proves necessary).
-- Uses the same guest kernel configuration where possible. **Verify** whether libkrun requires its own bundled kernel (libkrunfw) or can boot Marsa's kernel; this affects the guest image build.
+- Libkrun 1.19.8 booted Marsa’s stock arm64 kernel and read-only EROFS image directly without its firmware package. The release’s generic arm64 macOS backend requires macOS 14 or newer.
 - Maps the same `VmSpec`: virtio block for disks, virtiofs for shares, vsock for control, virtio-net for networking.
 - Needs the `com.apple.security.hypervisor` entitlement.
-- **Verify** the current libkrun release, its macOS requirements and its C API before starting; planning research found version 1.19.x with macOS 14 or newer on arm64.
+- [M11-02](spikes/M11-02-libkrun.md) recommends stopping the version 1 implementation. The pinned release needs a separate host isolation boundary to enforce Marsa’s shared-folder policy.
 
 ## Choosing the default: the benchmark gate
 

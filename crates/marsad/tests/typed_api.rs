@@ -229,6 +229,159 @@ async fn settings_apply_idle_policy_without_requiring_restart() {
 }
 
 #[tokio::test]
+async fn collects_one_private_archive_and_omits_secrets() {
+    use marsa_proto::host::v1::{
+        CollectDiagnosticsRequest, diagnostics_client::DiagnosticsClient,
+        diagnostics_server::Diagnostics,
+    };
+    use std::{collections::BTreeMap, fs, io::Read, os::unix::fs::PermissionsExt as _, path::Path};
+
+    let fixture = Fixture::new(vec![AgentStep::Send(b"HR".to_vec())]).await;
+    let paths = MarsaPaths::from_home(fixture.home.path()).unwrap();
+    for directory in [paths.root().to_owned(), paths.logs_dir(), paths.vm_dir()] {
+        if !directory.exists() {
+            fs::create_dir(&directory).unwrap();
+        }
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    let write_log = |path: &Path, text: &str| {
+        fs::write(path, text).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    };
+    let daemon_log = paths.logs_dir().join("marsad.2026-11-22.jsonl");
+    write_log(
+        &daemon_log,
+        concat!(
+            "{\"level\":\"INFO\",\"fields\":{\"message\":\"daemon started\",\"token\":\"opaque_daemon_credential\"}}\n",
+            "{\"level\":\"WARN\",\"fields\":{\"message\":\"AUTHORIZATION=opaque_env_value https://user:secret_url@example.invalid\"}}\n",
+        ),
+    );
+    std::os::unix::fs::symlink(&daemon_log, paths.daemon_log()).unwrap();
+    write_log(
+        &paths.console_log(),
+        concat!(
+            "[    0.00000] Kernel command line: opaque_guest_parameters\n",
+            "marsa-init stage=data_disk duration_ms=437\n",
+            "marsa-init: AWS_SECRET_ACCESS_KEY=opaque_console_secret\n",
+            "time=\"2026-11-22T02:00:00.001Z\" level=info msg=\"Docker daemon\" version=29.0.0\n",
+            "time=\"2026-11-22T02:00:00.002Z\" level=error msg=\"Bearer opaque_engine_secret\"\n",
+            "\x1b[36mINFO\x1b[0m[2026-11-22T02:00:00.003Z] Daemon has completed initialization token=opaque_color_secret\n",
+        ),
+    );
+    let project = fixture.home.path().join("opaque_host_path");
+    fs::create_dir(&project).unwrap();
+    let mut settings = SettingsClient::new(fixture.channel.clone());
+    let snapshot = settings
+        .get(GetSettingsRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    settings
+        .update(UpdateSettingsRequest {
+            request_id: "70000000-0000-4000-8000-000000000002".into(),
+            expected_revision: snapshot.revision,
+            settings_toml: format!(
+                concat!(
+                    "shares = [\"{}\"]\n",
+                    "[network]\ndns = [\"192.0.2.17\"]\n",
+                    "[network.proxy]\nhttps = \"https://opaque-proxy-host.example.invalid:88\"\n",
+                ),
+                project.display(),
+            ),
+        })
+        .await
+        .unwrap();
+
+    let mut engine = EngineClient::new(fixture.channel.clone());
+    engine.start(action(91)).await.unwrap();
+    engine.stop(action(92)).await.unwrap();
+
+    // The collector uses the same authenticated UDS service as the other RPCs.
+    let request = CollectDiagnosticsRequest {
+        request_id: "70000000-0000-4000-8000-000000000003".into(),
+        include_agent_audit: false,
+    };
+    assert_eq!(
+        fixture
+            .api
+            .collect(tonic::Request::new(request.clone()))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied
+    );
+    let mut diagnostics = DiagnosticsClient::new(fixture.channel.clone());
+    let output = diagnostics
+        .collect(request.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    let replay = diagnostics
+        .collect(request.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        diagnostics
+            .collect(CollectDiagnosticsRequest {
+                include_agent_audit: true,
+                ..request
+            })
+            .await
+            .unwrap_err()
+            .code(),
+        Code::AlreadyExists
+    );
+    assert_eq!(output, replay);
+    let path = Path::new(&output.bundle_path);
+    assert!(path.starts_with(paths.root()));
+    assert_eq!(
+        fs::metadata(path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+    let mut archive = tar::Archive::new(fs::File::open(path).unwrap());
+    let entries: BTreeMap<_, _> = archive
+        .entries()
+        .unwrap()
+        .map(|entry| {
+            let mut entry = entry.unwrap();
+            let name = entry.path().unwrap().into_owned();
+            let mut contents = String::new();
+            entry.read_to_string(&mut contents).unwrap();
+            (name, contents)
+        })
+        .collect();
+    for (name, expected) in [
+        ("daemon-log.json", "daemon_started"),
+        ("console-log.json", "data_disk"),
+        ("console-log.json", "kernel_command_line_redacted"),
+        ("engine-log.json", "docker_daemon"),
+        ("engine-log.json", "docker_initialized"),
+        ("state.json", "ENGINE_STATE_STOPPED"),
+        ("state.json", "ENGINE_STATE_READY"),
+        ("network.json", "configured_mode"),
+        ("settings.json", "https_proxy_override"),
+        ("versions.json", "daemon"),
+    ] {
+        assert!(entries[Path::new(name)].contains(expected), "{name}");
+    }
+    for contents in entries.values() {
+        for secret in [
+            "opaque_",
+            "opaque-proxy-host",
+            "AUTHORIZATION",
+            "AWS_SECRET_ACCESS_KEY",
+            "secret_url",
+            "192.0.2.17",
+        ] {
+            assert!(!contents.contains(secret), "secret in bundle");
+        }
+    }
+}
+
+#[tokio::test]
 async fn shares_validate_canonical_paths_and_share_settings_revisions() {
     let fixture = Fixture::new(Vec::new()).await;
     let mut shares = SharesClient::new(fixture.channel.clone());

@@ -7,7 +7,7 @@ use std::{
     path::Path,
 };
 
-use marsa_core::paths::MarsaPaths;
+use marsa_core::paths::{MarsaPaths, is_daemon_log_name};
 use nix::fcntl::OFlag;
 use tracing_appender::{
     non_blocking::WorkerGuard,
@@ -52,7 +52,7 @@ fn verify_log_paths(directory: &Path, current: &Path, uid: u32) -> io::Result<()
                 || !target
                     .file_name()
                     .and_then(|name| name.to_str())
-                    .is_some_and(is_log_name)
+                    .is_some_and(is_daemon_log_name)
             {
                 return Err(unexpected(current));
             }
@@ -71,7 +71,7 @@ fn verify_log_paths(directory: &Path, current: &Path, uid: u32) -> io::Result<()
         // The appender may prune matching regular files. Authorize the whole
         // matching set, and refuse a symlink where it would open a dated log.
         let path = entry.path();
-        if !is_log_name(name) {
+        if !is_daemon_log_name(name) {
             return Err(unexpected(&path));
         }
         let file = OpenOptions::new()
@@ -84,21 +84,6 @@ fn verify_log_paths(directory: &Path, current: &Path, uid: u32) -> io::Result<()
         files::set_file_mode(&file, 0o600)?;
     }
     Ok(())
-}
-
-fn is_log_name(name: &str) -> bool {
-    let date = name
-        .strip_prefix("marsad.")
-        .and_then(|name| name.strip_suffix(".jsonl"));
-    let Some(date) = date else { return false };
-    date.len() == 10
-        && date.bytes().enumerate().all(|(index, byte)| {
-            if matches!(index, 4 | 7) {
-                byte == b'-'
-            } else {
-                byte.is_ascii_digit()
-            }
-        })
 }
 
 fn unexpected(path: &Path) -> io::Error {
