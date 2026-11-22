@@ -21,6 +21,35 @@ use super::{Actor, CHANNEL_CAPACITY, Command, Reply};
 impl Actor {
     pub(super) async fn command(&mut self, command: Command) {
         let (reply, result) = match command {
+            Command::Reserve {
+                expected,
+                release,
+                reply,
+            } => {
+                self.reserve_maintenance(expected, release, reply);
+                return;
+            }
+            Command::MaintenanceStart(id, reply) => {
+                self.maintenance_start(id, reply);
+                return;
+            }
+            Command::MaintenanceStop(id, reply) => {
+                let result = if self.maintenance_owns(id) && !reply.is_closed() {
+                    self.stop().await
+                } else {
+                    Err(SupervisorError::Busy)
+                };
+                (reply, result)
+            }
+            Command::EnsureReady(reply)
+            | Command::Stop(reply)
+            | Command::Restart(reply)
+            | Command::Pause(reply)
+            | Command::Resume(reply)
+                if self.maintenance.is_some() =>
+            {
+                (reply, Err(SupervisorError::Busy))
+            }
             Command::EnsureReady(reply) => {
                 self.ensure_ready(reply);
                 return;
@@ -44,7 +73,12 @@ impl Actor {
                 self.config.idle_stop = stop;
                 self.config.idle_timeout = timeout;
                 self.reset_idle();
-                if stop && self.state() == State::Idle && self.empty && self.docker_quiet() {
+                if self.maintenance.is_none()
+                    && stop
+                    && self.state() == State::Idle
+                    && self.empty
+                    && self.docker_quiet()
+                {
                     self.idle_at = Some(Instant::now());
                 }
                 (reply, Ok(()))
@@ -58,6 +92,13 @@ impl Actor {
     }
 
     async fn connect_docker(&mut self, mut reply: oneshot::Sender<io::Result<VsockStream>>) {
+        if self.maintenance.is_some() {
+            let _ = reply.send(Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                SupervisorError::Busy,
+            )));
+            return;
+        }
         let result = match self.guest.as_ref().map(|guest| guest.vm.as_ref()) {
             Some(vm) if matches!(self.state(), State::Ready | State::Idle) => {
                 tokio::select! {
@@ -103,12 +144,18 @@ impl Actor {
 
     fn container_count(&mut self, count: u32) {
         self.empty = count == 0;
+        if self.maintenance.is_some() {
+            return;
+        }
         if count > 0 {
             self.idle_at = None;
             if self.state() == State::Idle {
                 self.transition(State::Ready);
             }
-        } else if self.state() == State::Ready && self.docker_quiet() {
+        } else if (self.state() == State::Ready
+            || self.state() == State::Idle && self.config.idle_stop)
+            && self.docker_quiet()
+        {
             self.idle_at
                 .get_or_insert_with(|| Instant::now() + self.config.idle_timeout);
         }
@@ -132,6 +179,9 @@ impl Actor {
     }
 
     pub(super) async fn idle(&mut self) {
+        if self.maintenance.is_some() {
+            return;
+        }
         if matches!(self.docker_clients.has_changed(), Ok(true)) {
             self.docker_activity();
             return;
@@ -254,6 +304,7 @@ impl Actor {
     }
 
     pub(super) async fn boot_finished(&mut self, outcome: Result<Outcome, JoinError>) {
+        self.maintenance_boot_finished();
         self.boot = None;
         self.cancel_boot = None;
         self.progress = None;

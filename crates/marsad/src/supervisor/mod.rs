@@ -8,6 +8,8 @@ use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 mod actor;
+mod maintenance;
+pub use maintenance::LifecyclePermit;
 mod boot;
 mod docker;
 mod host_egress;
@@ -81,6 +83,9 @@ pub struct BootFailure {
 /// Current supervisor state and the last boot failure, if present.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot {
+    /// Changes on a lifecycle transition, permit grant or permit release.
+    /// A revision belongs to this supervisor instance.
+    pub lifecycle_revision: u64,
     /// Current engine state.
     pub state: State,
     /// Most recent failure from this activation, retained until a successful start.
@@ -134,9 +139,17 @@ pub enum SupervisorError {
     /// The supervisor has shut down.
     #[error("guest supervisor is closed")]
     Closed,
-    /// The readiness queue has reached its bound.
-    #[error("too many requests are waiting for guest readiness")]
+    /// The readiness queue reached its bound or maintenance has exclusive admission.
+    #[error("guest lifecycle admission is busy")]
     Busy,
+    /// The lifecycle changed after maintenance was previewed.
+    #[error("guest lifecycle revision changed from {expected} to {actual}")]
+    StaleRevision {
+        /// Revision supplied with the maintenance preview.
+        expected: u64,
+        /// Current revision when the request reached the actor.
+        actual: u64,
+    },
     /// An operation requires a different engine state.
     #[error("cannot {operation} the engine in state {state:?}")]
     InvalidState {
@@ -289,6 +302,7 @@ impl Supervisor {
         let (commands, input) = mpsc::channel(actor::CHANNEL_CAPACITY);
         let (docker_clients, clients) = watch::channel(0);
         let (output, snapshot) = watch::channel(Snapshot {
+            lifecycle_revision: 1,
             state: State::Stopped,
             failure: None,
             network: None,
@@ -317,6 +331,29 @@ impl Supervisor {
         }
     }
 
+    /// Reserve lifecycle admission and optionally check the revision of a preview.
+    ///
+    /// Ordinary lifecycle and new Docker connects return Busy while the permit
+    /// is held. A caller that needs the VM offline must await the permit's stop.
+    pub async fn reserve(&self, expected: Option<u64>) -> Result<LifecyclePermit, SupervisorError> {
+        let (release, released) = oneshot::channel();
+        let (reply, result) = oneshot::channel();
+        self.commands
+            .send(actor::Command::Reserve {
+                expected,
+                release: released,
+                reply,
+            })
+            .await
+            .map_err(|_| SupervisorError::Closed)?;
+        let id = result.await.map_err(|_| SupervisorError::Closed)??;
+        Ok(LifecyclePermit {
+            owner: self.clone(),
+            id,
+            _release: release,
+        })
+    }
+
     /// Wait for the shared activation attempt to make the engine ready.
     pub async fn ensure_ready(&self) -> Result<(), SupervisorError> {
         self.request(actor::Command::EnsureReady).await
@@ -329,6 +366,7 @@ impl Supervisor {
             self.ensure_ready().await.map_err(|error| {
                 let kind = match &error {
                     SupervisorError::Boot(failure) if failure.timed_out => io::ErrorKind::TimedOut,
+                    SupervisorError::Busy => io::ErrorKind::WouldBlock,
                     _ => io::ErrorKind::NotConnected,
                 };
                 io::Error::new(kind, error)
