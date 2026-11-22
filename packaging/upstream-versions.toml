@@ -1,0 +1,18 @@
+# Stable upstream macOS ARM64 release assets and their published SHA-256 values.
+# See docs/09-cli-and-docker-compat.md for the checksum sources.
+
+[docker]
+version = "29.10.0"
+sha256 = "0d8d39a9e30d74de006848add638d7f9fdf44cfd0fe9fd390934dd748b994ac8"
+
+[compose]
+version = "5.8.0"
+sha256 = "008b8fcf6c6d60340f5796626a0f0d51c042085793a9b1653343011727140b71"
+
+[buildx]
+version = "0.39.1"
+sha256 = "7a7f10602f0826d36b046e8db012b4cbfaa4ba56f9d2a5d374fe5bb7ae864fc4"
+
+[credential_helper]
+version = "0.9.13"
+sha256 = "72512a79a6f1757a0b104548614dedc9de26825efcb6a4ee3e719be25578ccc2"
