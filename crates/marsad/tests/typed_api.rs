@@ -730,3 +730,6 @@ async fn next_state(
         }
     }
 }
+
+#[path = "typed_api/settings_reset.rs"]
+mod settings_reset;

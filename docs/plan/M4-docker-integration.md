@@ -161,7 +161,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-12 Registry credentials
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-03, M4-16
 - **Docs:** [11 Registry credentials](../11-security.md#registry-credentials)
 - **Do:** Offer to set the keychain credential helper as the Docker CLI credential store, never overwriting an existing store. Confirm that no credential is written to disk in plain text or stored in the guest.
@@ -169,6 +169,8 @@ Q-08 governs where the optional administrator action is offered. Context registr
 - **Accept when:**
   - `docker login` stores the credential in the keychain.
   - An existing `credsStore` or `credHelpers` entry is left untouched.
+
+**Verification.** A signed daemon fixture in a private Docker configuration applied the opt-in, preserved the selected context and refused to change a configured store. The pinned macOS Docker CLI and Keychain helper stored and retrieved one generated credential using a local Engine API fixture. The client configuration had no credential field, and the disposable Keychain item was removed and verified absent.
 
 ### M4-13 SSH agent forwarding for builds
 
