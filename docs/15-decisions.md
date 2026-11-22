@@ -36,6 +36,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-026 | Use EROFS for the guest root filesystem | Accepted |
 | D-027 | Apply proxy settings at a controlled engine restart | Accepted |
 | D-028 | Qualify native IPv4 independently of runtime and power management | Accepted |
+| D-029 | Verify updates with TUF | Accepted |
 
 ---
 
@@ -211,16 +212,6 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Consequence:** M3-16 owns common device support. M3-11 and M3-12 depend on those capabilities and M3-12 uses M3-15 for automatic egress selection. M3-04 keeps native DHCP, IPv4 address, default gateway, and verified HTTPS as its own acceptance gate.
 - **Reopen if:** The fallback and native attachments require different stop, pause, resume or guest control semantics.
 - **Date and task:** 2026-11-22, M3-16.
-
-
-## D-030 Scope build SSH agent access to Buildx sessions
-
-- **Decision:** Use upstream Buildx SSH sessions for builds. Keep explicit container-mounted agent forwarding in M4-17.
-- **Why:** Buildx resolves the host agent when building the client session and BuildKit supplies a mount to the requesting step. The session affordance is sufficient for a private Git clone. The Docker byte proxy cannot infer which other guest workload, if any, the user authorized from that build session. A fixed guest listener would be visible across unrelated guest workloads with mount access. [Pinned Buildx setup](https://github.com/docker/buildx/blob/v0.39.1/commands/build.go#L1016-L1024) · [Pinned BuildKit provider](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).
-- **Consequence:** Validate the unmodified Docker CLI and Buildx against a private fixture. Require a separate host-side authorization and revocation model before adding a socket for regular containers.
-- **Reopen if:** The pinned CLI or engine changes the Buildx session contract.
-- **Date and task:** 2026-11-22, M4-13.
-
 ---
 
 ## Template
@@ -235,3 +226,19 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Reopen if:**
 - **Date and task:**
 ```
+
+
+## D-029 Verify updates with TUF
+
+- **Decision:** Keep the updater under `marsad` so interactive and headless clients share one authorization, VM shutdown and rollback path. Use TUF metadata and an audited, maintained Rust verifier for signatures, expiry, rollback detection and secure key rotation. Require a separately verified Apple Developer ID signature and notarization for the app before any install. [Manifest and key procedures](reference/update-manifest.md).
+- **Why:** Sparkle 2.10.0 is maintained and supplies signed feeds, trust checks and update installation. Its separately distributed command-line tool demonstrates headless operation. Marsa still needs daemon-controlled shutdown, restart and rollback after real engine health is established, shared by the UI and CLI. TUF supplies standard signed metadata and key recovery without owning the VM or bundle replacement. [Sparkle release](https://github.com/sparkle-project/Sparkle/releases/tag/2.10.0), [Sparkle command-line tool](https://sparkle-project.org/documentation/sparkle-cli/), [TUF specification](https://theupdateframework.github.io/specification/v1.0.33/).
+- **Consequence:** M10-04 owns safe archive extraction, verified bundle replacement and the rollback transaction. Its dependency must pass the production policy. Establish project custody and Apple signing under Q-04 before publishing a production root or update.
+- **Date and task:** 2026-11-22, M10-03.
+
+## D-030 Scope build SSH agent access to Buildx sessions
+
+- **Decision:** Use upstream Buildx SSH sessions for builds. Keep explicit container-mounted agent forwarding in M4-17.
+- **Why:** Buildx resolves the host agent when building the client session and BuildKit supplies a mount to the requesting step. The session affordance is sufficient for a private Git clone. The Docker byte proxy cannot infer which other guest workload, if any, the user authorized from that build session. A fixed guest listener would be visible across unrelated guest workloads with mount access. [Pinned Buildx setup](https://github.com/docker/buildx/blob/v0.39.1/commands/build.go#L1016-L1024) · [Pinned BuildKit provider](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).
+- **Consequence:** Validate the unmodified Docker CLI and Buildx against a private fixture. Require a separate host-side authorization and revocation model before adding a socket for regular containers.
+- **Reopen if:** The pinned CLI or engine changes the Buildx session contract.
+- **Date and task:** 2026-11-22, M4-13.

@@ -11,3 +11,10 @@ pub const API_MINOR: u32 = 1;
 pub mod v1 {
     tonic::include_proto!("marsa.v1");
 }
+
+/// Resolve the typed API's default Unix socket from an absolute user home.
+pub fn socket_path(
+    home: impl AsRef<std::path::Path>,
+) -> Result<std::path::PathBuf, marsa_core::error::PathError> {
+    Ok(marsa_core::paths::MarsaPaths::from_home(home)?.daemon_socket())
+}
