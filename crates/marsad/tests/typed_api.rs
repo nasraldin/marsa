@@ -857,3 +857,6 @@ mod settings_reset;
 
 #[path = "typed_api/factory_reset.rs"]
 mod factory_reset;
+
+#[path = "typed_api/network_mode.rs"]
+mod network_mode;

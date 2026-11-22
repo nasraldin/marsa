@@ -1,11 +1,14 @@
-//! Expose the chosen guest attachment and its observed network facts.
+//! Keep the configured attachment separate from observations of the running VM.
 
+use marsa_core::settings::NetworkMode as ConfigMode;
 use marsa_proto::host::v1::{
-    ActivateProxyRequest, ListForwardedPortsRequest, ListForwardedPortsResponse, NetworkStatus,
-    NetworkStatusRequest, PrepareProxyActivationRequest, ProxyActivationPreview,
+    ActivateProxyRequest, ListForwardedPortsRequest, ListForwardedPortsResponse, NetworkMode,
+    NetworkStatus, NetworkStatusRequest, PrepareProxyActivationRequest, ProxyActivationPreview,
     ProxyActivationResult, SetNetworkModeRequest, network_server::Network,
 };
 use tonic::{Request, Response, Status};
+
+use crate::supervisor::NetworkObservation;
 
 use super::{TypedApi, events};
 
@@ -16,29 +19,9 @@ impl Network for TypedApi {
         request: Request<NetworkStatusRequest>,
     ) -> Result<Response<NetworkStatus>, Status> {
         self.authorize(request)?;
-        let active = match &self.supervisor {
-            Some(supervisor) => supervisor
-                .active_network()
-                .await
-                .map_err(|_| Status::unavailable("guest supervisor is unavailable"))?,
-            None => None,
-        };
         let configured = self.inner.events.configured_network_mode();
-        let status = match active {
-            Some((boot, facts)) => {
-                let mut status = events::network_status(configured, boot);
-                if let Some(facts) = facts {
-                    status.guest_address = Some(facts.address.to_string());
-                    status.gateway_address = facts.gateway.map(|address| address.to_string());
-                }
-                status
-            }
-            None => NetworkStatus {
-                configured_mode: events::mode(configured).into(),
-                ..Default::default()
-            },
-        };
-        Ok(Response::new(status))
+        let active = self.observe_network(configured).await?;
+        Ok(Response::new(network_status(configured, active)))
     }
 
     async fn prepare_proxy_activation(
@@ -71,10 +54,33 @@ impl Network for TypedApi {
         &self,
         request: Request<SetNetworkModeRequest>,
     ) -> Result<Response<NetworkStatus>, Status> {
-        self.authorize(request)?;
-        Err(Status::unimplemented(
-            "setting the network mode is unavailable",
-        ))
+        let request = self.authorize(request)?;
+        let mode = match NetworkMode::try_from(request.mode) {
+            Ok(NetworkMode::Auto) => ConfigMode::Auto,
+            Ok(NetworkMode::Nat) => ConfigMode::Nat,
+            Ok(NetworkMode::Userspace) => ConfigMode::Userspace,
+            _ => {
+                return Err(Status::invalid_argument(
+                    "Unsupported network mode. Choose auto, nat, or userspace. | وضع الشبكة غير مدعوم. اختر auto أو nat أو userspace.",
+                ));
+            }
+        };
+        let api = self.clone();
+        let status = self
+            .inner
+            .network_mode_requests
+            .run(&request.request_id, mode, || async move {
+                api.edit_settings(None, move |settings, _| {
+                    settings.network.mode = mode;
+                    Ok(())
+                })
+                .await?;
+                // The edit has committed even if the VM observation is unavailable.
+                let active = api.observe_network(mode).await.unwrap_or_default();
+                Ok(network_status(mode, active))
+            })
+            .await?;
+        Ok(Response::new(status))
     }
 
     async fn list_forwarded_ports(
@@ -86,4 +92,36 @@ impl Network for TypedApi {
             "listing forwarded ports is unavailable",
         ))
     }
+}
+
+impl TypedApi {
+    async fn observe_network(&self, desired: ConfigMode) -> Result<NetworkObservation, Status> {
+        match &self.supervisor {
+            Some(supervisor) => supervisor
+                .observe_network(desired)
+                .await
+                .map_err(|_| Status::unavailable("guest supervisor is unavailable")),
+            None => Ok(NetworkObservation {
+                restart_pending: Some(false),
+                ..Default::default()
+            }),
+        }
+    }
+}
+
+fn network_status(configured: ConfigMode, observed: NetworkObservation) -> NetworkStatus {
+    let Some((boot, facts)) = observed.attachment else {
+        return NetworkStatus {
+            configured_mode: events::mode(configured).into(),
+            restart_pending: observed.restart_pending,
+            ..Default::default()
+        };
+    };
+    let mut status = events::network_status(configured, boot);
+    status.restart_pending = observed.restart_pending;
+    if let Some(facts) = facts {
+        status.guest_address = Some(facts.address.to_string());
+        status.gateway_address = facts.gateway.map(|address| address.to_string());
+    }
+    status
 }

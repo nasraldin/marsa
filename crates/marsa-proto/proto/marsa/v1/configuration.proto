@@ -147,6 +147,9 @@ message NetworkStatus {
   optional string reason = 3;
   optional string guest_address = 4;
   optional string gateway_address = 5;
+  // True when an active VM was launched with a different configured mode, false
+  // when stopped or current, and absent when the boot policy is unobserved.
+  optional bool restart_pending = 6;
 }
 
 enum NetworkMode {

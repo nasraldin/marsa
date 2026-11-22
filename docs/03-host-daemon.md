@@ -203,6 +203,14 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 
 `Network.Status` returns the current configured mode and, for an active guest, the actual attachment and any boot-time connectivity reason. Guest and gateway addresses come from the backend's latest observation. Callers can use `MarsaClient::network()` to query this status. The status call does not start the engine.
 
+`Network.SetMode` saves only the configured mode in the same transaction as
+other settings edits. It requires the socket owner and a request UUID. Its
+response pairs the saved mode with any independently observed attachment,
+addresses and boot reason. A stopped or unobservable guest has no active
+details. Replaying a request UUID returns the original response, while
+`Network.Status` reads the current observation. The change takes effect on
+the next cold activation.
+
 API rules:
 
 - Versioned package (`marsa.v1`). Additive changes only within a major version.

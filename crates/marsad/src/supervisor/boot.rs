@@ -2,6 +2,7 @@
 
 use std::{future::Future, io, sync::Arc, time::Duration};
 
+use marsa_core::settings::NetworkMode;
 use marsa_proto::guest::v1::ConfigureNetwork;
 use marsa_vm::{Hypervisor, Vm, VmError, VmEvent, VmEventStream, VmExitCause, VmSpec, VmState};
 use tokio::{
@@ -24,6 +25,7 @@ pub(super) struct LiveGuest {
     pub session: Option<Box<dyn GuestSession>>,
     pub events: VmEventStream,
     pub network: BootNetwork,
+    pub configured_mode: Option<NetworkMode>,
     pub applied: Option<Applied>,
     network_lost: bool,
 }
@@ -95,6 +97,7 @@ pub(super) async fn run(
         }
     };
     let console = launch.spec.console_log.clone();
+    let configured_mode = launch.selection.configured_mode;
     let console_position = platform::console_position(&console).await;
     let result = selection::select_and_start(
         launch.backend.as_ref(),
@@ -113,6 +116,7 @@ pub(super) async fn run(
     match result {
         Ok(mut guest) => {
             guest.applied = launch.applied;
+            guest.configured_mode = configured_mode;
             Outcome::Ready(guest)
         }
         Err(mut failure) => {
@@ -194,6 +198,7 @@ async fn attach(
             events,
             network_lost,
             applied: None,
+            configured_mode: None,
             network: BootNetwork {
                 active,
                 result: NetworkResult::Unchecked,

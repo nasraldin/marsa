@@ -78,6 +78,7 @@ struct Shared {
     >,
     proxy_approval: std::sync::Mutex<Option<proxy_activation::Approval>>,
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
+    network_mode_requests: requests::Cache<NetworkMode, marsa_proto::host::v1::NetworkStatus>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
     settings_reset: reset::SettingsReset,
     factory_reset: factory_reset::FactoryReset,
@@ -115,6 +116,7 @@ impl TypedApi {
                 proxy_requests: requests::Cache::new(),
                 proxy_approval: std::sync::Mutex::new(None),
                 settings_requests: requests::Cache::new(),
+                network_mode_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
                 settings_reset: reset::SettingsReset::new(),
                 factory_reset: factory_reset::FactoryReset::new(),
@@ -160,7 +162,7 @@ impl TypedApi {
             spec,
             config,
             Arc::new(move |transition| events.engine(transition)),
-            automatic,
+            Selection::new(automatic).with_configured_mode(settings.network.mode),
         );
         self.supervisor = Some(supervisor.clone());
         (self, supervisor)
@@ -223,6 +225,7 @@ impl TypedApi {
         let share_policy = self.inner.share_policy.clone();
         let preparation = Arc::new(move || {
             let (desired, once) = settings.boot_configuration();
+            let configured_mode = desired.network.mode;
             let (effective, reserved) = proxy.launch_settings(desired)?;
             let mut startup = effective.clone();
             startup.shares.extend(once.iter().cloned());
@@ -241,7 +244,7 @@ impl TypedApi {
             Ok(Launch {
                 backend,
                 spec,
-                selection: Selection::new(automatic),
+                selection: Selection::new(automatic).with_configured_mode(configured_mode),
                 network_policy,
                 applied: Some(Arc::new(move || {
                     if !reserved {

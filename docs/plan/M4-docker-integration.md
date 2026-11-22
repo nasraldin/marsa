@@ -149,10 +149,10 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 ### M4-10 User-space network mode and automatic selection
 
 - **Status:** todo
-- **Depends on:** M4-09, M3-15
+- **Depends on:** M4-09, M3-15, M4-25
 - **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection), V-07
 - **Do:** Use the qualified transport from M3-14 and boot-time mode selection from M3-15. Implement `userspace` port forwarding and network-change recovery with events. Respect a pinned mode.
-- **Deliver:** user-space mode, the probe, `Network.SetMode`.
+- **Deliver:** user-space port forwarding and network-change recovery using the boot probe. M4-25 owns `Network.SetMode`.
 - **Accept when:**
   - With NAT egress blocked by a firewall rule in a test, `auto` switches to `userspace` and a pull succeeds.
   - The switch is reported as an event with its reason.
@@ -329,3 +329,17 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - Closing the host transport disconnects an active guest stream and another request fails. The key and approval exist only inside the disposable fixture lifecycle. Document the privileged guest and Docker integration limits.
 
 - **Evidence:** The entitled test completed in 1.03 seconds on macOS 27.2.1 with Linux 7.3.5 and OpenSSH 10.5p1. The host-opened VZ connection was authenticated as host CID 2. The unsolicited guest-to-host dial did not connect. A second cgroup opening the identical Unix socket received EOF before any SSH request. The approved opener verified a real Ed25519 signature, and its remove-all attempt left exactly one key in the dedicated host agent. Closing the host stream produced EOF on the active guest stream, refused a fresh open, and the peer pidfd signaled exit. [Fixture and reproduction](../../crates/marsa-vm-vz/tests/real_vm/ssh_fixture/README.md)
+
+### M4-25 Save the configured network mode through the typed API
+
+- **Status:** done
+- **Depends on:** M3-15, M4-18, M4-21
+- **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection)
+- **Do:** Implement owner-authenticated `Network.SetMode` using the existing settings transaction and request deduplication. Change only the configured mode. Report that saved mode and any independently observed active attachment and guest addresses. Leave the current VM and its connections alone.
+- **Deliver:** A typed settings mutation with disposable-state and fake-runtime tests.
+- **Accept when:**
+  - Only the authenticated owner can set `auto`, `nat`, or `userspace`. Invalid modes and request IDs change nothing. Repeating a request returns its original result, and using its ID for a different mode is rejected.
+  - Only the network mode changes on disk and in settings. Concurrent edits serialize without losing unrelated settings. A stopped or unavailable runtime has no active mode or address reported.
+  - Changing the mode while the VM is ready leaves its active attachment intact. An ordinary restart uses the saved explicit pin and automatic selection does not override it.
+
+- **Evidence:** The authenticated Unix tests verified validation, duplicate and conflicting request IDs, preservation of unrelated settings and serialization with full settings updates. The daemon process wrote an owner-only file in a disposable home and read its saved mode after relaunch without booting a VM. The fake packaged runtime kept NAT active during a Userspace edit, then selected the new pin only on an ordinary restart. A failed boot left active fields empty.

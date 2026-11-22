@@ -2,6 +2,7 @@
 
 use std::{io, net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 
+use marsa_core::settings::NetworkMode;
 use marsa_proto::guest::v1::EgressStage;
 use marsa_vm::{Hypervisor, NetworkInfo, Vm, VmError, VmSpec, async_trait};
 use thiserror::Error;
@@ -19,6 +20,12 @@ mod platform;
 
 pub use docker::DockerStream;
 pub use network::{AlternateFailure, BootNetwork, NetworkResult};
+
+#[derive(Default)]
+pub(crate) struct NetworkObservation {
+    pub(crate) attachment: Option<(BootNetwork, Option<NetworkInfo>)>,
+    pub(crate) restart_pending: Option<bool>,
+}
 
 #[cfg(test)]
 mod tests;
@@ -251,16 +258,9 @@ impl Supervisor {
         spec: VmSpec,
         config: SupervisorConfig,
         observer: Observer,
-        automatic: bool,
+        selection: network::Selection,
     ) -> Self {
-        Self::spawn_inner(
-            backend,
-            probe,
-            spec,
-            config,
-            Some(observer),
-            network::Selection::new(automatic),
-        )
+        Self::spawn_inner(backend, probe, spec, config, Some(observer), selection)
     }
 
     fn spawn_inner(
@@ -448,13 +448,14 @@ impl Supervisor {
             .await
     }
 
-    /// Read the active attachment and the latest separately observed guest network facts.
-    pub(crate) async fn active_network(
+    /// Read the live attachment and compare the activation's mode with the requested policy.
+    pub(crate) async fn observe_network(
         &self,
-    ) -> Result<Option<(BootNetwork, Option<NetworkInfo>)>, SupervisorError> {
+        desired: NetworkMode,
+    ) -> Result<NetworkObservation, SupervisorError> {
         let (reply, result) = oneshot::channel();
         self.commands
-            .send(actor::Command::Network(reply))
+            .send(actor::Command::Network(desired, reply))
             .await
             .map_err(|_| SupervisorError::Closed)?;
         result.await.map_err(|_| SupervisorError::Closed)
