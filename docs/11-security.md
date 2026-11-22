@@ -94,6 +94,17 @@ For builds, the Docker client selects the host agent and offers it through its o
 
 The Docker byte proxy has no independent indication that a client granted access to an arbitrary guest workload. A predictable guest listener would remain reachable to other guest processes with permission to mount or open it. Container-mounted forwarding requires a host-enforced, revocable grant and is tracked in [M4-17](plan/M4-docker-integration.md#m4-17-explicit-ssh-agent-access-for-containers).
 
+[M4-24](plan/M4-docker-integration.md#m4-24-qualify-ssh-agent-transport-and-guest-peer-identity)
+qualifies a host-opened vsock relay and Linux Unix-socket opener identity.
+A socket bind can be inherited, so an approved path does not establish that
+a new opener is the approved workload. The production grant must bind the
+opener to an immutable Docker ID and fail closed when that identity cannot
+be verified. An engine administrator can execute code in the approved
+container, and the approved workload can relay signing access while its
+grant is active. The transport fixture does not qualify those privileges,
+Mac socket selection policy, or container lifecycle revocation. [Pinned Moby mount inheritance](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/volumes.go)
+
+
 ## Guest hardening
 
 | Measure | Detail |

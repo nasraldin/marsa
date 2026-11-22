@@ -2,6 +2,8 @@
 
 mod command;
 #[cfg(unix)]
+mod disk;
+#[cfg(unix)]
 mod engine;
 #[cfg(unix)]
 mod network;
@@ -193,6 +195,10 @@ async fn execute(
         && let Some(outcome) = share_folders::run(args, language).await
     {
         return outcome;
+    }
+    #[cfg(unix)]
+    if name == "disk" && args.subcommand_matches("usage").is_some() {
+        return disk::usage(language).await.unwrap_or_else(Outcome::Failure);
     }
     #[cfg(unix)]
     if let Some(outcome) = engine::run(name, args, language, json).await {
