@@ -40,7 +40,7 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-04 Memory behaviour
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M4-02, M3-12
 - **Docs:** [04 Memory management](../04-virtualization-macos.md#memory-management), V-04, R-03
 - **Do:** Measure how much memory the balloon actually returns to macOS under `vz` (V-04) and record it. Implement the memory policy: right-sized default, balloon on idle if it helps, idle stop as the dependable mechanism, all configurable.
