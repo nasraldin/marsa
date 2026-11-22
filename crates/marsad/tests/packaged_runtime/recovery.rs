@@ -168,7 +168,7 @@ async fn assert_helper_exits(pid: u32) {
     .expect("a private helper survived its daemon's SIGKILL");
 }
 
-async fn signal_running_daemon(process: &mut Daemon) {
+pub(super) async fn signal_running_daemon(process: &mut Daemon) {
     nix::sys::signal::kill(
         nix::unistd::Pid::from_raw(process.0.id().try_into().unwrap()),
         nix::sys::signal::Signal::SIGTERM,
@@ -208,7 +208,7 @@ fn assert_clean_filesystem(path: &Path) {
     );
 }
 
-fn offline_image(scratch: &Path) -> PathBuf {
+pub(super) fn offline_image(scratch: &Path) -> PathBuf {
     // Use the locally built, pinned guest tools so a registry outage cannot
     // turn the disk recovery test into a networking test.
     let guest = PathBuf::from(env::var_os("MARSA_VZ_GUEST_DIR").unwrap());
@@ -235,7 +235,7 @@ fn offline_image(scratch: &Path) -> PathBuf {
     archive
 }
 
-fn spawn(daemon: &Path, home: &Path, log: &Path) -> Daemon {
+pub(super) fn spawn(daemon: &Path, home: &Path, log: &Path) -> Daemon {
     let output = fs::File::create(log).unwrap();
     Daemon(
         Command::new(daemon)
@@ -248,7 +248,7 @@ fn spawn(daemon: &Path, home: &Path, log: &Path) -> Daemon {
     )
 }
 
-async fn start(channel: &Channel, paths: &MarsaPaths, step: u32) {
+pub(super) async fn start(channel: &Channel, paths: &MarsaPaths, step: u32) {
     let ready = timeout(BOOT, EngineClient::new(channel.clone()).start(action(step)))
         .await
         .unwrap()
@@ -273,7 +273,7 @@ async fn usage(channel: &Channel) -> marsa_proto::host::v1::DiskUsageResponse {
     usage
 }
 
-async fn docker(socket: &Path, args: &[&str]) -> String {
+pub(super) async fn docker(socket: &Path, args: &[&str]) -> String {
     let binary = env::var_os("MARSA_TEST_DOCKER").unwrap_or_else(|| "docker".into());
     let config = tempfile::tempdir().unwrap();
     let output = timeout(

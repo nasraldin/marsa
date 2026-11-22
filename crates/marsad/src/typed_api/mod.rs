@@ -6,6 +6,7 @@ mod docker_discovery;
 mod engine;
 mod events;
 mod meta;
+mod network;
 mod requests;
 mod reset;
 mod settings;
@@ -22,8 +23,8 @@ use marsa_proto::host::v1::{
     CollectDiagnosticsResponse, ComponentVersion, EnsureDockerContextResponse,
     diagnostics_server::DiagnosticsServer, disk_server::DiskServer,
     docker_discovery_server::DockerDiscoveryServer, engine_server::EngineServer,
-    events_server::EventsServer, meta_server::MetaServer, settings_server::SettingsServer,
-    shares_server::SharesServer, stats_server::StatsServer,
+    events_server::EventsServer, meta_server::MetaServer, network_server::NetworkServer,
+    settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
 };
 use marsa_share::SharePolicy;
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
@@ -225,6 +226,7 @@ impl TypedApi {
             )
             .add_service(EventsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(StatsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
+            .add_service(NetworkServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 stop.await;
                 self.inner.closing.send_replace(true);
