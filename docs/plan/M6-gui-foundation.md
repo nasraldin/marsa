@@ -150,7 +150,7 @@ complete.
 
 ### M6-09 App shell
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-05, M6-07, M6-08
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Build the shell: sidebar navigation, routing, content area, status bar with the engine indicator, global search entry point, the command palette listing every registered action, and the toast and error surface.

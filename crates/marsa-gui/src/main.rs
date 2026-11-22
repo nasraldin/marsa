@@ -4,8 +4,7 @@ use std::process::ExitCode;
 
 #[cfg(target_os = "macos")]
 fn main() -> ExitCode {
-    let _services = marsa_gui::services::Services::start();
-    marsa_ui::run()
+    marsa_gui::run()
 }
 
 #[cfg(not(target_os = "macos"))]

@@ -11,6 +11,9 @@ mod platform;
 pub mod direction;
 
 #[cfg(target_os = "macos")]
+mod assets;
+
+#[cfg(target_os = "macos")]
 pub use {
     gpui, gpui_component,
     marsa_l10n::{Locale, TextKey, keys as gui_keys},
