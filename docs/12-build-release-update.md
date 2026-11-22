@@ -210,6 +210,13 @@ The Mac App Store is not a distribution target: the sandbox it requires conflict
   and the OS build with the evidence. The release conformance tests cover
   public image pulls.
 
+For a local qualification, an authorized Xcode account can submit a
+Developer ID archive and export the stapled app through Xcode's distribution
+workflow. The existing credentials were sufficient for the M3-10
+qualification archive. The protected release workflow still needs its own
+scoped signing and notarization configuration.
+[Apple's Xcode notarization workflow](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
+
 [Apple Developer ID certificate setup](https://developer.apple.com/help/account/certificates/create-developer-id-certificates)
 · [Apple notarization authentication](https://developer.apple.com/documentation/technotes/tn3147-migrating-to-the-latest-notarization-tool)
 · [Apple distribution testing](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution).
