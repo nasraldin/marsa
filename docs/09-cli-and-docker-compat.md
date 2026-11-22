@@ -176,7 +176,8 @@ marsa share resolve ID DECISION Answer a request with once, always, or deny
 marsa disk usage                Show data-disk usage
 marsa disk cleanup [--dry-run]  Preview and run cleanup, then reclaim space
 marsa disk reclaim              Return freed space to macOS
-marsa network status|mode       Show or pin the network mode
+marsa network status            Show active networking and observed addresses
+marsa network mode [MODE]       Show or save the mode for the next start
 marsa logs [--follow]           Daemon and guest logs
 marsa diagnose                  Collect a diagnostics bundle
 marsa update check|apply        Updates
@@ -205,6 +206,13 @@ is ready. `marsa status --json` shows engine state, the installed component
 versions and the latest resource observation from the guest. `marsa logs`
 shows a bounded tail of classified daemon, guest console and engine records.
 Use `--follow` to continue receiving new records.
+
+Run `marsa network mode` to read the configured policy and active
+attachment. Pass `auto`, `nat`, or `userspace` to save a policy for the next
+ordinary start. A running guest keeps its existing attachment until that
+start. The command reports a pending restart when the running guest was
+launched under a different policy. With `auto`, the active attachment
+can be user-space while the current policy is still automatic.
 
 `marsa diagnose` creates a private local archive and prints its path. It
 works with the engine stopped. Review the archive before sharing it.
