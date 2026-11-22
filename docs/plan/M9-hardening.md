@@ -63,7 +63,7 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-06 Crash recovery
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M3-06, M4-07
 - **Docs:** [04 Failure handling](../04-virtualization-macos.md#failure-handling)
 - **Do:** On start, detect and clean up or reattach an orphaned VM, stale sockets, stale port listeners and a stale helper process. Ensure a daemon crash never corrupts the data disk.
