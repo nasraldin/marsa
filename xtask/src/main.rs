@@ -1,6 +1,11 @@
 //! Build and verification commands used by Marsa contributors.
 
+#[cfg(target_os = "macos")]
+mod bundle;
 mod guest;
+#[cfg(target_os = "macos")]
+mod release_delivery;
+mod release_notices;
 #[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
 mod release_resources;
 mod release_signature;
@@ -51,13 +56,18 @@ const COMMANDS: &[Subcommand] = &[
         action: Action::Deferred,
     },
     Subcommand {
+        name: "stage-release-notices",
+        description: "Assemble third-party license notices and source records",
+        action: Action::Deferred,
+    },
+    Subcommand {
         name: "bundle",
-        description: "Assemble the macOS app bundle (pending)",
+        description: "Assemble the macOS app bundle from verified resources",
         action: Action::Deferred,
     },
     Subcommand {
         name: "sign",
-        description: "Sign and notarize the macOS app (pending)",
+        description: "Sign, notarize, and staple the macOS distribution",
         action: Action::Deferred,
     },
     Subcommand {
@@ -67,7 +77,7 @@ const COMMANDS: &[Subcommand] = &[
     },
     Subcommand {
         name: "package",
-        description: "Build the installer and update archive (pending)",
+        description: "Write the verified installer and update archive to a local directory",
         action: Action::Deferred,
     },
     Subcommand {
@@ -108,6 +118,25 @@ fn main() -> ExitCode {
         .is_some_and(|argument| argument == "verify-signature")
     {
         return release_signature::run(&arguments[1..]);
+    }
+    if let Some(command) = arguments.first().and_then(|argument| argument.to_str()) {
+        match command {
+            "stage-release-notices" => return release_notices::run(&arguments[1..]),
+            "bundle" | "sign" | "package" => {
+                #[cfg(target_os = "macos")]
+                return match command {
+                    "bundle" => bundle::run(&arguments[1..]),
+                    "sign" => release_delivery::sign(&arguments[1..]),
+                    _ => release_delivery::package(&arguments[1..]),
+                };
+                #[cfg(not(target_os = "macos"))]
+                {
+                    eprintln!("This release command requires macOS.");
+                    return ExitCode::FAILURE;
+                }
+            }
+            _ => {}
+        }
     }
     match arguments.as_slice() {
         [] => print_help(),

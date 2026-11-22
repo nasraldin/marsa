@@ -3,7 +3,7 @@
 use std::{ffi::OsString, io, path::Path, process::ExitCode};
 
 #[cfg(target_os = "macos")]
-mod platform;
+pub(crate) mod platform;
 
 const USAGE: &str = "Usage: cargo xtask verify-signature --team-id TEAM_ID PATH_TO_MARSA_APP";
 
@@ -39,7 +39,7 @@ pub(super) fn run(args: &[OsString]) -> ExitCode {
     }
 }
 
-fn valid_team_id(value: &str) -> bool {
+pub(crate) fn valid_team_id(value: &str) -> bool {
     value.len() == 10
         && value
             .bytes()

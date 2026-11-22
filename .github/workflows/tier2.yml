@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 60
     env:
       BOOT_RESULTS: target/guest/boot-test/${{ github.run_id }}-${{ github.run_attempt }}
+      BUNDLE_REPORT: target/guest/bundle-size/${{ github.run_id }}-${{ github.run_attempt }}.txt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,6 +39,27 @@ jobs:
           cache: false
       - name: Build the user-space network helper
         run: bash network-helper/build.sh target/network-helper/marsa-net-helper
+      - name: Record the unsigned app bundle size
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '27.0'
+        run: |
+          build_dir="$(mktemp -d "$PWD/target/marsa-bundle.XXXXXXXX")"
+          trap 'rm -rf -- "$build_dir"' EXIT
+          mkdir "$build_dir/guest"
+          for file in Image rootfs.img guest-manifest.json; do
+            cp "target/guest/$file" "$build_dir/guest/$file"
+          done
+          manifest_sha="$(shasum -a 256 target/guest/guest-manifest.json | cut -d ' ' -f 1)"
+          cargo xtask stage-release-resources \
+            --guest-dir "$build_dir/guest" --guest-manifest-sha256 "$manifest_sha" \
+            --output "$build_dir/staged"
+          cargo build --release --locked -p marsa-gui -p marsad -p marsa-cli -p marsa-mcp
+          mkdir -p "$(dirname "$BUNDLE_REPORT")"
+          cargo xtask bundle --host-dir target/release \
+            --network-helper target/network-helper/marsa-net-helper \
+            --resources-dir "$build_dir/staged" --guest-manifest-sha256 "$manifest_sha" \
+            --output "$build_dir/Marsa.app" | tee "$BUNDLE_REPORT"
       - name: Test the production VZ backend
         run: |
           export MARSA_VZ_NETWORK_HELPER="$PWD/target/network-helper/marsa-net-helper"
@@ -77,4 +99,11 @@ jobs:
         with:
           name: guest-boot-timings
           path: ${{ env.BOOT_RESULTS }}
+          if-no-files-found: warn
+      - name: Upload app bundle size
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-bundle-size
+          path: ${{ env.BUNDLE_REPORT }}
           if-no-files-found: warn

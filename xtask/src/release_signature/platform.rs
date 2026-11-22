@@ -17,12 +17,13 @@ mod timestamp;
 const CODESIGN: &str = "/usr/bin/codesign";
 const PLUTIL: &str = "/usr/bin/plutil";
 const APP_ID: &str = "io.github.nasraldin.marsa";
-const GUI: &str = "Contents/MacOS/marsa-gui";
-const DAEMON: &str = "Contents/MacOS/marsad";
+pub(crate) const GUI: &str = "Contents/MacOS/marsa-gui";
+pub(crate) const DAEMON: &str = "Contents/MacOS/marsad";
 const ROLES: &[&str] = &[
     GUI,
     DAEMON,
     "Contents/MacOS/marsa",
+    "Contents/MacOS/marsa-mcp",
     "Contents/Helpers/marsa-net-helper",
     "Contents/Resources/bin/docker",
     "Contents/Resources/bin/docker-credential-osxkeychain",
@@ -36,15 +37,14 @@ const CS_RUNTIME: u32 = 0x0001_0000;
 const CPU_TYPE_ARM64: u32 = 0x0100_000c;
 const MH_EXECUTE: u32 = 2;
 
-pub(super) fn verify(bundle: &Path, team: &str) -> io::Result<usize> {
+pub(crate) fn verify(bundle: &Path, team: &str) -> io::Result<usize> {
     if bundle.extension() != Some(OsStr::new("app")) || !bundle.symlink_metadata()?.is_dir() {
         return Err(invalid("expected a real .app directory"));
     }
     // Use absolute paths for Apple tool operands even if the caller supplied a
     // relative name beginning with a dash.
     let root = bundle.canonicalize()?;
-    let code = inventory(&root)?;
-    check_info(&root)?;
+    let code = signing_inventory(&root)?;
 
     verify_signature(&root, team, true)?;
     for relative in &code {
@@ -53,6 +53,19 @@ pub(super) fn verify(bundle: &Path, team: &str) -> io::Result<usize> {
         check_release_policy(&path, relative == Path::new(DAEMON))?;
     }
     Ok(code.len())
+}
+
+/// Check the release bundle structure before signing or inspecting signatures.
+pub(crate) fn signing_inventory(root: &Path) -> io::Result<BTreeSet<PathBuf>> {
+    let code = inventory(root)?;
+    check_info(root)?;
+    Ok(code)
+}
+
+/// Verify the identity and secure timestamp on an Apple disk-image signature.
+pub(crate) fn verify_disk_image(path: &Path, team: &str) -> io::Result<()> {
+    verify_signature(path, team, false)?;
+    timestamp::require(path)
 }
 
 fn inventory(root: &Path) -> io::Result<BTreeSet<PathBuf>> {
