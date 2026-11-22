@@ -66,11 +66,22 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 - **Status:** in progress
 - **Depends on:** M3-06, M4-07
 - **Docs:** [04 Failure handling](../04-virtualization-macos.md#failure-handling)
-- **Do:** On start, detect and clean up or reattach an orphaned VM, stale sockets, stale port listeners and a stale helper process. Ensure a daemon crash never corrupts the data disk.
+- **Do:** Recover from daemon death without leaving a VM or user-space helper alive, replace stale runtime sockets on start and preserve the data disk. M9-16 verifies stale published port listeners after M4-09 implements forwarding.
 - **Deliver:** recovery logic and fault-injection tests.
 - **Accept when:**
   - Killing `marsad` at each supervisor state and restarting always reaches a correct state without manual steps.
   - A named volume written before the kill is intact afterwards.
+
+### M9-16 Recover published ports after a daemon crash
+
+- **Status:** todo
+- **Depends on:** M4-09, M9-06
+- **Docs:** [06 Published ports](../06-networking.md#published-ports), [04 Failure handling](../04-virtualization-macos.md#failure-handling)
+- **Do:** Verify recovery of published TCP and UDP listeners when the daemon is killed, including any helper that owns a listener.
+- **Deliver:** Production port recovery changes where needed and a crash-injection regression in the port-forwarding suite.
+- **Accept when:**
+  - The stale published listeners close after daemon death and a replacement can bind the same endpoints without manual cleanup.
+  - Recovery preserves the configured exposure policy and leaves an unrelated listener alone.
 
 ### M9-07 Diagnostics bundle actions
 
