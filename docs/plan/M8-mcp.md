@@ -22,15 +22,17 @@ Before starting, verify the current MCP specification version and the maintained
 
 ### M8-02 `AgentOps` service and approval queue
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M8-01, M4-02
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [10 Approval flow](../10-mcp-server.md#approval-flow)
-- **Do:** Implement the `AgentOps` service that executes engine operations for a named client through the policy engine, and the `Agents` service with the approval queue: enqueue with full detail, notify through events, approve or deny, timeout, and resume the waiting call.
-- **Deliver:** both services and integration tests using the fake backend and a fake engine.
+- **Do:** Implement read-only engine status on the daemon-issued restricted agent session. Implement owner registration and decisions over the separate trusted local socket. Queue immutable approval documents, publish updates and expire unanswered requests. Refuse container mutations before queuing.
+- **Deliver:** both services, owner-decision tests and fake runtime tests for scoped reads and unsupported writes.
 - **Accept when:**
-  - A call needing approval blocks until approved, denied or timed out, and returns a structured result in each case.
-  - Approving a request executes exactly the operation that was shown, not a re-read of mutable arguments.
-  - Bind mounts requested by an agent pass both the agent policy and the shared-folder allowlist.
+  - An internal immutable approval fixture waits for owner approval, denial or expiry. The queue resolves the same immutable request shown to the owner.
+  - An agent session cannot approve its own requests or impersonate another client or project.
+  - Even an exact-ID stop or a bind-capable mutation cannot reach a running Docker engine or create an approval.
+
+M8-10 owns bind preparation and active host share policy checks. Operate tools require a provider that binds a mutation to the same container identity the owner reviewed. Moby's stop endpoint performs a fresh ID-or-name lookup, so a preceding inspect cannot supply that guarantee.
 
 ### M8-03 Audit log
 
@@ -58,7 +60,7 @@ Before starting, verify the current MCP specification version and the maintained
 ### M8-05 Operate tools
 
 - **Status:** todo
-- **Depends on:** M8-04
+- **Depends on:** M8-04, M8-10
 - **Docs:** [10 Tools](../10-mcp-server.md#tools)
 - **Do:** Implement start, stop, restart, run, exec, pull and Compose up, down (without volumes) and restart, each passing through the approval flow per the tier rules, with the command or spec shown in the approval.
 - **Deliver:** tool implementations and tests.
@@ -109,3 +111,16 @@ Before starting, verify the current MCP specification version and the maintained
 - **Deliver:** `docs/user/agents.md` and its Arabic counterpart.
 - **Accept when:**
   - Following the guide on a clean machine connects a client and completes one read call and one approved operate call.
+
+
+### M8-10 Agent bind authorization and run preparation
+
+- **Status:** todo
+- **Depends on:** M8-02, M4-06
+- **Docs:** [10 Permission tiers](../10-mcp-server.md#permission-tiers), [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), D-012, D-013
+- **Do:** Validate typed container run mounts and privilege effects. Apply both agent policy and the current attached host share policy. Keep the normalized run request immutable across approval and revalidate share authorization before forwarding it to Docker.
+- **Deliver:** run preparation and integration tests for both permission boundaries.
+- **Accept when:**
+  - A bind requested through AgentOps passes both the agent policy and the active shared-folder allowlist before Docker receives it.
+  - Denied, unattached and revoked paths are refused even if the owner approved the agent operation.
+  - A signed packaged test observes a permitted host bind, and a fake engine test proves it received no request for a rejected bind.

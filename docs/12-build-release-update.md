@@ -102,12 +102,50 @@ into `Contents/Resources/bin/`. Feed the staging directory’s
 | Apple Developer Program membership | Needed for a Developer ID certificate |
 | Developer ID Application certificate | Signs every Mach-O binary in the bundle, inside-out |
 | Hardened runtime | Enabled on all binaries |
+| Secure timestamp | Required on every Developer ID signature |
 | Entitlements | `com.apple.security.virtualization` on the binary that creates the VM; `com.apple.security.hypervisor` if the `krun` backend is bundled |
 | Bundled upstream binaries | Re-signed with Marsa's identity as part of the bundle |
 | Notarization | Submit the DMG, wait, staple the ticket |
 | Gatekeeper check | CI verifies the stapled, signed result on a clean machine |
 
 M1-02 confirmed the `com.apple.security.virtualization` entitlement in ad hoc signed macOS builds. See the [boot and signing evidence](spikes/M1-02-vz-binding.md). **Verify** Developer ID signing and notarization for Virtualization.framework and Hypervisor.framework before M10.
+
+Run the pre-notarization verifier after signing. Use a private staging
+directory under the release job's exclusive control and exclude concurrent
+writers from verification through submission. Supply the trusted Team ID from
+release configuration.
+
+```sh
+cargo xtask verify-signature --team-id "$MARSA_TEAM_ID" target/release/Marsa.app
+```
+
+The verifier checks the app identifier and resource seal, then independently
+checks the documented native roles and every additional Mach-O, including
+code under `Contents/Resources`. It accepts thin arm64 code. It uses Apple's
+`codesign` with a strict requirement for Apple-issued Developer ID
+Application signatures from the supplied team. It checks the Hardened
+Runtime flag on each file and requires the virtualization entitlement on
+`marsad` alone for the VZ release. All other code has an empty entitlement
+dictionary. [Apple code requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements/)
+· [Apple's distribution signing guide](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac)
+· [Apple's Hardened Runtime flag](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/cs_blobs.h).
+
+When M10-01 places the MCP executable used by M8-07 in the final bundle,
+add that path as a required native role and cover it in the verifier's
+fixture. The Mach-O scan already checks an additional executable when
+present. The required role also makes a missing executable fail verification.
+
+A hardened ad-hoc fixture passed strict structural verification and failed
+the Developer ID requirement on macOS 27.2.1. M10-02 owns Developer ID signing,
+secure timestamp verification, notarization, stapling, Gatekeeper assessment,
+and clean-Mac installation and VM boot.
+[Apple's notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
+
+For notarization, M10-02 verifies the app inside the final pre-staple
+submission artifact, for example by mounting a DMG read-only. Record the
+SHA-256 of that verified artifact and check it immediately before submitting
+the exact same file from private staging. Stop the release if the digest
+changes. Assess the stapled artifact separately for distribution.
 
 The Mac App Store is not a distribution target: the sandbox it requires conflicts with running a VM daemon, a shared socket and bundled CLIs.
 

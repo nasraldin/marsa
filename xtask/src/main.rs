@@ -1,6 +1,7 @@
 //! Build and verification commands used by Marsa contributors.
 
 mod guest;
+mod release_signature;
 mod upstream;
 
 use std::env;
@@ -53,6 +54,11 @@ const COMMANDS: &[Subcommand] = &[
         action: Action::Deferred,
     },
     Subcommand {
+        name: "verify-signature",
+        description: "Verify Developer ID and Hardened Runtime before notarization",
+        action: Action::Deferred,
+    },
+    Subcommand {
         name: "package",
         description: "Build the installer and update archive (pending)",
         action: Action::Deferred,
@@ -77,6 +83,12 @@ fn main() -> ExitCode {
         .is_some_and(|argument| argument == "fetch-upstream")
     {
         return upstream::run(&arguments[1..]);
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "verify-signature")
+    {
+        return release_signature::run(&arguments[1..]);
     }
     match arguments.as_slice() {
         [] => print_help(),

@@ -48,6 +48,11 @@ returns `request_rejected` with exit status 1 and the daemon's explanation.
 The guest and gateway fields are IPv4 strings when observed. When the VM is
 stopped, the active mode and both addresses are `null`.
 
+`marsa share approvals --json` shows exact requested directories and expiry
+times. `marsa share resolve ID once|always|deny --json` reports whether the
+owner needs to restart the VM before retrying Docker. A request that cannot be
+resolved returns `bind_resolution_failed` with exit status 1.
+
 `marsa diagnose --json` reports the daemon's local archive path in
 `bundle_path`. A successful reset response reports `scope` as `settings`
 or `factory`. With an older daemon that lacks reset support, the CLI reports
