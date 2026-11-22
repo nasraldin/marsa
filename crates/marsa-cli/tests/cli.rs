@@ -64,9 +64,6 @@ fn destructive_commands_require_confirmation_on_a_pipe() {
     for (args, expected) in [
         (&["reset"][..], 3),
         (&["reset", "--factory"], 3),
-        (&["disk", "cleanup"], 3),
-        (&["disk", "cleanup", "--yes"], 1),
-        (&["disk", "cleanup", "--dry-run"], 1),
         (&["reset", "--factory", "--help"], 0),
     ] {
         let result = marsa(args);
@@ -249,10 +246,14 @@ fn disk_usage_does_not_report_success_when_the_daemon_cannot_be_reached() {
 #[test]
 fn unsupported_cleanup_reports_nonzero() {
     for arguments in [
-        &["disk", "cleanup", "--dry-run", "--json"][..],
+        &["disk", "cleanup", "--json"][..],
         &["disk", "cleanup", "--yes", "--json"],
     ] {
-        let result = marsa(arguments);
+        let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+            .args(arguments)
+            .env("HOME", "/")
+            .output()
+            .unwrap();
         assert_eq!(result.status.code(), Some(1));
         let body: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
         assert_eq!(body["code"], "not_available");
@@ -298,6 +299,25 @@ fn unavailable_message_preserves_localized_text_and_english_json() {
 fn disk_reclaim_reaches_the_authenticated_endpoint() {
     let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
         .args(["disk", "reclaim", "--json"])
+        .env("HOME", "/")
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(4));
+    let json: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(json["code"], "home_unavailable");
+}
+
+#[test]
+#[cfg(unix)]
+fn cleanup_preview_uses_the_authenticated_endpoint() {
+    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+        .args([
+            "disk",
+            "cleanup",
+            "--dry-run",
+            "--include-volumes",
+            "--json",
+        ])
         .env("HOME", "/")
         .output()
         .unwrap();

@@ -230,7 +230,7 @@ redirected stage member was refused and its target remained intact.
 ### M9-14 Coordinate automatic reclaim with confirmed cleanup
 
 - **Status:** todo
-- **Depends on:** M9-03, M5-08, M7-11
+- **Depends on:** M9-03, M5-12, M7-11
 - **Docs:** [07 Returning space to macOS](../07-file-sharing-and-storage.md#returning-space-to-macos), [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
 - **Do:** Reclaim after applying a confirmed cleanup plan and on a schedule when the VM is idle. Honor the setting and verify that automatic admission remains safe under concurrent disk activity. Wire the GUI cleanup flow and qualify any required offline compaction fallback for a backend without discard.
 - **Deliver:** automatic admission and cleanup integration, GUI reporting, and a Tier 2 image cleanup test.

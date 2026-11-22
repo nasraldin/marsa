@@ -926,3 +926,6 @@ async fn disk_reclaim_cannot_admit_while_an_existing_permit_owns_a_ready_vm() {
     );
     permit.stop().await.unwrap();
 }
+
+#[path = "typed_api/disk_preview.rs"]
+mod disk_preview;

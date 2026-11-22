@@ -171,15 +171,24 @@ is required only for backends that cannot pass discard through.
 
 ### Disk cleanup with a preview
 
-A version 1 feature. The GUI and CLI show what would be removed and how much space returns before anything is deleted.
+Run `marsa disk cleanup --dry-run` to list unused storage on a running guest.
+The command uses Docker Engine 29.10.0's [read-only disk inventory](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/server/router/system/system_routes.go#L140-L217).
+It lists individual stopped containers, unused images and reported unused
+build-cache records. Add `--include-volumes` to list unused local volumes.
+The typed API also accepts named volume selection. The preview reports guest
+size estimates. The total adds the displayed estimates and can differ from
+actual space recovered because resources share storage. Use `disk reclaim`
+for an observed change in macOS disk usage.
+A missing category or size is surfaced as unavailable in the preview.
 
-| Category | Source |
-|---|---|
-| Stopped containers | Engine API |
-| Unused images, dangling images | Engine API |
-| Unused volumes | Engine API; listed individually and never selected by default |
-| Build cache | BuildKit prune API |
-| Reclaimable disk space | Trim estimate from the agent |
+M5-12 owns confirmed apply. Docker 29.10.0 accepts mutable names in
+[container lookup](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/container.go#L37-L58)
+and [network lookup](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/server/router/network/network_routes.go#L363-L407).
+[Volume deletion](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/server/router/volume/volume_routes.go#L158-L181)
+addresses a name. [Containerd image deletion](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/containerd/image_delete.go#L415-L455)
+uses an image-store name without a target condition. [BuildKit cache pruning](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/vendor/github.com/moby/buildkit/cache/manager.go#L1357-L1368)
+can remove a companion record alongside a matching record. These operations
+lack the conditional deletion needed for a preview-bound apply.
 
 ### Resizing
 

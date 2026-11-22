@@ -386,12 +386,7 @@ impl Supervisor {
                 };
                 io::Error::new(kind, error)
             })?;
-            let (reply, result) = oneshot::channel();
-            self.commands
-                .send(actor::Command::ConnectDocker(reply))
-                .await
-                .map_err(|_| io::ErrorKind::NotConnected)?;
-            match result.await.map_err(|_| io::ErrorKind::NotConnected)? {
+            match self.connect_running_docker().await {
                 // An explicit restart or host pause can intervene after readiness.
                 // Join that transition without overriding a completed user Stop.
                 Err(error)
@@ -410,6 +405,15 @@ impl Supervisor {
             stream,
             _activity: activity,
         })
+    }
+
+    pub(crate) async fn connect_running_docker(&self) -> io::Result<marsa_vm::VsockStream> {
+        let (reply, result) = oneshot::channel();
+        self.commands
+            .send(actor::Command::ConnectDocker(reply))
+            .await
+            .map_err(|_| io::ErrorKind::NotConnected)?;
+        result.await.map_err(|_| io::ErrorKind::NotConnected)?
     }
 
     /// Stop the guest and cancel any retry or pending activation.

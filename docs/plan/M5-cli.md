@@ -89,17 +89,17 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
   - Every CLI message has both translations (build fails otherwise).
   - Arabic output with embedded container names and paths reads correctly in a terminal that supports bidirectional text, and remains unambiguous in one that does not.
 
-### M5-08 Preview and apply exact disk cleanup
+### M5-08 Preview unused guest storage
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M5-05, M4-02
 - **Docs:** [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
-- **Do:** Implement a non-mutating `Disk.PrunePreview` and an authenticated cleanup RPC that applies an explicitly confirmed plan. Return the individual resources, grouped by category, and size estimates before confirmation. Bind apply to the preview's exact resource identities with a single-use, expiring plan and reject stale or ineligible resources. Use exact resource operations rather than broad prune calls. Keep volumes out of the default selection and include only explicitly selected eligible volumes. Implement `marsa disk cleanup --dry-run` and the confirmed apply path. A non-interactive apply requires the identifier returned by preview and `--yes`. `marsa disk reclaim` is owned by M9-03.
-- **Deliver:** the preview and apply RPCs, the CLI flow, and tests with stale plans, concurrent changes, and volume selection.
+- **Do:** Implement owner-authenticated `Disk.PrunePreview` and `marsa disk cleanup --dry-run` using the ready engine's read-only disk usage endpoint. Report individual observed resources by category, known guest byte estimates and unavailable information. Exclude volumes by default and list only eligible local volumes on explicit selection. A preview never starts the VM.
+- **Deliver:** Read-only RPC and CLI preview with fixtures.
 - **Accept when:**
-  - The preview lists exactly what the run then removes.
-  - Volumes are removed only when named or explicitly included.
-  - Applying a changed, expired, or reused plan cannot remove a resource outside the confirmed plan.
+  - A running engine lists stopped containers, unused images and available unused cache rows with their observed estimates. Explicit volume selection lists only unused eligible volumes.
+  - A stopped engine remains stopped. Missing category records and unavailable sizes are visible in output.
+  - Only preview is available. The command rejects apply before contacting the daemon, even with `--yes`.
 
 ### M5-09 Review and answer bind approvals from the CLI
 
@@ -134,3 +134,19 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 - **Accept when:**
   - A stopped daemon reports the configured mode without an active mode or stale addresses.
   - A running user-space guest reports its active mode and IPv4 and gateway values.
+
+### M5-12 Apply an exactly confirmed cleanup plan
+
+- **Status:** blocked (Docker 29.10.0 lacks conditional exact-identity deletion)
+- **Depends on:** M5-08
+- **Docs:** [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
+- **Do:** Add authenticated apply after a supported engine interface can guarantee immutable identity and eligibility at deletion. Bind each apply to the exact resources selected by an expiring, single-use preview. Use exact operations without forcing or broad prune. Keep named volumes excluded by default and include only explicitly selected eligible volumes. A non-interactive apply requires the identifier returned by preview and `--yes`.
+- **Deliver:** Exact apply RPC and CLI confirmation, tested under concurrent resource replacement.
+- **Accept when:**
+  - The preview lists exactly what apply removes.
+  - Volumes are removed only when named or explicitly included.
+  - Applying a changed, expired or reused plan cannot remove a resource outside the confirmed plan.
+
+Resume when a supported engine API can reject a mutable name or stale target
+at deletion. The [pinned Docker source](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
+documents the current boundary.

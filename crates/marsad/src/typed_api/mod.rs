@@ -5,6 +5,7 @@ mod bind_policy;
 mod bind_prompts;
 mod diagnostics;
 mod disk;
+mod disk_preview;
 mod docker_discovery;
 mod engine;
 mod events;
