@@ -71,7 +71,7 @@ impl Command {
     }
 }
 
-fn connection_failure(error: ClientError) -> Failure {
+pub(super) fn connection_failure(error: ClientError) -> Failure {
     match error {
         ClientError::Home => Failure::Home,
         ClientError::Root => Failure::Root,
@@ -298,7 +298,7 @@ async fn lifecycle(
     })
 }
 
-fn request_id() -> Result<String, Failure> {
+pub(super) fn request_id() -> Result<String, Failure> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| Failure::Operation)?;
     bytes[6] = bytes[6] & 0x0f | 0x40;
