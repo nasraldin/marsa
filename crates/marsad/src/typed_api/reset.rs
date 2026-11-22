@@ -103,14 +103,17 @@ impl TypedApi {
                     })
                     .await
             }
-            Some(Action::PrepareFactory(_) | Action::ConfirmFactory(_)) => {
-                Err(Status::unimplemented("factory reset is not available"))
+            Some(Action::PrepareFactory(_)) => self.prepare_factory_reset(id).await,
+            Some(Action::ConfirmFactory(confirmation)) => {
+                self.confirm_factory_reset(&id, confirmation.confirmation_token)
+                    .await
             }
             None => Err(Status::invalid_argument("a reset action is required")),
         }
     }
 
     async fn prepare_settings_reset(&self, id: String) -> Result<ResetResponse, Status> {
+        let _admission = self.inner.factory_reset.read()?;
         let _edit = self.inner.edit.lock().await;
         let revision = self.inner.events.settings_snapshot().revision;
         let state = &self.inner.settings_reset.challenge;
