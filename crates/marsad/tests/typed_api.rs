@@ -551,6 +551,40 @@ async fn shares_validate_canonical_paths_and_share_settings_revisions() {
     );
 }
 
+#[tokio::test]
+async fn discovers_the_endpoint_without_registering_a_context() {
+    use marsa_proto::host::v1::{
+        GetDockerEndpointRequest, docker_discovery_client::DockerDiscoveryClient,
+        docker_discovery_server::DockerDiscovery,
+    };
+    let fixture = Fixture::new(Vec::new()).await;
+    let paths = MarsaPaths::from_home(fixture.home.path()).unwrap();
+    assert_eq!(
+        fixture
+            .api
+            .get_endpoint(tonic::Request::new(GetDockerEndpointRequest {}))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied
+    );
+    let endpoint = DockerDiscoveryClient::new(fixture.channel.clone())
+        .get_endpoint(GetDockerEndpointRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        endpoint.socket_path,
+        paths.docker_socket().to_str().unwrap()
+    );
+    assert_eq!(
+        endpoint.docker_host,
+        format!("unix://{}", endpoint.socket_path)
+    );
+    assert_eq!(endpoint.context_name, "marsa");
+    assert!(!fixture.home.path().join(".docker").exists());
+}
+
 struct Fixture {
     api: TypedApi,
     supervisor: Supervisor,
