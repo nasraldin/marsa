@@ -23,9 +23,9 @@ $ marsa reset --factory --json
 {"code":"confirmation_required","kind":"error","message":"This operation requires --yes when run non-interactively.","schema_version":1}
 ```
 
-JSON mode uses non-interactive confirmation rules. The regular `disk cleanup`
-command requires confirmation when run non-interactively. `disk cleanup
---dry-run` is a preview. When invoking shell completion with `--json`,
+JSON mode uses non-interactive confirmation rules. Use `disk cleanup --dry-run`
+for a read-only preview. An apply invocation exits with `not_available` (1),
+including when `--yes` is present. When invoking shell completion with `--json`,
 read the script from the response's `script` field.
 
 `marsa disk usage --json` reports the sparse image's allocated bytes and
@@ -67,3 +67,9 @@ or `factory`. With an older daemon that lacks reset support, the CLI reports
 `marsa disk reclaim --json` returns bytes the guest submitted for discard,
 the observed decrease in allocated host bytes, and the disk usage after
 the request. A stopped VM causes an operation error without booting it.
+
+`marsa disk cleanup --dry-run --json` lists observed guest resources in
+`candidates` and reports `apply_supported: false`. A `null` candidate size
+means the engine could not supply an estimate. The total is `null` if a size
+is unavailable or a requested category is absent from the engine inventory.
+The `unavailable_categories` list names these absent or incomplete categories.

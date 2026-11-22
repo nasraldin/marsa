@@ -91,7 +91,7 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 
 ### M5-08 Preview unused guest storage
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M5-05, M4-02
 - **Docs:** [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
 - **Do:** Implement owner-authenticated `Disk.PrunePreview` and `marsa disk cleanup --dry-run` using the ready engine's read-only disk usage endpoint. Report individual observed resources by category, known guest byte estimates and unavailable information. Exclude volumes by default and list only eligible local volumes on explicit selection. A preview never starts the VM.

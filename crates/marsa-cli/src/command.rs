@@ -253,13 +253,22 @@ static ROOT: Spec = command(
                 command(
                     "cleanup",
                     (
-                        "Remove unused container data",
-                        "احذف بيانات الحاويات غير المستخدمة",
+                        "Preview unused guest storage with --dry-run",
+                        "عاين مساحة الضيف غير المستخدمة باستخدام --dry-run",
                     ),
-                    &[flag(
-                        "dry-run",
-                        ("Preview the cleanup", "اعرض معاينة التنظيف"),
-                    )],
+                    &[
+                        flag(
+                            "dry-run",
+                            ("Show a read-only preview", "اعرض معاينة للقراءة فقط"),
+                        ),
+                        flag(
+                            "include-volumes",
+                            (
+                                "Include unused local volumes",
+                                "ضمّن وحدات التخزين المحلية غير المستخدمة",
+                            ),
+                        ),
+                    ],
                     &[],
                 ),
                 leaf(

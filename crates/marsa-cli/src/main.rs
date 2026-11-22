@@ -43,12 +43,19 @@ enum Failure {
     Operation,
     BindResolution,
     Reclaim,
+    CleanupApplyUnavailable,
+    CleanupPreview,
 }
 
 impl Failure {
     fn code(self) -> u8 {
         match self {
-            Self::Unavailable | Self::Operation | Self::BindResolution | Self::Reclaim => 1,
+            Self::Unavailable
+            | Self::Operation
+            | Self::BindResolution
+            | Self::Reclaim
+            | Self::CleanupApplyUnavailable
+            | Self::CleanupPreview => 1,
             Self::Usage => 2,
             Self::Confirmation => 3,
             #[cfg(unix)]
@@ -60,7 +67,7 @@ impl Failure {
 
     fn key(self) -> &'static str {
         match self {
-            Self::Unavailable => "not_available",
+            Self::Unavailable | Self::CleanupApplyUnavailable => "not_available",
             Self::Usage => "invalid_invocation",
             Self::Confirmation => "confirmation_required",
             #[cfg(unix)]
@@ -69,7 +76,7 @@ impl Failure {
             Self::Home => "home_unavailable",
             Self::Root => "unprivileged_user_required",
             Self::Incompatible => "incompatible_daemon",
-            Self::Operation | Self::Reclaim => "operation_failed",
+            Self::Operation | Self::Reclaim | Self::CleanupPreview => "operation_failed",
             Self::BindResolution => "bind_resolution_failed",
         }
     }
@@ -115,6 +122,14 @@ impl Failure {
             Self::BindResolution => language.text(
                 "Could not answer the bind request. Run marsa share approvals to check whether it is still pending.",
                 "تعذّر الرد على طلب الوصل. شغّل marsa share approvals للتحقق من أن الطلب ما زال معلّقًا.",
+            ),
+            Self::CleanupApplyUnavailable => language.text(
+                "Cleanup apply is unavailable. Run marsa disk cleanup --dry-run to preview.",
+                "تنفيذ التنظيف غير متاح. شغّل marsa disk cleanup --dry-run للمعاينة.",
+            ),
+            Self::CleanupPreview => language.text(
+                "Could not preview unused storage. Disk cleanup preview requires a running engine.",
+                "تعذّرت معاينة المساحة غير المستخدمة. تتطلب المعاينة محركًا قيد التشغيل.",
             ),
             Self::Reclaim => language.text(
                 "Could not reclaim disk space. Reclaim requires a running VM.",
@@ -187,11 +202,17 @@ async fn execute(
         return Outcome::Failure(Failure::Usage);
     };
     let yes = matches.get_flag("yes");
-    if destructive(name, args) && !interactive && !yes {
+    if name == "reset" && !interactive && !yes {
         return Outcome::Failure(Failure::Confirmation);
     }
     if name == "completion" {
         return completions(args);
+    }
+    if name == "disk"
+        && let Some(cleanup) = args.subcommand_matches("cleanup")
+        && !cleanup.get_flag("dry-run")
+    {
+        return Outcome::Failure(Failure::CleanupApplyUnavailable);
     }
     #[cfg(unix)]
     if name == "network" {
@@ -223,9 +244,10 @@ async fn execute(
     }
     #[cfg(unix)]
     if name == "disk" {
-        let result = match args.subcommand_name() {
-            Some("usage") => disk::usage(language).await,
-            Some("reclaim") => disk::reclaim(language).await,
+        let result = match args.subcommand() {
+            Some(("usage", _)) => disk::usage(language).await,
+            Some(("reclaim", _)) => disk::reclaim(language).await,
+            Some(("cleanup", cleanup)) => disk::preview_cleanup(cleanup, language).await,
             _ => Err(Failure::Unavailable),
         };
         return result.unwrap_or_else(Outcome::Failure);
@@ -239,14 +261,6 @@ async fn execute(
         return outcome;
     }
     Outcome::Failure(Failure::Unavailable)
-}
-
-fn destructive(name: &str, args: &ArgMatches) -> bool {
-    name == "reset"
-        || name == "disk"
-            && args
-                .subcommand_matches("cleanup")
-                .is_some_and(|cleanup| !cleanup.get_flag("dry-run"))
 }
 
 fn completions(args: &ArgMatches) -> Outcome {

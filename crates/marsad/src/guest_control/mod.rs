@@ -24,6 +24,7 @@ use tokio::{
 use crate::supervisor::{GuestProbe, GuestSession};
 
 mod bind_authorization;
+pub(crate) mod docker_http;
 mod observations;
 mod session;
 mod wire;

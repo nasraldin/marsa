@@ -2,9 +2,13 @@
 
 use std::fmt::Write as _;
 
+use clap::ArgMatches;
 use marsa_client::{
     ClientError, DaemonEndpoint, MarsaClient,
-    api::{DiskCategory, DiskReclaimRequest, DiskUsageRequest, DiskUsageResponse},
+    api::{
+        DiskCategory, DiskReclaimRequest, DiskUsageRequest, DiskUsageResponse, PrunePreviewRequest,
+        PrunePreviewResponse,
+    },
 };
 use serde_json::{Value, json};
 
@@ -55,6 +59,94 @@ pub(super) async fn reclaim(language: Language) -> Result<Outcome, Failure> {
             "usage": usage,
         }),
     })
+}
+
+pub(super) async fn preview_cleanup(
+    args: &ArgMatches,
+    language: Language,
+) -> Result<Outcome, Failure> {
+    let categories = if args.get_flag("include-volumes") {
+        [
+            DiskCategory::Containers,
+            DiskCategory::Images,
+            DiskCategory::Volumes,
+            DiskCategory::BuildCache,
+        ]
+        .into_iter()
+        .map(|category| category as i32)
+        .collect()
+    } else {
+        Vec::new()
+    };
+    let preview = connect()
+        .await?
+        .disk()
+        .prune_preview(PrunePreviewRequest {
+            categories,
+            volume_names: Vec::new(),
+        })
+        .await
+        .map_err(|_| Failure::CleanupPreview)?
+        .into_inner();
+    Ok(cleanup_report(&preview, language))
+}
+
+fn cleanup_report(preview: &PrunePreviewResponse, language: Language) -> Outcome {
+    let heading = language.text("Read-only cleanup preview", "معاينة التنظيف للقراءة فقط");
+    let unavailable = language.text("estimate unavailable", "التقدير غير متاح");
+    let bytes = language.text("bytes", "بايت");
+    let mut text = format!("{heading}\n");
+    let mut last = None;
+    let mut candidates = Vec::with_capacity(preview.candidates.len());
+    for row in &preview.candidates {
+        let category = row.category();
+        if last != Some(category) {
+            let _ = writeln!(text, "{}", category_name(category, language));
+            last = Some(category);
+        }
+        let name = if row.name == row.id {
+            row.id.clone()
+        } else {
+            format!("{} ({})", row.name, row.id)
+        };
+        let estimate = row
+            .size_bytes
+            .map_or_else(|| unavailable.to_owned(), |size| format!("{size} {bytes}"));
+        let _ = writeln!(text, "  {name}  {estimate}");
+        candidates.push(json!({
+            "category": category_key(category),
+            "id": row.id,
+            "name": row.name,
+            "size_bytes": row.size_bytes,
+        }));
+    }
+    let categories: Vec<_> = preview
+        .unavailable_categories
+        .iter()
+        .filter_map(|value| DiskCategory::try_from(*value).ok())
+        .map(|category| {
+            let label = category_name(category, language);
+            let missing = language.text("inventory unavailable", "قائمة الموارد غير متاحة");
+            let _ = writeln!(text, "{label}  {missing}");
+            category_key(category)
+        })
+        .collect();
+    let total = language.text("Estimated guest bytes", "إجمالي البايتات المقدّر في الضيف");
+    let estimate = preview
+        .estimated_reclaimable_bytes
+        .map_or_else(|| unavailable.to_owned(), |size| size.to_string());
+    let _ = writeln!(text, "{total}  {estimate}");
+    Outcome::Data {
+        text,
+        document: json!({
+            "schema_version": 1,
+            "kind": "disk_cleanup_preview",
+            "apply_supported": false,
+            "candidates": candidates,
+            "unavailable_categories": categories,
+            "estimated_reclaimable_bytes": preview.estimated_reclaimable_bytes,
+        }),
+    }
 }
 
 async fn connect() -> Result<MarsaClient, Failure> {
@@ -123,9 +215,13 @@ fn report(usage: &DiskUsageResponse, language: Language) -> (Value, String) {
             let label = category_name(category, language);
             let used = language.text("used bytes", "بايت مستخدم");
             let reclaimable = language.text("reclaimable bytes", "بايت قابل للاسترداد");
-            let _ = writeln!(text, "{label} {} {used}, {} {reclaimable}", item.used_bytes, item.reclaimable_bytes);
+            let _ = writeln!(
+                text,
+                "{label} {} {used}, {} {reclaimable}",
+                item.used_bytes, item.reclaimable_bytes
+            );
             json!({
-                "category": category.as_str_name().trim_start_matches("DISK_CATEGORY_").to_ascii_lowercase(),
+                "category": category_key(category),
                 "used_bytes": item.used_bytes,
                 "reclaimable_bytes": item.reclaimable_bytes,
             })
@@ -146,6 +242,13 @@ fn report(usage: &DiskUsageResponse, language: Language) -> (Value, String) {
     )
 }
 
+fn category_key(category: DiskCategory) -> String {
+    category
+        .as_str_name()
+        .trim_start_matches("DISK_CATEGORY_")
+        .to_ascii_lowercase()
+}
+
 fn category_name(category: DiskCategory, language: Language) -> &'static str {
     match category {
         DiskCategory::Containers => language.text("Containers", "الحاويات"),
@@ -160,7 +263,31 @@ fn category_name(category: DiskCategory, language: Language) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use marsa_client::api::DiskCategoryUsage;
+    use marsa_client::api::{DiskCategoryUsage, PruneCandidate};
+
+    #[test]
+    fn cleanup_json_preserves_unknown_estimates_without_offering_apply() {
+        let preview = PrunePreviewResponse {
+            candidates: vec![PruneCandidate {
+                category: DiskCategory::Containers as i32,
+                id: "a".repeat(64),
+                name: "stopped".to_owned(),
+                size_bytes: None,
+            }],
+            estimated_reclaimable_bytes: None,
+            unavailable_categories: vec![DiskCategory::BuildCache as i32],
+        };
+        let Outcome::Data { document, text } = cleanup_report(&preview, Language::English) else {
+            panic!("expected a read-only result");
+        };
+        assert_eq!(document["kind"], "disk_cleanup_preview");
+        assert_eq!(document["apply_supported"], false);
+        assert!(document["estimated_reclaimable_bytes"].is_null());
+        assert!(document["candidates"][0]["size_bytes"].is_null());
+        assert_eq!(document["unavailable_categories"], json!(["build_cache"]));
+        assert!(text.contains("Read-only cleanup preview"));
+        assert!(text.contains("Build cache  inventory unavailable"));
+    }
 
     #[test]
     fn reports_sparse_allocation_and_leaves_missing_guest_usage_null() {

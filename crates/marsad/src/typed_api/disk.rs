@@ -66,8 +66,9 @@ impl Disk for TypedApi {
         &self,
         request: Request<PrunePreviewRequest>,
     ) -> Result<Response<PrunePreviewResponse>, Status> {
-        self.authorize(request)?;
-        Err(Status::unimplemented("prune preview is unavailable"))
+        let request = self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
+        self.preview_disk_cleanup(request).await.map(Response::new)
     }
 }
 
