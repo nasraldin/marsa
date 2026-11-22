@@ -265,3 +265,31 @@ async fn a_reserved_lifecycle_does_not_run_a_previously_scheduled_retry() {
     supervisor.ensure_ready().await.unwrap();
     assert_eq!(created.load(Ordering::Relaxed), 2);
 }
+
+#[tokio::test(start_paused = true)]
+async fn releasing_a_ready_uncommitted_candidate_stops_it_before_admission() {
+    let (supervisor, created) = create(config(), "/fixture/console.log".into(), ready(), None);
+    let permit = supervisor.reserve(None).await.unwrap();
+    permit.start_candidate().await.unwrap();
+    assert_eq!(supervisor.snapshot().state, State::Ready);
+    drop(permit);
+    let mut snapshots = supervisor.snapshots();
+    snapshots
+        .wait_for(|snapshot| snapshot.state == State::Stopped)
+        .await
+        .unwrap();
+    supervisor.ensure_ready().await.unwrap();
+    assert_eq!(created.load(Ordering::Relaxed), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn releasing_a_committed_candidate_keeps_the_same_vm() {
+    let (supervisor, created) = create(config(), "/fixture/console.log".into(), ready(), None);
+    let permit = supervisor.reserve(None).await.unwrap();
+    permit.start_candidate().await.unwrap();
+    permit.keep_candidate().await.unwrap();
+    drop(permit);
+    supervisor.ensure_ready().await.unwrap();
+    assert_eq!(supervisor.snapshot().state, State::Ready);
+    assert_eq!(created.load(Ordering::Relaxed), 1);
+}
