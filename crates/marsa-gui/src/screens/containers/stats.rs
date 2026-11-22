@@ -205,8 +205,7 @@ pub(super) fn render(
             .gap_3()
             .child(metric(
                 screen,
-                "CPU",
-                "المعالج",
+                ("CPU", "المعالج"),
                 cx,
                 ColorToken::ChartCpu,
                 samples,
@@ -215,8 +214,7 @@ pub(super) fn render(
             ))
             .child(metric(
                 screen,
-                "Memory",
-                "الذاكرة",
+                ("Memory", "الذاكرة"),
                 cx,
                 ColorToken::ChartMemory,
                 samples,
@@ -229,8 +227,7 @@ pub(super) fn render(
             .gap_3()
             .child(metric(
                 screen,
-                "Network I/O",
-                "نقل البيانات عبر الشبكة",
+                ("Network I/O", "نقل البيانات عبر الشبكة"),
                 cx,
                 ColorToken::ChartNetwork,
                 samples,
@@ -239,8 +236,7 @@ pub(super) fn render(
             ))
             .child(metric(
                 screen,
-                "Disk I/O",
-                "قراءة القرص وكتابته",
+                ("Disk I/O", "قراءة القرص وكتابته"),
                 cx,
                 ColorToken::ChartDisk,
                 samples,
@@ -253,8 +249,7 @@ pub(super) fn render(
 
 fn metric(
     screen: &ScreenContext<'_>,
-    en: &'static str,
-    ar: &'static str,
+    title: (&'static str, &'static str),
     cx: &App,
     token: ColorToken,
     data: &VecDeque<Measurement>,
@@ -291,7 +286,7 @@ fn metric(
             }
         }
     }
-    card(screen, en, ar)
+    card(screen, title.0, title.1)
         .text_start(cx)
         .child(
             div()

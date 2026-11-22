@@ -49,7 +49,7 @@ enum TableRow {
         project: Option<String>,
         count: usize,
     },
-    Container(ContainerSummary),
+    Container(Box<ContainerSummary>),
 }
 
 pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> AnyElement {
@@ -419,7 +419,7 @@ fn collect_rows(
             let project = project.map(str::to_owned);
             let grouped = matches!(view.mode, ViewMode::Table | ViewMode::Tree);
             let collapsed = grouped && view.collapsed.contains(&project);
-            let heading = grouped.then(|| TableRow::Group {
+            let heading = grouped.then_some(TableRow::Group {
                 project,
                 count: items.len(),
             });
@@ -428,7 +428,7 @@ fn collect_rows(
                 .into_iter()
                 .flatten()
                 .cloned()
-                .map(TableRow::Container);
+                .map(|item| TableRow::Container(Box::new(item)));
             heading.into_iter().chain(entries)
         })
         .collect()

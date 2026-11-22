@@ -171,7 +171,7 @@ fn step_rail(setup: &Setup, palette: Palette) -> Div {
                             ColorToken::TextMuted
                         },
                     ))
-                    .children(done.then(|| IconName::Check))
+                    .children(done.then_some(IconName::Check))
                     .children((!done).then(|| (index + 1).to_string()));
                 let element = row(locale)
                     .gap_3()
@@ -224,7 +224,7 @@ fn language_options(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> D
                                         .child(direction.text(choice)),
                                 ),
                         )
-                        .children(selected.then(|| IconName::Check)),
+                        .children(selected.then_some(IconName::Check)),
                 )
                 .on_click(cx.listener(move |desktop, _, _, cx| desktop.setup_locale(choice, cx)))
         }),
@@ -260,7 +260,7 @@ fn theme_options(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> Div 
                                 .justify_between()
                                 .gap_2()
                                 .child(name.text(locale))
-                                .children(selected.then(|| IconName::Check)),
+                                .children(selected.then_some(IconName::Check)),
                         ),
                 )
                 .on_click(

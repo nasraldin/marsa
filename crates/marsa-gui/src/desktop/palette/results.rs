@@ -229,36 +229,45 @@ fn append_resources(desktop: &Desktop, value: &str, entries: &mut Vec<Entry>) {
                 Destination::Resource(ResourceKind::Images, key),
             ))
         }))
-        .chain(volumes.values().filter_map(|volume| {
-            contains(&volume.name, value).then(|| {
-                resource(
-                    &volume.name,
-                    Route::Volumes,
-                    locale,
-                    Destination::Resource(ResourceKind::Volumes, volume.name.clone()),
-                )
-            })
-        }))
-        .chain(networks.values().filter_map(|network| {
-            (contains(&network.name, value) || contains(&network.id, value)).then(|| {
-                resource(
-                    &network.name,
-                    Route::Networks,
-                    locale,
-                    Destination::Resource(ResourceKind::Networks, network.id.clone()),
-                )
-            })
-        }))
-        .chain(projects.values().filter_map(|project| {
-            contains(&project.name, value).then(|| {
-                resource(
-                    &project.name,
-                    Route::Compose,
-                    locale,
-                    Destination::Resource(ResourceKind::Compose, project.name.clone()),
-                )
-            })
-        }));
+        .chain(
+            volumes
+                .values()
+                .filter(|volume| contains(&volume.name, value))
+                .map(|volume| {
+                    resource(
+                        &volume.name,
+                        Route::Volumes,
+                        locale,
+                        Destination::Resource(ResourceKind::Volumes, volume.name.clone()),
+                    )
+                }),
+        )
+        .chain(
+            networks
+                .values()
+                .filter(|network| contains(&network.name, value) || contains(&network.id, value))
+                .map(|network| {
+                    resource(
+                        &network.name,
+                        Route::Networks,
+                        locale,
+                        Destination::Resource(ResourceKind::Networks, network.id.clone()),
+                    )
+                }),
+        )
+        .chain(
+            projects
+                .values()
+                .filter(|project| contains(&project.name, value))
+                .map(|project| {
+                    resource(
+                        &project.name,
+                        Route::Compose,
+                        locale,
+                        Destination::Resource(ResourceKind::Compose, project.name.clone()),
+                    )
+                }),
+        );
 
     entries.extend(exact_matches.take(RESULT_LIMIT.saturating_sub(entries.len())));
 }

@@ -596,12 +596,10 @@ fn cleanup_contents(
         )
 }
 
-fn sum_estimates<'a>(items: impl Iterator<Item = &'a PruneCandidate>) -> Option<u64> {
-    items
-        .map(|candidate| candidate.size_bytes)
-        .fold(Some(0_u64), |total, estimate| {
-            total.zip(estimate).and_then(|(a, b)| a.checked_add(b))
-        })
+fn sum_estimates<'a>(mut items: impl Iterator<Item = &'a PruneCandidate>) -> Option<u64> {
+    items.try_fold(0_u64, |total, candidate| {
+        total.checked_add(candidate.size_bytes?)
+    })
 }
 
 fn cleanup_summary(locale: Locale, palette: Palette, count: usize, estimate: Option<u64>) -> Div {

@@ -602,10 +602,10 @@ fn split_reference(reference: Option<&str>) -> (Option<&str>, Option<&str>) {
     if let Some((repository, digest)) = reference.rsplit_once('@') {
         return (Some(repository), Some(digest));
     }
-    if let Some((repository, tag)) = reference.rsplit_once(':') {
-        if !tag.contains('/') {
-            return (Some(repository), Some(tag));
-        }
+    if let Some((repository, tag)) = reference.rsplit_once(':')
+        && !tag.contains('/')
+    {
+        return (Some(repository), Some(tag));
     }
     (Some(reference), None)
 }

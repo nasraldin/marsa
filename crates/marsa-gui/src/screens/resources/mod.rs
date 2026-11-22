@@ -448,7 +448,7 @@ fn text(
     };
     let value = value.into();
     let value = if matches!(role, Role::Mono | Role::MonoSmall) {
-        technical(value.as_ref()).into()
+        technical(value.as_ref())
     } else {
         value
     };
