@@ -5,6 +5,7 @@ mod disk;
 mod docker_discovery;
 mod engine;
 mod events;
+mod factory_reset;
 mod meta;
 mod network;
 mod proxy_activation;
@@ -39,6 +40,7 @@ use tonic::{
 };
 
 use crate::{
+    agent_policy::GrantStore,
     guest_control::{GuestControl, GuestEvent},
     supervisor::{
         DockerStream, GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection,
@@ -72,6 +74,8 @@ struct Shared {
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
     settings_reset: reset::SettingsReset,
+    factory_reset: factory_reset::FactoryReset,
+    grants: GrantStore,
     share_policy: SharePolicy,
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
@@ -94,6 +98,7 @@ impl TypedApi {
         let (closing, _) = watch::channel(false);
         Ok(Self {
             inner: Arc::new(Shared {
+                grants: GrantStore::new(paths.clone(), uid),
                 paths,
                 uid,
                 events: events::Bus::new(settings)?,
@@ -103,6 +108,7 @@ impl TypedApi {
                 settings_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
                 settings_reset: reset::SettingsReset::new(),
+                factory_reset: factory_reset::FactoryReset::new(),
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
@@ -259,6 +265,7 @@ impl TypedApi {
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 stop.await;
                 self.inner.closing.send_replace(true);
+                let _factory = self.inner.factory_reset.close().await;
                 if let Some(supervisor) = &self.supervisor
                     && let Err(error) = supervisor.stop().await
                 {
@@ -270,6 +277,10 @@ impl TypedApi {
 
     /// Activate the guest on demand and open a Docker engine stream.
     pub async fn connect_docker(&self) -> io::Result<DockerStream> {
+        self.inner
+            .factory_reset
+            .read()
+            .map_err(|_| io::ErrorKind::WouldBlock)?;
         let supervisor = self
             .supervisor
             .as_ref()
