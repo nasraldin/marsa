@@ -18,7 +18,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut guest = prost_build::Config::new();
     guest.protoc_executable(&protoc);
-    guest.compile_protos(&["proto/marsa/guest/v1/control.proto"], &["proto"])?;
+    guest.compile_protos(
+        &[
+            "proto/marsa/guest/v1/control.proto",
+            "proto/marsa/guest/v1/bind_authorization.proto",
+        ],
+        &["proto"],
+    )?;
 
     #[cfg(feature = "host-api")]
     generate_host(&protoc)?;

@@ -1,11 +1,15 @@
 //! Serve typed host APIs from one state and a composable VM supervisor.
 
 mod agents;
+mod bind_policy;
+mod bind_prompts;
 mod diagnostics;
 mod disk;
+mod docker_discovery;
 mod engine;
 mod events;
 mod meta;
+mod network;
 mod requests;
 mod settings;
 mod shares;
@@ -18,12 +22,13 @@ use marsa_core::{
     settings::{NetworkMode, Settings},
 };
 use marsa_proto::host::v1::{
-    CollectDiagnosticsResponse, agent_ops_server::AgentOpsServer, agents_server::AgentsServer,
-    diagnostics_server::DiagnosticsServer, disk_server::DiskServer, engine_server::EngineServer,
-    events_server::EventsServer, meta_server::MetaServer, settings_server::SettingsServer,
-    shares_server::SharesServer, stats_server::StatsServer,
+    CollectDiagnosticsResponse, EnsureDockerContextResponse, agent_ops_server::AgentOpsServer,
+    agents_server::AgentsServer, diagnostics_server::DiagnosticsServer, disk_server::DiskServer,
+    docker_discovery_server::DockerDiscoveryServer, engine_server::EngineServer,
+    events_server::EventsServer, meta_server::MetaServer, network_server::NetworkServer,
+    settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
 };
-use marsa_share::SharePolicy;
+use marsa_share::{Allowlist, SharePolicy};
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
 use nix::unistd::{Uid, User};
 use tokio::{net::UnixListener, sync::watch};
@@ -49,6 +54,7 @@ pub struct TypedApi {
     inner: Arc<Shared>,
     supervisor: Option<Supervisor>,
     capabilities: Option<Capabilities>,
+    docker_contexts: Option<Arc<docker_discovery::Registration>>,
 }
 
 struct Shared {
@@ -63,6 +69,9 @@ struct Shared {
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
     remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
+    bind_resolutions: requests::Cache<(String, i32), marsa_proto::host::v1::ResolveBindResponse>,
+    bind_edit: tokio::sync::Mutex<()>,
+    docker_context_requests: requests::Cache<(), EnsureDockerContextResponse>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
 }
@@ -89,11 +98,15 @@ impl TypedApi {
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
+                bind_resolutions: requests::Cache::new(),
+                bind_edit: tokio::sync::Mutex::new(()),
+                docker_context_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
                 closing,
             }),
             supervisor: None,
             capabilities: None,
+            docker_contexts: None,
         })
     }
 
@@ -135,30 +148,53 @@ impl TypedApi {
         capabilities: Capabilities,
         control: GuestControl,
         config: SupervisorConfig,
-        prepare: impl Fn(&Settings) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> + Send + Sync + 'static,
+        prepare: impl Fn(&Settings, &SharePolicy) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         let events = self.inner.events.clone();
         events.backend(capabilities.name);
         self.capabilities = Some(capabilities);
         let settings = events.clone();
+        let share_policy = self.inner.share_policy.clone();
         let preparation = Arc::new(move || {
-            let (desired, _) = settings.settings();
-            let (backend, mut spec) = prepare(&desired)?;
+            let (desired, once) = settings.boot_configuration();
+            let mut startup = desired.clone();
+            startup.shares.extend(once.iter().cloned());
+            let (backend, mut spec) = prepare(&startup, &share_policy)?;
+            let mounted = Arc::new(
+                Allowlist::from_paths(
+                    share_policy.clone(),
+                    spec.shares.iter().map(|share| &share.host_path),
+                )
+                .map_err(io::Error::other)?,
+            );
             let automatic = select_network(&desired, &mut spec, backend.capabilities());
             let bus = settings.clone();
             Ok(Launch {
                 backend,
                 spec,
                 selection: Selection::new(automatic),
-                applied: Some(Arc::new(move || bus.runtime_applied(&desired))),
+                applied: Some(Arc::new(move || {
+                    bus.runtime_applied(&desired);
+                    bus.activate_binds(mounted.clone(), &once);
+                })),
             })
         });
         let observations = self.inner.events.clone();
-        let control = Arc::new(control.observe_active(move |event| match event {
-            GuestEvent::Health(health) => engine::publish_health(&observations, health),
-            GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
-            GuestEvent::Port(_) => (),
-        }));
+        let control = Arc::new(
+            control
+                .observe_active(move |event| match event {
+                    GuestEvent::Health(health) => engine::publish_health(&observations, health),
+                    GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
+                    GuestEvent::Port(_) => (),
+                })
+                .authorize_binds(bind_policy::Policy::new(
+                    self.inner.events.clone(),
+                    self.inner.share_policy.clone(),
+                )),
+        );
         let supervisor = Supervisor::spawn_packaged(
             preparation,
             self.inner.paths.console_log(),
@@ -205,8 +241,14 @@ impl TypedApi {
                     .max_decoding_message_size(CONTROL_LIMIT * 2)
                     .max_encoding_message_size(CONFIG_LIMIT),
             )
+            .add_service(
+                DockerDiscoveryServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT)
+                    .max_encoding_message_size(CONTROL_LIMIT),
+            )
             .add_service(EventsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(StatsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
+            .add_service(NetworkServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 stop.await;
                 self.inner.closing.send_replace(true);

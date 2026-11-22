@@ -43,6 +43,10 @@ that cursor in order. Sequence numbers are scoped to the stream ID of the
 daemon process. If a subscriber falls behind the bounded buffer, the daemon
 ends the stream with `RESOURCE_EXHAUSTED`. Clients replace their view with the
 new snapshot on reconnect.
+Host minor 2 introduces `DockerDiscovery.GetEndpoint` and
+`DockerDiscovery.EnsureContext`. Registration is explicit, and the request has
+no shell command, executable path, or context selection fields.
+
 The API design and service table live in the daemon design.
 [Host typed API](../../docs/03-host-daemon.md#typed-api)
 
@@ -73,6 +77,13 @@ length. Read that header and call `frame_length` before reserving a buffer or
 reading the body. Read exactly that many bytes, then call `decode_host` or
 `decode_guest` for the expected direction. The global payload limit is 1 MiB.
 The separate Docker API bridge uses the Docker byte stream directly.
+
+The guest bind-authorization channel uses a separate host-initiated vsock
+stream on port 5003. Each length-prefixed protobuf payload is at most 64 KiB.
+Queries carry only the explicit absolute bind sources and a request ID.
+Version 1.0 requires matching sequential IDs and a valid allow or deny response.
+The guest denies these binds if the policy channel cannot answer. Boot-mounted
+virtiofs roots remain the host isolation boundary.
 
 1. After connecting, the guest sends `Hello` with request ID zero. The image
    version, component versions and boot timings describe the running image.
@@ -153,3 +164,26 @@ record before retaining the facts, and abandons a connection that does
 not respond within its deadline. The guest reads the configured upstream
 interface and its default route from the kernel. The record describes
 guest state and is independent of the guest control session.
+
+
+## Bind authorization
+
+The host initiates a dedicated AF_VSOCK connection to guest port 5003.
+Only the host CID can enter the listener. The guest sends
+`BindAuthorizationRequest` and the host replies with
+`BindAuthorizationResponse`. Each protobuf payload has a four-byte
+big-endian length prefix, with a limit of 64 KiB. This channel declares
+protocol 1.0 in each frame independently of the guest control session.
+
+One request is outstanding at a time. The guest starts request IDs at one
+after each connection and increments by one for each query. A response must
+echo the outstanding ID. Unexpected IDs, versions, incomplete frames or a
+deadline close the stream and provide no authorization.
+
+Queries carry only one to 64 absolute UTF-8 bind source strings of at most
+4096 bytes each. A request supplies candidate paths, not approvals or an
+attachment inventory. The host validates every source against the grants
+and attachments for that VM. A denial carries an actionable message of at
+most 1024 bytes. An allow has an empty message. Source and message strings
+exclude control characters. Neither the Docker body nor any headers cross
+this channel.

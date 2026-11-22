@@ -184,6 +184,7 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 | `Engine` | `Status`, `Start`, `Stop`, `Restart`, `Reset` (factory reset with confirmation token) |
 | `Settings` | `Get`, `Update`, `Watch` |
 | `Shares` | `List`, `Add`, `Remove` |
+| `DockerDiscovery` | `GetEndpoint` and explicit `EnsureContext` |
 | `Network` | `Status`, `SetMode`, `ListForwardedPorts` |
 | `Events` | `Subscribe` (server stream of all daemon events) |
 | `Stats` | `VmStats` (server stream: CPU, memory, disk) |
@@ -193,6 +194,8 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 | `Agents` | `OpenSession`, `ListPendingApprovals`, `Approve`, `Deny`, `ListGrants`, `RevokeGrant` (see [10 MCP](10-mcp-server.md)) |
 | `AgentOps` | Engine operations performed on behalf of MCP clients. Every call names the client, passes through the policy engine and is written to the audit log. `marsad` executes the operation against dockerd itself; the MCP server never touches the Docker socket |
 | `Meta` | `Version`, `Capabilities` |
+
+`Network.Status` returns the current configured mode and, for an active guest, the actual attachment and any boot-time connectivity reason. Guest and gateway addresses come from the backend's latest observation. Callers can use `MarsaClient::network()` to query this status. The status call does not start the engine.
 
 API rules:
 

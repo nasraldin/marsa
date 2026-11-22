@@ -29,6 +29,14 @@ impl Actor {
                 self.connect_docker(reply).await;
                 return;
             }
+            Command::Network(reply) => {
+                let active = self
+                    .guest
+                    .as_ref()
+                    .map(|guest| (guest.network, guest.vm.network_info()));
+                let _ = reply.send(active);
+                return;
+            }
             Command::Stop(reply) => (reply, self.stop().await),
             Command::Restart(reply) => {
                 if let Err(error) = self.stop().await {

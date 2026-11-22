@@ -233,7 +233,6 @@ flowchart TD
     net --> core
     share --> core
     dproxy --> core
-    dproxy --> share
     d --> vm
     d --> vz
     d --> krun

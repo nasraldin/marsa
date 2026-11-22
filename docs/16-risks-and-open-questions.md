@@ -36,13 +36,12 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
 | V-04 | How much guest memory does the balloon actually return to macOS? | [04](04-virtualization-macos.md) | M9-04 |
-| V-06 | Verify the change relay and permission mapping in real containers. The VZ spike found missing host-origin events and a non-root write denial. | [07](07-file-sharing-and-storage.md), [M1-04](spikes/M1-04-virtiofs.md) | M4-06 |
+| V-06 | Complete development-server qualification. The production guest verifies Mac ownership from UID/GID 12345 and scoped Compose Watch produces native Linux notifications. The direct virtiofs mount received new bytes without host-origin inotify. | [07](07-file-sharing-and-storage.md#correctness-requirements), [M1-04](spikes/M1-04-virtiofs.md) | M4-19 |
 | V-07 | NAT attachment requirements; user-space attachment class | [06](06-networking.md) | M4-08, M4-10 |
 | V-08 | Binding privileged ports without root on current macOS | [06](06-networking.md) | M4-09 |
 | V-09 | libkrun: current release, API, kernel requirements (own kernel or libkrunfw) | [04](04-virtualization-macos.md) | M11-02 |
 | V-10 | gpui-component's i18n and whether Fluent can coexist with it | [08](08-gui.md) | M6-04 |
 | V-11 | State of GPUI accessibility on macOS | [08](08-gui.md) | M6-08 |
-| V-12 | Which tools ignore Docker contexts | [09](09-cli-and-docker-compat.md) | M4-04 |
 | V-16 | Licences of the fonts to bundle | [08](08-gui.md) | M6-02 |
 
 ### Verified findings
@@ -53,6 +52,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | V-03 | All planned VZ device and lifecycle classes are available by macOS 12. The full configuration booted on macOS 27.2.1 with a 27.0 deployment target and the virtualization entitlement. | [Availability and boot results](spikes/M1-02-vz-binding.md#verified-class-availability) |
 | V-05 | `fstrim` returned approximately 4 GiB of sparse RAW allocation to APFS in each VZ cache mode on macOS 27.2.1. M9-03 verifies the product cleanup path. | [Allocated byte measurements](spikes/M1-03-disk-reclaim.md#measured-allocated-bytes) |
 | V-09 | Libkrun 1.19.8 booted the stock Marsa kernel and image on macOS 27.2.1. Its documented virtiofs isolation is insufficient without a separate host boundary. | [M11-02](spikes/M11-02-libkrun.md) |
+| V-12 | Docker CLI, Buildx, Dev Containers and current Testcontainers for Python support contexts. The verified Java, Node.js and Go Testcontainers discovery paths take an explicit Docker host. JetBrains supports a custom Unix endpoint. | [Client discovery](09-cli-and-docker-compat.md#client-discovery) |
 | V-14 | macOS 13 introduced `SMAppService` for bundle-relative per-user LaunchAgents. A 27.0-targeted daemon registered, restarted after SIGKILL and unregistered on macOS 27.2.1. | [Process supervision and signed smoke test](03-host-daemon.md#process-supervision) |
 | V-15 | Docker Engine 29.10.0 build `06db173` uses Alpine's `iptables` and `ip6tables` commands for the selected bridge firewall backend. `iproute2-minimal` supplies the `ip` command for guest setup. | [Pinned engine source and Alpine packaging](05-guest-image.md#root-filesystem-contents) |
 | V-17 | Linux 7.3.5 mounted the compressed EROFS image from Alpine 3.24’s formatter as a read-only root filesystem on VZ. | [D-026 and boot reproduction](15-decisions.md#d-026-use-erofs-for-the-guest-root-filesystem) |
