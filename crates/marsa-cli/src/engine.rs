@@ -71,7 +71,7 @@ impl Command {
     }
 }
 
-fn connection_failure(error: ClientError) -> Failure {
+pub(super) fn connection_failure(error: ClientError) -> Failure {
     match error {
         ClientError::Home => Failure::Home,
         ClientError::Root => Failure::Root,

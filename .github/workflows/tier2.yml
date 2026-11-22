@@ -44,6 +44,8 @@ jobs:
           MARSA_ENTITLED_DAEMON_NETWORK=1 bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest
       - name: Exercise the packaged daemon
         run: |
+          MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked -p marsa-cli
+          export MARSA_TEST_CLI="$PWD/target/debug/marsa"
           export MARSA_VZ_GUEST_DIR="$PWD/target/guest"
           export MARSA_VZ_NETWORK_HELPER="$PWD/target/network-helper/marsa-net-helper"
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \

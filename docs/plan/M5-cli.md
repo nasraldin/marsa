@@ -87,7 +87,7 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 
 ### M5-11 Report active networking from the CLI
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M5-02, M4-18
 - **Docs:** [06 Mode selection](../06-networking.md#network-modes), [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
 - **Do:** Report configured and active network modes, connectivity reason, and current addresses from the authenticated read-only network RPC. Localize the human-readable output and keep JSON stable.

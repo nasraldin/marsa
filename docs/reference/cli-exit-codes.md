@@ -33,3 +33,7 @@ per log record. In the record, `message` contains a safe classification of
 the source log and `at_unix_millis` is zero when wall-clock time is unavailable.
 `marsa status --json` returns `resources: null` until the guest provides an
 observation. The CPU field is cumulative VM CPU busy time in nanoseconds.
+
+`marsa network status --json` reports the configured and active network modes.
+The guest and gateway fields are IPv4 strings when observed. When the VM is
+stopped, the active mode and both addresses are `null`.

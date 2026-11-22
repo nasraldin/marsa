@@ -3,6 +3,8 @@
 mod command;
 #[cfg(unix)]
 mod engine;
+#[cfg(unix)]
+mod network;
 
 use std::{
     env,
@@ -157,6 +159,12 @@ async fn execute(
     }
     if name == "completion" {
         return completions(args);
+    }
+    #[cfg(unix)]
+    if name == "network" && args.subcommand_matches("status").is_some() {
+        return network::status(language)
+            .await
+            .unwrap_or_else(Outcome::Failure);
     }
     #[cfg(unix)]
     if let Some(outcome) = engine::run(name, args, language, json).await {
