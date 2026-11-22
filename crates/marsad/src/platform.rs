@@ -104,13 +104,18 @@ async fn configure_packaged_runtime(
         initial_backoff: Duration::from_secs(1),
         maximum_backoff: Duration::from_secs(4),
     };
-    api.with_packaged_runtime(
-        package.capabilities(),
-        GuestControl::default().with_agent_connect_timeout(Duration::from_secs(50)),
-        config,
-        move |desired, policy| package.prepare(&paths, uid, desired, policy),
-    )
-    .await
+    let versions = package.component_versions().unwrap_or_else(|error| {
+        tracing::warn!(kind = ?error.kind(), "could not read bundled guest versions");
+        Vec::new()
+    });
+    api.with_components(versions)
+        .with_packaged_runtime(
+            package.capabilities(),
+            GuestControl::default().with_agent_connect_timeout(Duration::from_secs(50)),
+            config,
+            move |desired, policy| package.prepare(&paths, uid, desired, policy),
+        )
+        .await
 }
 
 fn require_unprivileged() -> io::Result<Uid> {

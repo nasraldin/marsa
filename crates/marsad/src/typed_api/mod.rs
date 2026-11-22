@@ -25,8 +25,9 @@ use marsa_core::{
     settings::{NetworkMode, Settings},
 };
 use marsa_proto::host::v1::{
-    CollectDiagnosticsResponse, EnsureDockerContextResponse, agent_ops_server::AgentOpsServer,
-    agents_server::AgentsServer, diagnostics_server::DiagnosticsServer, disk_server::DiskServer,
+    CollectDiagnosticsResponse, ComponentVersion, EnsureDockerContextResponse,
+    agent_ops_server::AgentOpsServer, agents_server::AgentsServer,
+    diagnostics_server::DiagnosticsServer, disk_server::DiskServer,
     docker_discovery_server::DockerDiscoveryServer, engine_server::EngineServer,
     events_server::EventsServer, meta_server::MetaServer, network_server::NetworkServer,
     settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
@@ -58,6 +59,7 @@ pub struct TypedApi {
     inner: Arc<Shared>,
     supervisor: Option<Supervisor>,
     capabilities: Option<Capabilities>,
+    components: Arc<[ComponentVersion]>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
     verify_keychain: Option<docker_discovery::VerifyKeychain>,
 }
@@ -119,6 +121,7 @@ impl TypedApi {
             }),
             supervisor: None,
             capabilities: None,
+            components: Arc::default(),
             docker_contexts: None,
             verify_keychain: None,
         })
@@ -227,6 +230,12 @@ impl TypedApi {
         );
         self.supervisor = Some(supervisor);
         Ok(self)
+    }
+
+    /// Attach the release versions reported by this daemon's installed guest.
+    pub fn with_components(mut self, components: Vec<ComponentVersion>) -> Self {
+        self.components = components.into();
+        self
     }
 
     /// Serve the Unix RPCs until the caller requests shutdown.

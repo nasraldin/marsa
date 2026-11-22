@@ -116,7 +116,7 @@ fn global_json_handles_help_and_errors_at_any_depth() {
             "error",
             Some("invalid_invocation"),
         ),
-        (&["--json", "status"], 1, "error", Some("not_available")),
+        (&["--json", "diagnose"], 1, "error", Some("not_available")),
         (
             &["--json", "completion", "invalid"],
             2,
@@ -147,4 +147,65 @@ fn double_dash_keeps_json_literal_out_of_global_flags() {
     assert!(result.stdout.is_empty());
     assert_eq!(result.status.code(), Some(1));
     assert_eq!(result.stderr, b"This command is not available yet.\n");
+}
+
+#[test]
+#[cfg(unix)]
+fn env_quotes_the_socket_for_a_shell_and_reports_json_without_a_daemon() {
+    let home = "/private/tmp/Marsa home 'quoted' $var";
+    let command = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_marsa"))
+            .args(args)
+            .env("HOME", home)
+            .env("LC_ALL", "en_US.UTF-8")
+            .output()
+            .unwrap()
+    };
+    let expected = format!("unix://{home}/.marsa/run/docker.sock");
+    let json = command(&["env", "--json"]);
+    assert!(json.status.success(), "{json:?}");
+    let response: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(response["docker_host"], expected);
+
+    let script = command(&["env"]);
+    assert!(script.status.success(), "{script:?}");
+    let mut script = String::from_utf8(script.stdout).unwrap();
+    script.push_str("printf '%s' \"$DOCKER_HOST\"");
+    let result = Command::new("sh").args(["-c", &script]).output().unwrap();
+    assert!(result.status.success());
+    assert_eq!(result.stdout, expected.as_bytes());
+}
+
+#[test]
+fn unavailable_message_preserves_localized_text_and_english_json() {
+    for (locale, expected) in [
+        ("en_US.UTF-8", "This command is not available yet.\n"),
+        ("ar_AE.UTF-8", "هذا الأمر غير متاح حاليًا.\n"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
+            .args(["update", "check"])
+            .env("LC_ALL", locale)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert_eq!(output.stderr, expected.as_bytes());
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
+        .args(["update", "check", "--json"])
+        .env("LC_ALL", "ar_AE.UTF-8")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!({
+            "schema_version": 1,
+            "kind": "error",
+            "code": "not_available",
+            "message": "This command is not available yet.",
+        }),
+    );
 }

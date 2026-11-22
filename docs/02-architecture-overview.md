@@ -185,6 +185,7 @@ marsa/
 │   ├── marsa-share/            # shared-folder allowlist, virtiofs mapping
 │   ├── marsa-dockerproxy/      # Docker socket proxy and policy hooks
 │   ├── marsad/                 # host daemon binary
+│   ├── marsa-l10n/             # shared Fluent catalogs and typed message keys
 │   ├── marsa-client/           # typed API client used by GUI, CLI, MCP
 │   ├── marsa-cli/              # `marsa` binary
 │   ├── marsa-mcp/              # MCP server
@@ -217,6 +218,7 @@ flowchart TD
     share["marsa-share"]
     dproxy["marsa-dockerproxy"]
     d["marsad"]
+    l10n["marsa-l10n"]
     client["marsa-client"]
     cli["marsa-cli"]
     mcp["marsa-mcp"]
@@ -243,6 +245,7 @@ flowchart TD
     d --> proto
     d --> core
     client --> proto
+    client --> l10n
     cli --> client
     mcp --> client
     gui --> client

@@ -4,7 +4,7 @@
 pub const API_MAJOR: u32 = 1;
 
 /// The latest additive revision of the host API.
-pub const API_MINOR: u32 = 4;
+pub const API_MINOR: u32 = 6;
 
 /// Filename for delegated agent operations next to the owner daemon socket.
 pub use marsa_core::paths::AGENT_SOCKET_NAME;
@@ -20,4 +20,11 @@ pub fn socket_path(
     home: impl AsRef<std::path::Path>,
 ) -> Result<std::path::PathBuf, marsa_core::error::PathError> {
     Ok(marsa_core::paths::MarsaPaths::from_home(home)?.daemon_socket())
+}
+
+/// Resolve Docker's Unix socket in the same per-user layout as the typed API.
+pub fn docker_socket_path(
+    home: impl AsRef<std::path::Path>,
+) -> Result<std::path::PathBuf, marsa_core::error::PathError> {
+    Ok(marsa_core::paths::MarsaPaths::from_home(home)?.docker_socket())
 }

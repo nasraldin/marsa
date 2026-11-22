@@ -376,3 +376,9 @@ impl AgentClient {
         Ok(self.operations.execute(request).await?.into_inner())
     }
 }
+
+/// Resolve the current user's Docker socket without starting a daemon.
+pub fn docker_socket_path() -> Result<PathBuf, ClientError> {
+    let home = std::env::home_dir().ok_or(ClientError::Home)?;
+    marsa_proto::host::docker_socket_path(home).map_err(|_| ClientError::Home)
+}
