@@ -43,13 +43,13 @@ pub(super) enum ViewMode {
     Tree,
 }
 
+pub(super) type GroupKey = (bool, Option<String>);
+
 #[derive(Clone)]
 enum TableRow {
-    Group {
-        project: Option<String>,
-        count: usize,
-    },
+    Group { key: GroupKey, count: usize },
     Container(Box<ContainerSummary>),
+    External(Box<ContainerSummary>),
 }
 
 pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> AnyElement {
@@ -58,24 +58,54 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     let palette = screen.palette;
     let mode = view.mode;
     let source = view.state.containers();
-    let rows = collect_rows(view, &source);
+    let mut rows = collect_rows(view, &source, false);
+    let local_status = states::TableState::from(view, !rows.is_empty());
+    if local_status != states::TableState::Rows {
+        rows.clear();
+    }
+    let external_source = view.external_inventory.as_ref().map(|inventory| {
+        rows.extend(collect_rows(view, &inventory.state.containers(), true));
+        isolate_technical_text(&inventory.source)
+    });
+    let grouped = matches!(mode, ViewMode::Table | ViewMode::Tree);
+    let external_count = rows
+        .iter()
+        .map(|row| match row {
+            TableRow::Group {
+                key: (true, _),
+                count,
+            } => *count,
+            TableRow::External(_) if !grouped => 1,
+            _ => 0,
+        })
+        .sum::<usize>();
+
     let visible_ids = rows
         .iter()
         .filter_map(|entry| match entry {
             TableRow::Container(item) => Some(item.id.clone()),
-            TableRow::Group { .. } => None,
+            TableRow::Group { .. } | TableRow::External(_) => None,
         })
         .collect::<Vec<_>>();
-    let status = states::TableState::from(view, !rows.is_empty());
-    let total = if matches!(mode, ViewMode::Table | ViewMode::Tree) {
+    let status = if external_count != 0 {
+        states::TableState::Rows
+    } else if external_source.is_some()
+        && rows.is_empty()
+        && (!view.query.is_empty() || view.filter != StatusFilter::All)
+    {
+        states::TableState::NoMatches
+    } else {
+        local_status
+    };
+    let total = if grouped {
         rows.iter()
             .filter_map(|entry| match entry {
                 TableRow::Group { count, .. } => Some(count),
-                TableRow::Container(_) => None,
+                TableRow::Container(_) | TableRow::External(_) => None,
             })
-            .sum()
+            .sum::<usize>()
     } else {
-        visible_ids.len()
+        visible_ids.len() + external_count
     };
     let selected = view.selected.clone();
     let busy = view.command_pending;
@@ -205,7 +235,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                 .icon(IconName::Plus)
                 .accessibility_label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
                 .tooltip(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
-                .disabled(view.services.is_none() || !status.can_create())
+                .disabled(view.services.is_none() || !local_status.can_create())
                 .on_click(cx.listener(|view, _, window, cx| super::create::open(view, window, cx))),
         );
 
@@ -248,6 +278,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         .child(
             div().w(px(28.)).child(
                 Checkbox::new("select-visible")
+                    .disabled(visible_ids.is_empty())
                     .accessibility_label(message(
                         screen.locale,
                         gui::GUI_DESKTOP_SELECT_VISIBLE_CONTAINERS,
@@ -300,6 +331,15 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         ))
         .child(div().w(px(80.)).flex_shrink_0());
 
+    let local_source = external_source
+        .as_ref()
+        .map(|_| SharedString::from("Marsa"));
+    let presentation = RowPresentation {
+        palette,
+        locale,
+        mode,
+        view: entity,
+    };
     let items = uniform_list("containers-table", item_count, move |range, _, cx| {
         if mode == ViewMode::Cards {
             return range
@@ -309,17 +349,16 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                     let mut cards = row(cx).h(px(150.)).w_full().gap_3().pb_3();
                     let mut count = 0;
                     for row in entries {
-                        if let TableRow::Container(entry) = row {
-                            cards = cards.child(container_row(
-                                entry,
-                                selected.contains(&entry.id),
-                                busy,
-                                palette,
-                                locale,
-                                mode,
-                                &entity,
-                                cx,
-                            ));
+                        if let Some(card) = render_entry(
+                            row,
+                            &selected,
+                            busy,
+                            local_source.as_ref(),
+                            external_source.as_ref(),
+                            &presentation,
+                            cx,
+                        ) {
+                            cards = cards.child(card);
                             count += 1;
                         }
                     }
@@ -332,27 +371,29 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         range
             .filter_map(|index| rows.get(index))
             .map(|entry| match entry {
-                TableRow::Group { project, count } => group_row(
-                    project.as_deref(),
+                TableRow::Group { key, count } => group_row(
+                    key,
                     *count,
-                    palette,
-                    locale,
-                    collapsed.contains(project),
-                    mode,
-                    &entity,
+                    if key.0 {
+                        external_source.as_ref()
+                    } else {
+                        local_source.as_ref()
+                    },
+                    collapsed.contains(key),
+                    &presentation,
                     cx,
                 )
                 .into_any_element(),
-                TableRow::Container(entry) => container_row(
+                entry => render_entry(
                     entry,
-                    selected.contains(&entry.id),
+                    &selected,
                     busy,
-                    palette,
-                    locale,
-                    mode,
-                    &entity,
+                    local_source.as_ref(),
+                    external_source.as_ref(),
+                    &presentation,
                     cx,
                 )
+                .unwrap_or_else(div)
                 .into_any_element(),
             })
             .collect()
@@ -385,17 +426,11 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
 fn collect_rows(
     view: &ContainerView,
     source: &BTreeMap<ContainerId, ContainerSummary>,
+    external: bool,
 ) -> Vec<TableRow> {
     let mut projects: BTreeMap<Option<&str>, Vec<&ContainerSummary>> = BTreeMap::new();
     for item in source.values() {
-        let name_matches = view.query.is_empty()
-            || name(item).to_lowercase().contains(&view.query)
-            || item.image.to_lowercase().contains(&view.query)
-            || item.id.as_str().contains(&view.query)
-            || item
-                .compose_project()
-                .is_some_and(|project| project.to_lowercase().contains(&view.query));
-        if name_matches && view.filter.accepts(&item.state) {
+        if matches_filter(view, item) {
             projects
                 .entry(item.compose_project())
                 .or_default()
@@ -416,11 +451,11 @@ fn collect_rows(
                     order
                 }
             });
-            let project = project.map(str::to_owned);
+            let key = (external, project.map(str::to_owned));
             let grouped = matches!(view.mode, ViewMode::Table | ViewMode::Tree);
-            let collapsed = grouped && view.collapsed.contains(&project);
+            let collapsed = grouped && view.collapsed.contains(&key);
             let heading = grouped.then_some(TableRow::Group {
-                project,
+                key,
                 count: items.len(),
             });
             let entries = (!collapsed)
@@ -428,10 +463,55 @@ fn collect_rows(
                 .into_iter()
                 .flatten()
                 .cloned()
-                .map(|item| TableRow::Container(Box::new(item)));
+                .map(|item| {
+                    if external {
+                        TableRow::External(Box::new(item))
+                    } else {
+                        TableRow::Container(Box::new(item))
+                    }
+                });
             heading.into_iter().chain(entries)
         })
         .collect()
+}
+
+fn matches_filter(view: &ContainerView, item: &ContainerSummary) -> bool {
+    view.filter.accepts(&item.state)
+        && (view.query.is_empty()
+            || name(item).to_lowercase().contains(&view.query)
+            || item.image.to_lowercase().contains(&view.query)
+            || item.id.as_str().contains(&view.query)
+            || item
+                .compose_project()
+                .is_some_and(|project| project.to_lowercase().contains(&view.query)))
+}
+
+struct RowPresentation {
+    palette: Palette,
+    locale: Locale,
+    mode: ViewMode,
+    view: marsa_ui::gpui::Entity<ContainerView>,
+}
+
+fn render_entry(
+    row: &TableRow,
+    selected: &std::collections::BTreeSet<ContainerId>,
+    busy: bool,
+    local_source: Option<&SharedString>,
+    external_source: Option<&SharedString>,
+    presentation: &RowPresentation,
+    cx: &App,
+) -> Option<Div> {
+    let (entry, source, local) = match row {
+        TableRow::Container(entry) => (
+            entry,
+            local_source,
+            Some((selected.contains(&entry.id), busy)),
+        ),
+        TableRow::External(entry) => (entry, external_source, None),
+        TableRow::Group { .. } => return None,
+    };
+    Some(container_row(entry, source, local, presentation, cx))
 }
 
 fn cell_row(palette: Palette, cx: &App) -> Div {
@@ -458,23 +538,35 @@ fn container_count(count: usize, locale: Locale) -> String {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn group_row(
-    project: Option<&str>,
+    key: &GroupKey,
     count: usize,
-    palette: Palette,
-    locale: Locale,
+    source: Option<&SharedString>,
     collapsed: bool,
-    mode: ViewMode,
-    view: &marsa_ui::gpui::Entity<ContainerView>,
+    presentation: &RowPresentation,
     cx: &App,
 ) -> Div {
+    let RowPresentation {
+        locale,
+        palette,
+        mode,
+        view,
+    } = presentation;
+    let (locale, palette, mode) = (*locale, *palette, *mode);
+    let (external, project) = key;
+    let project = project.as_deref();
     let count = container_count(count, locale);
-    let group = project.map(str::to_owned);
-    let id = SharedString::from(project.map_or_else(
-        || "standalone".to_string(),
-        |name| format!("project:{name}"),
-    ));
+    let group = key.clone();
+    let id = (
+        ElementId::from(if *external {
+            "external-group"
+        } else {
+            "marsa-group"
+        }),
+        SharedString::from(
+            project.map_or_else(|| "standalone".into(), |name| format!("project:{name}")),
+        ),
+    );
     let weak = view.downgrade();
     cell_row(palette, cx)
         .bg(color(palette, ColorToken::BgSubtle))
@@ -517,6 +609,9 @@ fn group_row(
                 .map(isolate_technical_text)
                 .unwrap_or_else(|| gui::GUI_DESKTOP_STANDALONE.text(locale).into()),
         )
+        .children(source.map(|source| {
+            crate::screens::external_inventory::source_badge(palette, source.clone())
+        }))
         .child(
             div()
                 .text_color(color(palette, ColorToken::TextMuted))
@@ -524,17 +619,21 @@ fn group_row(
         )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn container_row(
     entry: &ContainerSummary,
-    checked: bool,
-    busy: bool,
-    palette: Palette,
-    locale: Locale,
-    mode: ViewMode,
-    view: &marsa_ui::gpui::Entity<ContainerView>,
+    source: Option<&SharedString>,
+    local: Option<(bool, bool)>,
+    presentation: &RowPresentation,
     cx: &App,
 ) -> Div {
+    let RowPresentation {
+        palette,
+        locale,
+        mode,
+        view,
+    } = presentation;
+    let (palette, locale, mode) = (*palette, *locale, *mode);
+    let (checked, busy) = local.unwrap_or_default();
     let id = entry.id.clone();
     let check_view = view.downgrade();
     let check_id = id.clone();
@@ -555,111 +654,135 @@ fn container_row(
     } else {
         ColorToken::BgElevated
     };
-    let check = Checkbox::new((
-        ElementId::from("select-container"),
-        SharedString::from(id.as_str().to_owned()),
-    ))
-    .checked(checked)
-    .accessibility_label(format!(
-        "{} {}",
-        gui::GUI_DESKTOP_SELECT.text(locale),
-        name(entry)
-    ))
-    .on_click(move |selected, _, cx| {
-        let _ = check_view.update(cx, |view, cx| {
-            if *selected {
-                view.selected.insert(check_id.clone());
-            } else {
-                view.selected.remove(&check_id);
-            }
-            cx.notify();
-        });
+    let check = local.map(|_| {
+        Checkbox::new((
+            ElementId::from("select-container"),
+            SharedString::from(id.as_str().to_owned()),
+        ))
+        .checked(checked)
+        .accessibility_label(format!(
+            "{} {}",
+            gui::GUI_DESKTOP_SELECT.text(locale),
+            name(entry)
+        ))
+        .on_click(move |selected, _, cx| {
+            let _ = check_view.update(cx, |view, cx| {
+                if *selected {
+                    view.selected.insert(check_id.clone());
+                } else {
+                    view.selected.remove(&check_id);
+                }
+                cx.notify();
+            });
+        })
     });
-    let name_button = Button::new((
-        ElementId::from("container-details"),
-        SharedString::from(id.as_str().to_owned()),
-    ))
-    .ghost()
-    .small()
-    .compact()
-    .label(isolate_technical_text(name(entry)))
-    .on_click(move |_, _, cx| {
-        let _ = detail_view.update(cx, |view, cx| view.open_detail(detail_id.clone(), cx));
-    });
-    let menu_name = isolate_technical_text(name(entry));
-    let more = Button::new((
-        ElementId::from("container-menu"),
-        SharedString::from(id.as_str().to_owned()),
-    ))
-    .ghost()
-    .small()
-    .icon(IconName::Ellipsis)
-    .accessibility_label(gui::GUI_DESKTOP_CONTAINER_ACTIONS.text(locale))
-    .tooltip(gui::GUI_DESKTOP_CONTAINER_ACTIONS.text(locale))
-    .dropdown_menu(move |menu, _, _| {
-        let remove_view = menu_view.clone();
-        let remove_id = menu_id.clone();
-        let detail_view = menu_view.clone();
-        let detail_id = menu_id.clone();
-        let first = menu.label(menu_name.clone()).separator().item(
-            PopupMenuItem::new(gui::GUI_DESKTOP_OPEN_DETAILS.text(locale))
-                .icon(IconName::ChevronLeft)
-                .on_click(move |_, _, cx| {
-                    let _ =
-                        detail_view.update(cx, |view, cx| view.open_detail(detail_id.clone(), cx));
-                }),
-        );
-        let menu = [
-            ContainerAction::Start,
-            ContainerAction::Stop,
-            ContainerAction::Restart,
-        ]
-        .into_iter()
-        .fold(first, |menu, action| {
-            let weak = menu_view.clone();
-            let id = menu_id.clone();
-            let enabled = match action {
-                ContainerAction::Start => can_start,
-                ContainerAction::Stop => can_stop,
-                ContainerAction::Restart => can_restart,
-            };
-            if !enabled {
-                return menu;
-            }
-            let icon = match action {
-                ContainerAction::Start => IconName::Play,
-                ContainerAction::Stop => IconName::Square,
-                ContainerAction::Restart => IconName::RefreshCw,
-            };
-            let (en, ar) = action_label(action);
-            menu.item(
-                PopupMenuItem::new(copy(locale, en, ar))
-                    .icon(icon)
-                    .disabled(busy)
-                    .on_click(move |_, _, cx| {
-                        let _ =
-                            weak.update(cx, |view, cx| view.dispatch(vec![id.clone()], action, cx));
-                    }),
-            )
-        });
-        menu.item(
-            PopupMenuItem::element(move |_, _| {
-                div()
-                    .text_color(color(palette, ColorToken::StatusError))
-                    .child(gui::GUI_DESKTOP_CONTAINERS_REMOVE_MENU.text(locale))
-            })
-            .icon(Icon::empty().path("icons/trash-2.svg"))
-            .disabled(busy)
-            .on_click(move |_, window, cx| {
-                let _ = remove_view.update(cx, |view, cx| {
-                    view.request_remove(vec![remove_id.clone()], window, cx)
-                });
-            }),
-        )
-    });
-    let lifecycle = action_button(entry, action, busy, locale, view)
+    let name_button = local.map(|_| {
+        Button::new((
+            ElementId::from("container-details"),
+            SharedString::from(id.as_str().to_owned()),
+        ))
         .ghost()
-        .bg(color(palette, ColorToken::GlassControl));
+        .small()
+        .compact()
+        .label(isolate_technical_text(name(entry)))
+        .on_click(move |_, _, cx| {
+            let _ = detail_view.update(cx, |view, cx| view.open_detail(detail_id.clone(), cx));
+        })
+    });
+    let name_cell = || {
+        row(cx)
+            .min_w_0()
+            .gap_1()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .children(name_button)
+                    .children(local.is_none().then(|| isolate_technical_text(name(entry)))),
+            )
+            .children(source.map(|source| {
+                crate::screens::external_inventory::source_badge(palette, source.clone())
+            }))
+    };
+    let menu_name = isolate_technical_text(name(entry));
+    let more = local.map(|_| {
+        Button::new((
+            ElementId::from("container-menu"),
+            SharedString::from(id.as_str().to_owned()),
+        ))
+        .ghost()
+        .small()
+        .icon(IconName::Ellipsis)
+        .accessibility_label(gui::GUI_DESKTOP_CONTAINER_ACTIONS.text(locale))
+        .tooltip(gui::GUI_DESKTOP_CONTAINER_ACTIONS.text(locale))
+        .dropdown_menu(move |menu, _, _| {
+            let remove_view = menu_view.clone();
+            let remove_id = menu_id.clone();
+            let detail_view = menu_view.clone();
+            let detail_id = menu_id.clone();
+            let first = menu.label(menu_name.clone()).separator().item(
+                PopupMenuItem::new(gui::GUI_DESKTOP_OPEN_DETAILS.text(locale))
+                    .icon(IconName::ChevronLeft)
+                    .on_click(move |_, _, cx| {
+                        let _ = detail_view
+                            .update(cx, |view, cx| view.open_detail(detail_id.clone(), cx));
+                    }),
+            );
+            let menu = [
+                ContainerAction::Start,
+                ContainerAction::Stop,
+                ContainerAction::Restart,
+            ]
+            .into_iter()
+            .fold(first, |menu, action| {
+                let weak = menu_view.clone();
+                let id = menu_id.clone();
+                let enabled = match action {
+                    ContainerAction::Start => can_start,
+                    ContainerAction::Stop => can_stop,
+                    ContainerAction::Restart => can_restart,
+                };
+                if !enabled {
+                    return menu;
+                }
+                let icon = match action {
+                    ContainerAction::Start => IconName::Play,
+                    ContainerAction::Stop => IconName::Square,
+                    ContainerAction::Restart => IconName::RefreshCw,
+                };
+                let (en, ar) = action_label(action);
+                menu.item(
+                    PopupMenuItem::new(copy(locale, en, ar))
+                        .icon(icon)
+                        .disabled(busy)
+                        .on_click(move |_, _, cx| {
+                            let _ = weak
+                                .update(cx, |view, cx| view.dispatch(vec![id.clone()], action, cx));
+                        }),
+                )
+            });
+            menu.item(
+                PopupMenuItem::element(move |_, _| {
+                    div()
+                        .text_color(color(palette, ColorToken::StatusError))
+                        .child(gui::GUI_DESKTOP_CONTAINERS_REMOVE_MENU.text(locale))
+                })
+                .icon(Icon::empty().path("icons/trash-2.svg"))
+                .disabled(busy)
+                .on_click(move |_, window, cx| {
+                    let _ = remove_view.update(cx, |view, cx| {
+                        view.request_remove(vec![remove_id.clone()], window, cx)
+                    });
+                }),
+            )
+        })
+    });
+    let lifecycle = local.map(|_| {
+        action_button(entry, action, busy, locale, view)
+            .ghost()
+            .bg(color(palette, ColorToken::GlassControl))
+    });
     let image = isolate_technical_text(&entry.image);
     let tiny_image = || {
         div()
@@ -686,11 +809,13 @@ fn container_row(
             .border_1()
             .border_color(color(palette, ColorToken::BorderSubtle))
             .child(
-                row(cx)
-                    .items_center()
-                    .gap_2()
-                    .child(check)
-                    .child(div().min_w_0().overflow_hidden().child(name_button)),
+                row(cx).items_center().gap_2().children(check).child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .overflow_hidden()
+                        .child(name_cell()),
+                ),
             )
             .child(tiny_image())
             .child(
@@ -717,8 +842,8 @@ fn container_row(
                 row(cx)
                     .gap_2()
                     .justify_row_end()
-                    .child(lifecycle)
-                    .child(more),
+                    .children(lifecycle)
+                    .children(more),
             );
     }
     let mut result = cell_row(palette, cx);
@@ -731,7 +856,7 @@ fn container_row(
     if mode == ViewMode::List {
         result = result
             .h(px(61.))
-            .child(check)
+            .children(check)
             .child(Icon::default().path("icons/box.svg").small())
             .child(
                 div()
@@ -739,11 +864,11 @@ fn container_row(
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(div().min_w_0().overflow_hidden().child(name_button))
+                    .child(div().min_w_0().overflow_hidden().child(name_cell()))
                     .child(tiny_image()),
             );
     } else {
-        result = result.child(div().w(px(28.)).child(check));
+        result = result.child(div().w(px(28.)).children(check));
         if mode == ViewMode::Tree {
             result = result.child(Icon::empty().path("icons/box.svg").small());
         }
@@ -753,7 +878,7 @@ fn container_row(
                     .flex_1()
                     .min_w_0()
                     .overflow_hidden()
-                    .child(name_button),
+                    .child(name_cell()),
             )
             .child(column(image).font_family("IBM Plex Mono"));
     }
@@ -767,7 +892,10 @@ fn container_row(
     if mode != ViewMode::Tree {
         result = result.child(fixed_column(78., age_text(entry.created, locale)));
     }
-    result.child(lifecycle).child(more)
+    if local.is_none() && mode == ViewMode::Table {
+        result = result.child(div().w(px(80.)).flex_shrink_0());
+    }
+    result.children(lifecycle).children(more)
 }
 
 pub(super) fn action_button(

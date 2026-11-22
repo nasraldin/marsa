@@ -50,7 +50,7 @@ pub(crate) struct SystemView {
     restart_required: bool,
     settings_tab: SettingsTab,
     update_panel: settings::UpdatePanel,
-    external_inventory: Option<marsa_client::docker::ExternalInventory>,
+    external_inventory: Option<Arc<crate::screens::external_inventory::ExternalWorkspace>>,
     external_inventory_task: Option<Task<()>>,
     external_inventory_checked: bool,
     resource_inputs: ResourceInputs,
@@ -86,6 +86,12 @@ enum Notice {
 }
 
 impl SystemView {
+    pub(crate) fn external_inventory(
+        &self,
+    ) -> Option<&Arc<crate::screens::external_inventory::ExternalWorkspace>> {
+        self.external_inventory.as_ref()
+    }
+
     pub(crate) fn new(
         services: Option<Arc<Services>>,
         window: &mut Window,

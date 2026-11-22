@@ -5,16 +5,24 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::{ContainerSummary, DockerClient, ImageSummary, docker_socket_path};
+use super::{
+    ContainerSummary, DockerClient, ImageSummary, NetworkSummary, VolumeSummary, docker_socket_path,
+};
 
 /// Containers and images reported by a detected local Docker engine.
 pub struct ExternalInventory {
     /// Authenticated local socket queried for this inventory.
     pub socket: PathBuf,
+    /// Provider or instance label for the socket.
+    pub source: String,
     /// Running and stopped containers.
     pub containers: Vec<ContainerSummary>,
     /// Tagged and untagged images.
     pub images: Vec<ImageSummary>,
+    /// Volumes when the endpoint reports them.
+    pub volumes: Option<Vec<VolumeSummary>>,
+    /// Networks when the endpoint reports them.
+    pub networks: Option<Vec<NetworkSummary>>,
 }
 
 /// Read the inventory of the first reachable user-owned external Unix socket.
@@ -53,15 +61,42 @@ pub async fn discover_external_inventory() -> Option<ExternalInventory> {
             socket: socket.clone(),
             inventory_only: true,
         };
-        if let Ok((containers, images)) = tokio::try_join!(client.containers(), client.images()) {
+        let (containers, images, volumes, networks) = tokio::join!(
+            client.containers(),
+            client.images(),
+            client.volumes(),
+            client.networks()
+        );
+        if let (Ok(containers), Ok(images)) = (containers, images) {
+            let source = source_name(&socket, &owner.dir);
             return Some(ExternalInventory {
                 socket,
+                source,
                 containers,
                 images,
+                volumes: volumes.ok(),
+                networks: networks.ok(),
             });
         }
     }
     None
+}
+
+fn source_name(socket: &Path, home: &Path) -> String {
+    for (directory, provider) in [(".lima", "Lima"), (".colima", "Colima")] {
+        if let Ok(relative) = socket.strip_prefix(home.join(directory))
+            && let Some(instance) = relative.components().next()
+        {
+            return format!("{provider} · {}", instance.as_os_str().to_string_lossy());
+        }
+    }
+    if socket.starts_with(home.join(".docker/run")) {
+        return "Docker Desktop".into();
+    }
+    if socket.starts_with(home.join(".orbstack")) {
+        return "OrbStack".into();
+    }
+    socket.to_string_lossy().into_owned()
 }
 
 fn candidates(home: &Path, explicit: Option<&str>) -> impl Iterator<Item = PathBuf> {
@@ -122,6 +157,19 @@ mod tests {
         });
         assert!(client.containers().await.unwrap().is_empty());
         server.await.unwrap();
+    }
+
+    #[test]
+    fn a_provider_badge_identifies_the_discovered_socket_instance() {
+        let home = Path::new("/home/test");
+        assert_eq!(
+            source_name(&home.join(".lima/docker/sock/docker.sock"), home),
+            "Lima · docker"
+        );
+        assert_eq!(
+            source_name(Path::new("/custom/docker.sock"), home),
+            "/custom/docker.sock"
+        );
     }
 
     #[test]

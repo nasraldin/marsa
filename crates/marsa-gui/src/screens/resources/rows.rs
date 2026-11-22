@@ -68,6 +68,7 @@ pub(super) struct ResourceRow {
     pub details: Vec<(SharedString, String)>,
     status: Option<(ColorToken, ColorToken)>,
     action_target: String,
+    source: Option<SharedString>,
     users: Vec<String>,
     references: Option<u64>,
     pub members: Vec<(marsa_client::docker::ContainerId, String)>,
@@ -75,7 +76,13 @@ pub(super) struct ResourceRow {
 
 impl ResourceRow {
     pub(super) fn selected(&self, key: &str) -> bool {
-        self.key == key || self.id == key
+        self.source.is_none() && (self.key == key || self.id == key)
+    }
+
+    pub(super) fn with_source(mut self, source: &str) -> Self {
+        self.key = format!("external:{}", self.key);
+        self.source = Some(super::super::common::technical(source));
+        self
     }
 
     pub(super) fn key(&self) -> &str {
@@ -100,6 +107,9 @@ impl ResourceRow {
     }
 
     pub(super) fn actions(&self, kind: ResourceKind) -> Vec<FormKind> {
+        if self.source.is_some() {
+            return Vec::new();
+        }
         match kind {
             ResourceKind::Images => {
                 let mut actions = vec![FormKind::RemoveImage {
@@ -155,6 +165,7 @@ pub(super) fn table(
     rows: &[&ResourceRow],
     view: &Entity<ResourcesView>,
     selection: Option<&str>,
+    show_sources: bool,
 ) -> Div {
     let border = tone(screen, ColorToken::BorderSubtle);
     let header = logical_row(screen.locale)
@@ -227,81 +238,91 @@ pub(super) fn table(
         let key_select = view.clone();
         let key_id = row.id.clone();
         let key_service = screen.services.cloned();
-        entry
-            .id(SharedString::from(id.clone()))
-            .tab_stop(true)
-            .cursor_pointer()
-            .hover(|style| style.bg(tone(screen, ColorToken::BgHover)))
-            .focus_visible(|style| {
-                style
-                    .inset_0()
-                    .border_1()
-                    .border_color(tone(screen, ColorToken::AccentFocus))
-            })
-            .on_click(move |_, _, cx| {
-                select.update(cx, |view, cx| {
-                    view.select(
-                        kind,
-                        click_key.clone(),
-                        &click_id,
-                        click_service.as_deref(),
-                        cx,
-                    );
-                });
-            })
-            .on_key_down(move |event, _, cx| {
-                if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                    key_select.update(cx, |view, cx| {
-                        view.select(kind, id.clone(), &key_id, key_service.as_deref(), cx);
+        let entry = entry.id(SharedString::from(id.clone()));
+        let entry = if row.source.is_some() {
+            entry
+        } else {
+            entry
+                .tab_stop(true)
+                .cursor_pointer()
+                .hover(|style| style.bg(tone(screen, ColorToken::BgHover)))
+                .focus_visible(|style| {
+                    style
+                        .inset_0()
+                        .border_1()
+                        .border_color(tone(screen, ColorToken::AccentFocus))
+                })
+                .on_click(move |_, _, cx| {
+                    select.update(cx, |view, cx| {
+                        view.select(
+                            kind,
+                            click_key.clone(),
+                            &click_id,
+                            click_service.as_deref(),
+                            cx,
+                        );
                     });
-                    cx.stop_propagation();
-                }
-            })
-            .children(columns.0.iter().zip(&row.cells).enumerate().map(
-                |(index, ((_, width), value))| {
-                    if let Some((foreground, background)) = row.status.filter(|_| index == 4) {
-                        let pill = logical_row(screen.locale)
-                            .gap(px(Space::S8.pixels()))
-                            .rounded(px(Radius::Full.pixels()))
-                            .px(px(Space::S8.pixels()))
-                            .py(px(Space::S4.pixels()))
-                            .bg(tone(screen, background))
-                            .child(
-                                div()
-                                    .size(px(Space::S8.pixels()))
-                                    .rounded_full()
-                                    .bg(tone(screen, foreground)),
-                            )
-                            .child(
-                                text(screen, Role::Small, value.clone())
-                                    .text_color(tone(screen, foreground)),
-                            );
-                        return column(*width, logical_row(screen.locale).child(pill))
-                            .into_any_element();
+                })
+                .on_key_down(move |event, _, cx| {
+                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                        key_select.update(cx, |view, cx| {
+                            view.select(kind, id.clone(), &key_id, key_service.as_deref(), cx);
+                        });
+                        cx.stop_propagation();
                     }
-                    let cell = if index == 0 {
-                        logical_row(screen.locale)
-                            .gap(px(Space::S8.pixels()))
-                            .child(resource_icon(screen, kind))
-                            .child(
-                                text(screen, Role::Mono, value.clone())
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate(),
+                })
+        };
+        entry.children(columns.0.iter().zip(&row.cells).enumerate().map(
+            |(index, ((_, width), value))| {
+                if let Some((foreground, background)) = row.status.filter(|_| index == 4) {
+                    let pill = logical_row(screen.locale)
+                        .gap(px(Space::S8.pixels()))
+                        .rounded(px(Radius::Full.pixels()))
+                        .px(px(Space::S8.pixels()))
+                        .py(px(Space::S4.pixels()))
+                        .bg(tone(screen, background))
+                        .child(
+                            div()
+                                .size(px(Space::S8.pixels()))
+                                .rounded_full()
+                                .bg(tone(screen, foreground)),
+                        )
+                        .child(
+                            text(screen, Role::Small, value.clone())
+                                .text_color(tone(screen, foreground)),
+                        );
+                    return column(*width, logical_row(screen.locale).child(pill))
+                        .into_any_element();
+                }
+                let cell = if index == 0 {
+                    logical_row(screen.locale)
+                        .gap(px(Space::S8.pixels()))
+                        .child(resource_icon(screen, kind))
+                        .child(
+                            text(screen, Role::Mono, value.clone())
+                                .flex_1()
+                                .min_w_0()
+                                .truncate(),
+                        )
+                        .children(show_sources.then(|| {
+                            super::super::external_inventory::source_badge(
+                                screen.palette,
+                                row.source.clone().unwrap_or_else(|| "Marsa".into()),
                             )
-                    } else {
-                        let role = match (kind, index) {
-                            (ResourceKind::Images, 1)
-                            | (ResourceKind::Volumes | ResourceKind::Networks, 1 | 3) => Role::Mono,
-                            _ => Role::Small,
-                        };
-                        text(screen, role, value.clone())
-                            .text_color(tone(screen, ColorToken::TextMuted))
-                            .truncate()
+                        }))
+                } else {
+                    let role = match (kind, index) {
+                        (ResourceKind::Images, 1)
+                        | (ResourceKind::Volumes | ResourceKind::Networks, 1 | 3) => Role::Mono,
+                        _ => Role::Small,
                     };
-                    column(*width, cell).into_any_element()
-                },
-            ))
+                    text(screen, role, value.clone())
+                        .text_color(tone(screen, ColorToken::TextMuted))
+                        .truncate()
+                };
+                column(*width, cell).into_any_element()
+            },
+        ))
     }));
     table
 }
@@ -384,6 +405,7 @@ pub(super) fn snapshot_rows(
                                 ),
                             ],
                             status: Some(status),
+                            source: None,
                             action_target: reference.to_owned(),
                             users: users.clone(),
                             references: None,
@@ -453,6 +475,7 @@ pub(super) fn snapshot_rows(
                         ),
                     ],
                     status: None,
+                    source: None,
                     action_target: volume.name.clone(),
                     users,
                     references: usage.and_then(|usage| usage.references),
@@ -515,6 +538,7 @@ pub(super) fn snapshot_rows(
                         ),
                     ],
                     status: None,
+                    source: None,
                     action_target: network.name.clone(),
                     users,
                     references: None,
@@ -564,6 +588,7 @@ pub(super) fn snapshot_rows(
                         })
                         .collect(),
                     status: None,
+                    source: None,
                     action_target: project.name.clone(),
                     users: Vec::new(),
                     references: None,
@@ -655,4 +680,31 @@ fn format_age(locale: Locale, created: i64) -> Option<String> {
         (age, gui::GUI_DESKTOP_S.text(locale))
     };
     Some(format!("{value} {unit}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn external_row_cannot_select_or_act_on_a_marsa_resource_with_the_same_name() {
+        let row = ResourceRow {
+            id: "database".into(),
+            key: "database".into(),
+            cells: vec!["database".into()],
+            details: Vec::new(),
+            status: None,
+            action_target: "database".into(),
+            users: Vec::new(),
+            references: None,
+            members: Vec::new(),
+            source: None,
+        };
+        assert!(row.selected("database"));
+        assert!(!row.actions(ResourceKind::Volumes).is_empty());
+        let external = row.with_source("Lima · docker");
+        assert_ne!(external.key(), "database");
+        assert!(!external.selected("database"));
+        assert!(external.actions(ResourceKind::Volumes).is_empty());
+    }
 }

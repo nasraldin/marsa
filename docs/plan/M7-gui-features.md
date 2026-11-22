@@ -171,11 +171,10 @@ launch at login, and notification preferences. Network settings use guarded
 proxy activation. LAN exposure (Q-07), the global Docker socket (Q-08), and
 unsupported host-tool integration remain open.
 
-Docker settings display the containers and images of a reachable user-owned
-external Docker socket. Discovery uses a Unix `DOCKER_HOST` or known local
-provider sockets. Inventory reads cannot dispatch mutations or select the engine
-for the main workspace. The Marsa context continues to point at its own VM.
-
+Docker settings show the external socket and offer a rescan. A detected Unix
+engine's containers, images, volumes, networks and Compose projects appear
+on their respective resource pages with source badges. External inventory
+never enters the Marsa engine's mutation or selection paths.
 
 ---
 

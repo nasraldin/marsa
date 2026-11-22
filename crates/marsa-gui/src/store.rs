@@ -37,6 +37,34 @@ pub struct ComposeProject {
 }
 
 impl AppState {
+    pub(crate) fn index_resources(snapshot: ResourceSnapshot) -> Self {
+        let containers = container_index(snapshot.containers);
+        let projects = project_index(&containers);
+        let images = image_index(snapshot.images);
+        let volumes = Arc::new(
+            snapshot
+                .volumes
+                .into_iter()
+                .map(|row| (row.name.clone(), row))
+                .collect(),
+        );
+        let networks = Arc::new(
+            snapshot
+                .networks
+                .into_iter()
+                .map(|row| (row.id.clone(), row))
+                .collect(),
+        );
+        Self {
+            daemon: None,
+            containers,
+            compose_projects: projects,
+            images,
+            volumes,
+            networks,
+        }
+    }
+
     /// Last observed daemon state.
     pub fn daemon(&self) -> Option<&DaemonSnapshot> {
         self.daemon.as_ref()
@@ -134,23 +162,14 @@ impl Store {
     }
 
     pub(crate) fn replace_docker(&self, snapshot: ResourceSnapshot) {
-        let containers = container_index(snapshot.containers);
-        let projects = project_index(&containers);
-        let images = image_index(snapshot.images);
-        let volumes = Arc::new(
-            snapshot
-                .volumes
-                .into_iter()
-                .map(|row| (row.name.clone(), row))
-                .collect(),
-        );
-        let networks = Arc::new(
-            snapshot
-                .networks
-                .into_iter()
-                .map(|row| (row.id.clone(), row))
-                .collect(),
-        );
+        let AppState {
+            containers,
+            compose_projects: projects,
+            images,
+            volumes,
+            networks,
+            ..
+        } = AppState::index_resources(snapshot);
         self.0.update(|state| {
             let containers_changed = replace(&mut state.containers, containers);
             let projects_changed = replace(&mut state.compose_projects, projects);

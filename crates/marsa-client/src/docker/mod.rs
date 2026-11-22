@@ -368,7 +368,13 @@ impl DockerClient {
         timeout(REQUEST_TIMEOUT, async {
             let socket = if self.inventory_only {
                 if method != Method::GET
-                    || !matches!(path, "/containers/json?all=true" | "/images/json?all=true")
+                    || !matches!(
+                        path,
+                        "/containers/json?all=true"
+                            | "/images/json?all=true"
+                            | "/volumes"
+                            | "/networks"
+                    )
                 {
                     return Err(DockerError::Socket(
                         std::io::ErrorKind::PermissionDenied.into(),
@@ -384,7 +390,7 @@ impl DockerClient {
                 .handshake(TokioIo::new(socket))
                 .await?;
             let task = stream::ConnectionTask::new(tokio::spawn(connection).abort_handle());
-            // These two inventory routes are available directly on the external daemon.
+            // These inventory routes are available directly on the external daemon.
             // The fixed Marsa API version may be newer than that daemon supports.
             let uri = if self.inventory_only {
                 path.to_owned()

@@ -83,6 +83,7 @@ pub(crate) struct ContainerView {
     locale: Locale,
     palette: Palette,
     state: AppState,
+    external_inventory: Option<Arc<crate::screens::external_inventory::ExternalWorkspace>>,
     input: Option<Entity<InputState>>,
     query: String,
     filter: StatusFilter,
@@ -91,7 +92,7 @@ pub(crate) struct ContainerView {
     tab: Tab,
     descending: bool,
     mode: list::ViewMode,
-    collapsed: BTreeSet<Option<String>>,
+    collapsed: BTreeSet<list::GroupKey>,
     command_pending: bool,
     connection_waited: bool,
     command_failed: bool,
@@ -150,6 +151,7 @@ impl ContainerView {
             state,
             input: None,
             query: String::new(),
+            external_inventory: None,
             filter: StatusFilter::All,
             selected: BTreeSet::new(),
             focused: None,
@@ -391,6 +393,15 @@ impl ContainerView {
             });
         })
         .detach();
+        cx.notify();
+    }
+
+    pub(crate) fn set_external_inventory(
+        &mut self,
+        inventory: Option<Arc<crate::screens::external_inventory::ExternalWorkspace>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.external_inventory = inventory;
         cx.notify();
     }
 

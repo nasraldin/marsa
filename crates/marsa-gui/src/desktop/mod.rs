@@ -76,6 +76,7 @@ pub(crate) struct Desktop {
     appearance_preference: Theme,
     accent: AccentColor,
     state: AppState,
+    external_inventory: Option<Arc<crate::screens::external_inventory::ExternalWorkspace>>,
     services: Option<Arc<Services>>,
     history: VecDeque<EngineState>,
     containers: Entity<ContainerView>,
@@ -113,6 +114,19 @@ impl Desktop {
         let _subscription = cx.observe(&system, |this, system, cx| {
             let preferences = system.read(cx).preferences();
             this.accent = system.read(cx).accent();
+            let inventory = system.read(cx).external_inventory();
+            let changed = match (this.external_inventory.as_ref(), inventory) {
+                (Some(previous), Some(current)) => !Arc::ptr_eq(previous, current),
+                (None, None) => false,
+                _ => true,
+            };
+            if changed {
+                this.external_inventory = inventory.cloned();
+                this.containers.update(cx, |view, cx| {
+                    view.set_external_inventory(this.external_inventory.clone(), cx);
+                });
+            }
+
             if this.onboarding.is_none()
                 && let Some((language, theme)) = preferences
             {
@@ -137,6 +151,7 @@ impl Desktop {
             }
             cx.notify();
         });
+        system.update(cx, |view, cx| view.refresh_external_inventory(cx));
         let mut state = AppState::default();
         let store = services.as_ref().map(|services| {
             let mut selection = services.store().select(|state| state.clone());
@@ -185,6 +200,7 @@ impl Desktop {
             appearance_preference: Theme::System,
             accent: AccentColor::MarsaBlue,
             state,
+            external_inventory: None,
             services,
             history: VecDeque::new(),
             containers,
@@ -224,7 +240,19 @@ impl Desktop {
         self.route = route;
         self.palette_open = false;
         self.palette_previous_focus = None;
-        self.system.update(cx, |view, cx| view.enter(route, cx));
+        self.system.update(cx, |view, cx| {
+            view.enter(route, cx);
+            if matches!(
+                route,
+                Route::Containers
+                    | Route::Images
+                    | Route::Volumes
+                    | Route::Networks
+                    | Route::Compose
+            ) {
+                view.refresh_external_inventory(cx);
+            }
+        });
         cx.notify();
     }
 
@@ -267,7 +295,8 @@ impl Render for Desktop {
             services: self.services.as_ref(),
         };
         let route = self.route;
-        let failed = matches!(route, Route::Containers | Route::Machine)
+        let failed = (route == Route::Machine
+            || route == Route::Containers && self.external_inventory.is_none())
             && self.engine() == Some(EngineState::Failed);
         let sidebar = sidebar::render(self, cx);
         let header = row(self.locale)
@@ -351,7 +380,14 @@ impl Render for Desktop {
                         Route::Networks => ResourceKind::Networks,
                         _ => ResourceKind::Compose,
                     };
-                    resources::render(&screen, kind, &self.resources, cx).into_any_element()
+                    resources::render(
+                        &screen,
+                        kind,
+                        &self.resources,
+                        self.external_inventory.as_deref(),
+                        cx,
+                    )
+                    .into_any_element()
                 }
                 _ => self.system.update(cx, |system, cx| {
                     system

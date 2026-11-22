@@ -191,6 +191,7 @@ pub(crate) fn render(
     screen: &ScreenContext<'_>,
     kind: ResourceKind,
     view: &Entity<ResourcesView>,
+    external: Option<&crate::screens::external_inventory::ExternalWorkspace>,
     cx: &App,
 ) -> Div {
     let data = view.read(cx);
@@ -256,7 +257,19 @@ pub(crate) fn render(
         );
     }
     let columns = Columns::for_kind(screen, kind);
-    let resources = rows::snapshot_rows(screen, kind, &data.volume_usage);
+    let mut resources = rows::snapshot_rows(screen, kind, &data.volume_usage);
+    if let Some(external) = external {
+        let foreign_screen = ScreenContext {
+            state: &external.state,
+            services: None,
+            ..*screen
+        };
+        resources.extend(
+            rows::snapshot_rows(&foreign_screen, kind, &BTreeMap::new())
+                .into_iter()
+                .map(|row| row.with_source(&external.source)),
+        );
+    }
     let selected = data
         .selection
         .as_ref()
@@ -290,6 +303,20 @@ pub(crate) fn render(
         .w_full()
         .gap(px(Space::S16.pixels()))
         .child(resource_toolbar);
+    if external.is_some_and(|engine| match kind {
+        ResourceKind::Volumes => !engine.volumes_available,
+        ResourceKind::Networks => !engine.networks_available,
+        _ => false,
+    }) {
+        content = content.child(text(
+            screen,
+            Role::Small,
+            message(
+                screen.locale,
+                gui::GUI_DESKTOP_EXTERNAL_RESOURCE_UNAVAILABLE,
+            ),
+        ));
+    }
     if data.reveal_selection {
         content = content.children(selected.map(|row| details(screen, kind, row, view, data)));
     }
@@ -300,6 +327,7 @@ pub(crate) fn render(
         &rows,
         view,
         selected.map(|row| row.key()),
+        external.is_some(),
     ));
     if kind == ResourceKind::Images {
         content = content.children(pull::render(
