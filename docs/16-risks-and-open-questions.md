@@ -29,6 +29,7 @@ These need a decision from a person. Agents must not decide them.
 | V-01 | The macOS spike reproduced incorrect visual caret and click placement in GPUI Arabic input. The other four criteria passed. See the [M1-01 report](spikes/M1-01-gpui-rtl.md). |
 | V-08 | A standard user on macOS 27.2.1 received `EACCES` on tested TCP and UDP loopback ports below 1024. Port 1024 succeeded for IPv4 and IPv6. See the [bind qualification](06-networking.md#macos-loopback-port-privilege). |
 | V-13 | GitHub-hosted Apple silicon runners do not support nested virtualization. Tier 2 requires separate hardware. Verified on 2026-11-21 against [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#limitations-for-arm64-macos-runners). |
+| V-16 | Verified identical SIL Open Font License 1.1 notices and exact release provenance for seven native IBM Plex font files. See the [font asset record](../assets/fonts/README.md). |
 
 ## Technical unknowns to verify
 
@@ -41,7 +42,6 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | V-09 | libkrun: current release, API, kernel requirements (own kernel or libkrunfw) | [04](04-virtualization-macos.md) | M11-02 |
 | V-10 | gpui-component's i18n and whether Fluent can coexist with it | [08](08-gui.md) | M6-04 |
 | V-11 | State of GPUI accessibility on macOS | [08](08-gui.md) | M6-08 |
-| V-16 | Licences of the fonts to bundle | [08](08-gui.md) | M6-02 |
 
 ### Verified findings
 
