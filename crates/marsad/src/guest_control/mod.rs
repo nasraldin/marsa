@@ -9,8 +9,9 @@ use std::{
 use marsa_proto::guest::{
     CONTROL_PORT, DEFER_ENGINE_START_MINOR, ProtocolError, negotiate,
     v1::{
-        CommandResult, CommandStatus, EgressStage, EngineHealth, HelloAck, PortEvent, SetTime,
-        TrimResult, VmStats, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
+        CommandResult, CommandStatus, ConfigureNetwork, EgressStage, EngineHealth, HelloAck,
+        PortEvent, SetTime, TrimResult, VmStats, guest_envelope::Body as GuestBody,
+        host_envelope::Body as HostBody,
     },
 };
 use marsa_vm::{Vm, VmError, async_trait};
@@ -188,17 +189,24 @@ impl GuestControl {
     async fn connect(
         &self,
         mut stream: marsa_vm::VsockStream,
-    ) -> Result<session::Session, GuestControlError> {
+        policy: Option<&ConfigureNetwork>,
+    ) -> io::Result<session::Session> {
         let message = wire::read(&mut stream).await?;
         let Some(GuestBody::Hello(hello)) = message.body else {
-            return Err(GuestControlError::Sequence("expected initial Hello"));
+            return Err(GuestControlError::Sequence("expected initial Hello").into());
         };
         let version = negotiate(
             hello
                 .protocol
-                .ok_or(ProtocolError::InvalidField("protocol"))?,
-        )?;
+                .ok_or(ProtocolError::InvalidField("protocol"))
+                .map_err(GuestControlError::from)?,
+        )
+        .map_err(GuestControlError::from)?;
         let deferred = version.minor >= DEFER_ENGINE_START_MINOR;
+        if policy.is_some() && !deferred {
+            // A legacy guest releases the engine when it accepts the clock.
+            return Err(io::ErrorKind::Unsupported.into());
+        }
         wire::write(
             &mut stream,
             &wire::encode(
@@ -228,14 +236,31 @@ impl GuestControl {
             )
             .await?;
         match response {
-            GuestResponse::Command(result) if result.status() == CommandStatus::Ok => Ok(session),
+            GuestResponse::Command(result) if result.status() == CommandStatus::Ok => (),
             GuestResponse::Command(result) => {
-                Err(GuestControlError::ClockRejected(result.status()))
+                return Err(GuestControlError::ClockRejected(result.status()).into());
             }
             GuestResponse::Trim(_) | GuestResponse::Egress(_) => {
-                Err(GuestControlError::Sequence("expected clock setup result"))
+                return Err(GuestControlError::Sequence("expected clock setup result").into());
             }
         }
+        if let Some(policy) = policy {
+            let response = session
+                .client
+                .request(
+                    HostBody::ConfigureNetwork(policy.clone()),
+                    HANDSHAKE_TIMEOUT,
+                )
+                .await?;
+            if !matches!(response, GuestResponse::Command(result) if result.status() == CommandStatus::Ok)
+            {
+                // The guest's reply text can include sensitive configuration.
+                return Err(
+                    GuestControlError::Sequence("guest rejected boot network policy").into(),
+                );
+            }
+        }
+        Ok(session)
     }
 }
 
@@ -246,10 +271,18 @@ impl GuestProbe for GuestControl {
     }
 
     async fn handshake(&self, vm: &dyn Vm) -> io::Result<Box<dyn GuestSession>> {
+        self.handshake_for_boot(vm, None).await
+    }
+
+    async fn handshake_for_boot(
+        &self,
+        vm: &dyn Vm,
+        policy: Option<&ConfigureNetwork>,
+    ) -> io::Result<Box<dyn GuestSession>> {
         let stream = timeout(self.agent_connect_timeout, wire::open(vm, CONTROL_PORT))
             .await
             .map_err(|_| GuestControlError::TimedOut("connecting to the guest agent"))??;
-        let mut session = timeout(HANDSHAKE_TIMEOUT, self.connect(stream))
+        let mut session = timeout(HANDSHAKE_TIMEOUT, self.connect(stream, policy))
             .await
             .map_err(|_| GuestControlError::TimedOut("negotiating the guest session"))??;
         if let Some(policy) = &self.bind_policy {

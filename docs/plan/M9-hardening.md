@@ -96,20 +96,49 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
   - `marsa diagnose` and the GUI action both produce the bundle and show its path.
   - Neither action uploads the bundle.
 
-### M9-08 Factory reset and clean uninstall
+### M9-08 Clean uninstall
+
+- **Status:** blocked (M4-04 and Q-08)
+- **Depends on:** M4-04, M9-18
+- **Docs:** [12 Uninstall](../12-build-release-update.md#uninstall), Q-08
+- **Do:** Implement and document the uninstall procedure, including the matching removal of optional Docker integration installed by M4-04. Verify the procedure on a clean machine.
+- **Deliver:** uninstall script or command and a clean-machine test.
+- **Accept when:**
+  - After uninstall, no Marsa file, launch agent, Docker context, symlink or PATH entry remains (verified by the test).
+
+### M9-17 Confirm and reset daemon settings
+
+- **Status:** done
+- **Depends on:** M3-08
+- **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [07 Integrity](../07-file-sharing-and-storage.md#integrity)
+- **Do:** Add owner-authenticated settings reset to `Engine.Reset`. Prepare a short-lived single-use confirmation bound to the current settings revision and private configuration member. After confirmation, atomically persist defaults and publish the settings revision.
+- **Deliver:** settings-only reset RPC and fixture tests.
+- **Accept when:**
+  - A valid confirmation resets settings without starting the engine or touching its disk or grants.
+  - Missing, expired, repeated and stale confirmations cannot apply a reset. Unsafe or substituted configuration members remain intact.
+  - Interrupted persistence leaves either the existing complete settings or the complete defaults.
+
+**Verification.** Tests use the authenticated Unix API and private fixture
+storage. They cover expiry, duplicate requests, revision changes and inode
+substitution. Killing the staging fixture after file sync and before rename
+preserved its original complete configuration. The following reset persisted
+the complete defaults.
+
+### M9-18 Recover private storage with confirmed factory reset
 
 - **Status:** todo
-- **Depends on:** M4-07, M4-04
+- **Depends on:** M9-17, M4-07, M8-01
 - **Docs:** [07 Integrity](../07-file-sharing-and-storage.md#integrity), [12 Uninstall](../12-build-release-update.md#uninstall)
-- **Do:** Implement `Engine.Reset` (settings only, or factory: delete and recreate the data disk, clear grants) behind a confirmation token. Implement and document the uninstall procedure, and an automated check that nothing is left behind.
-- **Deliver:** reset implementation, uninstall script or command, a clean-machine test.
+- **Do:** Implement factory preparation and confirmation in `Engine.Reset`. Quiesce activation and permission writes, recreate the data disk, clear grants and reset settings. Recover any interrupted transaction on daemon restart.
+- **Deliver:** factory reset, recovery logic and private storage fault-injection tests.
 - **Accept when:**
   - Factory reset works even when the engine cannot start.
-  - After uninstall, no Marsa file, launch agent, Docker context, symlink or PATH entry remains (verified by the test).
+  - The confirmed reset recreates the data disk, clears grants and restores settings defaults. Unconfirmed or stale requests leave all three intact.
+  - After interruption the daemon either restores the prior disk, grants and settings together or completes the confirmed reset before serving requests. Unrelated files remain intact.
 
 ### M9-09 Data-disk versioning and upgrade path
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-07
 - **Docs:** [05 Versioning and upgrades](../05-guest-image.md#versioning-and-upgrades)
 - **Do:** Add the data-disk schema version, the refusal to start on a newer schema with a clear host-side message, and the upgrade test: a data disk produced by the previous release must work with the new guest image.

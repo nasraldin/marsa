@@ -117,7 +117,13 @@ async fn docker_unavailability_includes_a_localized_error() {
         let home = TempDir::new_in("/tmp").unwrap();
         let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
         let mut daemon = Daemon(start(home.path()).env("LC_ALL", locale).spawn().unwrap());
-        wait_for_meta(&mut daemon, paths.daemon_socket()).await;
+        // A successful RPC, rather than the transport handshake, observes the
+        // daemon after both local endpoints have been published.
+        wait_for_meta(&mut daemon, paths.daemon_socket())
+            .await
+            .version(VersionRequest {})
+            .await
+            .unwrap();
         let mut docker = UnixStream::connect(paths.docker_socket()).await.unwrap();
         docker
             .write_all(b"GET /_ping HTTP/1.1\r\nHost: docker\r\n\r\n")
@@ -399,11 +405,14 @@ async fn pinned_cli_sees_the_context_and_retains_user_selection() {
     let app = home.path().join("Marsa.app");
     let binary = app.join("Contents/MacOS/marsad");
     let packaged_cli = app.join("Contents/Resources/bin/docker");
+    let helper_name = "docker-credential-osxkeychain";
+    let packaged_helper = packaged_cli.with_file_name(helper_name);
     for path in [&binary, &packaged_cli] {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
     }
     fs::copy(env!("CARGO_BIN_EXE_marsad"), &binary).unwrap();
     fs::copy(&cli, &packaged_cli).unwrap();
+    fs::copy(cli.with_file_name(helper_name), &packaged_helper).unwrap();
     fs::write(
         app.join("Contents/Info.plist"),
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -427,6 +436,7 @@ async fn pinned_cli_sees_the_context_and_retains_user_selection() {
         );
     };
     sign(&packaged_cli);
+    sign(&packaged_helper);
     sign(&app);
     let mut daemon = Daemon(
         Command::new("/bin/sh")
@@ -523,7 +533,45 @@ async fn pinned_cli_sees_the_context_and_retains_user_selection() {
         "marsa"
     );
     assert_eq!(run(&["context", "inspect", "unrelated"]), unrelated);
-    assert_eq!(fs::read(config_file).unwrap(), original);
+    assert_eq!(fs::read(&config_file).unwrap(), original);
+    let enable = |id| marsa_proto::host::v1::EnableRegistryKeychainRequest {
+        request_id: format!("39000000-0000-4000-8000-{id:012}"),
+    };
+    let existing = discovery
+        .enable_registry_keychain(enable(1))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!existing.configured);
+    assert_eq!(fs::read(&config_file).unwrap(), original);
+    fs::write(&config_file, r#"{"currentContext":"unrelated"}"#).unwrap();
+    let updated = discovery
+        .enable_registry_keychain(enable(2))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(updated.configured);
+    assert_eq!(
+        discovery
+            .enable_registry_keychain(enable(2))
+            .await
+            .unwrap()
+            .into_inner(),
+        updated
+    );
+    assert_eq!(mode(config_file), 0o600);
+    let keychain = Command::new("python3")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/packaged_runtime/keychain.py"))
+        .arg(packaged_cli.parent().unwrap())
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(
+        keychain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&keychain.stderr)
+    );
+    eprintln!("{}", String::from_utf8(keychain.stdout).unwrap().trim());
     assert!(!home.path().join(".docker").exists());
     assert!(!paths.data_disk().exists());
     daemon.terminate().await;

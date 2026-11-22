@@ -56,7 +56,7 @@ pub(super) fn run() -> Result<(), DaemonError> {
         let docker = tokio::net::UnixListener::from_std(docker)?;
         let agent = tokio::net::UnixListener::from_std(agent)?;
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        let api = configure_packaged_runtime(api, paths, uid, vm_settings, &home)?;
+        let api = configure_packaged_runtime(api, paths, uid, vm_settings, &home).await?;
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
         serve(socket, docker, agent, api, uid, signals).await
     });
@@ -68,7 +68,7 @@ pub(super) fn run() -> Result<(), DaemonError> {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-fn configure_packaged_runtime(
+async fn configure_packaged_runtime(
     api: TypedApi,
     paths: MarsaPaths,
     uid: u32,
@@ -82,10 +82,13 @@ fn configure_packaged_runtime(
     };
     let package = std::sync::Arc::new(package);
     let docker_bundle = package.clone();
+    let keychain_bundle = package.clone();
     let docker_config = std::env::var_os("DOCKER_CONFIG")
         .filter(|override_path| !override_path.is_empty())
         .map_or_else(|| home.join(".docker"), std::path::PathBuf::from);
-    let api = api.with_docker_contexts(docker_config, move || docker_bundle.docker_cli());
+    let api = api
+        .with_docker_contexts(docker_config, move || docker_bundle.docker_cli())
+        .with_registry_keychain(move || keychain_bundle.verify_registry_keychain());
     let config = SupervisorConfig {
         // A fresh default disk can spend about 26 seconds in the guest blank
         // check and initialization before DHCP and the control agent start.
@@ -97,12 +100,13 @@ fn configure_packaged_runtime(
         initial_backoff: Duration::from_secs(1),
         maximum_backoff: Duration::from_secs(4),
     };
-    Ok(api.with_packaged_runtime(
+    api.with_packaged_runtime(
         package.capabilities(),
         GuestControl::default().with_agent_connect_timeout(Duration::from_secs(50)),
         config,
         move |desired, policy| package.prepare(&paths, uid, desired, policy),
-    ))
+    )
+    .await
 }
 
 fn require_unprivileged() -> io::Result<Uid> {

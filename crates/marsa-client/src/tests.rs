@@ -139,6 +139,15 @@ impl docker_discovery_server::DockerDiscovery for FixtureDocker {
     ) -> Result<Response<EnsureDockerContextResponse>, Status> {
         Err(Status::unimplemented("fixture"))
     }
+
+    async fn enable_registry_keychain(
+        &self,
+        _: Request<marsa_proto::host::v1::EnableRegistryKeychainRequest>,
+    ) -> Result<Response<marsa_proto::host::v1::EnableRegistryKeychainResponse>, Status> {
+        Ok(Response::new(
+            marsa_proto::host::v1::EnableRegistryKeychainResponse { configured: true },
+        ))
+    }
 }
 
 #[derive(Clone, Copy)]

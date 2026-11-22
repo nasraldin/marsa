@@ -1,13 +1,8 @@
 //! Validate a complete replacement and publish its revision after atomic persistence.
 
-use std::{
-    fs::{self, OpenOptions},
-    io::{self, Write},
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
-    path::Path,
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
+
+pub(super) mod storage;
 
 use marsa_core::settings::Settings as Document;
 use marsa_proto::host::v1::{
@@ -15,10 +10,10 @@ use marsa_proto::host::v1::{
     settings_server::Settings,
 };
 use marsa_share::{Allowlist, SharePolicy};
-use nix::fcntl::OFlag;
 use tonic::{Request, Response, Status};
 
 use super::{TypedApi, events::Output};
+use storage::{PreparedConfig, WriteError};
 
 #[tonic::async_trait]
 impl Settings for TypedApi {
@@ -93,6 +88,28 @@ impl TypedApi {
         expected: Option<u64>,
         edit: impl FnOnce(&mut Document, &SharePolicy) -> Result<T, Status> + Send + 'static,
     ) -> Result<(SettingsSnapshot, T), Status> {
+        self.apply_settings(expected, None, edit).await
+    }
+
+    pub(super) async fn reset_settings(
+        &self,
+        revision: u64,
+        prepared: PreparedConfig,
+    ) -> Result<(), Status> {
+        self.apply_settings(Some(revision), Some(prepared), |settings, _| {
+            *settings = Document::default();
+            Ok(())
+        })
+        .await?;
+        Ok(())
+    }
+
+    async fn apply_settings<T: Send + 'static>(
+        &self,
+        expected: Option<u64>,
+        prepared: Option<PreparedConfig>,
+        edit: impl FnOnce(&mut Document, &SharePolicy) -> Result<T, Status> + Send + 'static,
+    ) -> Result<(SettingsSnapshot, T), Status> {
         let _update = self.inner.edit.lock().await;
         let (prior, once) = self.inner.events.boot_configuration();
         let snapshot = self.inner.events.settings_snapshot();
@@ -105,13 +122,13 @@ impl TypedApi {
             .revision
             .checked_add(1)
             .ok_or_else(|| Status::resource_exhausted("settings revisions are exhausted"))?;
-        let path = self.inner.paths.config_file();
+        let root = self.inner.paths.root().to_owned();
         let uid = self.inner.uid;
         let policy = self.inner.share_policy.clone();
         let (updated, result) = tokio::task::spawn_blocking(move || {
             let mut settings = prior.clone();
             let result = edit(&mut settings, &policy)?;
-            if prior == settings {
+            if prior == settings && prepared.is_none() {
                 return Ok((None, result));
             }
             if settings.shares != prior.shares {
@@ -124,10 +141,15 @@ impl TypedApi {
             let text = settings
                 .to_toml()
                 .map_err(|error| Status::invalid_argument(error.to_string()))?;
-            persist(&path, uid, &text).map_err(|error| {
-                tracing::warn!(kind = ?error.kind(), "could not store settings");
-                Status::internal("could not store settings")
-            })?;
+            storage::persist(&root, uid, &text, prepared.as_ref()).map_err(
+                |error| match error {
+                    WriteError::Changed => Status::aborted(error.to_string()),
+                    WriteError::Io(error) => {
+                        tracing::warn!(kind = ?error.kind(), "could not store settings");
+                        Status::internal("could not store settings")
+                    }
+                },
+            )?;
             let idle_changed = prior.vm.idle_stop != settings.vm.idle_stop
                 || prior.vm.idle_timeout != settings.vm.idle_timeout;
             Ok::<_, Status>((Some((settings, text, idle_changed)), result))
@@ -154,35 +176,4 @@ impl TypedApi {
             .update_settings(settings, text, next, idle_applied);
         Ok((snapshot, result))
     }
-}
-
-fn persist(path: &Path, uid: u32, text: &str) -> io::Result<()> {
-    let directory = path
-        .parent()
-        .ok_or_else(|| io::Error::other("settings have no parent directory"))?;
-    let directory_fd = OpenOptions::new()
-        .read(true)
-        .custom_flags((OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW).bits())
-        .open(directory)?;
-    if directory_fd.metadata()?.uid() != uid {
-        return Err(io::ErrorKind::PermissionDenied.into());
-    }
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() && metadata.uid() == uid && metadata.nlink() == 1 => (),
-        Ok(_) => return Err(io::ErrorKind::PermissionDenied.into()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => (),
-        Err(error) => return Err(error),
-    }
-    // The owner-only staging file is created alongside the destination so the
-    // replacement is an atomic rename on the same filesystem.
-    let mut file = tempfile::NamedTempFile::new_in(directory)?;
-    file.write_all(text.as_bytes())?;
-    file.as_file().sync_all()?;
-    file.persist(path)?;
-    // The rename committed in the running daemon even if the directory sync
-    // reports a durability issue. Publish the same settings visible on disk.
-    if let Err(error) = directory_fd.sync_all() {
-        tracing::warn!(kind = ?error.kind(), "settings directory sync failed");
-    }
-    Ok(())
 }
