@@ -22,18 +22,17 @@ Before starting, verify the current MCP specification version and the maintained
 
 ### M8-02 `AgentOps` service and approval queue
 
-- **Status:** done
+- **Status:** in progress
 - **Depends on:** M8-01, M4-02
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [10 Approval flow](../10-mcp-server.md#approval-flow)
-- **Do:** Implement the daemon's `AgentOps` and `Agents` services. Bind execution to a daemon-issued agent session and limit that session to agent operations. Trusted local owner clients register sessions and approve or deny requests. Queue immutable requests with full details, notify through daemon events, and expire unanswered requests. Implement engine status and exact-ID container stop as the first read and operate actions. Reject operations without a validated handler.
-- **Deliver:** both services and integration tests using the fake backend and fake engine.
+- **Do:** Implement read-only engine status on the daemon-issued restricted agent session. Implement owner registration and decisions over the separate trusted local socket. Queue immutable approval documents, publish updates and expire unanswered requests. Refuse container mutations before queuing.
+- **Deliver:** both services, owner-decision tests and fake runtime tests for scoped reads and unsupported writes.
 - **Accept when:**
-  - A call needing approval blocks until approved, denied or timed out, and returns a structured result in each case.
-  - Approving a request executes the exact immutable operation shown in the prompt.
+  - An internal immutable approval fixture waits for owner approval, denial or expiry. The queue resolves the same immutable request shown to the owner.
   - An agent session cannot approve its own requests or impersonate another client or project.
-  - Requests for operations that can create bind mounts are refused until M8-10 adds both policies.
+  - Even an exact-ID stop or a bind-capable mutation cannot reach a running Docker engine or create an approval.
 
-The active filesystem grants used to enforce binds are supplied by M4-06. M8-10 owns that integration and its real mount acceptance. MCP transport and additional tools are implemented by M8-04 through M8-06.
+M8-10 owns bind preparation and active host share policy checks. Operate tools require a provider that binds a mutation to the same container identity the owner reviewed. Moby's stop endpoint performs a fresh ID-or-name lookup, so a preceding inspect cannot supply that guarantee.
 
 ### M8-03 Audit log
 
