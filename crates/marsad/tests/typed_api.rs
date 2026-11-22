@@ -825,3 +825,6 @@ async fn next_log(
 }
 #[path = "typed_api/settings_reset.rs"]
 mod settings_reset;
+
+#[path = "typed_api/factory_reset.rs"]
+mod factory_reset;

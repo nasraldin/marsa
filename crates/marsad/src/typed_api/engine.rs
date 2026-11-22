@@ -32,6 +32,7 @@ impl TypedApi {
         action: Action,
     ) -> Result<Response<EngineStatus>, Status> {
         let request = self.authorize(request)?;
+        self.inner.factory_reset.read()?;
         let api = self.clone();
         let status = self
             .inner
@@ -157,7 +158,7 @@ fn bounded(text: &str) -> String {
     text[..text.floor_char_boundary(text.len().min(8192))].to_owned()
 }
 
-fn supervisor_status(error: SupervisorError) -> Status {
+pub(super) fn supervisor_status(error: SupervisorError) -> Status {
     match error {
         SupervisorError::Busy => Status::resource_exhausted(error.to_string()),
         SupervisorError::InvalidState { .. } => Status::failed_precondition(error.to_string()),
