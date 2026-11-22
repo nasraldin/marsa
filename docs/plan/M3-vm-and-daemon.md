@@ -146,11 +146,12 @@ Run the strict test on Apple silicon with
 
 G3 still requires the clean second physical Apple silicon boot. Apple's
 `VZGenericPlatformConfiguration.isNestedVirtualizationSupported` returned
-`false` on the M1 Max host. A fresh Tart guest was restored from Apple's macOS 27.2.1 image and
-started for install and Gatekeeper qualification. The guest test awaits
-first-run setup. The Linux VM boot inside that guest is outside the
-host's capabilities. Project custody and update-key ownership
-remain tracked by Q-04. [Tart nested virtualization support](https://tart.run/faq/#nested-virtualization-support).
+`false` on the M1 Max host. In a fresh Tart guest restored from Apple's macOS
+27.2.1 image, the operator verified assigned IPv4, a responding default gateway,
+and HTTPS by IP and DNS name. The ZIP checksum passed, Gatekeeper accepted the
+app with a test quarantine marker, and first launch created the daemon socket.
+The Linux VM boot inside that guest is outside the host's capabilities.
+Project custody and update-key ownership remain tracked by Q-04. [Tart nested virtualization support](https://tart.run/faq/#nested-virtualization-support).
 
 ### M3-11 Power and network watcher
 
@@ -242,3 +243,23 @@ remain tracked by Q-04. [Tart nested virtualization support](https://tart.run/fa
   - Ordinary start, stop, restart, pause, resume, and Docker connection requests return busy while maintenance is reserved.
   - The holder can stop or cancel the current boot, then start a candidate with no automatic retry. An unfinished candidate is cleaned up before the permit releases its reservation.
   - Cancellation of a waiting reservation and release of a held permit leave ordinary admission usable.
+
+### M3-18 Automate Tart qualification for signed macOS builds
+
+- **Status:** done
+- **Depends on:** M3-12, M3-14
+- **Docs:** [12 Signing and clean-Mac handoff](../12-build-release-update.md#signing-and-clean-mac-handoff)
+- **Do:** Run the signed qualification build's network, Gatekeeper and first-launch checks from the host through Tart Guest Agent on a disposable macOS 27 or newer guest.
+- **Deliver:** A host runner, a reusable guest script, a dedicated graphical viewer setup and exact qualification instructions.
+- **Accept when:**
+  - The test validates guest IPv4, gateway reachability and direct and DNS-based HTTPS without changing host controls.
+  - The guest verifies the ZIP against the host's trusted digest, checks the signature and enabled Gatekeeper with a test quarantine marker, then launches with a clean Marsa home and observes the daemon socket becoming ready.
+  - An agent-enabled macOS 27 guest completes the checks from the host without manual input inside the VM.
+- **Evidence:** Tart 2.42.0 and Guest Agent 0.15.0 ran the checks on a fresh Apple
+  macOS 27.2.1 restore using the verified user-space attachment with NordVPN and
+  the host firewall enabled. IPv4, gateway reachability, both HTTPS probes, the
+  archive digest, the code signature and Gatekeeper passed. A uniquely
+  identified Tart viewer resolved the window targeting timeout while CI kept
+  running. The agent selected Open in macOS's normal first-open dialog and the
+  runner confirmed daemon readiness. A separate guest check verified the
+  daemon socket existed with mode `0600` and Gatekeeper remained enabled.

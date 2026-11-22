@@ -221,6 +221,56 @@ scoped signing and notarization configuration.
 · [Apple notarization authentication](https://developer.apple.com/documentation/technotes/tn3147-migrating-to-the-latest-notarization-tool)
 · [Apple distribution testing](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution).
 
+### Automated Tart qualification
+
+Prepare a disposable Tart guest from an Apple macOS 27 or newer restore image.
+Keep Apple's default security settings and a fresh desktop account
+automatically logged in. Install a verified Tart Guest Agent release as an
+unprivileged launchd agent for that account with `--run-rpc`. Use the resulting
+guest as the baseline for disposable clones. The upstream Golden Gate CI
+template disables Gatekeeper, so use the Apple restore baseline for release
+qualification.
+
+Keep the host VPN and firewall in their target configuration. Attach the
+trusted signed M3-10 qualification ZIP through a read-only guest volume.
+
+From the host, with Tart and Python 3.11 or later:
+
+```sh
+python3 packaging/macos/check-tart-qualification.py \
+  marsa-qualification /path/to/Marsa-VM-Qualification.zip
+```
+
+The default guest archive path is
+`/Volumes/Marsa Qualification/Marsa-VM-Qualification.zip`. Use
+`--guest-archive` for another read-only volume path. The runner uses `tart exec`
+to check IPv4, the gateway and HTTPS, verify the guest ZIP against the host's
+SHA-256, assess the app with a test quarantine marker, and wait for the daemon
+socket after first launch. Use a fresh clone for the full run because launch
+creates Marsa state in the guest account. Keep the graphical Tart window visible
+so the agent can confirm the standard macOS first-open prompt for the verified
+Marsa app. Use `--assessment-only` for a headless run that ends after assessment.
+
+If native window automation times out while other Tart processes are running,
+give the qualification window a dedicated app identity. Create the local
+viewer from an installed, verified Tart app into a private directory:
+
+```sh
+viewer=$(bash packaging/macos/prepare-tart-window.sh \
+  "/path/to/installed/Tart.app" "/path/to/private/Marsa Tart Qualification.app")
+```
+
+Use `"$viewer"` for the qualification VM's `run` command with the existing
+`--net-fd` and read-only volume arguments. Address the resulting window by
+bundle identifier `io.github.nasraldin.marsa.tart-qualification-viewer`.
+The local viewer uses ad hoc signing with only Apple's virtualization
+entitlement. The host runner still uses the installed Tart CLI for `exec`.
+
+G3 additionally requires the second physical Mac boot, and app release
+qualification includes downloading the DMG through a browser with quarantine
+preserved. [Tart Guest Agent](https://github.com/openai/tart-guest-agent)
+· [Golden Gate CI image template](https://github.com/cirruslabs/macos-image-templates/blob/main/templates/vanilla-golden-gate.pkr.hcl).
+
 ## Distribution channels
 
 | Channel | Status |
