@@ -114,8 +114,21 @@ async fn packaged_bind_approval_limits_access_to_the_explicit_vm_session() {
             .len(),
         2
     );
+    fs::remove_file(requested.join("created-from-guest")).unwrap();
     assert_eq!(
-        timeout(WAIT, engine.stop(action(7)))
+        timeout(BOOT, engine.restart(action(7)))
+            .await
+            .unwrap()
+            .unwrap()
+            .into_inner()
+            .state(),
+        EngineState::Ready,
+    );
+    docker(&root, &paths, "allow", &requested).await;
+    assert_owner(&requested);
+    docker(&root, &paths, "guest-socket", &requested).await;
+    assert_eq!(
+        timeout(WAIT, engine.stop(action(8)))
             .await
             .unwrap()
             .unwrap()

@@ -10,6 +10,7 @@ use std::{
 };
 
 use marsa_core::{
+    guest_boot::PACKAGED_BOOT_ARGS,
     guest_manifest::GuestManifest,
     paths::MarsaPaths,
     settings::{NetworkMode, ProxySettings, Settings, VmBackend},
@@ -30,8 +31,6 @@ const MIB: u64 = 1024 * 1024;
 // Bound work on broken bundles well above the size of the shipped kernel and root image.
 const MAX_KERNEL_BYTES: u64 = 64 * MIB;
 const MAX_ROOTFS_BYTES: u64 = 1024 * MIB;
-const BOOT_ARGS: &str =
-    "console=hvc0 root=/dev/vda rootfstype=erofs ro init=/usr/bin/marsa-init panic=-1";
 
 /// Runtime resources anchored to the canonical running executable.
 pub(super) struct Packaged {
@@ -121,7 +120,7 @@ impl Packaged {
             memory_bytes,
             kernel,
             initramfs: None,
-            cmdline: BOOT_ARGS.into(),
+            cmdline: PACKAGED_BOOT_ARGS.into(),
             root_disk: DiskSpec {
                 path: root_disk,
                 read_only: true,

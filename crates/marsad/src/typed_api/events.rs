@@ -153,23 +153,13 @@ impl Bus {
         (state.settings.clone(), state.once_staged.clone())
     }
 
-    pub(super) fn stage_once(&self, paths: Vec<PathBuf>) -> Result<(), Status> {
+    pub(super) fn stage_once(&self, paths: Vec<PathBuf>) {
         let mut state = self.lock();
-        let mut pending = state.once_staged.clone();
         for path in paths {
-            if !pending.contains(&path) && !state.settings.shares.contains(&path) {
-                pending.push(path);
+            if !state.once_staged.contains(&path) && !state.settings.shares.contains(&path) {
+                state.once_staged.push(path);
             }
         }
-        if state.settings.shares.len() + pending.len() > marsa_core::guest_boot::MAX_SHARES {
-            return Err(Status::resource_exhausted(super::bind_policy::shown(
-                state.settings.ui.language,
-                "The VM can attach at most 16 shared folders.",
-                "يمكن للآلة الافتراضية وصل ١٦ مجلدًا مشتركًا على الأكثر.",
-            )));
-        }
-        state.once_staged = pending;
-        Ok(())
     }
 
     pub(super) fn activate_binds(&self, mounted: Arc<marsa_share::Allowlist>, paths: &[PathBuf]) {

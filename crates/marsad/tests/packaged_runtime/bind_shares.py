@@ -35,6 +35,11 @@ def main(scratch, socket, rootfs, mode, source):
         subprocess.run([*docker, "build", "-t", image, str(context)], check=True,
                        env=env, timeout=60)
         return
+    if mode == "guest-socket":
+        subprocess.run([*docker, "run", "--rm", "-v", "/var/run/docker.sock:/dev/engine.sock",
+                        image, "/bin/busybox", "test", "-S", "/dev/engine.sock"],
+                       check=True, env=env, timeout=30)
+        return
     assert mode in ("allow", "deny")
     result = subprocess.run(
         [*docker, "run", "--rm", "--user", "12345:12345", "-v", f"{source}:/fixture",

@@ -1,13 +1,14 @@
 //! Manage explicitly configured shares through the same atomic settings revision.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use marsa_core::settings::Language;
 use marsa_proto::host::v1::{
     AddShareRequest, BindApprovalDecision, ListSharesRequest, ListSharesResponse,
     RemoveShareRequest, RemoveShareResponse, ResolveBindRequest, ResolveBindResponse, Share,
     shares_server::Shares,
 };
-use marsa_share::{Allowlist, ShareError};
+use marsa_share::{Allowlist, ShareError, SharePolicy};
 use tonic::{Request, Response, Status};
 
 use super::TypedApi;
@@ -126,13 +127,24 @@ impl Shares for TypedApi {
                         BindApprovalDecision::Deny => false,
                         BindApprovalDecision::Once => {
                             let _config = api.inner.edit.lock().await;
+                            let (settings, staged) = api.inner.events.boot_configuration();
+                            let policy = api.inner.share_policy.clone();
                             let paths = tokio::task::spawn_blocking(move || {
                                 approval.verify_roots().map_err(policy_status)?;
+                                validate_boot_roots(
+                                    &policy,
+                                    settings
+                                        .shares
+                                        .iter()
+                                        .chain(&staged)
+                                        .chain(approval.roots()),
+                                    settings.ui.language,
+                                )?;
                                 Ok::<_, Status>(approval.roots().to_vec())
                             })
                             .await
                             .map_err(|_| Status::internal("share policy worker stopped"))??;
-                            api.inner.events.stage_once(paths)?;
+                            api.inner.events.stage_once(paths);
                             true
                         }
                         BindApprovalDecision::Persist => {
@@ -164,6 +176,30 @@ impl Shares for TypedApi {
     }
 }
 
+pub(super) fn validate_boot_roots<'a>(
+    policy: &SharePolicy,
+    roots: impl Iterator<Item = &'a PathBuf>,
+    language: Language,
+) -> Result<(), Status> {
+    let configured: Vec<_> = roots.collect();
+    let allowlist = Allowlist::from_paths(policy.clone(), &configured).map_err(policy_status)?;
+    if allowlist
+        .roots()
+        .iter()
+        .any(|root| !configured.contains(&root))
+    {
+        return Err(policy_status(ShareError::InvalidPath));
+    }
+    allowlist.guest_roots().map_err(|_| {
+        Status::failed_precondition(super::bind_policy::shown(
+            language,
+            "The shared folders exceed the supported guest location, count or path length.",
+            "تتجاوز المجلدات المشتركة حدود المواقع أو العدد أو طول المسار التي يدعمها الضيف.",
+        ))
+    })?;
+    Ok(())
+}
+
 fn wire_share(path: &Path) -> Result<Share, Status> {
     let host_path = path
         .to_str()
@@ -182,7 +218,9 @@ pub(super) fn policy_status(error: ShareError) -> Status {
         ShareError::InvalidPath | ShareError::NotDirectory | ShareError::UnsupportedSource => {
             tonic::Code::InvalidArgument
         }
-        ShareError::Resolve(_) | ShareError::Protection(_) => tonic::Code::FailedPrecondition,
+        ShareError::Resolve(_) | ShareError::Protection(_) | ShareError::GuestLayout => {
+            tonic::Code::FailedPrecondition
+        }
         ShareError::Protected | ShareError::NotAllowed => tonic::Code::PermissionDenied,
     };
     Status::new(code, error.to_string())

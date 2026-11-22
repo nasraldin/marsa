@@ -55,6 +55,9 @@ pub enum ShareError {
     /// The bind source is outside all approved roots.
     #[error("the host path is outside the shared folders")]
     NotAllowed,
+    /// The selected directories cannot all be attached at guest boot.
+    #[error("shared folders exceed the packaged guest's location, count or path length limits")]
+    GuestLayout,
 }
 
 /// System-defined protection rules for a user and the daemon's writable state.
@@ -207,6 +210,34 @@ impl Allowlist {
     /// The canonical approved directories. Revalidate before attaching a filesystem share.
     pub fn roots(&self) -> &[PathBuf] {
         &self.roots
+    }
+
+    /// Validate and return the minimum mount set needed in the packaged VM.
+    pub fn guest_roots(&self) -> Result<Vec<&PathBuf>, ShareError> {
+        use marsa_core::guest_boot::{
+            ARM64_CMDLINE_BYTES, PACKAGED_BOOT_ARGS, Settings, append_share_arg,
+        };
+
+        let roots: Vec<_> = self
+            .roots
+            .iter()
+            .filter(|path| {
+                !self
+                    .roots
+                    .iter()
+                    .any(|other| *path != other && path.starts_with(other))
+            })
+            .collect();
+        let mut args = PACKAGED_BOOT_ARGS.to_owned();
+        for (index, path) in roots.iter().enumerate() {
+            append_share_arg(&mut args, &format!("marsa-share-{index}"), path)
+                .map_err(|_| ShareError::GuestLayout)?;
+            if args.len() >= ARM64_CMDLINE_BYTES {
+                return Err(ShareError::GuestLayout);
+            }
+        }
+        Settings::parse(&args).map_err(|_| ShareError::GuestLayout)?;
+        Ok(roots)
     }
 
     /// Reject approval if any recorded directory has moved, changed identity or become protected.

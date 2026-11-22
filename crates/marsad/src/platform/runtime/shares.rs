@@ -6,25 +6,22 @@ use marsa_share::{Allowlist, ShareError, SharePolicy};
 use marsa_vm::ShareSpec;
 
 pub(super) fn configured(policy: &SharePolicy, granted: &[PathBuf]) -> io::Result<Vec<ShareSpec>> {
-    let allowlist = Allowlist::from_paths(policy.clone(), granted).map_err(|error| {
+    let input_error = |error| {
         let kind = if matches!(error, ShareError::Protected) {
             io::ErrorKind::PermissionDenied
         } else {
             io::ErrorKind::InvalidInput
         };
         io::Error::new(kind, error)
-    })?;
-    // Existing settings describe writable directory grants. For nested
-    // grants, the parent already authorizes the same subtree.
+    };
+    let allowlist = Allowlist::from_paths(policy.clone(), granted).map_err(input_error)?;
+    if allowlist.roots().iter().any(|path| !granted.contains(path)) {
+        return Err(input_error(ShareError::InvalidPath));
+    }
     Ok(allowlist
-        .roots()
-        .iter()
-        .filter(|path| {
-            !allowlist
-                .roots()
-                .iter()
-                .any(|other| *path != other && path.starts_with(other))
-        })
+        .guest_roots()
+        .map_err(input_error)?
+        .into_iter()
         .enumerate()
         .map(|(index, path)| ShareSpec {
             tag: format!("marsa-share-{index}"),
@@ -47,7 +44,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let paths = MarsaPaths::from_home(home.path()).unwrap();
         let policy = SharePolicy::new(home.path(), &paths).unwrap();
-        let project = home.path().join("project");
+        let project = home.path().canonicalize().unwrap().join("project");
         let nested = project.join("nested");
         let credentials = home.path().join(".ssh");
         fs::create_dir_all(&nested).unwrap();
