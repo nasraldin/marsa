@@ -147,7 +147,15 @@ async fn recovers_stale_socket_and_pid_after_an_unclean_exit() {
     let home = TempDir::new_in("/tmp").unwrap();
     let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
     let mut first = Daemon(start(home.path()).spawn().unwrap());
-    wait_for_meta(&mut first, paths.daemon_socket()).await;
+    wait_for_meta(&mut first, paths.daemon_socket())
+        .await
+        .version(VersionRequest {})
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(paths.daemon_pid_file()).unwrap().trim(),
+        first.0.id().to_string()
+    );
     first.0.kill().unwrap();
     first.0.wait().unwrap();
     assert!(paths.daemon_socket().exists());

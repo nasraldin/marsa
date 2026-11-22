@@ -230,7 +230,7 @@ The [hosted fuzz run](https://github.com/nasraldin/marsa/actions/runs/4497425906
 
 ### M9-19 Synchronize the crash-recovery test with daemon readiness
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M9-06
 - **Docs:** [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
 - **Do:** Synchronize crash injection with an authenticated daemon RPC. A transport handshake can complete while PID-file publication is still in progress.
@@ -238,3 +238,5 @@ The [hosted fuzz run](https://github.com/nasraldin/marsa/actions/runs/4497425906
 - **Accept when:**
   - The test proves the first process published its PID before injecting SIGKILL and verifies recovery by the replacement process.
   - Repeated execution and the daemon lifecycle test suite pass on the standard user account.
+
+**Evidence.** The complete lifecycle test passed and the corrected crash case passed 24 consecutive runs on Apple silicon.
