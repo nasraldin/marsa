@@ -8,7 +8,8 @@ import subprocess
 
 
 TRANSFER_ARCHIVE = "/Volumes/Marsa Qualification/Marsa-VM-Qualification.zip"
-SUCCESS = "Marsa first launch: daemon socket ready"
+ASSESSMENT_PASSED = "Marsa Gatekeeper assessment: accepted with a test quarantine marker"
+LAUNCH_PASSED = "Marsa first launch: daemon socket ready"
 
 
 def main() -> None:
@@ -16,6 +17,7 @@ def main() -> None:
     parser.add_argument("vm", help="running Tart VM with Guest Agent")
     parser.add_argument("host_archive", type=Path, help="trusted notarized ZIP on the host")
     parser.add_argument("--guest-archive", default=TRANSFER_ARCHIVE, help="ZIP path in the guest")
+    parser.add_argument("--assessment-only", action="store_true", help="check networking, signature and Gatekeeper")
     args = parser.parse_args()
     if not PurePosixPath(args.guest_archive).is_absolute():
         parser.error("--guest-archive must be an absolute path")
@@ -24,8 +26,12 @@ def main() -> None:
         with args.host_archive.open("rb") as archive:
             checksum = hashlib.file_digest(archive, "sha256").hexdigest()
         script = Path(__file__).with_name("check-qualification-guest.sh").read_text(encoding="utf-8")
+        mode = "assess" if args.assessment_only else "launch"
+        marker = ASSESSMENT_PASSED if args.assessment_only else LAUNCH_PASSED
+        if not args.assessment_only:
+            print("Watch for the standard first-open confirmation in the Tart guest.", flush=True)
         with subprocess.Popen(
-            ["tart", "exec", "-i", "--", args.vm, "/bin/bash", "-s", "--", args.guest_archive, checksum],
+            ["tart", "exec", "-i", "--", args.vm, "/bin/bash", "-s", "--", args.guest_archive, checksum, mode],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
@@ -38,7 +44,7 @@ def main() -> None:
                 print(output, end="", flush=True)
                 parser.exit(1, "Tart did not finish the qualification within 150 seconds.\n")
         print(output, end="", flush=True)
-        if process.returncode or SUCCESS not in output.splitlines():
+        if process.returncode or marker not in output.splitlines():
             parser.exit(1, f"Tart qualification did not complete (guest exit {process.returncode}).\n")
     except OSError as error:
         parser.exit(1, f"{error}\n")

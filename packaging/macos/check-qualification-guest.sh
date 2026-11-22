@@ -7,9 +7,11 @@ fail() {
     exit 1
 }
 
-[[ $# == 2 ]] || fail 'Expected the guest archive path and trusted SHA-256.'
+[[ $# == 3 ]] || fail 'Expected the guest archive path, trusted SHA-256, and check mode.'
 archive="$1"
 expected_sha="$2"
+mode="$3"
+[[ "$mode" == assess || "$mode" == launch ]] || fail 'Expected assess or launch mode.'
 [[ "$archive" == /* && "$expected_sha" =~ ^[0-9a-f]{64}$ ]] ||
     fail 'Expected an absolute archive path and a lowercase SHA-256.'
 case "$(/usr/sbin/sysctl -n hw.model)" in
@@ -24,8 +26,9 @@ printf 'Guest OS: %s\n' "$version"
 uid="$(/usr/bin/id -u)"
 [[ "$uid" != 0 && "$uid" == "$(/usr/bin/stat -f '%u' /dev/console)" ]] ||
     fail 'Run the check as the unprivileged guest account logged into the desktop.'
-[[ ! -e "$HOME/.marsa" && ! -L "$HOME/.marsa" ]] ||
+if [[ "$mode" == launch && ( -e "$HOME/.marsa" || -L "$HOME/.marsa" ) ]]; then
     fail 'First launch requires a local account without prior Marsa state.'
+fi
 
 route="$(/sbin/route -n get -inet default)" || fail 'Guest IPv4 default route is missing.'
 nic="$(/usr/bin/awk '/interface:/{print $2}' <<< "$route")"
@@ -57,6 +60,9 @@ app="$work/Marsa VM Qualification.app"
 /usr/bin/xattr -w com.apple.quarantine "0081;$(printf '%x' "$(/bin/date +%s)");MarsaQualification;" "$app"
 /usr/sbin/spctl --assess --type execute "$app" || fail 'Marsa Gatekeeper assessment: rejected'
 printf 'Marsa Gatekeeper assessment: accepted with a test quarantine marker\n'
+if [[ "$mode" == assess ]]; then
+    exit 0
+fi
 
 /usr/bin/open "$app"
 for ((attempt = 0; attempt < 60; attempt++)); do
@@ -66,4 +72,4 @@ for ((attempt = 0; attempt < 60; attempt++)); do
     fi
     /bin/sleep 1
 done
-fail 'Marsa first launch: daemon socket did not become ready.'
+fail 'Marsa first launch: daemon socket did not become ready. Check for a first-open dialog in the guest.'

@@ -223,13 +223,16 @@ scoped signing and notarization configuration.
 
 ### Automated Tart qualification
 
-Use a disposable macOS 27 or newer Tart guest for the signed M3-10 qualification
-ZIP. Launch the VM with Gatekeeper enabled and a fresh desktop account
-automatically logged in. Run the Tart Guest Agent as a launchd agent for that
-account. Tart's `ghcr.io/cirruslabs/macos-golden-gate-base` image includes
-the agent. Pin the approved image digest when configuring a persistent runner. Keep the host VPN and
-firewall in their target configuration and attach the trusted ZIP to the guest
-through a read-only volume.
+Prepare a disposable Tart guest from an Apple macOS 27 or newer restore image.
+Keep Apple's default security settings and a fresh desktop account
+automatically logged in. Install a verified Tart Guest Agent release as an
+unprivileged launchd agent for that account with `--run-rpc`. Use the resulting
+guest as the baseline for disposable clones. The upstream Golden Gate CI
+template disables Gatekeeper, so use the Apple restore baseline for release
+qualification.
+
+Keep the host VPN and firewall in their target configuration. Attach the
+trusted signed M3-10 qualification ZIP through a read-only guest volume.
 
 From the host, with Tart and Python 3.11 or later:
 
@@ -243,13 +246,16 @@ The default guest archive path is
 `--guest-archive` for another read-only volume path. The runner uses `tart exec`
 to check IPv4, the gateway and HTTPS, verify the guest ZIP against the host's
 SHA-256, assess the app with a test quarantine marker, and wait for the daemon
-socket after first launch. Use a fresh clone for each run. The first-launch
-check creates Marsa state in the guest account.
+socket after first launch. Run the full check with a graphical Tart session
+available for the standard macOS first-open confirmation. Use
+`--assessment-only` for an unattended check that ends after Gatekeeper's
+assessment. Use a fresh clone for the full run because launch creates Marsa
+state in the guest account.
 
 G3 additionally requires the second physical Mac boot, and app release
 qualification includes downloading the DMG through a browser with quarantine
 preserved. [Tart Guest Agent](https://github.com/openai/tart-guest-agent)
-· [Tart macOS images](https://tart.run/quick-start/).
+· [Golden Gate CI image template](https://github.com/cirruslabs/macos-image-templates/blob/main/templates/vanilla-golden-gate.pkr.hcl).
 
 ## Distribution channels
 

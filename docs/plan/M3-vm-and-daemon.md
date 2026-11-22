@@ -246,7 +246,7 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 
 ### M3-18 Automate Tart qualification for signed macOS builds
 
-- **Status:** in progress
+- **Status:** blocked (unattended first launch waits for macOS first-open confirmation)
 - **Depends on:** M3-12, M3-14
 - **Docs:** [12 Signing and clean-Mac handoff](../12-build-release-update.md#signing-and-clean-mac-handoff)
 - **Do:** Run the signed qualification build's network, Gatekeeper and first-launch checks from the host through Tart Guest Agent on a disposable macOS 27 or newer guest.
@@ -255,3 +255,13 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
   - The test validates guest IPv4, gateway reachability and direct and DNS-based HTTPS without changing host controls.
   - The guest verifies the ZIP against the host's trusted digest, checks the signature and enabled Gatekeeper with a test quarantine marker, then launches with a clean Marsa home and observes the daemon socket becoming ready.
   - An agent-enabled macOS 27 guest completes the checks from the host without manual input inside the VM.
+- **Evidence:** Tart 2.42.0 and Guest Agent 0.15.0 ran the checks on a fresh Apple
+  macOS 27.2.1 restore with Gatekeeper enabled. IPv4, gateway, direct and DNS
+  HTTPS, archive digest, signature and Gatekeeper passed. LaunchServices opened
+  the quarantined app and macOS waited for the first-open confirmation in both
+  headless and graphical runs. The full command failed when the daemon socket
+  did not appear. The host VPN and firewall stayed enabled. The prebuilt macOS
+  27.2 CI guest ships with Gatekeeper disabled, and after enabling it the
+  distribution check reported an internal XProtect error.
+  A graphical test driver still needs to complete the normal confirmation in
+  the disposable guest.
