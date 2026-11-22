@@ -31,7 +31,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 
 ### M10-03 Updater design and manifest format
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-08
 - **Docs:** [12 Auto-update](../12-build-release-update.md#auto-update)
 - **Do:** Evaluate building the updater in `marsad` against adopting an existing macOS update framework, on security, headless support and maintenance. Decide and record it. Define the update manifest format, the signature scheme and key handling (offline or hardware-backed key, pinned public key, rotation plan), channels and the downgrade rule.

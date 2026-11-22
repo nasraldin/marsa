@@ -8,7 +8,7 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 
 ### M5-01 Typed API client library
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-08
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api)
 - **Do:** Implement `marsa-client`: connect to `marsad.sock`, start `marsad` if it is not running, typed wrappers for every service, an event subscription helper that delivers snapshot-then-stream, reconnection, and version checking against the daemon.
