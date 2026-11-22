@@ -250,8 +250,8 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 
 ### M4-21 Activate staged manual daemon proxy with approval and rollback
 
-- **Status:** todo
-- **Depends on:** M4-20
+- **Status:** in progress
+- **Depends on:** M3-17, M4-20
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
 - **Do:** Expose an authenticated preview and explicit revision-bound activation for manual daemon proxy on the pinned user-space attachment. Coordinate engine admission and any approved workload interruption. Retain the previous working policy until the candidate succeeds, and restore it after a failed candidate. Persist successful activation separately from the desired draft.
 - **Deliver:** Controlled activation, durable last-known-good state, and signed end-to-end tests using a controlled reachable proxy destination.
