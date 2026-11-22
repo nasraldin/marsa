@@ -91,10 +91,15 @@ message ResetRequest {
     ResetSettings settings = 2;
     PrepareFactoryReset prepare_factory = 3;
     ConfirmFactoryReset confirm_factory = 4;
+    PrepareSettingsReset prepare_settings = 5;
   }
 }
 
-message ResetSettings {}
+message ResetSettings {
+  bytes confirmation_token = 1;
+}
+
+message PrepareSettingsReset {}
 message PrepareFactoryReset {}
 
 message ConfirmFactoryReset {
@@ -105,12 +110,18 @@ message ResetResponse {
   oneof result {
     ResetCompleted completed = 1;
     FactoryResetChallenge challenge = 2;
+    SettingsResetChallenge settings_challenge = 3;
   }
 }
 
 message ResetCompleted {}
 
 message FactoryResetChallenge {
+  bytes confirmation_token = 1;
+  int64 expires_at_unix_millis = 2;
+}
+
+message SettingsResetChallenge {
   bytes confirmation_token = 1;
   int64 expires_at_unix_millis = 2;
 }

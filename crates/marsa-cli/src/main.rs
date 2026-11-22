@@ -57,10 +57,9 @@ impl Failure {
 
     fn message(self, language: Language) -> &'static str {
         match self {
-            Self::Unavailable => language.text(
-                "This command is not available yet.",
-                "هذا الأمر غير متاح حاليًا.",
-            ),
+            Self::Unavailable => {
+                marsa_client::l10n::keys::CLI_NOT_AVAILABLE.text(language.locale())
+            }
             Self::Usage => language.text(
                 "Invalid invocation. Run marsa --help for usage.",
                 "استدعاء غير صالح. شغّل marsa --help لعرض طريقة الاستخدام.",

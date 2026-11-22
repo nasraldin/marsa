@@ -16,13 +16,14 @@ pub(super) const DEVICE_PATH: &str = "/dev/vdb";
 const SYSFS_DEVICE: &str = "/sys/block/vdb";
 
 /// Ensure ext4 is ready to mount and report whether its capacity can grow.
-pub(super) fn prepare() -> io::Result<bool> {
+pub(super) fn prepare(verify_existing: impl FnOnce() -> io::Result<()>) -> io::Result<bool> {
     let (device, bytes) = open_device()?;
     let probe = disk_tool("/sbin/blkid")
         .args(["-p", "-o", "export", DEVICE_PATH])
         .output()?;
     match probe.status.code() {
         Some(0) if has_plain_ext4(&probe.stdout) => {
+            verify_existing()?;
             let status = disk_tool("/sbin/e2fsck")
                 .args(["-p", DEVICE_PATH])
                 .status()?;

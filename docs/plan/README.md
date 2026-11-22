@@ -12,7 +12,7 @@ This plan turns the design in [`docs/`](../README.md) into ordered, checkable ta
 | M3 | [VM and daemon](M3-vm-and-daemon.md) | `marsad` boots, supervises and stops the VM through the `vz` backend | 16 |
 | M4 | [Docker integration](M4-docker-integration.md) | The standard `docker` CLI and tools work against Marsa | 18 |
 | M5 | [CLI](M5-cli.md) | The `marsa` command-line tool | 8 |
-| M6 | [GUI foundation](M6-gui-foundation.md) | Design system, direction, i18n, themes and the app shell | 11 |
+| M6 | [GUI foundation](M6-gui-foundation.md) | Design system, direction, i18n, themes and the app shell | 12 |
 | M7 | [GUI features](M7-gui-features.md) | Every "must have" screen, in four variants | 14 |
 | M8 | [MCP server](M8-mcp.md) | Agents can operate containers under permission tiers | 9 |
 | M9 | [Hardening](M9-hardening.md) | Security, reliability and recovery proven by tests | 13 |
