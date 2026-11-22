@@ -75,6 +75,17 @@ ignore both fields. Missing fields have the protobuf defaults of `false` and
 unspecified health. VM stats are live observations of the active guest.
 The stream starts with a sample only when the daemon has observed one.
 
+API 1.5 adds `Network.PrepareProxyActivation` and `Network.ActivateProxy`.
+Clients read the current settings revision, request a preview, and show every
+reported potential interruption before asking the owner to approve. Apply
+only after approval using the preview token, the same settings revision and a
+fresh request UUID. The token expires after 90 seconds and is single-use.
+Replay a disconnected request with the same UUID and fields to obtain the
+original result. A changed VM lifecycle or settings revision invalidates the
+preview. Result enums report failed stop, start or persistence and whether the
+prior policy or engine was recovered. Treat approval tokens and proxy URLs as
+sensitive.
+
 Agent requests identify an
 allowlisted operation and use that operation's existing JSON Schema for its
 arguments. The daemon authenticates the client, validates those arguments, and

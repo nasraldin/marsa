@@ -223,6 +223,18 @@ Corporate networks were identified in planning as a top reason Docker alternativ
 Saving a manual proxy setting records a draft. Ordinary VM boots use the last approved
 proxy. While that proxy is active, a draft change to the attachment also remains pending.
 
+On the user-space attachment, the authenticated Network API previews the
+impact before activation. A running VM is recycled after explicit approval.
+Running containers, builds, attached Docker clients and one-session folder
+grants may be interrupted. The daemon pauses new Docker admissions during
+the transaction. It keeps the original data disk and records the candidate as
+approved only after the guest and Docker are ready. A failed candidate keeps
+the draft pending and restores the previous policy. If restoration cannot
+start a previously running engine, the result tells the client that recovery
+is required. Reopening the daemon still uses the last approved policy.
+
+When a manual daemon proxy is approved, disable it with explicit activation before changing the network mode. A confirmed factory reset clears the approved policy with the other private state.
+
 ## IPv6
 
 **Proposed:** IPv6 inside Docker networks follows the engine's configuration. IPv6 to the internet depends on the mode and on what macOS NAT provides. Treat full IPv6 egress as best effort in version 1 and document the behaviour that the tests observe.
