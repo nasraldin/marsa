@@ -1,5 +1,6 @@
 //! Typed access to Docker Engine API v1.57 over Marsa's authenticated Unix socket.
 
+mod resources;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -16,6 +17,11 @@ use tokio::time::timeout;
 
 use crate::{ClientError, docker_socket_path, platform};
 
+use resources::ComposeLabels;
+pub use resources::{
+    ContainerDetails, ContainerMount, ContainerNetworkSettings, ContainerPort, ContainerRuntime,
+    NetworkEndpoint, NetworkSummary, PortBinding, VolumeSummary,
+};
 pub use stream::{DockerEvents, DockerLogs, DockerStats, LogLine, LogSource};
 
 const API_PREFIX: &str = "/v1.57";
@@ -73,6 +79,39 @@ pub struct ContainerSummary {
     pub state: String,
     /// Engine-provided status details.
     pub status: String,
+    /// Creation time in Unix seconds.
+    pub created: i64,
+    /// Stable image identifier from Docker.
+    #[serde(rename = "ImageID")]
+    pub image_id: String,
+    /// Ports published or exposed by this container.
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub ports: Vec<ContainerPort>,
+    /// Mounts used to derive volume membership.
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub mounts: Vec<ContainerMount>,
+    /// Network memberships and endpoint details.
+    pub network_settings: Option<ContainerNetworkSettings>,
+    #[serde(rename = "Labels", default, deserialize_with = "null_to_default")]
+    compose: ComposeLabels,
+}
+
+impl ContainerSummary {
+    /// Compose project label when this container is a project member.
+    pub fn compose_project(&self) -> Option<&str> {
+        self.compose
+            .project
+            .as_deref()
+            .filter(|name| !name.is_empty())
+    }
+
+    /// Compose service label when this container belongs to a service.
+    pub fn compose_service(&self) -> Option<&str> {
+        self.compose
+            .service
+            .as_deref()
+            .filter(|name| !name.is_empty())
+    }
 }
 
 /// List data needed by the desktop image store.
@@ -84,6 +123,8 @@ pub struct ImageSummary {
     /// References that currently tag the image.
     #[serde(default, deserialize_with = "null_to_default")]
     pub repo_tags: Vec<String>,
+    /// Creation time in Unix seconds.
+    pub created: i64,
     /// Aggregate image size in bytes.
     pub size: u64,
 }
@@ -187,6 +228,9 @@ pub enum DockerError {
     /// Docker returned an invalid or incomplete log stream.
     #[error("invalid Docker log framing")]
     LogFraming,
+    /// An inspected resource did not match the requested identifier.
+    #[error("Docker inspect returned a different resource")]
+    ResourceIdentity,
     /// A response did not match its data contract.
     #[error("invalid Docker JSON response")]
     Json(#[from] serde_json::Error),

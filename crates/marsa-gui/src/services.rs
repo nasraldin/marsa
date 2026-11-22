@@ -6,13 +6,14 @@ use marsa_client::{
     ClientError, DaemonEndpoint, EventSubscription,
     api::{DaemonEvent, EngineActionRequest, EngineState, daemon_event::Body},
     docker::{
-        ContainerAction, ContainerId, ContainerSummary, DockerClient, DockerError, DockerLogs,
-        DockerStats, ImageSummary, LogLine, StatsSample,
+        ContainerAction, ContainerDetails, ContainerId, ContainerSummary, DockerClient,
+        DockerError, DockerLogs, DockerStats, ImageSummary, LogLine, NetworkSummary, StatsSample,
+        VolumeSummary,
     },
     runtime::{Background, Receiver, Spawner, Task, delay, queue},
 };
 
-use crate::store::Store;
+use crate::store::{ResourceSnapshot, Store};
 
 const RETRY: Duration = Duration::from_secs(1);
 const LOG_RATE: Duration = Duration::from_millis(16);
@@ -128,7 +129,20 @@ impl Services {
         let task = self.session.runtime.spawn(async move {
             reply.send(snapshot(&*backend, &store).await).await;
         });
-        PendingCommand {
+        Pending {
+            completion,
+            _task: task,
+        }
+    }
+
+    /// Read bounded details for the selected container on the I/O worker.
+    pub fn inspect(&self, id: ContainerId) -> Pending<ContainerDetails> {
+        let backend = Arc::clone(&self.session.backend);
+        let (reply, completion) = queue(1);
+        let task = self.session.runtime.spawn(async move {
+            reply.send(backend.inspect(&id).await).await;
+        });
+        Pending {
             completion,
             _task: task,
         }
@@ -145,15 +159,18 @@ impl Services {
     }
 }
 
-/// An in-flight command. Keep this handle while waiting for the result.
-pub struct PendingCommand {
-    completion: Receiver<Result<(), ServiceError>>,
+/// An in-flight command with no response payload.
+pub type PendingCommand = Pending<()>;
+
+/// An in-flight client operation. Keep this handle while waiting for the result.
+pub struct Pending<T> {
+    completion: Receiver<Result<T, ServiceError>>,
     _task: Task,
 }
 
-impl PendingCommand {
-    /// Read the command result or none if closing the window cancelled the command.
-    pub async fn result(&mut self) -> Option<Result<(), ServiceError>> {
+impl<T> Pending<T> {
+    /// Read its result or none if closing the window cancelled the operation.
+    pub async fn result(&mut self) -> Option<Result<T, ServiceError>> {
         self.completion.next().await
     }
 }
@@ -208,7 +225,7 @@ impl<B: Clients> Session<B> {
         let task = self.runtime.spawn(async move {
             reply.send(backend.dispatch(command).await).await;
         });
-        PendingCommand {
+        Pending {
             completion,
             _task: task,
         }
@@ -332,7 +349,7 @@ async fn watch_daemon<B: Clients>(backend: Arc<B>, store: Store, spawner: Spawne
                     docker = None;
                     ready = false;
                     generation.clone_from(&event.stream_id);
-                    store.replace_docker(Vec::new(), Vec::new());
+                    store.replace_docker(ResourceSnapshot::default());
                 }
                 let engine = match &event.body {
                     Some(Body::Snapshot(snapshot)) => snapshot.engine.as_ref(),
@@ -351,7 +368,7 @@ async fn watch_daemon<B: Clients>(backend: Arc<B>, store: Store, spawner: Spawne
                         }));
                     } else if !online && ready {
                         docker = None;
-                        store.replace_docker(Vec::new(), Vec::new());
+                        store.replace_docker(ResourceSnapshot::default());
                     }
                     ready = online;
                 }
@@ -365,9 +382,13 @@ async fn watch_daemon<B: Clients>(backend: Arc<B>, store: Store, spawner: Spawne
 }
 
 async fn snapshot<B: Clients>(backend: &B, store: &Store) -> Result<(), ServiceError> {
-    let containers = backend.containers().await?;
-    let images = backend.images().await?;
-    store.replace_docker(containers, images);
+    let snapshot = ResourceSnapshot {
+        containers: backend.containers().await?,
+        images: backend.images().await?,
+        volumes: backend.volumes().await?,
+        networks: backend.networks().await?,
+    };
+    store.replace_docker(snapshot);
     Ok(())
 }
 
@@ -385,6 +406,12 @@ trait Clients: Send + Sync + 'static {
         &self,
     ) -> impl Future<Output = Result<Vec<ContainerSummary>, ServiceError>> + Send;
     fn images(&self) -> impl Future<Output = Result<Vec<ImageSummary>, ServiceError>> + Send;
+    fn volumes(&self) -> impl Future<Output = Result<Vec<VolumeSummary>, ServiceError>> + Send;
+    fn networks(&self) -> impl Future<Output = Result<Vec<NetworkSummary>, ServiceError>> + Send;
+    fn inspect(
+        &self,
+        id: &ContainerId,
+    ) -> impl Future<Output = Result<ContainerDetails, ServiceError>> + Send;
     fn logs(
         &self,
         id: &ContainerId,
@@ -435,6 +462,18 @@ impl Clients for LocalClients {
 
     async fn images(&self) -> Result<Vec<ImageSummary>, ServiceError> {
         Ok(self.docker.images().await?)
+    }
+
+    async fn volumes(&self) -> Result<Vec<VolumeSummary>, ServiceError> {
+        Ok(self.docker.volumes().await?)
+    }
+
+    async fn networks(&self) -> Result<Vec<NetworkSummary>, ServiceError> {
+        Ok(self.docker.networks().await?)
+    }
+
+    async fn inspect(&self, id: &ContainerId) -> Result<ContainerDetails, ServiceError> {
+        Ok(self.docker.inspect(id).await?)
     }
 
     async fn logs(&self, id: &ContainerId) -> Result<Self::Logs, ServiceError> {

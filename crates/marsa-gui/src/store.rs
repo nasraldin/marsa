@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use marsa_client::{
     api::{DaemonEvent, DaemonSnapshot, EngineStatus, daemon_event::Body},
-    docker::{ContainerId, ContainerSummary, ImageSummary},
+    docker::{ContainerId, ContainerSummary, ImageSummary, NetworkSummary, VolumeSummary},
     runtime::{Latest, Observed},
 };
 
@@ -14,6 +14,26 @@ pub struct AppState {
     daemon: Option<DaemonSnapshot>,
     containers: Arc<BTreeMap<ContainerId, ContainerSummary>>,
     images: Arc<BTreeMap<String, ImageSummary>>,
+    volumes: Arc<BTreeMap<String, VolumeSummary>>,
+    networks: Arc<BTreeMap<String, NetworkSummary>>,
+    compose_projects: Arc<BTreeMap<String, ComposeProject>>,
+}
+
+#[derive(Default)]
+pub(crate) struct ResourceSnapshot {
+    pub(crate) containers: Vec<ContainerSummary>,
+    pub(crate) images: Vec<ImageSummary>,
+    pub(crate) volumes: Vec<VolumeSummary>,
+    pub(crate) networks: Vec<NetworkSummary>,
+}
+
+/// A Compose project discovered from the labels of existing containers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposeProject {
+    /// Project name reported by Docker Compose.
+    pub name: String,
+    /// Full identifiers of the containers carrying this project label.
+    pub containers: Vec<ContainerId>,
 }
 
 impl AppState {
@@ -45,6 +65,21 @@ impl AppState {
     /// Read the current normalized image collection.
     pub fn images(&self) -> Arc<BTreeMap<String, ImageSummary>> {
         Arc::clone(&self.images)
+    }
+
+    /// Volumes indexed by their canonical names.
+    pub fn volumes(&self) -> Arc<BTreeMap<String, VolumeSummary>> {
+        Arc::clone(&self.volumes)
+    }
+
+    /// Networks indexed by their complete IDs.
+    pub fn networks(&self) -> Arc<BTreeMap<String, NetworkSummary>> {
+        Arc::clone(&self.networks)
+    }
+
+    /// Existing Compose projects and their container identifiers.
+    pub fn compose_projects(&self) -> Arc<BTreeMap<String, ComposeProject>> {
+        Arc::clone(&self.compose_projects)
     }
 }
 
@@ -101,23 +136,46 @@ impl Store {
         });
     }
 
-    pub(crate) fn replace_docker(
-        &self,
-        containers: Vec<ContainerSummary>,
-        images: Vec<ImageSummary>,
-    ) {
-        let containers = container_index(containers);
-        let images = image_index(images);
+    pub(crate) fn replace_docker(&self, snapshot: ResourceSnapshot) {
+        let containers = container_index(snapshot.containers);
+        let projects = project_index(&containers);
+        let images = image_index(snapshot.images);
+        let volumes = Arc::new(
+            snapshot
+                .volumes
+                .into_iter()
+                .map(|row| (row.name.clone(), row))
+                .collect(),
+        );
+        let networks = Arc::new(
+            snapshot
+                .networks
+                .into_iter()
+                .map(|row| (row.id.clone(), row))
+                .collect(),
+        );
         self.0.update(|state| {
             let containers_changed = replace(&mut state.containers, containers);
+            let projects_changed = replace(&mut state.compose_projects, projects);
             let images_changed = replace(&mut state.images, images);
-            containers_changed || images_changed
+            let volumes_changed = replace(&mut state.volumes, volumes);
+            let networks_changed = replace(&mut state.networks, networks);
+            containers_changed
+                || projects_changed
+                || images_changed
+                || volumes_changed
+                || networks_changed
         });
     }
 
     pub(crate) fn reset(&self) {
         self.0.update(|state| {
-            if state.daemon.is_none() && state.containers.is_empty() && state.images.is_empty() {
+            if state.daemon.is_none()
+                && state.containers.is_empty()
+                && state.images.is_empty()
+                && state.volumes.is_empty()
+                && state.networks.is_empty()
+            {
                 return false;
             }
             *state = AppState::default();
@@ -132,6 +190,25 @@ fn container_index(rows: Vec<ContainerSummary>) -> Arc<BTreeMap<ContainerId, Con
 
 fn image_index(rows: Vec<ImageSummary>) -> Arc<BTreeMap<String, ImageSummary>> {
     Arc::new(rows.into_iter().map(|row| (row.id.clone(), row)).collect())
+}
+
+fn project_index(
+    containers: &BTreeMap<ContainerId, ContainerSummary>,
+) -> Arc<BTreeMap<String, ComposeProject>> {
+    let mut projects = BTreeMap::new();
+    for container in containers.values() {
+        if let Some(name) = container.compose_project() {
+            projects
+                .entry(name.to_owned())
+                .or_insert_with(|| ComposeProject {
+                    name: name.to_owned(),
+                    containers: Vec::new(),
+                })
+                .containers
+                .push(container.id.clone());
+        }
+    }
+    Arc::new(projects)
 }
 
 fn replace<T: PartialEq>(current: &mut T, value: T) -> bool {
