@@ -140,7 +140,7 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-13 Collect a local diagnostics archive
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-08
 - **Docs:** [03 Responsibilities](../03-host-daemon.md#responsibilities), [11 Threat model](../11-security.md#threat-model) (T11)
 - **Do:** Implement authenticated `Diagnostics.Collect`. Collect bounded, redacted daemon and guest console tails, derive the engine log tail from the captured guest console, and record safe settings, versions, engine state history, and network status. Write a single private local archive for review.

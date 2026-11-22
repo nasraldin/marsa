@@ -258,6 +258,12 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 - Settings replacements use compare-and-swap revisions and an atomic rename of a private file in the config directory. Idle policy changes apply to the supervisor live. Boot-time changes report `restart_required` until the VM runtime is rebuilt with the new settings. VM CPU, memory, disk size, shares, backend and network settings are included in that check.
 - Telemetry remains disabled pending [Q-10](16-risks-and-open-questions.md#open-questions-for-the-project-owner).
 
+## Diagnostics archive
+
+The owner-only Unix API creates one private tar archive in `~/.marsa/diagnostics/` when explicitly asked, even with the engine stopped. Review the archive before sharing it. Collection makes no network requests. Replaying a request ID while the daemon retains its result returns the same path.
+
+The archive includes build and protocol versions, selected settings, engine state and history, network modes and boot result, and redacted log summaries. Settings contain resource limits, feature flags, and counts. Docker and containerd inherit the guest console from PID 1. The collector summarizes those engine records from the console tail. It uses approved record types, levels, and boot-stage timings and drops free-form messages and fields, including paths, environment values, and tokens. Missing or inaccessible logs are recorded by status. [Guest init](../crates/marsa-init/src/platform/linux.rs), [process supervisor](../crates/marsa-init/src/platform/linux/supervisor.rs).
+
 ## Filesystem layout on the host
 
 **Proposed.**
@@ -275,6 +281,7 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 │   └── console.log
 ├── logs/
 │   └── marsad.log
+├── diagnostics/             # user-requested support archives
 ├── state/
 │   ├── grants.json          # agent permission grants
 │   └── update/
