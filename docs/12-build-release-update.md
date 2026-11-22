@@ -115,9 +115,9 @@ sequenceDiagram
     participant U as User
     participant G as GUI
 
-    D->>S: Fetch manifest for channel
-    S-->>D: Signed manifest
-    D->>D: Verify manifest signature (pinned key)
+    D->>S: Fetch update repository metadata
+    S-->>D: Signed TUF metadata
+    D->>D: Check signatures, expiry and metadata versions
     alt newer version available
         D->>G: Event: update available (version, notes)
         G->>U: Show notes, offer install now or later
@@ -139,7 +139,7 @@ sequenceDiagram
 
 Rules:
 
-- **Proposed:** implement the updater in `marsad` with a signed manifest, as opposed to adopting a GUI-framework-specific updater, so the CLI-only and headless cases update the same way. Evaluate Sparkle as an alternative in the M10 design task and record the decision.
+- **Decided:** `marsad` coordinates updates through one service for desktop and headless clients. A maintained TUF verifier authenticates metadata and archives against the pinned public root. See [D-029](15-decisions.md#d-029-verify-updates-with-tuf) and the [manifest and key procedures](reference/update-manifest.md).
 - Updates never restart running containers without telling the user first. The user can defer.
 - Channels: `stable` and `beta`.
 - The guest image updates with the app; the data disk is untouched.
@@ -183,7 +183,7 @@ flowchart TB
 ```
 
 - Tier 1 runs for pushes and pull requests on hosted Linux and Apple silicon macOS 27 runners. GitHub-hosted Apple silicon runners lack nested virtualization. [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#limitations-for-arm64-macos-runners).
-- Secrets (signing identity, notarization credentials, update key) are available only to the release workflow on protected tags.
+- Apple signing and notarization credentials are scoped to the protected release workflow. TUF root and targets keys stay offline. CI publishes signed metadata and uses scoped signing services for the online TUF roles.
 
 ### Tier 2 runner setup
 
