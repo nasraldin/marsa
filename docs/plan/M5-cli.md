@@ -42,17 +42,15 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
   - `marsa status --json` includes VM state, versions and resource use.
   - `eval "$(marsa env)"` makes `docker ps` work in a shell with no context set.
 
-### M5-04 Settings, sharing and network commands
+### M5-04 Network mode and settings
 
 - **Status:** todo
-- **Depends on:** M5-02, M4-05, M4-10
+- **Depends on:** M5-02, M4-10
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
-- **Do:** Implement `config get|set|list`, `share list|add|remove` and `network status|mode`. `share add` answers pending bind-mount approvals from the terminal.
-- **Deliver:** command implementations and tests.
+- **Do:** Implement `network mode` through the authenticated network API. Report when a change needs a restart. M5-10 owns settings and shared folders, M5-09 owns bind approvals, and M5-11 owns read-only network status.
+- **Deliver:** network mode command and tests.
 - **Accept when:**
-  - Invalid settings are rejected with the daemon's validation message.
-  - Adding a protected path fails with an explanation.
-  - A pending approval raised by `docker run -v` can be granted from the CLI.
+  - An explicit mode stages only the requested configuration and reports the restart requirement.
 
 ### M5-05 Disk commands
 
@@ -86,3 +84,14 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 - **Accept when:**
   - Every CLI message has both translations (build fails otherwise).
   - Arabic output with embedded container names and paths reads correctly in a terminal that supports bidirectional text, and remains unambiguous in one that does not.
+
+### M5-11 Report active networking from the CLI
+
+- **Status:** in progress
+- **Depends on:** M5-02, M4-18
+- **Docs:** [06 Mode selection](../06-networking.md#network-modes), [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
+- **Do:** Report configured and active network modes, connectivity reason, and current addresses from the authenticated read-only network RPC. Localize the human-readable output and keep JSON stable.
+- **Deliver:** `marsa network status` and a packaged verification.
+- **Accept when:**
+  - A stopped daemon reports the configured mode without an active mode or stale addresses.
+  - A running user-space guest reports its active mode and IPv4 and gateway values.
