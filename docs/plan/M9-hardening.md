@@ -40,8 +40,8 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-04 Memory behaviour
 
-- **Status:** todo
-- **Depends on:** M4-02, M3-04
+- **Status:** done
+- **Depends on:** M4-02, M3-12
 - **Docs:** [04 Memory management](../04-virtualization-macos.md#memory-management), V-04, R-03
 - **Do:** Measure how much memory the balloon actually returns to macOS under `vz` (V-04) and record it. Implement the memory policy: right-sized default, balloon on idle if it helps, idle stop as the dependable mechanism, all configurable.
 - **Deliver:** memory policy in the supervisor, a measurement report in `docs/spikes/M9-04-memory.md`.
@@ -49,6 +49,11 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
   - The report states measured host memory before, during and after a 2 GiB workload, with and without ballooning.
   - With idle stop on, host memory returns to the daemon's idle footprint after the timeout.
   - V-04 is resolved in the docs.
+
+Run the offline workload in the signed packaged VZ runtime with user-space
+networking. VZ memory devices and idle-stop transitions are shared across
+attachments. Strict native IPv4 DHCP, gateway and external HTTPS validation
+remain in M3-04 under [D-028](../15-decisions.md#d-028-qualify-native-ipv4-independently-of-runtime-and-power-management).
 
 ### M9-05 Sleep, wake and network-change robustness
 
@@ -126,8 +131,8 @@ the complete defaults.
 
 ### M9-18 Recover private storage with confirmed factory reset
 
-- **Status:** todo
-- **Depends on:** M9-17, M4-07, M8-01
+- **Status:** done
+- **Depends on:** M9-17, M4-07, M8-01, M3-17
 - **Docs:** [07 Integrity](../07-file-sharing-and-storage.md#integrity), [12 Uninstall](../12-build-release-update.md#uninstall)
 - **Do:** Implement factory preparation and confirmation in `Engine.Reset`. Quiesce activation and permission writes, recreate the data disk, clear grants and reset settings. Recover any interrupted transaction on daemon restart.
 - **Deliver:** factory reset, recovery logic and private storage fault-injection tests.
@@ -135,6 +140,24 @@ the complete defaults.
   - Factory reset works even when the engine cannot start.
   - The confirmed reset recreates the data disk, clears grants and restores settings defaults. Unconfirmed or stale requests leave all three intact.
   - After interruption the daemon either restores the prior disk, grants and settings together or completes the confirmed reset before serving requests. Unrelated files remain intact.
+
+**Implementation plan.** Quiesce the supervisor actor before taking custody
+of storage. Serialize state readers and writers during the transaction.
+Prepare replacements in a private journal on the same filesystem and record
+the expected member identities before renaming any live member. Identity
+checks include filesystem creation time to distinguish reused inodes. Keep originals
+until a durable commit record exists. Recover before reading settings or
+binding sockets and refuse any unrecognized member. Exercise every rename
+and journal boundary with disposable storage. Recovery also removes abandoned
+replacement files from the private staging directory before serving requests.
+
+**Verification.** Disposable APFS fixtures recovered from 92 interruptions
+during staging, replacement and cleanup, plus 36 interruptions during
+rollback itself. Owner-authenticated fake and signed packaged-daemon tests
+confirmed factory reset with a failed boot. The signed fixture did not start
+a VM. A pre-publication interruption left the original settings, disk and
+grants intact, and a subsequent recovery removed the abandoned stage. A
+redirected stage member was refused and its target remained intact.
 
 ### M9-09 Data-disk versioning and upgrade path
 

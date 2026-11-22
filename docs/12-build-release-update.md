@@ -109,6 +109,8 @@ publishing the complete stage atomically on macOS and GNU/Linux. Copy the staged
 `upstream-sbom-input.json` as an input to the combined release SBOM and
 third-party notices (M10-08).
 
+Verify the checksums in the [font asset inventory](../assets/fonts/README.md) before copying the native fonts and their original notice into the bundle.
+
 ## Signing and notarization
 
 | Requirement | Detail |

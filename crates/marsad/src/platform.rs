@@ -45,6 +45,7 @@ pub(super) fn run() -> Result<(), DaemonError> {
 
     let uid = uid.as_raw();
     let mut instance = files::Instance::acquire(&paths, uid)?;
+    marsad::factory::recover(&paths, uid)?;
     let settings = files::read_settings(&paths, uid)?;
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     let vm_settings = settings.vm.clone();
@@ -59,6 +60,9 @@ pub(super) fn run() -> Result<(), DaemonError> {
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
         serve(socket, docker, api, uid, signals).await
     });
+    // A canceled RPC may leave a durability worker in spawn_blocking. Keep
+    // the instance lock until the runtime has joined any such worker.
+    drop(runtime);
     let cleanup = instance.cleanup();
     serving?;
     cleanup?;
@@ -99,13 +103,18 @@ async fn configure_packaged_runtime(
         initial_backoff: Duration::from_secs(1),
         maximum_backoff: Duration::from_secs(4),
     };
-    api.with_packaged_runtime(
-        package.capabilities(),
-        GuestControl::default().with_agent_connect_timeout(Duration::from_secs(50)),
-        config,
-        move |desired| package.prepare(&paths, uid, desired),
-    )
-    .await
+    let versions = package.component_versions().unwrap_or_else(|error| {
+        tracing::warn!(kind = ?error.kind(), "could not read bundled guest versions");
+        Vec::new()
+    });
+    api.with_components(versions)
+        .with_packaged_runtime(
+            package.capabilities(),
+            GuestControl::default().with_agent_connect_timeout(Duration::from_secs(50)),
+            config,
+            move |desired| package.prepare(&paths, uid, desired),
+        )
+        .await
 }
 
 fn require_unprivileged() -> io::Result<Uid> {

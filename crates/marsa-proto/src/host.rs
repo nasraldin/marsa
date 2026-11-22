@@ -4,7 +4,7 @@
 pub const API_MAJOR: u32 = 1;
 
 /// The latest additive revision of the host API.
-pub const API_MINOR: u32 = 3;
+pub const API_MINOR: u32 = 4;
 
 /// Requests, responses, clients and servers for the `marsa.v1` package.
 #[allow(missing_docs)]
@@ -17,4 +17,11 @@ pub fn socket_path(
     home: impl AsRef<std::path::Path>,
 ) -> Result<std::path::PathBuf, marsa_core::error::PathError> {
     Ok(marsa_core::paths::MarsaPaths::from_home(home)?.daemon_socket())
+}
+
+/// Resolve Docker's Unix socket in the same per-user layout as the typed API.
+pub fn docker_socket_path(
+    home: impl AsRef<std::path::Path>,
+) -> Result<std::path::PathBuf, marsa_core::error::PathError> {
+    Ok(marsa_core::paths::MarsaPaths::from_home(home)?.docker_socket())
 }

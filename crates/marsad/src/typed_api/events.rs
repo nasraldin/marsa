@@ -320,6 +320,7 @@ impl Events for TypedApi {
         request: Request<SubscribeRequest>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         Ok(Response::new(
             self.inner.events.subscribe(self.inner.closing.subscribe()),
         ))

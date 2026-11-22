@@ -36,6 +36,10 @@ use tower::service_fn;
 
 #[path = "packaged_runtime/disk_schema.rs"]
 mod disk_schema;
+#[path = "packaged_runtime/factory.rs"]
+mod factory;
+#[path = "packaged_runtime/memory_policy.rs"]
+mod memory_policy;
 #[path = "packaged_runtime/recovery.rs"]
 mod recovery;
 #[path = "packaged_runtime/support.rs"]

@@ -5,6 +5,7 @@ mod disk;
 mod docker_discovery;
 mod engine;
 mod events;
+mod factory_reset;
 mod meta;
 mod network;
 mod proxy_policy;
@@ -21,11 +22,11 @@ use marsa_core::{
     settings::{NetworkMode, Settings},
 };
 use marsa_proto::host::v1::{
-    CollectDiagnosticsResponse, EnsureDockerContextResponse, diagnostics_server::DiagnosticsServer,
-    disk_server::DiskServer, docker_discovery_server::DockerDiscoveryServer,
-    engine_server::EngineServer, events_server::EventsServer, meta_server::MetaServer,
-    network_server::NetworkServer, settings_server::SettingsServer, shares_server::SharesServer,
-    stats_server::StatsServer,
+    CollectDiagnosticsResponse, ComponentVersion, EnsureDockerContextResponse,
+    diagnostics_server::DiagnosticsServer, disk_server::DiskServer,
+    docker_discovery_server::DockerDiscoveryServer, engine_server::EngineServer,
+    events_server::EventsServer, meta_server::MetaServer, network_server::NetworkServer,
+    settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
 };
 use marsa_share::SharePolicy;
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
@@ -38,6 +39,7 @@ use tonic::{
 };
 
 use crate::{
+    agent_policy::GrantStore,
     guest_control::{GuestControl, GuestEvent},
     supervisor::{
         DockerStream, GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection,
@@ -53,6 +55,7 @@ pub struct TypedApi {
     inner: Arc<Shared>,
     supervisor: Option<Supervisor>,
     capabilities: Option<Capabilities>,
+    components: Arc<[ComponentVersion]>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
     verify_keychain: Option<docker_discovery::VerifyKeychain>,
 }
@@ -65,6 +68,8 @@ struct Shared {
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
     settings_reset: reset::SettingsReset,
+    factory_reset: factory_reset::FactoryReset,
+    grants: GrantStore,
     share_policy: SharePolicy,
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
@@ -87,6 +92,7 @@ impl TypedApi {
         let (closing, _) = watch::channel(false);
         Ok(Self {
             inner: Arc::new(Shared {
+                grants: GrantStore::new(paths.clone(), uid),
                 paths,
                 uid,
                 events: events::Bus::new(settings)?,
@@ -94,6 +100,7 @@ impl TypedApi {
                 settings_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
                 settings_reset: reset::SettingsReset::new(),
+                factory_reset: factory_reset::FactoryReset::new(),
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
@@ -104,6 +111,7 @@ impl TypedApi {
             }),
             supervisor: None,
             capabilities: None,
+            components: Arc::default(),
             docker_contexts: None,
             verify_keychain: None,
         })
@@ -191,6 +199,12 @@ impl TypedApi {
         Ok(self)
     }
 
+    /// Attach the release versions reported by this daemon's installed guest.
+    pub fn with_components(mut self, components: Vec<ComponentVersion>) -> Self {
+        self.components = components.into();
+        self
+    }
+
     /// Serve the Unix RPCs until the caller requests shutdown.
     pub async fn serve(
         &self,
@@ -232,6 +246,7 @@ impl TypedApi {
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 stop.await;
                 self.inner.closing.send_replace(true);
+                let _factory = self.inner.factory_reset.close().await;
                 if let Some(supervisor) = &self.supervisor
                     && let Err(error) = supervisor.stop().await
                 {
@@ -243,6 +258,10 @@ impl TypedApi {
 
     /// Activate the guest on demand and open a Docker engine stream.
     pub async fn connect_docker(&self) -> io::Result<DockerStream> {
+        self.inner
+            .factory_reset
+            .read()
+            .map_err(|_| io::ErrorKind::WouldBlock)?;
         let supervisor = self
             .supervisor
             .as_ref()
