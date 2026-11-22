@@ -67,8 +67,8 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-06 Attach shares and enforce bind-mount policy
 
-- **Status:** todo
-- **Depends on:** M4-05, M4-01, M3-04
+- **Status:** in progress
+- **Depends on:** M4-05, M4-01, M3-16
 - **Docs:** [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
 - **Do:** Map allowlist entries to virtiofs shares mounted at identical paths in the guest. Inspect `POST /containers/create` in the proxy for bind mounts outside the allowlist and return a clear error with the fix; raise an approval event that the GUI and CLI can answer (once, always, deny). Handle adding a share with or without a VM restart according to backend capabilities. Implement whatever M1-04 found necessary for change notifications and ownership.
 - **Deliver:** share attachment, proxy inspection, approval event flow, a file-sharing compatibility test suite.
