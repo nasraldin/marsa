@@ -148,3 +148,37 @@ fn double_dash_keeps_json_literal_out_of_global_flags() {
     assert_eq!(result.status.code(), Some(1));
     assert_eq!(result.stderr, b"This command is not available yet.\n");
 }
+
+#[test]
+fn unavailable_message_preserves_localized_text_and_english_json() {
+    for (locale, expected) in [
+        ("en_US.UTF-8", "This command is not available yet.\n"),
+        ("ar_AE.UTF-8", "هذا الأمر غير متاح حاليًا.\n"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
+            .args(["update", "check"])
+            .env("LC_ALL", locale)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert_eq!(output.stderr, expected.as_bytes());
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
+        .args(["update", "check", "--json"])
+        .env("LC_ALL", "ar_AE.UTF-8")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!({
+            "schema_version": 1,
+            "kind": "error",
+            "code": "not_available",
+            "message": "This command is not available yet.",
+        }),
+    );
+}
