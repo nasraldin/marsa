@@ -42,12 +42,12 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
   - `marsa status --json` includes VM state, versions and resource use.
   - `eval "$(marsa env)"` makes `docker ps` work in a shell with no context set.
 
-### M5-04 Network mode and settings
+### M5-04 Configure the network mode from the CLI
 
-- **Status:** todo
-- **Depends on:** M5-02, M4-10
+- **Status:** in progress
+- **Depends on:** M5-03, M5-11, M4-25
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
-- **Do:** Implement `network mode` through the authenticated network API. Report when a change needs a restart. M5-10 owns settings and shared folders, M5-09 owns bind approvals, and M5-11 owns read-only network status.
+- **Do:** Implement `network mode [auto|nat|userspace]` through the authenticated network API. Report configured and active modes separately and show whether a restart is pending.
 - **Deliver:** network mode command and tests.
 - **Accept when:**
   - An explicit mode stages only the requested configuration and reports the restart requirement.
