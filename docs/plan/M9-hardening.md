@@ -72,16 +72,16 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
   - Killing `marsad` at each supervisor state and restarting always reaches a correct state without manual steps.
   - A named volume written before the kill is intact afterwards.
 
-### M9-07 Diagnostics bundle
+### M9-07 Diagnostics bundle actions
 
 - **Status:** todo
-- **Depends on:** M3-08
-- **Docs:** [03 Responsibilities](../03-host-daemon.md#responsibilities), [11 Threat model](../11-security.md#threat-model) (T11)
-- **Do:** Implement `Diagnostics.Collect`: daemon logs, console log, engine log tail, settings without secrets, versions, state history, network status. Redact environment values, tokens and anything matching secret patterns. Produce a single archive the user reviews before sharing.
-- **Deliver:** diagnostics module and redaction tests.
+- **Depends on:** M5-06, M7-09, M9-13
+- **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli), [11 Threat model](../11-security.md#threat-model) (T11)
+- **Do:** Connect the CLI and GUI diagnostic actions to the daemon collector. Show the locally created archive path and let the user review it before sharing.
+- **Deliver:** CLI and GUI integration and end-to-end tests for the diagnostic actions.
 - **Accept when:**
-  - Planted secrets in logs and settings do not appear in the bundle.
   - `marsa diagnose` and the GUI action both produce the bundle and show its path.
+  - Neither action uploads the bundle.
 
 ### M9-08 Factory reset and clean uninstall
 
@@ -137,3 +137,15 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 - **Accept when:**
   - The test enumerates and justifies every outbound destination.
   - Telemetry is off by default and absent unless Q-10 adds an opt-in.
+
+### M9-13 Collect a local diagnostics archive
+
+- **Status:** in progress
+- **Depends on:** M3-08
+- **Docs:** [03 Responsibilities](../03-host-daemon.md#responsibilities), [11 Threat model](../11-security.md#threat-model) (T11)
+- **Do:** Implement authenticated `Diagnostics.Collect`. Collect bounded, redacted daemon and guest console tails, derive the engine log tail from the captured guest console, and record safe settings, versions, engine state history, and network status. Write a single private local archive for review.
+- **Deliver:** daemon diagnostics module and redaction tests.
+- **Accept when:**
+  - An authenticated caller can explicitly create one local archive and receive its path even when the engine is stopped.
+  - The archive contains the approved logs and diagnostic state without planted secrets, environment values, or raw settings.
+  - Retrying the same request ID returns the existing archive path without creating another archive.
