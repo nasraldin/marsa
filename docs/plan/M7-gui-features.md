@@ -106,7 +106,7 @@ Every task here carries these standing acceptance conditions in addition to its 
 ### M7-09 Engine control and resources
 
 - **Status:** todo
-- **Depends on:** M6-09, M3-08
+- **Depends on:** M6-09, M3-08, M9-13
 - **Docs:** [03 Settings](../03-host-daemon.md#settings)
 - **Do:** Engine status view with start, stop and restart, boot progress by stage, failure display with console tail and a "collect diagnostics" action. Resource settings for CPUs, memory, disk limit, idle stop and backend, stating clearly when a restart is needed.
 - **Deliver:** screens and tests.

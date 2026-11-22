@@ -1,4 +1,19 @@
-//! Client for the daemon's typed local API.
+//! Authenticated local gRPC transport for Marsa's CLI, GUI and MCP server.
 
-// Keep the architecture's dependency edges until this crate uses them directly.
-use marsa_proto as _;
+/// Typed host API requests and responses shared by Marsa clients.
+pub use marsa_proto::host::v1 as api;
+
+#[cfg(unix)]
+mod client;
+#[cfg(unix)]
+mod events;
+#[cfg(unix)]
+mod platform;
+
+#[cfg(unix)]
+pub use client::{ClientError, DaemonEndpoint, MarsaClient};
+#[cfg(unix)]
+pub use events::EventSubscription;
+
+#[cfg(all(test, unix))]
+mod tests;

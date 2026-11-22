@@ -45,6 +45,7 @@ jobs:
       - name: Exercise the packaged daemon
         run: |
           bundle="$(cargo xtask fetch-upstream | sed -n 's/^Staged verified upstream binaries in //p')"
+          test -n "$bundle"
           test -x "$bundle/bin/docker"
           test -x "$bundle/bin/cli-plugins/docker-buildx"
           export PATH="$bundle/bin:$bundle/bin/cli-plugins:$PATH"

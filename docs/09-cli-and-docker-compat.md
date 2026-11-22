@@ -151,7 +151,7 @@ marsa completion <shell>        Shell completions
 CLI rules:
 
 - Every command supports `--json` for scripts and agents, with a stable schema.
-- Exit codes are documented and stable.
+- [Exit codes and JSON response shapes](reference/cli-exit-codes.md) are stable.
 - Human output is localised (English and Arabic); `--json` output is not.
 - Destructive commands require an explicit flag or a typed confirmation, and never run destructively when stdin is not a terminal unless `--yes` is given.
 - `marsa` starts `marsad` if it is not running.

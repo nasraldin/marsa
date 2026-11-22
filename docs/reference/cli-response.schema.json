@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Marsa CLI response",
+  "oneOf": [
+    { "$ref": "#/$defs/help" },
+    { "$ref": "#/$defs/completion" },
+    { "$ref": "#/$defs/error" }
+  ],
+  "$defs": {
+    "help": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "text"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "help" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "completion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "shell", "script"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "completion" },
+        "shell": { "enum": ["bash", "fish", "zsh"] },
+        "script": { "type": "string", "minLength": 1 }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "code", "message"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "error" },
+        "code": { "enum": ["confirmation_required", "invalid_invocation", "not_available"] },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

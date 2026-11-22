@@ -20,7 +20,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-02 Start the VM on demand
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-01, M3-06
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle)
 - **Do:** Make the proxy call `ensure_ready` before forwarding. Requests wait during boot up to a timeout and then return a clear error. Track running containers to drive the idle state.
@@ -68,7 +68,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 ### M4-06 Attach shares and enforce bind-mount policy
 
 - **Status:** in progress
-- **Depends on:** M4-05, M4-01, M3-16
+- **Depends on:** M4-05, M4-01, M4-03, M3-16
 - **Docs:** [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
 - **Do:** Map allowlist entries to virtiofs shares at identical paths. Use the pinned Docker Engine authorization plugin for container-create checks and preserve the byte-transparent host proxy. Authorize each explicit bind source through the bounded VM policy channel. Expose owner approval actions for once, always and deny, with explicit restart on Apple VZ. Preserve the observed ownership behavior. M5-09 and M7-10 present the approvals. M4-19 qualifies the hot-reload workflow.
 - **Deliver:** share attachment, Docker authorization, typed approval events and decisions, and signed file-sharing tests.

@@ -26,6 +26,7 @@ mod bind_authorization;
 mod observations;
 mod session;
 mod wire;
+mod workloads;
 
 #[cfg(test)]
 mod tests;
@@ -240,6 +241,10 @@ impl GuestControl {
 
 #[async_trait]
 impl GuestProbe for GuestControl {
+    async fn active_containers(&self, vm: &dyn Vm) -> Option<io::Result<u32>> {
+        Some(workloads::count(vm).await)
+    }
+
     async fn handshake(&self, vm: &dyn Vm) -> io::Result<Box<dyn GuestSession>> {
         let stream = timeout(self.agent_connect_timeout, wire::open(vm, CONTROL_PORT))
             .await

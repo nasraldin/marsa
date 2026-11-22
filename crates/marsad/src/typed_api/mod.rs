@@ -2,6 +2,7 @@
 
 mod bind_policy;
 mod bind_prompts;
+mod diagnostics;
 mod engine;
 mod events;
 mod meta;
@@ -17,11 +18,12 @@ use marsa_core::{
     settings::{NetworkMode, Settings},
 };
 use marsa_proto::host::v1::{
-    engine_server::EngineServer, events_server::EventsServer, meta_server::MetaServer,
-    settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
+    CollectDiagnosticsResponse, diagnostics_server::DiagnosticsServer, engine_server::EngineServer,
+    events_server::EventsServer, meta_server::MetaServer, settings_server::SettingsServer,
+    shares_server::SharesServer, stats_server::StatsServer,
 };
 use marsa_share::{Allowlist, SharePolicy};
-use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec, VsockStream};
+use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
 use nix::unistd::{Uid, User};
 use tokio::{net::UnixListener, sync::watch};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -32,7 +34,9 @@ use tonic::{
 
 use crate::{
     guest_control::{GuestControl, GuestEvent},
-    supervisor::{GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection},
+    supervisor::{
+        DockerStream, GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection,
+    },
 };
 
 const CONTROL_LIMIT: usize = 4096;
@@ -52,6 +56,7 @@ struct Shared {
     events: events::Bus,
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
+    diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
     share_policy: SharePolicy,
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
@@ -79,6 +84,7 @@ impl TypedApi {
                 events: events::Bus::new(settings)?,
                 engine_requests: requests::Cache::new(),
                 settings_requests: requests::Cache::new(),
+                diagnostics_requests: requests::Cache::new(),
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
@@ -208,6 +214,11 @@ impl TypedApi {
                     .max_encoding_message_size(CONFIG_LIMIT),
             )
             .add_service(
+                DiagnosticsServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT)
+                    .max_encoding_message_size(CONTROL_LIMIT),
+            )
+            .add_service(
                 SharesServer::new(self.clone())
                     .max_decoding_message_size(CONTROL_LIMIT)
                     .max_encoding_message_size(CONFIG_LIMIT),
@@ -226,8 +237,8 @@ impl TypedApi {
             .await
     }
 
-    /// Connect to the already-ready guest Docker engine through the daemon's runtime.
-    pub async fn connect_docker(&self) -> io::Result<VsockStream> {
+    /// Activate the guest on demand and open a Docker engine stream.
+    pub async fn connect_docker(&self) -> io::Result<DockerStream> {
         let supervisor = self
             .supervisor
             .as_ref()

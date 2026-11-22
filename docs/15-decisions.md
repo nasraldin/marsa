@@ -36,6 +36,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-026 | Use EROFS for the guest root filesystem | Accepted |
 | D-027 | Apply proxy settings at a controlled engine restart | Accepted |
 | D-028 | Qualify native IPv4 independently of runtime and power management | Accepted |
+| D-029 | Verify updates with TUF | Accepted |
 | D-031 | Scope development file sync with Compose Watch | Accepted |
 
 ---
@@ -237,3 +238,11 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Reopen if:**
 - **Date and task:**
 ```
+
+
+## D-029 Verify updates with TUF
+
+- **Decision:** Keep the updater under `marsad` so interactive and headless clients share one authorization, VM shutdown and rollback path. Use TUF metadata and an audited, maintained Rust verifier for signatures, expiry, rollback detection and secure key rotation. Require a separately verified Apple Developer ID signature and notarization for the app before any install. [Manifest and key procedures](reference/update-manifest.md).
+- **Why:** Sparkle 2.10.0 is maintained and supplies signed feeds, trust checks and update installation. Its separately distributed command-line tool demonstrates headless operation. Marsa still needs daemon-controlled shutdown, restart and rollback after real engine health is established, shared by the UI and CLI. TUF supplies standard signed metadata and key recovery without owning the VM or bundle replacement. [Sparkle release](https://github.com/sparkle-project/Sparkle/releases/tag/2.10.0), [Sparkle command-line tool](https://sparkle-project.org/documentation/sparkle-cli/), [TUF specification](https://theupdateframework.github.io/specification/v1.0.33/).
+- **Consequence:** M10-04 owns safe archive extraction, verified bundle replacement and the rollback transaction. Its dependency must pass the production policy. Establish project custody and Apple signing under Q-04 before publishing a production root or update.
+- **Date and task:** 2026-11-22, M10-03.
