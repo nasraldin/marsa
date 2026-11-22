@@ -62,6 +62,7 @@ with (
     with root.extractfile(entries["etc/docker/daemon.json"]) as stream:
         config = json.load(stream)
     assert config["hosts"] == ["unix:///var/run/docker.sock"]
+    assert config["authorization-plugins"] == ["MarsaBindAuthorization"]
     assert config["containerd"] == "/run/containerd/containerd.sock"
     assert config["seccomp-profile"] == "builtin"
     assert config["experimental"] is False and config["live-restore"] is False

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package marsa.guest.v1;
+
+import "marsa/guest/v1/handshake.proto";
+
+// A guest plugin query on the dedicated, host-initiated authorization stream.
+// The sources are Docker bind operands, not canonical paths or approvals.
+message BindAuthorizationRequest {
+  ProtocolVersion protocol = 1;
+  uint64 request_id = 2;
+  repeated string sources = 3;
+}
+
+// A host decision for the outstanding query on this same stream.
+message BindAuthorizationResponse {
+  ProtocolVersion protocol = 1;
+  uint64 request_id = 2;
+  BindAuthorizationDecision decision = 3;
+  string message = 4;
+}
+
+enum BindAuthorizationDecision {
+  BIND_AUTHORIZATION_DECISION_UNSPECIFIED = 0;
+  BIND_AUTHORIZATION_DECISION_ALLOW = 1;
+  BIND_AUTHORIZATION_DECISION_DENY = 2;
+}
