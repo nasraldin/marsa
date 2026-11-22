@@ -637,6 +637,7 @@ dependencies = [
  "marsa-client",
  "serde_json",
  "tokio",
+ "toml",
 ]
 
 [[package]]

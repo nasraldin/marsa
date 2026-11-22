@@ -89,7 +89,7 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 
 ### M5-10 Settings and shared-folder CLI commands
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M5-02, M4-05
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
 - **Do:** Implement `config get|set|list` and `share list|add|remove` through the authenticated typed client. Use the current revision for settings updates and expose the daemon's validation and restart results.
