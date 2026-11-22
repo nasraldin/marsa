@@ -264,7 +264,7 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 
 ### M4-21 Activate staged manual daemon proxy with approval and rollback
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-17, M4-20
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
 - **Do:** Expose an authenticated preview and explicit revision-bound activation for manual daemon proxy on the pinned user-space attachment. Coordinate engine admission and any approved workload interruption. Retain the previous working policy until the candidate succeeds, and restore it after a failed candidate. Persist successful activation separately from the desired draft.
@@ -274,3 +274,5 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - Draft edits persist without interrupting workloads, and ordinary boot/retry never activates an unapproved draft.
   - The user sees the potential impact before granting approval. Stale approvals and racing starts or connects cannot apply or use a candidate out of order.
   - A failed candidate leaves the draft pending, reports failure, and restores the last working configuration on the same data disk. Cancellation and daemon recovery preserve the last working policy.
+
+- **Evidence:** On macOS 27.2.1, the final signed packaged test passed in 88.36 seconds with Docker Engine 29.10.0, BuildKit 0.35.0 and Buildx 0.39.1. The running engine kept its original proxy during draft save and after a declined confirmation. Explicit approval retained the same data disk and wrote an owner-only policy record. Docker pull and the default Docker-driver BuildKit build used separate restricted CONNECT requests and obtained distinct registry manifests through verified TLS. The fixture exported the BuildKit base image marker. The test used guest loopback and a fixture-only CA. The [reproduction](../../crates/marsad/tests/packaged_runtime/proxy_fixture/README.md) includes guest preparation. Fake-backend tests cover stale and expired approvals, delayed-worker replay after disconnect, candidate rollback and uncommitted VM cleanup.
