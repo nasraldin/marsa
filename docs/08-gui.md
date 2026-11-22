@@ -174,13 +174,18 @@ Rules, enforced by lint and review:
 | Topic | Design | Status |
 |---|---|---|
 | Locales | `en-US` (source), `ar` (Modern Standard Arabic) | Decided |
-| Translation format | Fluent (`.ftl`) files in `locales/` | Proposed |
+| Translation format | Fluent (`.ftl`) files in [`locales/`](../locales/README.md) | Implemented in M6-12 |
 | Plurals | Full CLDR rules; Arabic has six plural forms | Decided as a requirement |
 | Library | **Verify:** gpui-component is built on rust-i18n, which may not provide plural rules. Use Fluent for Marsa strings and bridge gpui-component's own strings | Verify |
 | Dates, times, sizes | Locale-aware formatting with Western digits | Proposed |
 | Runtime switching | Language changes apply live | Decided |
 | Missing strings | Build fails if any key exists in one locale and not the other | Proposed |
 | Review | Arabic strings are reviewed by a fluent speaker for terminology consistency; a glossary of technical terms lives in `locales/GLOSSARY.md` | Proposed |
+
+`marsa-l10n` validates the application catalogs and provides typed message
+keys and locale-specific Fluent bundles through `marsa-client`. The CLI
+uses a generated key for its unavailable-command message. GUI integration
+and locale formatting remain part of M6-04.
 
 Technical terms policy (**Proposed**): keep established English terms that developers actually use (Docker, container image names, Compose, volume names as typed) in Latin script where an Arabic term would confuse, and translate interface language (actions, labels, messages) fully.
 
