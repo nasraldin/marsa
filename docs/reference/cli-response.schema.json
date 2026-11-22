@@ -5,6 +5,7 @@
     { "$ref": "#/$defs/help" },
     { "$ref": "#/$defs/completion" },
     { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/disk_usage" },
     { "$ref": "#/$defs/network_status" },
     { "$ref": "#/$defs/settings" },
     { "$ref": "#/$defs/setting" },
@@ -19,6 +20,46 @@
     { "$ref": "#/$defs/log" }
   ],
   "$defs": {
+    "disk_usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "host", "guest", "categories"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "disk_usage" },
+        "host": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allocated_bytes", "capacity_bytes"],
+          "properties": {
+            "allocated_bytes": { "type": "integer", "minimum": 0 },
+            "capacity_bytes": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "guest": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["used_bytes", "capacity_bytes"],
+          "properties": {
+            "used_bytes": { "type": "integer", "minimum": 0 },
+            "capacity_bytes": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["category", "used_bytes", "reclaimable_bytes"],
+            "properties": {
+              "category": { "enum": ["unspecified", "containers", "images", "volumes", "networks", "build_cache"] },
+              "used_bytes": { "type": "integer", "minimum": 0 },
+              "reclaimable_bytes": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
     "network_status": {
       "type": "object",
       "additionalProperties": false,
