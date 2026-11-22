@@ -129,7 +129,7 @@ Every task here carries these standing acceptance conditions in addition to its 
 ### M7-11 Disk and cleanup
 
 - **Status:** todo
-- **Depends on:** M6-09, M5-05
+- **Depends on:** M6-09, M5-05, M5-08
 - **Docs:** [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
 - **Do:** Disk usage breakdown by category and a cleanup flow that previews exactly what will be removed and how much space returns to the Mac, with volumes unselected by default, then runs it and triggers reclaim.
 - **Deliver:** screens and tests.

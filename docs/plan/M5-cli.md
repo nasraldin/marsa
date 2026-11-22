@@ -54,16 +54,16 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
   - Adding a protected path fails with an explanation.
   - A pending approval raised by `docker run -v` can be granted from the CLI.
 
-### M5-05 Disk commands
+### M5-05 Disk usage command
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M5-02, M4-07
-- **Docs:** [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
-- **Do:** Implement `disk usage` and `disk cleanup` with `--dry-run` as the preview, grouped by category with sizes, and volumes never selected by default. `disk reclaim` is wired to the reclaim call delivered in M9-03.
-- **Deliver:** command implementations, `Disk.PrunePreview` in the daemon.
+- **Docs:** [07 Data disk](../07-file-sharing-and-storage.md#data-disk)
+- **Do:** Implement `marsa disk usage` using the authenticated `Disk.Usage` RPC. Report sparse host allocation and logical capacity separately. Report guest filesystem usage only when the daemon has a current sample.
+- **Deliver:** the usage command, its JSON response schema, and tests.
 - **Accept when:**
-  - The preview lists exactly what the run then removes.
-  - Volumes are removed only when named or explicitly included.
+  - Human and JSON output expose host allocation and capacity with the VM stopped.
+  - JSON distinguishes an unavailable guest sample from a real sample with zero bytes used.
 
 ### M5-06 Diagnostics and reset commands
 
@@ -86,3 +86,16 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 - **Accept when:**
   - Every CLI message has both translations (build fails otherwise).
   - Arabic output with embedded container names and paths reads correctly in a terminal that supports bidirectional text, and remains unambiguous in one that does not.
+
+
+### M5-08 Preview and apply exact disk cleanup
+
+- **Status:** todo
+- **Depends on:** M5-05, M4-02
+- **Docs:** [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
+- **Do:** Implement a non-mutating `Disk.PrunePreview` and an authenticated cleanup RPC that applies an explicitly confirmed plan. Return the individual resources, grouped by category, and size estimates before confirmation. Bind apply to the preview's exact resource identities with a single-use, expiring plan and reject stale or ineligible resources. Use exact resource operations rather than broad prune calls. Keep volumes out of the default selection and include only explicitly selected eligible volumes. Implement `marsa disk cleanup --dry-run` and the confirmed apply path. `marsa disk reclaim` is owned by M9-03.
+- **Deliver:** the preview and apply RPCs, the CLI flow, and tests with stale plans, concurrent changes, and volume selection.
+- **Accept when:**
+  - The preview lists exactly what the run then removes.
+  - Volumes are removed only when named or explicitly included.
+  - Applying a changed, expired, or reused plan cannot remove a resource outside the confirmed plan.
