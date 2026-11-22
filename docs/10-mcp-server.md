@@ -11,6 +11,10 @@ Because the Docker socket is equivalent to root over the VM and every shared fol
 3. An agent can never do something the GUI could not show and the user could not review.
 4. Everything an agent does is recorded.
 
+## Protocol version
+
+MCP published the stable `2026-07-28` specification. The official Rust SDK's current stable release is `rmcp` 3.11.0 as of 2026-11-22 and supports both that revision and `2025-11-25`. M8-04 validates and pins the SDK when the stdio transport is implemented. The daemon's policy evaluates typed operations independently of the transport. [MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28/), [Rust SDK release](https://github.com/modelcontextprotocol/rust-sdk/releases/tag/rmcp-v3.11.0)
+
 ## Architecture
 
 ```mermaid
@@ -135,7 +139,9 @@ Logs, exec output, image labels and container names are data from the workload. 
 
 - Each MCP client is identified at first connection (name reported by the client, plus the launching process where it can be determined) and shown to the user.
 - Grants are stored per client and per project directory in `~/.marsa/state/grants.json`, visible and revocable in Settings and with `marsa agents`.
-- Grants expire (**Proposed:** 30 days of disuse) and are cleared by factory reset.
+- An approval can grant one ordinary Operate action for the authenticated client and the project directory. The daemon binds it to the canonical path and filesystem identity. Reusing the path for a different directory requires a new grant.
+- Grants expire after 30 days of disuse. An operation that actually uses a grant renews it. Factory reset clears the grants.
+- The daemon stores the versioned grant document with owner-only permissions and replaces it atomically. If the file is malformed or unsafe, the daemon treats it as unavailable for authorizing an operation.
 
 ## Audit log
 
