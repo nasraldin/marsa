@@ -30,6 +30,31 @@ pub enum Theme {
     Dark,
 }
 
+/// Accent choices shown in the desktop's General settings.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccentColor {
+    /// The default Marsa blue.
+    #[default]
+    MarsaBlue,
+    /// Cool cyan accent.
+    Ocean,
+    /// Green accent.
+    Fern,
+    /// Warm rose accent.
+    Coral,
+    /// Amber accent.
+    Amber,
+    /// Purple accent.
+    Violet,
+}
+
+impl AccentColor {
+    fn is_default(&self) -> bool {
+        *self == Self::MarsaBlue
+    }
+}
+
 /// Desktop app appearance and language settings.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -38,6 +63,25 @@ pub struct UiSettings {
     pub language: Language,
     /// Appearance preference applied on all screens.
     pub theme: Theme,
+    /// Tint used by interactive desktop controls.
+    #[serde(skip_serializing_if = "AccentColor::is_default")]
+    pub accent_color: AccentColor,
+    /// macOS notification preferences for each event category.
+    pub notifications: NotificationSettings,
+}
+
+/// Desktop notifications are opt-in and independent of in-window state.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NotificationSettings {
+    /// Notify after the engine enters a failed state.
+    pub engine_failure: bool,
+    /// Notify when a verified build is announced by the updater.
+    pub update_available: bool,
+    /// Notify when a new request needs the owner's approval.
+    pub approval_pending: bool,
+    /// Notify when the VM changes between native and userspace networking.
+    pub network_mode_changed: bool,
 }
 
 /// Release stream the updater follows.

@@ -71,7 +71,10 @@ Bounded per-container and combined streams are wired. High-rate, navigation, and
   - Full-screen programs (an editor, `top`) render and resize correctly.
   - Closing the tab ends the exec session.
 
-The owner-socket exec transport and Terminal view are present. Enable the terminal after reviewing and auditing the renderer dependency.
+The Terminal view uses bounded Docker exec sessions and the pinned vt100
+renderer. It includes IME input, viewport resizing, scrollback, copy and paste.
+Both locked dependency audits accepted the renderer. Interactive terminal and
+four-variant acceptance remain open.
 
 ---
 
@@ -163,13 +166,16 @@ The desktop route wires lifecycle controls, resource preferences, boot details a
   - About lists the versions from the guest manifest and the upstream binaries.
   - Sharing shows exact pending bind paths and offers once, always and deny. An approved static share displays the restart requirement and preserves workloads until the owner explicitly applies it.
 
-The settings route is in progress. Complete the remaining integrations and compare its controls with the Figma variants.
+General settings includes the Figma accent choices, desktop appearance, language,
+launch at login, and notification preferences. Network settings use guarded
+proxy activation. LAN exposure (Q-07), the global Docker socket (Q-08), and
+unsupported host-tool integration remain open.
 
 ---
 
 ### M7-11 Disk and cleanup
 
-- **Status:** in progress
+- **Status:** blocked (M5-12 exact Docker deletion)
 - **Depends on:** M6-09, M5-05, M5-08, M5-12, M9-03
 - **Docs:** [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
 - **Do:** Disk usage breakdown by category and a cleanup flow that previews exactly what will be removed and how much space returns to the Mac, with volumes unselected by default, then runs it. Show a separate explicit reclaim action.
@@ -178,7 +184,9 @@ The settings route is in progress. Complete the remaining integrations and compa
   - The preview equals what is removed.
   - After cleanup and explicit reclaim, report the observed host allocation change. M9-14 connects automatic reclaim.
 
-The desktop route exposes storage usage, candidate previews and explicit reclaim. Executing a reviewed cleanup plan needs an exact-candidate daemon operation.
+The desktop route exposes storage usage, candidate identities, the engine's
+apply capability and explicit reclaim. Resume apply when M5-12 can bind
+eligibility and identity to the deletion itself.
 
 ---
 
@@ -194,7 +202,9 @@ The desktop route exposes storage usage, candidate previews and explicit reclaim
   - "Always" is not offered for destroy or host-affecting tiers.
   - Approvals can be answered from a notification when the window is closed.
 
-In-window event history, pending approvals, grant revocation and the agent audit log are present. Background approval actions remain open.
+Activity shows engine events, authenticated approvals, grant management and
+filtered audit records. Notifications can reopen the approval screen after the
+last window closes. Approval decisions stay in the authenticated review UI.
 
 ---
 
@@ -209,7 +219,9 @@ In-window event history, pending approvals, grant revocation and the agent audit
   - Each notification type can be turned off in settings.
   - Every error message says what happened and what the user can do.
 
-The desktop shell exposes in-window connection, command and error states. macOS notifications and per-event settings remain open.
+The desktop shell presents in-window error states and opt-in macOS notifications.
+The app-owned daemon subscription continues while all windows are closed and the
+app is still running. Notification actions reopen the relevant review screen.
 
 ---
 

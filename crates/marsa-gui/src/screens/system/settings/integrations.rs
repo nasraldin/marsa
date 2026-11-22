@@ -2,18 +2,14 @@
 
 use crate::screens::common::message;
 use marsa_client::api::{
-    CheckUpdatesRequest, DownloadUpdateRequest, EnableRegistryKeychainRequest,
-    EnsureDockerContextRequest, GetDockerEndpointRequest, VersionResponse,
+    EnableRegistryKeychainRequest, EnsureDockerContextRequest, GetDockerEndpointRequest,
+    VersionResponse,
 };
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     Locale,
     gpui::{Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window},
-    gpui_component::{
-        Disableable, Selectable,
-        button::{Button, ButtonVariants},
-    },
-    preferences::UpdateChannel,
+    gpui_component::{Disableable, button::Button},
 };
 
 use super::super::{Notice, SystemView, machine::title_text};
@@ -146,105 +142,6 @@ impl SystemView {
                 });
             }
         }));
-    }
-
-    pub(super) fn updates(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
-        let update = screen
-            .state
-            .daemon()
-            .and_then(|snapshot| snapshot.update.as_ref());
-        let available = update.and_then(|update| update.available_version.clone());
-        let channel = self
-            .settings
-            .as_ref()
-            .map(|(settings, _)| settings.updates.channel);
-        panel(screen)
-            .child(title_text(gui::GUI_DESKTOP_UPDATES.text(screen.locale)))
-            .child(
-                row(screen.locale).gap_2().children(
-                    [
-                        (
-                            UpdateChannel::Stable,
-                            message(screen.locale, gui::GUI_DESKTOP_STABLE),
-                        ),
-                        (
-                            UpdateChannel::Beta,
-                            message(screen.locale, gui::GUI_DESKTOP_BETA),
-                        ),
-                    ]
-                    .into_iter()
-                    .map(|(value, label)| {
-                        Button::new(("release-channel", value as usize))
-                            .outline()
-                            .selected(channel == Some(value))
-                            .label(label)
-                            .disabled(self.busy() || channel.is_none())
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.save_settings(|settings| settings.updates.channel = value, cx)
-                            }))
-                    }),
-                ),
-            )
-            .children(update.map(|update| technical(&update.current_version)))
-            .children(update.is_none().then(|| {
-                message(
-                    screen.locale,
-                    gui::GUI_DESKTOP_THIS_MARSA_BUILD_DOES_NOT_OFFER_IN_APP_UPDATES,
-                )
-            }))
-            .child(
-                row(screen.locale)
-                    .gap_2()
-                    .child(
-                        Button::new("check-updates")
-                            .outline()
-                            .label(message(screen.locale, gui::GUI_DESKTOP_CHECK_FOR_UPDATES))
-                            .disabled(self.busy() || update.is_none())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.request(
-                                    |client| async move {
-                                        Ok(client
-                                            .updates()
-                                            .check(CheckUpdatesRequest {})
-                                            .await?
-                                            .into_inner())
-                                    },
-                                    |_, _, _| {},
-                                    cx,
-                                )
-                            })),
-                    )
-                    .children(available.map(|version| {
-                        Button::new("download-update")
-                            .outline()
-                            .label(format!(
-                                "{} {}",
-                                message(screen.locale, gui::GUI_DESKTOP_DOWNLOAD),
-                                technical(&version)
-                            ))
-                            .disabled(self.busy())
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                let Some(request_id) = this.mutation_id(cx) else {
-                                    return;
-                                };
-                                let version = version.clone();
-                                this.request(
-                                    move |client| async move {
-                                        Ok(client
-                                            .updates()
-                                            .download(DownloadUpdateRequest {
-                                                request_id,
-                                                version,
-                                            })
-                                            .await?
-                                            .into_inner())
-                                    },
-                                    |_, _, _| {},
-                                    cx,
-                                );
-                            }))
-                    })),
-            )
     }
 
     pub(in crate::screens::system) fn load_version(&mut self, cx: &Context<Self>) {

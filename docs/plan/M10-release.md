@@ -55,7 +55,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 
 ### M10-05 Update experience in GUI and CLI
 
-- **Status:** todo
+- **Status:** blocked (the verified daemon updater and production release trust are unavailable)
 - **Depends on:** M10-04, M7-10, M5-02
 - **Docs:** [12 Auto-update](../12-build-release-update.md#auto-update)
 - **Do:** Implement the update notice with release notes, install now or later, progress, and the rollback message in the GUI (four variants); `marsa update check|apply` in the CLI; channel selection in settings.
@@ -63,6 +63,10 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 - **Accept when:**
   - The full update flow works from both the GUI and the CLI.
   - Release notes display in the selected language when a translation exists.
+
+The desktop presents updater availability, channel settings, localized release
+notes, progress, install confirmation and rollback status through the owner API.
+Installation remains disabled until M10-04 exposes the verified service.
 
 ### M10-06 DMG and Homebrew cask
 

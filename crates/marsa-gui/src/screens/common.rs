@@ -48,7 +48,7 @@ pub(crate) fn panel(screen: &ScreenContext<'_>) -> Div {
         .rounded(px(12.0))
         .border_1()
         .border_color(color(screen.palette, ColorToken::BorderSubtle))
-        .bg(color(screen.palette, ColorToken::BgSurface))
+        .bg(color(screen.palette, ColorToken::BgElevated))
 }
 
 pub(crate) use marsa_ui::direction::{align_to_start as align, row_for as row};

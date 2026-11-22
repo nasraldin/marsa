@@ -15,7 +15,6 @@ mod screens;
 pub fn run() -> std::process::ExitCode {
     marsa_ui::run(|window, cx, locale| {
         use marsa_ui::gpui::AppContext as _;
-        desktop::bind_keys(cx);
         cx.new(|cx| desktop::Desktop::new(window, locale, cx))
     })
 }

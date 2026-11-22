@@ -8,10 +8,7 @@ use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken, Locale,
     gpui::{Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window, div},
-    gpui_component::{
-        Disableable,
-        button::{Button, ButtonVariants},
-    },
+    gpui_component::{Disableable, button::Button},
 };
 
 use super::{Notice, SystemView, disk::bytes};

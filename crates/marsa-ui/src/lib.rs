@@ -17,16 +17,14 @@ mod assets;
 pub use {
     gpui, gpui_component,
     marsa_l10n::{Locale, TextKey, keys as gui_keys},
-    platform::run,
+    platform::{run, show_workspace},
+    vt100,
 };
 
 /// Typed preferences shared with the daemon.
 pub mod preferences {
     pub use marsa_core::settings::{
-        Language, NetworkMode, OperateApproval, Settings, Theme, UpdateChannel, VmBackend,
+        AccentColor, Language, NetworkMode, NotificationSettings, OperateApproval, Settings, Theme,
+        UpdateChannel, VmBackend,
     };
 }
-
-/// VT emulation engine used by the macOS terminal view.
-#[cfg(target_os = "macos")]
-pub use vt100;

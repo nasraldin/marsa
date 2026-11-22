@@ -1,6 +1,7 @@
 //! Resource limits and network preferences backed by the daemon's settings schema.
 
 use crate::screens::common::message;
+use marsa_client::api::NetworkMode as ActiveNetworkMode;
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken,
@@ -315,6 +316,22 @@ impl SystemView {
                     }),
                 ),
             )
+            .children(network.map(|network| {
+                let mode = match network.active_mode() {
+                    ActiveNetworkMode::Nat => gui::GUI_DESKTOP_NATIVE_NAT,
+                    ActiveNetworkMode::Userspace => gui::GUI_DESKTOP_USERSPACE,
+                    _ => gui::GUI_DESKTOP_NETWORK_NO_ACTIVE_MODE,
+                };
+                row(locale)
+                    .gap_2()
+                    .child(message(locale, gui::GUI_DESKTOP_NETWORK_ACTIVE_MODE))
+                    .child(message(locale, mode))
+            }))
+            .children(
+                network
+                    .is_some_and(|network| network.restart_pending == Some(true))
+                    .then(|| message(locale, gui::GUI_DESKTOP_NETWORK_RESTART_PENDING)),
+            )
             .children(
                 network
                     .and_then(|network| network.guest_address.as_deref())
@@ -325,6 +342,7 @@ impl SystemView {
                             .child(technical(address))
                     }),
             )
+            .child(self.proxy_controls(screen, settings.network.proxy.inject_into_containers, cx))
             .children(self.resource_inputs.open.then(|| {
                 div()
                     .flex()

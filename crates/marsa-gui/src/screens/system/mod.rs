@@ -4,6 +4,7 @@ mod activity;
 mod approvals;
 mod disk;
 mod machine;
+mod notifications;
 mod overview;
 mod settings;
 
@@ -19,10 +20,10 @@ use marsa_client::{
     },
 };
 use marsa_ui::{
-    ColorToken, Locale,
-    gpui::{Context, Div, ParentElement, Styled, Task, Window, div},
+    ColorToken,
+    gpui::{Context, Div, EventEmitter, ParentElement, Styled, Task, Window, div},
     gpui_component::button::{Button, ButtonVariants},
-    preferences::{Language, Settings, Theme},
+    preferences::{AccentColor, Language, Settings, Theme},
 };
 
 use crate::{
@@ -31,7 +32,12 @@ use crate::{
     services::{Pending, Services},
 };
 
+pub(crate) use notifications::{NotificationDestination, Notifications, notification_destination};
 use settings::{ResourceInputs, SettingsTab};
+
+pub(crate) struct OpenRoute(pub(crate) Route);
+
+impl EventEmitter<OpenRoute> for SystemView {}
 
 pub(crate) struct SystemView {
     services: Option<Arc<Services>>,
@@ -39,6 +45,7 @@ pub(crate) struct SystemView {
     settings: Option<(Settings, u64)>,
     restart_required: bool,
     settings_tab: SettingsTab,
+    update_panel: settings::UpdatePanel,
     resource_inputs: ResourceInputs,
     version: Option<VersionResponse>,
     login: Option<marsa_client::login::LoginStatus>,
@@ -46,7 +53,7 @@ pub(crate) struct SystemView {
     vm_stats: Option<VmStatsSample>,
     vm_stats_task: Option<Task<()>>,
     preview: Option<PrunePreviewResponse>,
-    cleanup_categories: [bool; 5],
+    cleanup_categories: [bool; 4],
     reclaimed: Option<u64>,
     audit: Option<ListAgentAuditResponse>,
     audit_filter: Option<AuditDecision>,
@@ -67,6 +74,8 @@ enum Notice {
     Saved,
     AppliedNextStart,
     DiagnosticsSaved,
+    ProxyPreviousPolicy,
+    ProxyRecoveryRequired,
 }
 
 impl SystemView {
@@ -81,6 +90,7 @@ impl SystemView {
             settings: None,
             restart_required: false,
             settings_tab: SettingsTab::General,
+            update_panel: settings::UpdatePanel::default(),
             resource_inputs: ResourceInputs::new(window, cx),
             version: None,
             login: None,
@@ -88,7 +98,7 @@ impl SystemView {
             vm_stats: None,
             vm_stats_task: None,
             preview: None,
-            cleanup_categories: [true, true, false, false, true],
+            cleanup_categories: [true, true, false, true],
             reclaimed: None,
             audit: None,
             audit_filter: None,
@@ -106,6 +116,32 @@ impl SystemView {
         self.settings
             .as_ref()
             .map(|(settings, _)| (settings.ui.language, settings.ui.theme))
+    }
+
+    pub(crate) fn accent(&self) -> AccentColor {
+        self.settings
+            .as_ref()
+            .map_or(AccentColor::MarsaBlue, |(settings, _)| {
+                settings.ui.accent_color
+            })
+    }
+
+    pub(crate) fn prepare_notification_destination(
+        &mut self,
+        target: NotificationDestination,
+    ) -> Route {
+        match target {
+            NotificationDestination::Machine => Route::Machine,
+            NotificationDestination::Activity => Route::Activity,
+            NotificationDestination::Updates => {
+                self.settings_tab = SettingsTab::Updates;
+                Route::Settings
+            }
+            NotificationDestination::Network => {
+                self.settings_tab = SettingsTab::Network;
+                Route::Settings
+            }
+        }
     }
 
     pub(crate) fn observe(&mut self, snapshot: Option<&DaemonSnapshot>, cx: &mut Context<Self>) {
@@ -142,6 +178,9 @@ impl SystemView {
                 self.watch_vm(cx);
             }
             Route::Disk => self.load_disk(cx),
+            Route::Settings if self.settings_tab == SettingsTab::Updates => {
+                self.load_update_status(cx)
+            }
             Route::Settings if self.settings_tab == SettingsTab::About => self.load_version(cx),
             Route::Settings if self.settings_tab == SettingsTab::General => self.load_login(cx),
             Route::Activity => self.load_audit(cx),
@@ -270,7 +309,7 @@ impl SystemView {
         cx: &mut Context<Self>,
     ) -> Div {
         let view = match route {
-            Route::Overview => self.overview(screen, history),
+            Route::Overview => self.overview(screen, history, cx),
             Route::Machine => self.machine(screen, cx),
             Route::Disk => self.disk(screen, cx),
             Route::Activity => self.activity(screen, history, cx),
@@ -298,6 +337,12 @@ impl SystemView {
                 gui::GUI_DESKTOP_SETTINGS_SAVED_RESOURCE_CHANGES_APPLY_AT_THE_NEXT_START
                     .text(locale)
             }
+            Some(Notice::ProxyPreviousPolicy) => {
+                gui::GUI_DESKTOP_PROXY_PREVIOUS_POLICY.text(locale)
+            }
+            Some(Notice::ProxyRecoveryRequired) => {
+                gui::GUI_DESKTOP_PROXY_RECOVERY_REQUIRED.text(locale)
+            }
             Some(Notice::DiagnosticsSaved) => {
                 gui::GUI_DESKTOP_THE_DIAGNOSTICS_BUNDLE_WAS_CREATED_REVIEW_IT_IN_FINDER_BEFORE
                     .text(locale)
@@ -306,7 +351,28 @@ impl SystemView {
                 gui::GUI_DESKTOP_CONNECTING_TO_THE_LOCAL_DAEMON_IF_THE_CONNECTION_STAYS_UNAVAIL
                     .text(locale)
             }
+            None if screen
+                .state
+                .engine()
+                .is_some_and(|engine| engine.state() == EngineState::Failed) =>
+            {
+                gui::GUI_DESKTOP_NOTIFICATION_ENGINE_BODY.text(locale)
+            }
             _ => return None,
+        };
+        let background = match notice {
+            Some(Notice::Failed | Notice::ProxyRecoveryRequired) => ColorToken::StatusErrorBg,
+            Some(Notice::InvalidSettings | Notice::ProxyPreviousPolicy) => {
+                ColorToken::StatusWarningBg
+            }
+            None if screen
+                .state
+                .engine()
+                .is_some_and(|engine| engine.state() == EngineState::Failed) =>
+            {
+                ColorToken::StatusErrorBg
+            }
+            _ => ColorToken::AccentSubtle,
         };
         let dismissible = notice.is_some() && !self.busy();
         Some(
@@ -315,7 +381,7 @@ impl SystemView {
                 .gap_2()
                 .p_2()
                 .rounded_md()
-                .bg(color(screen.palette, ColorToken::AccentSubtle))
+                .bg(color(screen.palette, background))
                 .child(align(div().text_sm(), locale).child(message))
                 .children(dismissible.then(|| {
                     Button::new("dismiss-notice")

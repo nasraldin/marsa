@@ -78,8 +78,11 @@ impl ResourcesView {
     /// Create the content state on the desktop window.
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx));
-        cx.subscribe(&filter, |_, _, _, cx| cx.refresh_windows())
-            .detach();
+        cx.subscribe(
+            &filter,
+            |_, _, _: &marsa_ui::gpui_component::input::InputEvent, cx| cx.refresh_windows(),
+        )
+        .detach();
         Self {
             filter,
             selection: None,

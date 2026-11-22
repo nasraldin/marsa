@@ -2,6 +2,7 @@
 
 mod navigation;
 mod palette;
+mod session;
 mod sidebar;
 pub(crate) mod status;
 
@@ -12,15 +13,16 @@ use marsa_client::api::EngineState;
 use marsa_ui::{
     ColorToken, Locale, Palette,
     gpui::{
-        App, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement, KeyBinding,
-        ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Task, Window,
-        WindowAppearance, actions, div,
+        self, App, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
+        KeyBinding, ObjectFit, ParentElement, Pixels, Render, StatefulInteractiveElement, Styled,
+        StyledImage, Subscription, Task, Window, WindowAppearance, actions, div, img, px, svg,
     },
     gpui_component::{
+        IconName,
         button::{Button, ButtonVariants},
         input::InputState,
     },
-    preferences::{Language, Theme},
+    preferences::{AccentColor, Language, Theme},
     tokens::typography::Role,
 };
 
@@ -29,7 +31,7 @@ use crate::{
         common::{ScreenContext, align, color, row},
         containers::ContainerView,
         resources::{self, ResourceKind, ResourcesView},
-        system::SystemView,
+        system::{OpenRoute, SystemView},
     },
     services::{EngineAction, Services},
     store::AppState,
@@ -52,8 +54,11 @@ pub(crate) struct Desktop {
     locale: Locale,
     system_locale: Locale,
     palette: Palette,
+    themed_palette: Option<Palette>,
     container_locale: Locale,
+    controls_layout: Option<(Locale, Pixels)>,
     appearance_preference: Theme,
+    accent: AccentColor,
     state: AppState,
     services: Option<Arc<Services>>,
     history: VecDeque<EngineState>,
@@ -64,6 +69,7 @@ pub(crate) struct Desktop {
     palette_open: bool,
     _subscription: Subscription,
     _search_subscription: Subscription,
+    _route_subscription: Subscription,
     _store: Option<Task<()>>,
 }
 
@@ -72,14 +78,18 @@ impl Desktop {
         let focus = cx.focus_handle();
         let initial_focus = focus.clone();
         window.on_next_frame(move |window, cx| initial_focus.focus(window, cx));
-        let services = Services::start().ok().map(Arc::new);
+        let services = session::attach(window, locale, cx);
         let palette = palette_for(window, Theme::System);
         let containers = cx.new(|cx| ContainerView::new(services.clone(), locale, palette, cx));
         let resources = cx.new(|cx| ResourcesView::new(window, cx));
         let system = cx.new(|cx| SystemView::new(services.clone(), window, cx));
         let query = cx.new(|cx| InputState::new(window, cx));
+        let _route_subscription = cx.subscribe(&system, |this, _, OpenRoute(route), cx| {
+            this.navigate(*route, cx);
+        });
         let _subscription = cx.observe(&system, |this, system, cx| {
             let preferences = system.read(cx).preferences();
+            this.accent = system.read(cx).accent();
             if let Some((language, theme)) = preferences {
                 if this.appearance_preference != theme {
                     this.appearance_preference = theme;
@@ -106,6 +116,7 @@ impl Desktop {
         let store = services.as_ref().map(|services| {
             let mut selection = services.store().select(|state| state.clone());
             state = selection.current().clone();
+            system.update(cx, |view, cx| view.observe(state.daemon(), cx));
             cx.spawn(async move |this, cx| {
                 while let Some(state) = selection.changed().await {
                     if this
@@ -140,8 +151,11 @@ impl Desktop {
             locale,
             system_locale: locale,
             palette,
+            themed_palette: None,
             container_locale: locale,
+            controls_layout: None,
             appearance_preference: Theme::System,
+            accent: AccentColor::MarsaBlue,
             state,
             services,
             history: VecDeque::new(),
@@ -152,6 +166,7 @@ impl Desktop {
             palette_open: false,
             _subscription,
             _search_subscription,
+            _route_subscription,
             _store: store,
         }
     }
@@ -192,7 +207,16 @@ impl Desktop {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let palette = palette_for(window, self.appearance_preference);
+        let controls_layout = (self.locale, window.viewport_size().width);
+        if self.controls_layout != Some(controls_layout) {
+            self.controls_layout = Some(controls_layout);
+            marsa_ui::direction::position_window_controls(window, self.locale);
+        }
+        let palette = palette_for(window, self.appearance_preference).with_accent(self.accent);
+        if self.themed_palette != Some(palette) {
+            self.themed_palette = Some(palette);
+            apply_component_accent(palette, cx);
+        }
         if palette != self.palette || self.container_locale != self.locale {
             self.palette = palette;
             self.container_locale = self.locale;
@@ -226,8 +250,13 @@ impl Render for Desktop {
             )
             .child(
                 Button::new("desktop-search")
-                    .outline()
-                    .label(gui::GUI_DESKTOP_SEARCH_K.text(self.locale))
+                    .ghost()
+                    .size(px(36.))
+                    .p_0()
+                    .bg(color(palette, ColorToken::BgSubtle))
+                    .accessibility_label(gui::GUI_DESKTOP_SEARCH_COMMANDS.text(self.locale))
+                    .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(self.locale))
+                    .child(IconName::Search)
                     .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx))),
             )
             .children(
@@ -244,7 +273,23 @@ impl Render for Desktop {
                             this.request_engine(EngineAction::Start, window, cx);
                         }))
                 }),
-            );
+            )
+            .children((route == Route::Overview).then(|| {
+                Button::new("overview-open-containers")
+                    .primary()
+                    .size(px(36.))
+                    .p_0()
+                    .bg(color(palette, ColorToken::AccentDefault))
+                    .accessibility_label(gui::GUI_DESKTOP_OPEN_CONTAINERS.text(self.locale))
+                    .tooltip(gui::GUI_DESKTOP_OPEN_CONTAINERS.text(self.locale))
+                    .child(
+                        svg()
+                            .path(marsa_ui::direction::launch_arrow(self.locale))
+                            .size(px(18.))
+                            .text_color(color(palette, ColorToken::TextOnAccent)),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.navigate(Route::Containers, cx)))
+            }));
         let view = match route {
             Route::Containers => self.containers.clone().into_any_element(),
             Route::Images | Route::Volumes | Route::Networks | Route::Compose => {
@@ -304,12 +349,22 @@ impl Render for Desktop {
             .size_full()
             .relative()
             .bg(color(palette, ColorToken::BgCanvas))
+            .child(
+                img(if palette.is_dark() {
+                    "marsa/workspace-dark.png"
+                } else {
+                    "marsa/workspace-light.png"
+                })
+                .object_fit(ObjectFit::Fill)
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
             .text_color(color(palette, ColorToken::TextPrimary))
             .child(
                 row(self.locale)
                     .size_full()
                     .p_2()
-                    .gap_2()
                     .child(sidebar)
                     .child(main),
             )
@@ -332,4 +387,19 @@ fn type_role(role: Role, locale: Locale) -> marsa_ui::tokens::typography::TypeSt
     } else {
         role.latin()
     }
+}
+
+fn apply_component_accent(palette: Palette, cx: &mut App) {
+    use marsa_ui::gpui_component::Theme;
+    Theme::update(cx, |theme| {
+        theme.colors.primary = color(palette, ColorToken::AccentDefault);
+        theme.colors.primary_foreground = color(palette, ColorToken::TextOnAccent);
+        theme.colors.primary_hover = color(palette, ColorToken::AccentHover);
+        theme.colors.primary_active = color(palette, ColorToken::AccentPressed);
+        theme.colors.link = theme.colors.primary;
+        theme.colors.link_hover = theme.colors.primary_hover;
+        theme.colors.link_active = theme.colors.primary_active;
+        theme.colors.ring = color(palette, ColorToken::AccentFocus);
+        theme.colors.selection = color(palette, ColorToken::AccentSubtle);
+    });
 }

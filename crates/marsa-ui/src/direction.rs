@@ -3,7 +3,8 @@
 use std::fmt::Write as _;
 
 use gpui::{
-    AbsoluteLength, App, DefiniteLength, Div, Length, SharedString, Styled, TextAlign, div,
+    AbsoluteLength, App, DefiniteLength, Div, Length, SharedString, Styled, TextAlign, Window, div,
+    point, px,
 };
 use gpui_base::{LayoutDirection, LogicalStyledExt};
 use marsa_l10n::Locale;
@@ -48,6 +49,23 @@ pub fn align_to_start(element: Div, locale: Locale) -> Div {
     match locale {
         Locale::EnglishUs => element.text_align(TextAlign::Left),
         Locale::Arabic => element.text_align(TextAlign::Right),
+    }
+}
+
+/// Position the native macOS controls in the workspace's leading sidebar.
+pub fn position_window_controls(window: &Window, locale: Locale) {
+    let inset = match locale {
+        Locale::EnglishUs => px(24.),
+        Locale::Arabic => window.viewport_size().width - px(82.),
+    };
+    window.set_traffic_light_position(point(inset, px(32.)));
+}
+
+/// Return the sidebar-to-content launch arrow for the current reading direction.
+pub fn launch_arrow(locale: Locale) -> &'static str {
+    match locale {
+        Locale::EnglishUs => "icons/arrow-up-right.svg",
+        Locale::Arabic => "icons/arrow-up-left.svg",
     }
 }
 

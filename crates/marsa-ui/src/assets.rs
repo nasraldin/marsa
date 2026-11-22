@@ -5,25 +5,38 @@ use std::borrow::Cow;
 use gpui::{AssetSource, SharedString};
 use gpui_kit_assets::AllAssets;
 
-const BRAND: &str = "marsa/harbor.svg";
+const MARSA_ASSETS: &[(&str, &[u8])] = &[
+    (
+        "marsa/harbor.png",
+        include_bytes!("../../../assets/ui/harbor.png"),
+    ),
+    (
+        "marsa/workspace-light.png",
+        include_bytes!("../../../assets/ui/workspace-light.png"),
+    ),
+    (
+        "marsa/workspace-dark.png",
+        include_bytes!("../../../assets/ui/workspace-dark.png"),
+    ),
+];
 
 pub(crate) struct MarsaAssets;
 
 impl AssetSource for MarsaAssets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
-        if path == BRAND {
-            return Ok(Some(Cow::Borrowed(include_bytes!(
-                "../../../assets/icons/harbor/128.svg"
-            ))));
+        if let Some((_, bytes)) = MARSA_ASSETS.iter().find(|(name, _)| *name == path) {
+            return Ok(Some(Cow::Borrowed(bytes)));
         }
         AllAssets.load(path)
     }
 
     fn list(&self, prefix: &str) -> gpui::Result<Vec<SharedString>> {
         let mut paths = AllAssets.list(prefix)?;
-        if BRAND.starts_with(prefix) {
-            paths.push(BRAND.into());
-        }
+        paths.extend(
+            MARSA_ASSETS
+                .iter()
+                .filter_map(|(name, _)| name.starts_with(prefix).then_some((*name).into())),
+        );
         Ok(paths)
     }
 }

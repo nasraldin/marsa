@@ -6,8 +6,8 @@ mod vm;
 
 pub use network::{NetworkMode, NetworkSettings, ProxySettings};
 pub use preferences::{
-    AgentSettings, Language, OperateApproval, TelemetrySettings, Theme, UiSettings, UpdateChannel,
-    UpdateSettings,
+    AccentColor, AgentSettings, Language, NotificationSettings, OperateApproval, TelemetrySettings,
+    Theme, UiSettings, UpdateChannel, UpdateSettings,
 };
 pub use vm::{DiskSettings, VmBackend, VmSettings};
 

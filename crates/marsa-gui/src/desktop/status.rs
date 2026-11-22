@@ -23,20 +23,40 @@ pub(crate) fn text(locale: Locale, state: Option<EngineState>) -> &'static str {
     copy(locale, en, ar)
 }
 
-pub(crate) fn badge(locale: Locale, palette: Palette, state: Option<EngineState>) -> Div {
-    let (foreground, background) = match state {
+pub(crate) fn compact_badge(locale: Locale, palette: Palette, state: Option<EngineState>) -> Div {
+    let text = match state {
         Some(EngineState::Ready | EngineState::Idle) => {
-            (ColorToken::StatusRunning, ColorToken::StatusRunningBg)
+            marsa_ui::gui_keys::GUI_DESKTOP_RUNNING.text(locale)
         }
-        Some(EngineState::Starting | EngineState::Booting) => {
-            (ColorToken::StatusStarting, ColorToken::StatusStartingBg)
-        }
-        Some(EngineState::Paused | EngineState::Stopping) => {
-            (ColorToken::StatusPaused, ColorToken::StatusPausedBg)
-        }
-        Some(EngineState::Failed) => (ColorToken::StatusError, ColorToken::StatusErrorBg),
-        _ => (ColorToken::StatusStopped, ColorToken::StatusStoppedBg),
+        Some(EngineState::Stopped) => marsa_ui::gui_keys::GUI_DESKTOP_STOPPED.text(locale),
+        Some(EngineState::Paused) => marsa_ui::gui_keys::GUI_DESKTOP_PAUSED.text(locale),
+        _ => text(locale, state),
     };
+    badge_with_text(locale, palette, state, text)
+}
+
+pub(crate) fn badge(locale: Locale, palette: Palette, state: Option<EngineState>) -> Div {
+    badge_with_text(locale, palette, state, text(locale, state))
+}
+
+pub(crate) fn inline_badge(locale: Locale, palette: Palette, state: Option<EngineState>) -> Div {
+    let (token, _) = themes(state);
+    let foreground = color(palette, token);
+    row(locale)
+        .gap_2()
+        .text_size(px(12.))
+        .text_color(foreground)
+        .child(div().size(px(7.)).rounded_full().bg(foreground))
+        .child(text(locale, state))
+}
+
+fn badge_with_text(
+    locale: Locale,
+    palette: Palette,
+    state: Option<EngineState>,
+    label: &'static str,
+) -> Div {
+    let (foreground, background) = themes(state);
     row(locale)
         .gap_2()
         .px_2()
@@ -51,5 +71,21 @@ pub(crate) fn badge(locale: Locale, palette: Palette, state: Option<EngineState>
                 .rounded_full()
                 .bg(color(palette, foreground)),
         )
-        .child(text(locale, state))
+        .child(label)
+}
+
+fn themes(state: Option<EngineState>) -> (ColorToken, ColorToken) {
+    match state {
+        Some(EngineState::Ready | EngineState::Idle) => {
+            (ColorToken::StatusRunning, ColorToken::StatusRunningBg)
+        }
+        Some(EngineState::Starting | EngineState::Booting) => {
+            (ColorToken::StatusStarting, ColorToken::StatusStartingBg)
+        }
+        Some(EngineState::Paused | EngineState::Stopping) => {
+            (ColorToken::StatusPaused, ColorToken::StatusPausedBg)
+        }
+        Some(EngineState::Failed) => (ColorToken::StatusError, ColorToken::StatusErrorBg),
+        _ => (ColorToken::StatusStopped, ColorToken::StatusStoppedBg),
+    }
 }

@@ -1,5 +1,7 @@
 //! Paired sRGB values from the Marsa Figma Foundations palette.
 
+use marsa_core::settings::AccentColor;
+
 use super::Palette;
 
 /// An opaque sRGB design color.
@@ -108,9 +110,64 @@ pub enum ColorToken {
     BrandOrange,
 }
 
+/// The dark, bright and tint stops of the Figma accent swatch.
+pub const fn accent_swatch(color: AccentColor) -> [Rgb; 3] {
+    let (dark, bright, tint) = match color {
+        AccentColor::MarsaBlue => (0x085aa6, 0x7cc4ff, 0xdceeff),
+        AccentColor::Ocean => (0x00576c, 0x73deee, 0xddf3fa),
+        AccentColor::Fern => (0x2a5925, 0xafe287, 0xe8f4df),
+        AccentColor::Coral => (0x903246, 0xffaca6, 0xfce9e8),
+        AccentColor::Amber => (0x754604, 0xf9d58a, 0xfff0d5),
+        AccentColor::Violet => (0x693589, 0xdbb7ff, 0xf2e8fc),
+    };
+    [Rgb(dark), Rgb(bright), Rgb(tint)]
+}
+
+const fn mix_rgb(base: u32, tint: u32, percent: u32) -> Rgb {
+    let red = blend_channel(base >> 16 & 255, tint >> 16 & 255, percent);
+    let green = blend_channel(base >> 8 & 255, tint >> 8 & 255, percent);
+    let blue = blend_channel(base & 255, tint & 255, percent);
+    Rgb(red << 16 | green << 8 | blue)
+}
+
+const fn blend_channel(base: u32, tint: u32, percent: u32) -> u32 {
+    (base * (100 - percent) + tint * percent) / 100
+}
+
 impl Palette {
     /// Returns the sRGB color for a role in the active palette.
     pub const fn color(self, role: ColorToken) -> Rgb {
+        if let Self::Custom(_, accent) = self {
+            let [deep, bright, tint] = accent_swatch(accent);
+            let dark = self.is_dark();
+            match role {
+                ColorToken::AccentDefault | ColorToken::AccentFocus => {
+                    return if dark { bright } else { deep };
+                }
+                ColorToken::AccentHover => {
+                    return if dark {
+                        mix_rgb(bright.0, 0xffffff, 15)
+                    } else {
+                        mix_rgb(deep.0, 0, 10)
+                    };
+                }
+                ColorToken::AccentPressed => {
+                    return if dark {
+                        mix_rgb(bright.0, deep.0, 15)
+                    } else {
+                        mix_rgb(deep.0, 0, 20)
+                    };
+                }
+                ColorToken::AccentSubtle => {
+                    return if dark {
+                        mix_rgb(0x192337, bright.0, 20)
+                    } else {
+                        tint
+                    };
+                }
+                _ => {}
+            }
+        }
         let (light, dark) = match role {
             ColorToken::BgCanvas => (0xe2eaf6, 0x0b1220),
             ColorToken::BgSurface => (0xf4f7fc, 0x101827),
@@ -154,10 +211,7 @@ impl Palette {
             ColorToken::BrandBlue => (0x088dec, 0x088dec),
             ColorToken::BrandOrange => (0xff8a1f, 0xff8a1f),
         };
-        Rgb(match self {
-            Self::Light => light,
-            Self::Dark => dark,
-        })
+        Rgb(if self.is_dark() { dark } else { light })
     }
 }
 

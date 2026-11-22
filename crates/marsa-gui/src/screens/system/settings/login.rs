@@ -1,12 +1,11 @@
 //! Start-at-login setting and macOS approval state.
 
-use crate::screens::common::message;
 use marsa_client::login::{LoginAction, LoginStatus};
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     Locale,
     gpui::{Context, Div, ParentElement, PromptButton, PromptLevel, Window, div},
-    gpui_component::{Disableable, checkbox::Checkbox},
+    gpui_component::{Disableable, switch::Switch},
 };
 
 use super::{
@@ -53,14 +52,14 @@ impl SystemView {
             en,
             ar,
             div().child(
-                Checkbox::new("start-at-login")
+                Switch::new("start-at-login")
                     .checked(
                         self.login
                             .is_some_and(|status| status != LoginStatus::Disabled),
                     )
-                    .label(message(screen.locale, gui::GUI_DESKTOP_START_SERVICE))
+                    .accessibility_label(gui::GUI_DESKTOP_START_SERVICE.text(locale))
                     .disabled(self.login.is_none() || self.busy())
-                    .on_click(cx.listener(move |this, enabled: &bool, window, cx| {
+                    .on_change(cx.listener(move |this, enabled: &bool, window, cx| {
                         this.change_login(*enabled, locale, window, cx);
                     })),
             ),

@@ -8,10 +8,7 @@ use marsa_client::docker::ContainerId;
 use marsa_ui::{
     ColorToken,
     gpui::{Context, Div, Entity, ParentElement, Styled, Task, div, px},
-    gpui_component::{
-        Disableable,
-        button::{Button, ButtonVariants},
-    },
+    gpui_component::{Disableable, button::Button},
     tokens::{scale::Space, typography::Role},
 };
 

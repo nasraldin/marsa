@@ -10,14 +10,11 @@ use marsa_ui::{
     gpui::{
         Context, Div, FontWeight, ParentElement, PromptButton, PromptLevel, Styled, Window, div,
     },
-    gpui_component::{
-        Disableable,
-        button::{Button, ButtonVariants},
-    },
+    gpui_component::{Disableable, button::Button},
 };
 
 use crate::{
-    desktop::{Route, status},
+    desktop::status,
     screens::common::{ScreenContext, color, label, panel, row, technical},
     services::{Command, EngineAction},
 };
@@ -299,7 +296,7 @@ impl SystemView {
 }
 
 pub(super) fn title_text(text: &'static str) -> Div {
-    div().font_weight(FontWeight::SEMIBOLD).child(text)
+    div().font_weight(FontWeight::MEDIUM).child(text)
 }
 
 pub(super) fn metric(

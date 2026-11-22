@@ -2,13 +2,13 @@
 
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
-    ColorToken, Locale,
+    ColorToken,
     gpui::{
         Context, Div, FontWeight, InteractiveElement, ParentElement, StatefulInteractiveElement,
-        Styled, div, px, svg,
+        Styled, div, img, px, svg,
     },
     gpui_component::{
-        IconName, Selectable,
+        IconName,
         button::{Button, ButtonVariants},
     },
 };
@@ -29,6 +29,10 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
     };
     let collapse = Button::new("sidebar-toggle")
         .ghost()
+        .size(px(36.))
+        .p_0()
+        .bg(color(palette, ColorToken::BgSubtle))
+        .accessibility_label(collapse_label)
         .tooltip(collapse_label)
         .child(IconName::PanelLeft)
         .on_click(cx.listener(|desktop, _, _, cx| {
@@ -37,10 +41,10 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         }));
     let brand = row(locale)
         .gap_2()
-        .child(svg().path("marsa/harbor.svg").size(px(30.)))
+        .child(img("marsa/harbor.png").size(px(30.)))
         .children((!desktop.collapsed).then(|| {
             div()
-                .text_xl()
+                .text_size(px(20.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(gui::GUI_DESKTOP_MARSA.text(locale))
         }));
@@ -66,9 +70,13 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
             div()
                 .flex()
                 .flex_col()
-                .gap_1()
+                .gap(px(1.))
                 .children((!desktop.collapsed).then(|| {
-                    align(div().text_xs().text_color(foreground).px_2(), locale).child(title)
+                    align(
+                        div().text_size(px(11.)).text_color(foreground).px_2(),
+                        locale,
+                    )
+                    .child(title)
                 }))
                 .children(routes.iter().copied().map(|route| {
                     let selected = route == desktop.route;
@@ -78,25 +86,33 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                     } else {
                         foreground
                     };
-                    Button::new(("route", route as usize))
+                    let item = Button::new(("route", route as usize))
                         .ghost()
-                        .selected(selected)
+                        .accessibility_label(label)
                         .tooltip(label)
                         .w_full()
-                        .child(
-                            row(locale)
-                                .w_full()
-                                .gap_2()
-                                .text_color(icon_color)
-                                .child(
-                                    svg()
-                                        .path(route.icon())
-                                        .size(px(17.))
-                                        .text_color(icon_color),
-                                )
-                                .children((!desktop.collapsed).then_some(label)),
-                        )
-                        .on_click(cx.listener(move |desktop, _, _, cx| desktop.navigate(route, cx)))
+                        .h(px(32.))
+                        .rounded(px(8.));
+                    let item = if selected {
+                        item.bg(color(palette, ColorToken::AccentSubtle))
+                    } else {
+                        item
+                    };
+                    item.child(
+                        row(locale)
+                            .w_full()
+                            .gap_2()
+                            .text_size(px(13.))
+                            .text_color(icon_color)
+                            .child(
+                                svg()
+                                    .path(route.icon())
+                                    .size(px(17.))
+                                    .text_color(icon_color),
+                            )
+                            .children((!desktop.collapsed).then_some(label)),
+                    )
+                    .on_click(cx.listener(move |desktop, _, _, cx| desktop.navigate(route, cx)))
                 })),
         );
     }
@@ -119,7 +135,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
             .flex()
             .flex_col()
             .gap_1()
-            .child(status::badge(locale, palette, engine))
+            .child(status::inline_badge(locale, palette, engine))
             .child(
                 row(locale)
                     .justify_between()
@@ -128,11 +144,19 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                     .child(gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale))
                     .child("marsa"),
             )
+            .child(
+                row(locale)
+                    .gap_3()
+                    .text_xs()
+                    .text_color(foreground)
+                    .child("arm64")
+                    .child(gui::GUI_DESKTOP_LOCAL_ENGINE.text(locale)),
+            )
     };
     div()
         .flex()
         .flex_col()
-        .gap_3()
+        .gap_2()
         .w(px(width))
         .flex_shrink_0()
         .h_full()
@@ -141,7 +165,8 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         .border_1()
         .border_color(color(palette, ColorToken::BorderSubtle))
         .bg(color(palette, ColorToken::BgSidebar))
-        .child(row(locale).justify_between().child(brand).child(collapse))
+        .child(row(locale).h(px(40.)).justify_end().child(collapse))
+        .child(row(locale).px_2().pb_3().child(brand))
         .child(navigation)
         .child(footer)
 }

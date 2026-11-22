@@ -60,7 +60,9 @@ impl FormKind {
             Self::Pull | Self::Run { .. } | Self::RemoveImage { .. } => ResourceKind::Images,
             Self::CreateVolume | Self::RemoveVolume { .. } => ResourceKind::Volumes,
             Self::CreateNetwork | Self::RemoveNetwork { .. } => ResourceKind::Networks,
-            Self::ComposeDown { volumes: true, .. } => ResourceKind::Compose,
+            Self::ComposeUp { .. } | Self::ComposeRestart { .. } | Self::ComposeDown { .. } => {
+                ResourceKind::Compose
+            }
         }
     }
 
@@ -174,8 +176,11 @@ impl Form {
     ) -> Self {
         let input = kind.placeholder(locale).map(|placeholder| {
             let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
-            cx.subscribe(&input, |_, _, _, cx| cx.refresh_windows())
-                .detach();
+            cx.subscribe(
+                &input,
+                |_, _, _: &marsa_ui::gpui_component::input::InputEvent, cx| cx.refresh_windows(),
+            )
+            .detach();
             input
         });
         Self {
