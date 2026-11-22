@@ -28,7 +28,7 @@ use tokio::time::{Instant, timeout_at};
 use tonic::{Request, Response, Status};
 
 use super::{TypedApi, requests};
-use crate::agent_policy::{Decision, Effect, GrantScope, GrantStore, decide};
+use crate::agent_policy::{Decision, Effect, GrantScope, decide};
 use queue::Outcome;
 use sessions::Session;
 
@@ -36,7 +36,6 @@ const ARGUMENT_LIMIT: usize = 4096;
 
 pub(super) struct State {
     sessions: sessions::Sessions,
-    grants: GrantStore,
     open: requests::Cache<OpenAgentSessionRequest, OpenAgentSessionResponse>,
     decisions: requests::Cache<(String, Outcome), DecisionResponse>,
     revoke: requests::Cache<String, RevokeGrantResponse>,
@@ -44,10 +43,9 @@ pub(super) struct State {
 }
 
 impl State {
-    pub(super) fn new(paths: marsa_core::paths::MarsaPaths, uid: u32) -> Self {
+    pub(super) fn new() -> Self {
         Self {
             sessions: sessions::Sessions::default(),
-            grants: GrantStore::new(paths, uid),
             open: requests::Cache::new(),
             decisions: requests::Cache::new(),
             revoke: requests::Cache::new(),
@@ -214,9 +212,12 @@ impl Agents for TypedApi {
         self.owner_request(request)?;
         let api = self.clone();
         Ok(Response::new(
-            tokio::task::spawn_blocking(move || api.read_grants())
-                .await
-                .map_err(|_| Status::internal("agent grants worker stopped"))??,
+            tokio::task::spawn_blocking(move || {
+                let _admission = api.inner.factory_reset.read()?;
+                api.read_grants()
+            })
+            .await
+            .map_err(|_| Status::internal("agent grants worker stopped"))??,
         ))
     }
 
@@ -234,13 +235,13 @@ impl Agents for TypedApi {
                 &request.request_id,
                 request.grant_id.clone(),
                 || async move {
+                    let _admission = api.inner.factory_reset.read()?;
                     let _edit = api.inner.agents.grant_admin.lock().await;
                     let admin = api.clone();
                     tokio::task::spawn_blocking(move || {
                         let api = admin;
                         if !api
                             .inner
-                            .agents
                             .grants
                             .update(|grants| Ok(grants.revoke(&request.grant_id)))
                             .map_err(|_| Status::internal("agent grants unavailable"))?
@@ -289,7 +290,6 @@ impl TypedApi {
     fn read_grants(&self) -> Result<ListGrantsResponse, Status> {
         let grants = self
             .inner
-            .agents
             .grants
             .load()
             .map_err(|_| Status::internal("agent grants unavailable"))?;

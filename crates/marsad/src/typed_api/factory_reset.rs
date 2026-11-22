@@ -251,6 +251,7 @@ impl TypedApi {
             .events
             .update_settings(settings, document, next_revision, idle_applied);
         self.inner.events.reset_bind_approvals();
+        self.inner.events.publish_grants(Default::default());
         drop(permit);
         Ok(ResetResponse {
             result: Some(ResetResult::Completed(ResetCompleted {})),

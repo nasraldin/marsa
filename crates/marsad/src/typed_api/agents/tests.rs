@@ -153,3 +153,170 @@ async fn owner_authorizes_the_exact_fixture_and_denial_and_expiry_release_it() {
         assert!(api.inner.events.pending_approvals().approvals.is_empty());
     }
 }
+
+#[tokio::test]
+async fn grant_workers_refuse_factory_exclusive_admission() {
+    use std::os::unix::fs::DirBuilderExt;
+
+    let home = tempfile::TempDir::new().unwrap();
+    let paths = MarsaPaths::from_home(home.path()).unwrap();
+    for directory in [paths.root(), &paths.state_dir()] {
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(directory)
+            .unwrap();
+    }
+    let api = TypedApi::new(paths, nix::unistd::geteuid().as_raw(), Settings::default()).unwrap();
+    let grant = api
+        .inner
+        .grants
+        .update(|grants| {
+            grants.record_approval(
+                GrantScope::resolve("fixture", home.path())?,
+                AgentOperation::StopContainer,
+                Effect::Ordinary,
+                &Settings::default().agents,
+                SystemTime::now(),
+            )
+        })
+        .unwrap();
+
+    let exclusive = api.inner.factory_reset.close().await;
+    let list = api.list_grants(owner(ListGrantsRequest {})).await;
+    let revoke = api
+        .revoke_grant(owner(RevokeGrantRequest {
+            request_id: "00000000-0000-4000-8000-000000000023".into(),
+            grant_id: grant.id.clone(),
+        }))
+        .await;
+    assert_eq!(list.unwrap_err().code(), Code::Unavailable);
+    assert_eq!(revoke.unwrap_err().code(), Code::Unavailable);
+
+    drop(exclusive);
+    let list = api
+        .list_grants(owner(ListGrantsRequest {}))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(list.grants, vec![grant]);
+}
+
+#[tokio::test]
+async fn factory_commit_clears_grants_and_an_existing_delegation_stays_read_only() {
+    use std::os::unix::fs::DirBuilderExt;
+
+    use marsa_proto::host::v1::{
+        SubscribeRequest, daemon_event::Body, events_server::Events,
+        reset_response::Result as ResetResult,
+    };
+    use tokio_stream::StreamExt;
+
+    let home = tempfile::TempDir::new().unwrap();
+    let paths = MarsaPaths::from_home(home.path()).unwrap();
+    for directory in [paths.root(), &paths.state_dir(), &paths.vm_dir()] {
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(directory)
+            .unwrap();
+    }
+    let api = TypedApi::new(paths, nix::unistd::geteuid().as_raw(), Settings::default()).unwrap();
+    let registered = api
+        .open_session(owner(OpenAgentSessionRequest {
+            client_id: "fixture".into(),
+            client_name: "Factory fixture".into(),
+            project_path: home.path().display().to_string(),
+            request_id: "00000000-0000-4000-8000-000000000024".into(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    api.inner
+        .grants
+        .update(|grants| {
+            grants.record_approval(
+                GrantScope::resolve("fixture", home.path())?,
+                AgentOperation::StopContainer,
+                Effect::Ordinary,
+                &Settings::default().agents,
+                SystemTime::now(),
+            )
+        })
+        .unwrap();
+
+    let mut stream = api
+        .subscribe(owner(SubscribeRequest {}))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap().body,
+        Some(Body::Snapshot(_))
+    ));
+    let prepared = api
+        .prepare_factory_reset("00000000-0000-4000-8000-000000000025".into())
+        .await
+        .unwrap();
+    let Some(ResetResult::Challenge(challenge)) = prepared.result else {
+        panic!("expected factory confirmation challenge");
+    };
+    let completed = api
+        .confirm_factory_reset(
+            "00000000-0000-4000-8000-000000000026",
+            challenge.confirmation_token,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(completed.result, Some(ResetResult::Completed(_))));
+    let grants = api
+        .list_grants(owner(ListGrantsRequest {}))
+        .await
+        .unwrap()
+        .into_inner()
+        .grants;
+    assert!(grants.is_empty());
+    let published = timeout(Duration::from_secs(2), async {
+        while let Some(event) = stream.next().await {
+            if let Some(Body::Grants(grants)) = event.unwrap().body {
+                return grants;
+            }
+        }
+        panic!("expected a post-reset grants event");
+    })
+    .await
+    .unwrap();
+    assert!(published.grants.is_empty());
+
+    for (kind, args, request_id) in [
+        (
+            AgentOperation::EngineStatus,
+            "{}",
+            "00000000-0000-4000-8000-000000000027",
+        ),
+        (
+            AgentOperation::StopContainer,
+            r#"{"container_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#,
+            "00000000-0000-4000-8000-000000000028",
+        ),
+    ] {
+        let mut request = owner(AgentOperationRequest {
+            request_id: request_id.into(),
+            client_id: "fixture".into(),
+            project_path: registered.project_path.clone(),
+            operation: kind.into(),
+            arguments_json: args.into(),
+        });
+        let mut credential: tonic::metadata::MetadataValue<_> =
+            format!("Bearer {}", registered.token).parse().unwrap();
+        credential.set_sensitive(true);
+        request.metadata_mut().insert("authorization", credential);
+        let response = api.execute(request).await.unwrap().into_inner();
+        match (kind, response.result) {
+            (AgentOperation::EngineStatus, Some(WireResult::Output(_))) => {}
+            (AgentOperation::StopContainer, Some(WireResult::Error(error))) => {
+                assert_eq!(error.code, "unsupported_operation");
+            }
+            _ => panic!("unexpected operation result"),
+        }
+    }
+    assert!(api.inner.events.pending_approvals().approvals.is_empty());
+}
