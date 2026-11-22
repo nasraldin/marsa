@@ -144,7 +144,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-12 Registry credentials
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M4-03, M4-16
 - **Docs:** [11 Registry credentials](../11-security.md#registry-credentials)
 - **Do:** Offer to set the keychain credential helper as the Docker CLI credential store, never overwriting an existing store. Confirm that no credential is written to disk in plain text or stored in the guest.
