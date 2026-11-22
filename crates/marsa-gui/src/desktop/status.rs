@@ -35,10 +35,6 @@ pub(crate) fn compact_badge(locale: Locale, palette: Palette, state: Option<Engi
     badge_with_text(locale, palette, state, text)
 }
 
-pub(crate) fn badge(locale: Locale, palette: Palette, state: Option<EngineState>) -> Div {
-    badge_with_text(locale, palette, state, text(locale, state))
-}
-
 pub(crate) fn inline_badge(locale: Locale, palette: Palette, state: Option<EngineState>) -> Div {
     let (token, _) = themes(state);
     let foreground = color(palette, token);

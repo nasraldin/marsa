@@ -1,6 +1,7 @@
 //! Native workspace, window commands and screen routing.
 
 mod navigation;
+mod onboarding;
 mod palette;
 mod session;
 mod sidebar;
@@ -14,8 +15,9 @@ use marsa_ui::{
     ColorToken, Locale, Palette,
     gpui::{
         self, App, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-        KeyBinding, ObjectFit, ParentElement, Pixels, Render, StatefulInteractiveElement, Styled,
-        StyledImage, Subscription, Task, Window, WindowAppearance, actions, div, img, px, svg,
+        KeyBinding, ObjectFit, ParentElement, Pixels, Render, ScrollHandle,
+        StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, WeakFocusHandle,
+        Window, WindowAppearance, actions, div, img, px, svg,
     },
     gpui_component::{
         IconName,
@@ -38,12 +40,25 @@ use crate::{
 };
 pub(crate) use navigation::Route;
 
-actions!(marsa, [OpenCommandPalette, CloseCommandPalette]);
+actions!(
+    marsa,
+    [
+        OpenCommandPalette,
+        CloseCommandPalette,
+        StartEngineFromScreen,
+        NavigateToContainers,
+        NavigateToDisk,
+        NavigateToSettings,
+    ]
+);
 
 pub(crate) fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("cmd-k", OpenCommandPalette, Some("MarsaDesktop")),
         KeyBinding::new("escape", CloseCommandPalette, Some("MarsaDesktop")),
+        KeyBinding::new("cmd-1", NavigateToContainers, Some("MarsaDesktop")),
+        KeyBinding::new("cmd-6", NavigateToDisk, Some("MarsaDesktop")),
+        KeyBinding::new("cmd-,", NavigateToSettings, Some("MarsaDesktop")),
     ]);
 }
 
@@ -54,7 +69,7 @@ pub(crate) struct Desktop {
     locale: Locale,
     system_locale: Locale,
     palette: Palette,
-    themed_palette: Option<Palette>,
+    themed_palette: Option<(Palette, Locale)>,
     container_locale: Locale,
     controls_layout: Option<(Locale, Pixels)>,
     appearance_preference: Theme,
@@ -67,10 +82,17 @@ pub(crate) struct Desktop {
     system: Entity<SystemView>,
     query: Entity<InputState>,
     palette_open: bool,
+    palette_focus: FocusHandle,
+    palette_previous_focus: Option<WeakFocusHandle>,
+    palette_index: usize,
+    palette_scroll: ScrollHandle,
     _subscription: Subscription,
     _search_subscription: Subscription,
     _route_subscription: Subscription,
     _store: Option<Task<()>>,
+    _setup_probe: Option<Task<()>>,
+    onboarding: Option<onboarding::Setup>,
+    setup_task: Option<Task<()>>,
 }
 
 impl Desktop {
@@ -90,7 +112,9 @@ impl Desktop {
         let _subscription = cx.observe(&system, |this, system, cx| {
             let preferences = system.read(cx).preferences();
             this.accent = system.read(cx).accent();
-            if let Some((language, theme)) = preferences {
+            if this.onboarding.is_none()
+                && let Some((language, theme)) = preferences
+            {
                 if this.appearance_preference != theme {
                     this.appearance_preference = theme;
                     use marsa_ui::gpui_component::{Theme as ComponentTheme, ThemeMode};
@@ -144,6 +168,9 @@ impl Desktop {
             })
         });
         let _search_subscription = palette::observe_query(&query, window, cx);
+        let _setup_probe = services
+            .as_deref()
+            .map(|services| onboarding::probe(services, cx));
         Self {
             route: Route::Overview,
             focus,
@@ -164,10 +191,17 @@ impl Desktop {
             system,
             query,
             palette_open: false,
+            palette_focus: cx.focus_handle(),
+            palette_previous_focus: None,
+            palette_index: 0,
+            palette_scroll: ScrollHandle::new(),
             _subscription,
             _search_subscription,
             _route_subscription,
             _store: store,
+            _setup_probe,
+            onboarding: None,
+            setup_task: None,
         }
     }
 
@@ -188,6 +222,7 @@ impl Desktop {
         }
         self.route = route;
         self.palette_open = false;
+        self.palette_previous_focus = None;
         self.system.update(cx, |view, cx| view.enter(route, cx));
         cx.notify();
     }
@@ -199,6 +234,7 @@ impl Desktop {
         cx: &mut Context<Self>,
     ) {
         self.palette_open = false;
+        self.palette_previous_focus = None;
         self.system
             .update(cx, |view, cx| view.engine(action, self.locale, window, cx));
         cx.notify();
@@ -213,9 +249,9 @@ impl Render for Desktop {
             marsa_ui::direction::position_window_controls(window, self.locale);
         }
         let palette = palette_for(window, self.appearance_preference).with_accent(self.accent);
-        if self.themed_palette != Some(palette) {
-            self.themed_palette = Some(palette);
-            apply_component_accent(palette, cx);
+        if self.themed_palette != Some((palette, self.locale)) {
+            self.themed_palette = Some((palette, self.locale));
+            palette.apply_to_components(self.locale, cx);
         }
         if palette != self.palette || self.container_locale != self.locale {
             self.palette = palette;
@@ -230,6 +266,8 @@ impl Render for Desktop {
             services: self.services.as_ref(),
         };
         let route = self.route;
+        let failed = matches!(route, Route::Containers | Route::Machine)
+            && self.engine() == Some(EngineState::Failed);
         let sidebar = sidebar::render(self, cx);
         let header = row(self.locale)
             .justify_between()
@@ -239,13 +277,21 @@ impl Render for Desktop {
                     .child(
                         type_role(Role::Title, self.locale)
                             .apply(div())
-                            .child(route.name(self.locale)),
+                            .child(if failed {
+                                gui::GUI_SYSTEM_ENGINE_FAILED_TITLE.text(self.locale)
+                            } else {
+                                route.name(self.locale)
+                            }),
                     )
                     .child(
                         div()
                             .text_sm()
                             .text_color(color(palette, ColorToken::TextMuted))
-                            .child(route.description(self.locale)),
+                            .child(if failed {
+                                gui::GUI_SYSTEM_ENGINE_FAILED_SUBTITLE.text(self.locale)
+                            } else {
+                                route.description(self.locale)
+                            }),
                     ),
             )
             .child(
@@ -253,7 +299,7 @@ impl Render for Desktop {
                     .ghost()
                     .size(px(36.))
                     .p_0()
-                    .bg(color(palette, ColorToken::BgSubtle))
+                    .bg(color(palette, ColorToken::GlassControl))
                     .accessibility_label(gui::GUI_DESKTOP_SEARCH_COMMANDS.text(self.locale))
                     .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(self.locale))
                     .child(IconName::Search)
@@ -290,22 +336,28 @@ impl Render for Desktop {
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.navigate(Route::Containers, cx)))
             }));
-        let view = match route {
-            Route::Containers => self.containers.clone().into_any_element(),
-            Route::Images | Route::Volumes | Route::Networks | Route::Compose => {
-                let kind = match route {
-                    Route::Images => ResourceKind::Images,
-                    Route::Volumes => ResourceKind::Volumes,
-                    Route::Networks => ResourceKind::Networks,
-                    _ => ResourceKind::Compose,
-                };
-                resources::render(&screen, kind, &self.resources, cx).into_any_element()
+        let view = if failed {
+            self.system.update(cx, |view, cx| {
+                view.failed_engine(&screen, cx).into_any_element()
+            })
+        } else {
+            match route {
+                Route::Containers => self.containers.clone().into_any_element(),
+                Route::Images | Route::Volumes | Route::Networks | Route::Compose => {
+                    let kind = match route {
+                        Route::Images => ResourceKind::Images,
+                        Route::Volumes => ResourceKind::Volumes,
+                        Route::Networks => ResourceKind::Networks,
+                        _ => ResourceKind::Compose,
+                    };
+                    resources::render(&screen, kind, &self.resources, cx).into_any_element()
+                }
+                _ => self.system.update(cx, |system, cx| {
+                    system
+                        .render_route(route, &screen, &self.history, cx)
+                        .into_any_element()
+                }),
             }
-            _ => self.system.update(cx, |system, cx| {
-                system
-                    .render_route(route, &screen, &self.history, cx)
-                    .into_any_element()
-            }),
         };
         let notice = self.system.update(cx, |view, cx| view.banner(&screen, cx));
         let content = div()
@@ -313,7 +365,7 @@ impl Render for Desktop {
             .flex_1()
             .min_h_0()
             .child(view);
-        let content = if route == Route::Containers {
+        let content = if route == Route::Containers && !failed {
             content.overflow_hidden()
         } else {
             content.overflow_y_scroll()
@@ -326,25 +378,40 @@ impl Render for Desktop {
             .flex_col()
             .gap_3()
             .p_4()
-            .child(header)
-            .children(notice)
+            .children((route != Route::Containers || failed).then_some(header))
+            .children((route != Route::Containers).then_some(notice).flatten())
             .child(content);
         type_role(Role::Body, self.locale)
             .apply(div().id("marsa-desktop"))
             .track_focus(&self.focus)
             .key_context("MarsaDesktop")
             .tab_group()
-            .on_action(
-                cx.listener(|this, _: &OpenCommandPalette, window, cx| {
-                    this.open_palette(window, cx)
-                }),
-            )
-            .on_action(cx.listener(|this, _: &CloseCommandPalette, window, cx| {
-                if this.palette_open {
-                    this.palette_open = false;
-                    this.focus.focus(window, cx);
-                    cx.notify();
+            .on_action(cx.listener(|this, _: &OpenCommandPalette, window, cx| {
+                if this.onboarding.is_none() {
+                    this.open_palette(window, cx);
                 }
+            }))
+            .on_action(cx.listener(|this, _: &CloseCommandPalette, window, cx| {
+                if this.onboarding.is_some() {
+                    this.dismiss_setup(cx);
+                } else {
+                    this.close_palette(window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &StartEngineFromScreen, window, cx| {
+                this.request_engine(EngineAction::Start, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &NavigateToContainers, window, cx| {
+                this.close_palette(window, cx);
+                this.navigate(Route::Containers, cx);
+            }))
+            .on_action(cx.listener(|this, _: &NavigateToDisk, window, cx| {
+                this.close_palette(window, cx);
+                this.navigate(Route::Disk, cx);
+            }))
+            .on_action(cx.listener(|this, _: &NavigateToSettings, window, cx| {
+                this.close_palette(window, cx);
+                this.navigate(Route::Settings, cx);
             }))
             .size_full()
             .relative()
@@ -361,13 +428,16 @@ impl Render for Desktop {
                 .size_full(),
             )
             .text_color(color(palette, ColorToken::TextPrimary))
-            .child(
+            .child(if self.onboarding.is_some() {
+                self.setup_view(cx).into_any_element()
+            } else {
                 row(self.locale)
                     .size_full()
                     .p_2()
                     .child(sidebar)
-                    .child(main),
-            )
+                    .child(main)
+                    .into_any_element()
+            })
             .children(self.palette_open.then(|| self.command_palette(cx)))
     }
 }
@@ -387,19 +457,4 @@ fn type_role(role: Role, locale: Locale) -> marsa_ui::tokens::typography::TypeSt
     } else {
         role.latin()
     }
-}
-
-fn apply_component_accent(palette: Palette, cx: &mut App) {
-    use marsa_ui::gpui_component::Theme;
-    Theme::update(cx, |theme| {
-        theme.colors.primary = color(palette, ColorToken::AccentDefault);
-        theme.colors.primary_foreground = color(palette, ColorToken::TextOnAccent);
-        theme.colors.primary_hover = color(palette, ColorToken::AccentHover);
-        theme.colors.primary_active = color(palette, ColorToken::AccentPressed);
-        theme.colors.link = theme.colors.primary;
-        theme.colors.link_hover = theme.colors.primary_hover;
-        theme.colors.link_active = theme.colors.primary_active;
-        theme.colors.ring = color(palette, ColorToken::AccentFocus);
-        theme.colors.selection = color(palette, ColorToken::AccentSubtle);
-    });
 }

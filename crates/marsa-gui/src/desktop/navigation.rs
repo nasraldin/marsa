@@ -75,12 +75,12 @@ impl Route {
                 "إدارة جهاز Linux الافتراضي الذي يشغّل مرسى.",
             ),
             Self::Disk => (
-                "Review storage usage and reclaim space on this Mac.",
-                "مراجعة استخدام التخزين واسترداد المساحة على هذا الـ Mac.",
+                "Storage used by the local engine on this Mac.",
+                "مساحة التخزين التي يستخدمها المحرّك المحلي على هذا الـ Mac.",
             ),
             Self::Activity => (
-                "Review engine events and pending approvals.",
-                "مراجعة أحداث المحرّك والموافقات المعلّقة.",
+                "Review engine events and decisions for agent requests.",
+                "راجع أحداث المحرّك والقرارات بشأن طلبات الوكلاء.",
             ),
             Self::Settings => (
                 "Manage how Marsa runs on this Mac.",

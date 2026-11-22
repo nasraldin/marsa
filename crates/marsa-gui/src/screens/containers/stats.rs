@@ -15,7 +15,7 @@ use marsa_ui::{
         AnyElement, App, Context, Div, FontWeight, IntoElement, ParentElement as _, PathBuilder,
         Styled as _, Task, canvas, div, point, px,
     },
-    gpui_component::{IconName, Sizable as _, button::Button},
+    gpui_component::{IconName, button::Button},
 };
 
 use crate::{
@@ -159,7 +159,9 @@ pub(super) fn render(
             .child(
                 Button::new("pause-container-stats")
                     .outline()
-                    .small()
+                    .size(px(36.))
+                    .p_0()
+                    .bg(color(screen.palette, ColorToken::BgSubtle))
                     .icon(if view.stats.paused.is_some() {
                         IconName::Play
                     } else {
@@ -205,6 +207,7 @@ pub(super) fn render(
                 screen,
                 "CPU",
                 "المعالج",
+                cx,
                 ColorToken::ChartCpu,
                 samples,
                 |sample| sample.cpu,
@@ -214,6 +217,7 @@ pub(super) fn render(
                 screen,
                 "Memory",
                 "الذاكرة",
+                cx,
                 ColorToken::ChartMemory,
                 samples,
                 |sample| sample.memory,
@@ -227,6 +231,7 @@ pub(super) fn render(
                 screen,
                 "Network I/O",
                 "نقل البيانات عبر الشبكة",
+                cx,
                 ColorToken::ChartNetwork,
                 samples,
                 |sample| sample.network_rate,
@@ -236,6 +241,7 @@ pub(super) fn render(
                 screen,
                 "Disk I/O",
                 "قراءة القرص وكتابته",
+                cx,
                 ColorToken::ChartDisk,
                 samples,
                 |sample| sample.disk_rate,
@@ -249,6 +255,7 @@ fn metric(
     screen: &ScreenContext<'_>,
     en: &'static str,
     ar: &'static str,
+    cx: &App,
     token: ColorToken,
     data: &VecDeque<Measurement>,
     value: fn(&Measurement) -> Option<f64>,
@@ -285,6 +292,7 @@ fn metric(
         }
     }
     card(screen, en, ar)
+        .text_start(cx)
         .child(
             div()
                 .font_family("IBM Plex Mono")

@@ -8,16 +8,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use marsa_client::{
-    api::EngineState,
-    docker::{ContainerAction, ContainerId, ContainerSummary},
-};
+use marsa_client::docker::{ContainerAction, ContainerId, ContainerSummary};
 use marsa_ui::{
     ColorToken, Locale, Palette,
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
-        AnyElement, App, Context, Div, ElementId, FontWeight, IntoElement, ParentElement as _,
-        SharedString, Styled as _, div, px, uniform_list,
+        AnyElement, App, Context, Div, ElementId, IntoElement, ParentElement as _, SharedString,
+        Styled as _, div, px, uniform_list,
     },
     gpui_component::{
         Disableable as _, Icon, IconName, Sizable as _,
@@ -26,11 +23,14 @@ use marsa_ui::{
         input::Input,
         menu::{DropdownMenu as _, PopupMenuItem},
     },
+    tokens::typography::Role,
 };
 
 use crate::screens::common::{ScreenContext, copy, label, panel};
 
-use super::{ContainerView, StatusFilter, action_label, color, eligible, name, state_label};
+use super::{
+    ContainerView, StatusFilter, action_label, color, eligible, name, state_label, states,
+};
 
 const ROW_HEIGHT: f32 = 43.;
 
@@ -66,6 +66,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
             TableRow::Group { .. } => None,
         })
         .collect::<Vec<_>>();
+    let status = states::TableState::from(view, !rows.is_empty());
     let total = if matches!(mode, ViewMode::Table | ViewMode::Tree) {
         rows.iter()
             .filter_map(|entry| match entry {
@@ -86,124 +87,126 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         rows.len()
     };
     let rows = Arc::new(rows);
-    let summary = match locale {
-        Locale::EnglishUs if total == 1 => "1 container".into(),
-        Locale::EnglishUs => format!("{total} containers"),
-        Locale::Arabic => format!("{total} حاوية"),
-    };
+    let summary = container_count(total, locale);
 
-    let mut toolbar = row(cx)
-        .w_full()
-        .gap_2()
-        .items_center()
-        .px_2()
-        .py_2()
-        .rounded_lg()
-        .border_1()
-        .border_color(color(palette, ColorToken::BorderSubtle))
-        .bg(color(palette, ColorToken::BgSidebar));
+    let loaded = status == states::TableState::Rows;
+    let mut toolbar =
+        row(cx)
+            .w_full()
+            .gap_2()
+            .items_center()
+            .h(px(if loaded && view.selected.is_empty() {
+                52.
+            } else {
+                46.
+            }));
+    if loaded {
+        toolbar = toolbar
+            .px_2()
+            .rounded(px(12.))
+            .border_1()
+            .border_color(color(palette, ColorToken::BorderSubtle))
+            .bg(color(palette, ColorToken::BgSidebar));
+    }
     if let Some(input) = view.input.as_ref() {
         toolbar = toolbar.child(
-            div()
-                .w(px(216.))
-                .child(Input::new(input).small().cleanable(true)),
+            div().w(px(if loaded { 216. } else { 244. })).child(
+                Input::new(input)
+                    .small()
+                    .cleanable(true)
+                    .prefix(IconName::Search),
+            ),
         );
     }
 
     let filter_view = entity.downgrade();
-    toolbar = toolbar
+    toolbar = toolbar.child(
+        Button::new("state-filter")
+            .outline()
+            .small()
+            .icon(IconName::ChevronDown)
+            .label(filter_label(locale, view.filter))
+            .dropdown_menu(move |menu, _, _| {
+                [
+                    StatusFilter::All,
+                    StatusFilter::Running,
+                    StatusFilter::Paused,
+                    StatusFilter::Stopped,
+                ]
+                .into_iter()
+                .fold(menu, |menu, filter| {
+                    let weak = filter_view.clone();
+                    menu.item(PopupMenuItem::new(filter_label(locale, filter)).on_click(
+                        move |_, _, cx| {
+                            let _ = weak.update(cx, |view, cx| {
+                                view.filter = filter;
+                                cx.notify();
+                            });
+                        },
+                    ))
+                })
+            }),
+    );
+    if loaded {
+        toolbar = toolbar
+            .child(view_mode_rail(mode, &screen, cx))
+            .child(div().flex_1());
+        toolbar = if view.selected.is_empty() {
+            toolbar.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(color(palette, ColorToken::TextMuted))
+                    .child(summary),
+            )
+        } else {
+            toolbar.child(bulk_toolbar(view, &screen, cx))
+        };
+    }
+
+    let header = row(cx)
+        .w_full()
+        .items_center()
+        .gap_2()
         .child(
-            Button::new("state-filter")
-                .outline()
-                .small()
-                .icon(IconName::ChevronDown)
-                .label(filter_label(locale, view.filter))
-                .dropdown_menu(move |menu, _, _| {
-                    [
-                        StatusFilter::All,
-                        StatusFilter::Running,
-                        StatusFilter::Paused,
-                        StatusFilter::Stopped,
-                    ]
-                    .into_iter()
-                    .fold(menu, |menu, filter| {
-                        let weak = filter_view.clone();
-                        menu.item(PopupMenuItem::new(filter_label(locale, filter)).on_click(
-                            move |_, _, cx| {
-                                let _ = weak.update(cx, |view, cx| {
-                                    view.filter = filter;
-                                    cx.notify();
-                                });
-                            },
-                        ))
-                    })
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_start(cx)
+                .child(
+                    type_style(Role::Title, locale)
+                        .apply(div())
+                        .child(message(locale, gui::GUI_DESKTOP_CONTAINERS)),
+                )
+                .child(
+                    type_style(Role::Small, locale)
+                        .apply(div())
+                        .text_color(color(palette, ColorToken::TextMuted))
+                        .child(states::subtitle(status, locale)),
+                ),
+        )
+        .child(
+            Button::new("open-container-global-search")
+                .ghost()
+                .size(px(36.))
+                .p_0()
+                .bg(color(palette, ColorToken::BgSubtle))
+                .icon(IconName::Search)
+                .accessibility_label(gui::GUI_DESKTOP_SEARCH_COMMANDS.text(locale))
+                .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(locale))
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(Box::new(crate::desktop::OpenCommandPalette), cx);
                 }),
         )
         .child(
-            row(cx)
-                .gap_1()
-                .p_1()
-                .items_center()
-                .rounded_md()
-                .border_1()
-                .border_color(color(palette, ColorToken::BorderSubtle))
-                .children(
-                    [
-                        (
-                            ViewMode::Table,
-                            "grouped-table",
-                            "Grouped table",
-                            "جدول مجمّع",
-                            "icons/table-2.svg",
-                        ),
-                        (
-                            ViewMode::List,
-                            "flat-list",
-                            "List",
-                            "قائمة",
-                            "icons/list.svg",
-                        ),
-                        (
-                            ViewMode::Cards,
-                            "cards",
-                            "Cards",
-                            "بطاقات",
-                            "icons/layout-grid.svg",
-                        ),
-                        (
-                            ViewMode::Tree,
-                            "project-tree",
-                            "Project tree",
-                            "شجرة المشاريع",
-                            "icons/git-fork.svg",
-                        ),
-                    ]
-                    .map(|(target, id, en, ar, icon)| {
-                        let title = label(&screen, en, ar);
-                        let control = Button::new(id)
-                            .small()
-                            .compact()
-                            .icon(Icon::default().path(icon))
-                            .accessibility_label(title.clone())
-                            .tooltip(title);
-                        let control = if mode == target {
-                            control.secondary()
-                        } else {
-                            control.ghost()
-                        };
-                        control.on_click(cx.listener(move |view, _, _, cx| {
-                            view.mode = target;
-                            cx.notify();
-                        }))
-                    }),
-                ),
-        )
-        .child(div().flex_1())
-        .child(
-            div()
-                .text_size(px(12.))
-                .text_color(color(palette, ColorToken::TextMuted))
-                .child(summary),
+            Button::new("new-container")
+                .primary()
+                .size(px(36.))
+                .p_0()
+                .icon(IconName::Plus)
+                .accessibility_label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
+                .tooltip(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
+                .disabled(view.services.is_none() || !status.can_create())
+                .on_click(cx.listener(|view, _, window, cx| super::create::open(view, window, cx))),
         );
 
     let mut body = div()
@@ -212,6 +215,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         .size_full()
         .min_h_0()
         .gap_3()
+        .child(header)
         .child(toolbar);
 
     if view.command_failed {
@@ -230,20 +234,9 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
             gui::GUI_DESKTOP_APPLYING_CONTAINER_ACTIONS,
         )));
     }
-    if !view.selected.is_empty() {
-        body = body.child(bulk_toolbar(view, &screen, cx));
-    }
-
-    if item_count == 0
-        || !matches!(
-            view.state
-                .engine()
-                .and_then(|status| EngineState::try_from(status.state).ok()),
-            Some(EngineState::Ready | EngineState::Idle)
-        )
-    {
+    if !loaded {
         return body
-            .child(empty_state(view, &screen, cx))
+            .child(states::render(view, status, &screen, cx))
             .into_any_element();
     }
 
@@ -260,6 +253,9 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                         gui::GUI_DESKTOP_SELECT_VISIBLE_CONTAINERS,
                     ))
                     .checked(all_selected)
+                    .indeterminate(
+                        !all_selected && visible_ids.iter().any(|id| selected.contains(id)),
+                    )
                     .on_click(cx.listener(move |view, checked, _, cx| {
                         for id in &visible_ids {
                             if *checked {
@@ -342,6 +338,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                     palette,
                     locale,
                     collapsed.contains(project),
+                    mode,
                     &entity,
                     cx,
                 )
@@ -373,6 +370,15 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     } else {
         table
     };
+    if mode == ViewMode::List {
+        body = body.child(
+            div()
+                .px_2()
+                .text_xs()
+                .text_color(color(palette, ColorToken::TextMuted))
+                .child(container_count(total, locale)),
+        );
+    }
     body.child(table.child(items)).into_any_element()
 }
 
@@ -441,20 +447,29 @@ fn cell_row(palette: Palette, cx: &App) -> Div {
         .border_color(color(palette, ColorToken::BorderSubtle))
 }
 
+fn container_count(count: usize, locale: Locale) -> String {
+    match locale {
+        Locale::EnglishUs if count == 1 => "1 container".into(),
+        Locale::Arabic if count == 1 => "حاوية واحدة".into(),
+        Locale::Arabic if count == 2 => "حاويتان".into(),
+        Locale::Arabic if (3..=10).contains(&count) => format!("{count} حاويات"),
+        Locale::Arabic => format!("{count} حاوية"),
+        _ => format!("{count} containers"),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn group_row(
     project: Option<&str>,
     count: usize,
     palette: Palette,
     locale: Locale,
     collapsed: bool,
+    mode: ViewMode,
     view: &marsa_ui::gpui::Entity<ContainerView>,
     cx: &App,
 ) -> Div {
-    let count = match locale {
-        Locale::EnglishUs if count == 1 => "1 container".into(),
-        Locale::Arabic => format!("{count} حاوية"),
-        _ => format!("{count} containers"),
-    };
+    let count = container_count(count, locale);
     let group = project.map(str::to_owned);
     let id = SharedString::from(project.map_or_else(
         || "standalone".to_string(),
@@ -463,6 +478,7 @@ fn group_row(
     let weak = view.downgrade();
     cell_row(palette, cx)
         .bg(color(palette, ColorToken::BgSubtle))
+        .rounded(px(if mode == ViewMode::Tree { 8. } else { 0. }))
         .child(
             Button::new(id)
                 .ghost()
@@ -487,7 +503,15 @@ fn group_row(
                     });
                 }),
         )
-        .child(Icon::default().path("icons/panels-top-left.svg").small())
+        .child(
+            Icon::empty()
+                .path(if project.is_none() && mode == ViewMode::Tree {
+                    "icons/box.svg"
+                } else {
+                    "icons/panels-top-left.svg"
+                })
+                .small(),
+        )
         .child(
             project
                 .map(isolate_technical_text)
@@ -562,6 +586,7 @@ fn container_row(
     .on_click(move |_, _, cx| {
         let _ = detail_view.update(cx, |view, cx| view.open_detail(detail_id.clone(), cx));
     });
+    let menu_name = isolate_technical_text(name(entry));
     let more = Button::new((
         ElementId::from("container-menu"),
         SharedString::from(id.as_str().to_owned()),
@@ -574,13 +599,23 @@ fn container_row(
     .dropdown_menu(move |menu, _, _| {
         let remove_view = menu_view.clone();
         let remove_id = menu_id.clone();
+        let detail_view = menu_view.clone();
+        let detail_id = menu_id.clone();
+        let first = menu.label(menu_name.clone()).separator().item(
+            PopupMenuItem::new(gui::GUI_DESKTOP_OPEN_DETAILS.text(locale))
+                .icon(IconName::ChevronLeft)
+                .on_click(move |_, _, cx| {
+                    let _ =
+                        detail_view.update(cx, |view, cx| view.open_detail(detail_id.clone(), cx));
+                }),
+        );
         let menu = [
             ContainerAction::Start,
             ContainerAction::Stop,
             ContainerAction::Restart,
         ]
         .into_iter()
-        .fold(menu, |menu, action| {
+        .fold(first, |menu, action| {
             let weak = menu_view.clone();
             let id = menu_id.clone();
             let enabled = match action {
@@ -588,10 +623,19 @@ fn container_row(
                 ContainerAction::Stop => can_stop,
                 ContainerAction::Restart => can_restart,
             };
+            if !enabled {
+                return menu;
+            }
+            let icon = match action {
+                ContainerAction::Start => IconName::Play,
+                ContainerAction::Stop => IconName::Square,
+                ContainerAction::Restart => IconName::RefreshCw,
+            };
             let (en, ar) = action_label(action);
             menu.item(
                 PopupMenuItem::new(copy(locale, en, ar))
-                    .disabled(busy || !enabled)
+                    .icon(icon)
+                    .disabled(busy)
                     .on_click(move |_, _, cx| {
                         let _ =
                             weak.update(cx, |view, cx| view.dispatch(vec![id.clone()], action, cx));
@@ -599,16 +643,23 @@ fn container_row(
             )
         });
         menu.item(
-            PopupMenuItem::new(gui::GUI_DESKTOP_REMOVE.text(locale))
-                .disabled(busy)
-                .on_click(move |_, window, cx| {
-                    let _ = remove_view.update(cx, |view, cx| {
-                        view.request_remove(vec![remove_id.clone()], window, cx)
-                    });
-                }),
+            PopupMenuItem::element(move |_, _| {
+                div()
+                    .text_color(color(palette, ColorToken::StatusError))
+                    .child(gui::GUI_DESKTOP_CONTAINERS_REMOVE_MENU.text(locale))
+            })
+            .icon(Icon::empty().path("icons/trash-2.svg"))
+            .disabled(busy)
+            .on_click(move |_, window, cx| {
+                let _ = remove_view.update(cx, |view, cx| {
+                    view.request_remove(vec![remove_id.clone()], window, cx)
+                });
+            }),
         )
     });
-    let lifecycle = action_button(entry, action, busy, locale, view);
+    let lifecycle = action_button(entry, action, busy, locale, view)
+        .ghost()
+        .bg(color(palette, ColorToken::GlassControl));
     let image = isolate_technical_text(&entry.image);
     let tiny_image = || {
         div()
@@ -692,8 +743,11 @@ fn container_row(
                     .child(tiny_image()),
             );
     } else {
+        result = result.child(div().w(px(28.)).child(check));
+        if mode == ViewMode::Tree {
+            result = result.child(Icon::empty().path("icons/box.svg").small());
+        }
         result = result
-            .child(div().w(px(28.)).child(check))
             .child(
                 div()
                     .flex_1()
@@ -703,16 +757,17 @@ fn container_row(
             )
             .child(column(image).font_family("IBM Plex Mono"));
     }
-    result
+    result = result
         .child(div().w(px(120.)).flex_shrink_0().child(pill))
         .child(
             fixed_column(112., ports)
                 .font_family("IBM Plex Mono")
                 .text_color(color(palette, ColorToken::AccentDefault)),
-        )
-        .child(fixed_column(78., age_text(entry.created, locale)))
-        .child(lifecycle)
-        .child(more)
+        );
+    if mode != ViewMode::Tree {
+        result = result.child(fixed_column(78., age_text(entry.created, locale)));
+    }
+    result.child(lifecycle).child(more)
 }
 
 pub(super) fn action_button(
@@ -735,7 +790,8 @@ pub(super) fn action_button(
         SharedString::from(id.as_str().to_owned()),
     ))
     .outline()
-    .small()
+    .size(px(36.))
+    .p_0()
     .icon(icon)
     .tooltip(copy(locale, en, ar))
     .accessibility_label(copy(locale, en, ar))
@@ -825,6 +881,66 @@ fn filter_label(locale: Locale, filter: StatusFilter) -> &'static str {
     copy(locale, en, ar)
 }
 
+fn view_mode_rail(mode: ViewMode, screen: &ScreenContext<'_>, cx: &Context<ContainerView>) -> Div {
+    row(cx)
+        .gap_1()
+        .px_1()
+        .items_center()
+        .rounded_md()
+        .h(px(36.))
+        .border_1()
+        .border_color(color(screen.palette, ColorToken::BorderSubtle))
+        .children(
+            [
+                (
+                    ViewMode::Table,
+                    "grouped-table",
+                    gui::GUI_DESKTOP_GROUPED_TABLE,
+                    "icons/table-2.svg",
+                ),
+                (
+                    ViewMode::List,
+                    "flat-list",
+                    gui::GUI_DESKTOP_LIST,
+                    "icons/list.svg",
+                ),
+                (
+                    ViewMode::Cards,
+                    "cards",
+                    gui::GUI_DESKTOP_CARDS,
+                    "icons/layout-grid.svg",
+                ),
+                (
+                    ViewMode::Tree,
+                    "project-tree",
+                    gui::GUI_DESKTOP_PROJECT_TREE,
+                    "icons/git-fork.svg",
+                ),
+            ]
+            .map(|(target, id, label_key, icon)| {
+                let title = message(screen.locale, label_key);
+                let control = Button::new(id)
+                    .size(px(30.))
+                    .p_0()
+                    .icon(Icon::default().path(icon))
+                    .accessibility_label(title.clone())
+                    .tooltip(title);
+                let control = if mode == target {
+                    control
+                        .ghost()
+                        .bg(color(screen.palette, ColorToken::AccentSubtle))
+                        .text_color(color(screen.palette, ColorToken::AccentDefault))
+                } else {
+                    control.ghost()
+                };
+                control.on_click(cx.listener(move |view, _, _, cx| {
+                    view.mode = target;
+                    cx.notify();
+                }))
+            }),
+        )
+}
+
 fn bulk_toolbar(
     view: &ContainerView,
     screen: &ScreenContext<'_>,
@@ -833,56 +949,84 @@ fn bulk_toolbar(
     let count = view.selected.len();
     let summary = match screen.locale {
         Locale::EnglishUs => format!("{count} selected"),
-        Locale::Arabic => format!("{count} محددة"),
+        Locale::Arabic if count == 1 => "عنصر واحد محدد".into(),
+        Locale::Arabic if count == 2 => "عنصران محددان".into(),
+        Locale::Arabic => format!("{count} عناصر محددة"),
     };
-    row(cx)
-        .w_full()
-        .px_3()
-        .py_2()
-        .rounded_lg()
-        .bg(color(screen.palette, ColorToken::AccentSubtle))
-        .items_center()
-        .gap_2()
-        .child(summary)
-        .child(div().flex_1())
-        .children(
-            [
-                ContainerAction::Start,
-                ContainerAction::Stop,
-                ContainerAction::Restart,
-            ]
-            .map(|action| {
-                let (en, ar) = action_label(action);
-                let enabled = view.selected.iter().any(|id| {
-                    view.state
-                        .container(id)
-                        .is_some_and(|entry| eligible(entry, action))
-                });
-                Button::new(en)
-                    .outline()
-                    .small()
-                    .label(label(screen, en, ar))
-                    .disabled(view.command_pending || !enabled)
-                    .on_click(cx.listener(move |view, _, _, cx| {
-                        view.dispatch(view.selected.iter().cloned().collect(), action, cx);
-                    }))
-            }),
-        )
+    let mut tools = row(cx).items_center().gap_2().child(
+        div()
+            .text_size(px(12.))
+            .text_color(color(screen.palette, ColorToken::AccentDefault))
+            .child(summary),
+    );
+    if count == 1 {
+        tools = tools.child(
+            Button::new("open-selected-container")
+                .outline()
+                .size(px(36.))
+                .p_0()
+                .icon(Icon::default().path("icons/arrow-up-left.svg"))
+                .accessibility_label(gui::GUI_DESKTOP_OPEN_DETAILS.text(screen.locale))
+                .tooltip(gui::GUI_DESKTOP_OPEN_DETAILS.text(screen.locale))
+                .on_click(cx.listener(|view, _, _, cx| {
+                    if let Some(id) = view.selected.iter().next().cloned() {
+                        view.open_detail(id, cx);
+                    }
+                })),
+        );
+    }
+    for (action, icon) in [
+        (ContainerAction::Start, IconName::Play),
+        (ContainerAction::Stop, IconName::Square),
+        (ContainerAction::Restart, IconName::RefreshCw),
+    ] {
+        let (en, ar) = action_label(action);
+        let enabled = view.selected.iter().any(|id| {
+            view.state
+                .container(id)
+                .is_some_and(|entry| eligible(entry, action))
+        });
+        if !enabled && action != ContainerAction::Restart {
+            continue;
+        }
+        tools = tools.child(
+            Button::new(en)
+                .outline()
+                .size(px(36.))
+                .p_0()
+                .icon(icon)
+                .accessibility_label(label(screen, en, ar))
+                .tooltip(label(screen, en, ar))
+                .disabled(view.command_pending || !enabled)
+                .on_click(cx.listener(move |view, _, _, cx| {
+                    view.dispatch(view.selected.iter().cloned().collect(), action, cx)
+                })),
+        );
+    }
+    tools
         .child(
             Button::new("remove-selected-containers")
-                .danger()
-                .small()
-                .label(message(screen.locale, gui::GUI_DESKTOP_REMOVE))
+                .outline()
+                .size(px(36.))
+                .p_0()
+                .icon(Icon::default().path("icons/trash-2.svg"))
+                .bg(color(screen.palette, ColorToken::StatusErrorBg))
+                .text_color(color(screen.palette, ColorToken::StatusError))
+                .accessibility_label(gui::GUI_DESKTOP_REMOVE.text(screen.locale))
+                .tooltip(gui::GUI_DESKTOP_REMOVE.text(screen.locale))
                 .disabled(view.command_pending)
                 .on_click(cx.listener(|view, _, window, cx| {
-                    view.request_remove(view.selected.iter().cloned().collect(), window, cx);
+                    view.request_remove(view.selected.iter().cloned().collect(), window, cx)
                 })),
         )
         .child(
             Button::new("clear-container-selection")
-                .ghost()
-                .small()
-                .label(message(screen.locale, gui::GUI_DESKTOP_CLEAR_SELECTION))
+                .outline()
+                .size(px(36.))
+                .p_0()
+                .icon(IconName::Close)
+                .accessibility_label(gui::GUI_DESKTOP_CLEAR_SELECTION.text(screen.locale))
+                .tooltip(gui::GUI_DESKTOP_CLEAR_SELECTION.text(screen.locale))
                 .on_click(cx.listener(|view, _, _, cx| {
                     view.selected.clear();
                     cx.notify();
@@ -890,58 +1034,10 @@ fn bulk_toolbar(
         )
 }
 
-fn empty_state(view: &ContainerView, screen: &ScreenContext<'_>, cx: &App) -> Div {
-    let engine = view
-        .state
-        .engine()
-        .and_then(|status| EngineState::try_from(status.state).ok());
-    let title = match (view.services.is_some(), engine) {
-        (false, _) => ("Can’t connect to Marsa", "يتعذّر الاتصال بمرسى"),
-        (true, None | Some(EngineState::Starting | EngineState::Booting)) => {
-            ("Loading containers…", "جارٍ تحميل الحاويات…")
-        }
-        (true, Some(EngineState::Ready | EngineState::Idle))
-            if !view.query.is_empty() || view.filter != StatusFilter::All =>
-        {
-            ("No matching containers", "لا توجد حاويات مطابقة")
-        }
-        (true, Some(EngineState::Ready | EngineState::Idle)) => {
-            ("No containers yet", "لا توجد حاويات بعد")
-        }
-        (true, Some(EngineState::Failed)) => ("The engine couldn’t start", "تعذّر بدء المحرك"),
-        _ => ("The engine is stopped", "المحرك متوقف"),
-    };
-    panel(screen)
-        .w_full()
-        .min_h(px(250.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_start(cx)
-        .child(Icon::default().path("icons/box.svg").small())
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(label(screen, title.0, title.1)),
-        )
-        .child(
-            div()
-                .text_size(px(12.))
-                .text_color(color(screen.palette, ColorToken::TextMuted))
-                .child(match title.0 {
-                    "No containers yet" => message(
-                        screen.locale,
-                        gui::GUI_DESKTOP_START_A_CONTAINER_WITH_DOCKER_AND_IT_WILL_APPEAR_HERE,
-                    ),
-                    "No matching containers" => message(
-                        screen.locale,
-                        gui::GUI_DESKTOP_CHANGE_THE_SEARCH_OR_STATE_FILTER,
-                    ),
-                    "The engine is stopped" => message(
-                        screen.locale,
-                        gui::GUI_DESKTOP_START_THE_MARSA_ENGINE_FROM_MACHINE,
-                    ),
-                    _ => "".into(),
-                }),
-        )
+pub(super) fn type_style(role: Role, locale: Locale) -> marsa_ui::tokens::typography::TypeStyle {
+    if locale == Locale::Arabic {
+        role.arabic()
+    } else {
+        role.latin()
+    }
 }

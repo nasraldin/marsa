@@ -179,7 +179,7 @@ The tray stays in the daemon and runs with the GUI closed.
 
 ### M6-11 Onboarding
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-09, M4-04, M4-05
 - **Docs:** [08 Screens](../08-gui.md#screens), [07 The allowlist](../07-file-sharing-and-storage.md#the-allowlist)
 - **Do:** Build first-run onboarding: language, theme, choosing folders to share (nothing preselected beyond a suggestion the user confirms), Docker context setup, and optional CLI links on `PATH`.
@@ -188,6 +188,11 @@ The tray stays in the daemon and runs with the GUI closed.
   - Finishing onboarding leaves a working `docker` CLI with the `marsa` context.
   - No folder is shared without the user choosing it.
   - The flow can be completed by keyboard only.
+
+The workspace follows the Figma language, appearance, sharing and Docker setup
+frames. Host API revision 12 persists completion. Setup adds only the folders
+the user chose as read-only shares, and explicitly registers the local Docker
+context. CLI link management and four-variant acceptance remain open.
 
 ### M6-12 Shared Fluent catalogs and typed keys
 

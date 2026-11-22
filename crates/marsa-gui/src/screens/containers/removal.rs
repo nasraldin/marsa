@@ -62,11 +62,15 @@ pub(super) fn open(
     let locale = view.locale;
     let palette = view.palette;
     let title = match locale {
+        Locale::Arabic if targets.len() == 1 => "هل تريد حذف الحاوية؟".to_owned(),
+        Locale::Arabic if targets.len() == 2 => "هل تريد حذف الحاويتين؟".to_owned(),
         Locale::Arabic => format!("هل تريد إزالة {} من الحاويات؟", targets.len()),
         _ if targets.len() == 1 => "Remove 1 container?".to_owned(),
         _ => format!("Remove {} containers?", targets.len()),
     };
     let action = match locale {
+        Locale::Arabic if targets.len() == 1 => "حذف الحاوية".to_owned(),
+        Locale::Arabic if targets.len() == 2 => "حذف الحاويتين".to_owned(),
         Locale::Arabic => format!("إزالة {} من الحاويات", targets.len()),
         _ if targets.len() == 1 => "Remove 1 container".to_owned(),
         _ => format!("Remove {} containers", targets.len()),
@@ -118,13 +122,15 @@ pub(super) fn open(
             .max_h(px(184.))
             .overflow_y_scroll()
             .rounded_md()
-            .bg(color(palette, ColorToken::BgSubtle))
+            .bg(color(palette, ColorToken::BgCode))
+            .border_1()
+            .border_color(color(palette, ColorToken::BorderSubtle))
             .children(targets.iter().map(|target| {
                 row(cx)
                     .gap_3()
                     .items_center()
                     .px_2()
-                    .py_1()
+                    .py_2()
                     .child(
                         div()
                             .flex_1()
@@ -146,9 +152,19 @@ pub(super) fn open(
             .flex_col()
             .gap_3()
             .text_start(cx)
-            .child(description)
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(color(palette, ColorToken::TextMuted))
+                    .child(description),
+            )
             .child(targets_list)
-            .child(gui::GUI_DESKTOP_NAMED_VOLUMES_ARE_KEPT.text(locale));
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(color(palette, ColorToken::TextMuted))
+                    .child(gui::GUI_DESKTOP_NAMED_VOLUMES_ARE_KEPT.text(locale)),
+            );
         if force_required {
             content = content
                 .child(

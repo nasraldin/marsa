@@ -15,6 +15,7 @@ use marsa_ui::{
         Disableable as _, Icon, IconName, Sizable as _,
         button::{Button, ButtonVariants as _},
     },
+    tokens::typography::Role,
 };
 
 use crate::screens::common::{ScreenContext, label, panel};
@@ -29,12 +30,12 @@ pub(super) fn render(
 ) -> AnyElement {
     let screen = view.screen();
     let mut title = row(cx)
-        .gap_3()
+        .gap_2()
         .items_center()
         .child(
-            div()
-                .text_size(px(28.))
-                .font_weight(FontWeight::SEMIBOLD)
+            list::type_style(Role::Title, screen.locale)
+                .apply(div())
+                .min_w_0()
                 .child(isolate_technical_text(name(entry))),
         )
         .child(list::state_pill(
@@ -43,7 +44,20 @@ pub(super) fn render(
             screen.locale,
             cx,
         ))
-        .child(div().flex_1());
+        .child(div().flex_1())
+        .child(
+            Button::new("detail-global-search")
+                .ghost()
+                .size(px(36.))
+                .p_0()
+                .bg(color(screen.palette, ColorToken::BgSubtle))
+                .icon(IconName::Search)
+                .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(screen.locale))
+                .accessibility_label(gui::GUI_DESKTOP_SEARCH_COMMANDS.text(screen.locale))
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(Box::new(crate::desktop::OpenCommandPalette), cx)
+                }),
+        );
     let entity = cx.entity();
     if super::eligible(entry, ContainerAction::Stop) {
         title = title.child(list::action_button(
@@ -70,7 +84,7 @@ pub(super) fn render(
         &entity,
     ));
 
-    let short_id = &entry.id.as_str()[..12];
+    let short_id = entry.id.as_str().get(..12).unwrap_or(entry.id.as_str());
     let subtitle = format!("{}  ·  {short_id}", entry.image);
     let tabs = row(cx)
         .gap_1()
@@ -99,15 +113,14 @@ pub(super) fn render(
         .flex_col()
         .size_full()
         .min_h_0()
-        .p_4()
-        .gap_3()
+        .gap_2()
         .child(
             row(cx).child(
                 Button::new("back-to-containers")
                     .ghost()
                     .small()
                     .compact()
-                    .icon(IconName::ArrowLeft)
+                    .icon(IconName::ChevronLeft)
                     .label(message(screen.locale, gui::GUI_DESKTOP_CONTAINERS))
                     .on_click(cx.listener(|view, _, _, cx| view.close_detail(cx))),
             ),
@@ -163,7 +176,10 @@ fn tab_button(
         .icon(Icon::default().path(icon))
         .label(label(screen, en, ar));
     let button = if active {
-        button.secondary()
+        button
+            .ghost()
+            .bg(color(screen.palette, ColorToken::AccentSubtle))
+            .text_color(color(screen.palette, ColorToken::AccentDefault))
     } else {
         button.ghost()
     };
@@ -172,6 +188,34 @@ fn tab_button(
             view.set_tab(tab, cx);
         }
     }))
+}
+
+fn overview_action(tab: Tab, screen: &ScreenContext<'_>, cx: &Context<ContainerView>) -> Button {
+    let (id, icon, label) = match tab {
+        Tab::Logs => (
+            "overview-logs",
+            "icons/list.svg",
+            gui::GUI_DESKTOP_CONTAINERS_LOGS_TAB.text(screen.locale),
+        ),
+        Tab::Terminal => (
+            "overview-terminal",
+            "icons/terminal.svg",
+            gui::GUI_DESKTOP_CONTAINERS_TERMINAL_TAB.text(screen.locale),
+        ),
+        _ => (
+            "overview-inspect",
+            "icons/info.svg",
+            gui::GUI_DESKTOP_CONTAINERS_INSPECT_TAB.text(screen.locale),
+        ),
+    };
+    Button::new(id)
+        .outline()
+        .size(px(36.))
+        .p_0()
+        .icon(Icon::empty().path(icon))
+        .tooltip(label)
+        .accessibility_label(label)
+        .on_click(cx.listener(move |view, _, _, cx| view.set_tab(tab, cx)))
 }
 
 fn overview(
@@ -197,6 +241,8 @@ fn overview(
         .filter(|value| !value.is_empty());
     let state = super::state_label(&entry.state);
     let configuration = card(screen, "Container configuration", "إعدادات الحاوية")
+        .min_h(px(214.))
+        .text_start(cx)
         .child(field(
             screen,
             cx,
@@ -226,6 +272,8 @@ fn overview(
             technical(networks.as_deref()),
         ));
     let runtime = card(screen, "Runtime", "التشغيل")
+        .min_h(px(214.))
+        .text_start(cx)
         .child(field(
             screen,
             cx,
@@ -242,7 +290,13 @@ fn overview(
                 details
                     .and_then(|details| details.state.as_ref())
                     .map(|state| state.started_at.as_str())
-                    .filter(|value| !value.starts_with("0001-")),
+                    .filter(|value| !value.starts_with("0001-"))
+                    .map(|value| {
+                        value
+                            .split_once('T')
+                            .and_then(|(_, time)| time.get(..8))
+                            .unwrap_or(value)
+                    }),
             ),
         ))
         .child(field(
@@ -266,6 +320,7 @@ fn overview(
         .child(row(cx).gap_3().child(configuration).child(runtime))
         .child(
             card(screen, "Work with this container", "العمل مع هذه الحاوية")
+                .text_start(cx)
                 .child(
                     div()
                         .text_size(px(12.))
@@ -275,7 +330,7 @@ fn overview(
                 .child(
                     row(cx).gap_2().children(
                         [Tab::Logs, Tab::Terminal, Tab::Inspect]
-                            .map(|tab| tab_button(tab, false, screen, cx)),
+                            .map(|tab| overview_action(tab, screen, cx)),
                     ),
                 ),
         )
@@ -325,25 +380,9 @@ fn inspect(
         }
     };
 
-    let clipboard_details = details.as_ref().clone();
-    body = body.child(
-        row(cx).justify_row_end().child(
-            Button::new("copy-redacted-inspect")
-                .outline()
-                .small()
-                .label(message(
-                    screen.locale,
-                    gui::GUI_DESKTOP_COPY_REDACTED_INSPECT_JSON,
-                ))
-                .on_click(move |_, _, cx| {
-                    if let Ok(json) = clipboard_details.redacted_inspect_json() {
-                        cx.write_to_clipboard(marsa_ui::gpui::ClipboardItem::new_string(json));
-                    }
-                }),
-        ),
-    );
-
-    let mut env = card(screen, "Environment variables", "متغيرات البيئة");
+    let mut env = card(screen, "Environment variables", "متغيرات البيئة")
+        .text_start(cx)
+        .min_h(px(152.));
     for variable in &details.environment {
         let key = variable.name.clone();
         let current = view.revealed.as_ref().filter(|(name, _)| name == &key);
@@ -401,7 +440,9 @@ fn inspect(
             gui::GUI_DESKTOP_COULDN_T_REVEAL_THE_SELECTED_VALUE,
         ));
     }
-    let mut network = card(screen, "Ports and networks", "المنافذ والشبكات");
+    let mut network = card(screen, "Ports and networks", "المنافذ والشبكات")
+        .text_start(cx)
+        .min_h(px(152.));
     if let Some(settings) = &details.network_settings {
         for (port, bindings) in &settings.ports {
             let value = bindings
@@ -453,13 +494,57 @@ fn inspect(
 
     body = body.child(row(cx).gap_3().child(env).child(network));
     body = body.child(mounts(entry, details, screen, cx));
+    let json = details.redacted_inspect_json().ok();
+    let copy_json = json.clone();
     body.child(
-        card(screen, "Raw JSON", "بيانات JSON الخام")
+        panel(screen)
             .bg(color(screen.palette, ColorToken::BgCode))
-            .child(message(
-                screen.locale,
-                gui::GUI_DESKTOP_RAW_JSON_IS_UNAVAILABLE_INSPECT_SHOWS_THE_FIELDS_PROVIDED_BY_M,
-            )),
+            .child(
+                row(cx)
+                    .items_center()
+                    .child(
+                        list::type_style(Role::Label, screen.locale)
+                            .apply(div())
+                            .flex_1()
+                            .child(
+                                gui::GUI_DESKTOP_CONTAINERS_INSPECT_REDACTED_JSON
+                                    .text(screen.locale),
+                            ),
+                    )
+                    .child(
+                        Button::new("copy-redacted-inspect")
+                            .outline()
+                            .small()
+                            .icon(IconName::Copy)
+                            .tooltip(
+                                gui::GUI_DESKTOP_COPY_REDACTED_INSPECT_JSON.text(screen.locale),
+                            )
+                            .accessibility_label(
+                                gui::GUI_DESKTOP_COPY_REDACTED_INSPECT_JSON.text(screen.locale),
+                            )
+                            .disabled(copy_json.is_none())
+                            .on_click(move |_, _, cx| {
+                                if let Some(json) = &copy_json {
+                                    cx.write_to_clipboard(
+                                        marsa_ui::gpui::ClipboardItem::new_string(json.clone()),
+                                    );
+                                }
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .id("redacted-inspect-preview")
+                    .max_h(px(136.))
+                    .overflow_y_scroll()
+                    .text_size(px(12.))
+                    .font_family("IBM Plex Mono")
+                    .children(json.into_iter().flat_map(|json| {
+                        json.lines()
+                            .map(|line| div().child(isolate_technical_text(line)))
+                            .collect::<Vec<_>>()
+                    })),
+            ),
     )
 }
 
@@ -469,7 +554,7 @@ fn mounts(
     screen: &ScreenContext<'_>,
     cx: &App,
 ) -> Div {
-    let mut card = card(screen, "Mounts and labels", "عمليات الربط والتسميات");
+    let mut card = card(screen, "Mounts and labels", "عمليات الربط والتسميات").text_start(cx);
     for mount in &details.mounts {
         let mode = if mount.writable { "rw" } else { "ro" };
         let value = format!("{} → {} ({mode})", mount.source, mount.destination);

@@ -10,13 +10,15 @@ use marsa_ui::{
     ColorToken, Palette,
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
-        AnyElement, ClipboardItem, Context, Div, ElementId, ElementInputHandler, FocusHandle,
-        FontWeight, Hsla, InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _,
-        Pixels, ScrollEvent, StatefulInteractiveElement as _, Styled as _, Task, Window, canvas,
-        div, font, px, rgb,
+        AnyElement, App, AppContext as _, Bounds, ClipboardItem, Context, Div, ElementId,
+        ElementInputHandler, FocusHandle, FontWeight, Hsla, InteractiveElement as _, IntoElement,
+        KeyDownEvent, ParentElement as _, Pixels, Render, ScrollEvent,
+        StatefulInteractiveElement as _, Styled as _, Subscription, Task, TitlebarOptions,
+        WeakEntity, Window, WindowBounds, WindowHandle, WindowOptions, canvas, div, font, point,
+        px, rgb, size,
     },
     gpui_component::{
-        Disableable as _, IconName, Sizable as _,
+        Disableable as _, Icon, IconName, Sizable as _,
         button::{Button, ButtonVariants as _},
     },
     vt100::{Color, Parser, Screen},
@@ -27,7 +29,7 @@ use crate::{
     services::{TerminalInput, TerminalOutput},
 };
 
-use super::{ContainerView, color};
+use super::{ContainerView, color, name};
 
 const MAX_SESSIONS: usize = 8;
 const SCROLLBACK: usize = 2_000;
@@ -51,6 +53,7 @@ pub(super) struct State {
     next_id: u64,
     focus: Option<FocusHandle>,
     compose: ime::Composition,
+    detached: Option<WindowHandle<Detached>>,
 }
 
 struct Session {
@@ -74,6 +77,12 @@ impl State {
     pub(super) fn prepare(&mut self, cx: &mut Context<ContainerView>) {
         if self.focus.is_none() {
             self.focus = Some(cx.focus_handle());
+        }
+    }
+
+    pub(super) fn close_detached(&mut self, cx: &mut App) {
+        if let Some(handle) = self.detached.take() {
+            let _ = handle.update(cx, |_, window, _| window.remove_window());
         }
     }
 
@@ -182,25 +191,24 @@ pub(super) fn render(
     let panel = &view.terminal;
     let palette = screen.palette;
     let id = entry.id.clone();
-    let cell_width = cell_width(window);
     let mut buttons = row(cx).gap_2().items_center();
     for session in &panel.sessions {
         let session_id = session.id;
-        let title = format!(
-            "{} · {}",
-            message(screen.locale, gui::GUI_DESKTOP_SHELL),
-            session_id + 1
-        );
+        let title = isolate_technical_text(&format!("sh · {}", session_id + 1));
         let button = Button::new((
             ElementId::from("container-shell-tab"),
             session_id.to_string(),
         ))
         .outline()
         .small()
-        .label(title);
+        .label(title)
+        .disabled(panel.detached.is_some());
         buttons = buttons.child(
             if panel.selected == Some(session_id) {
-                button.secondary()
+                button
+                    .ghost()
+                    .bg(color(palette, ColorToken::AccentSubtle))
+                    .text_color(color(palette, ColorToken::AccentDefault))
             } else {
                 button.ghost()
             }
@@ -224,11 +232,24 @@ pub(super) fn render(
                 .disabled(
                     view.services.is_none()
                         || entry.state != "running"
-                        || panel.sessions.len() >= MAX_SESSIONS,
+                        || panel.sessions.len() >= MAX_SESSIONS
+                        || panel.detached.is_some(),
                 )
                 .on_click(
                     cx.listener(move |view, _, window, cx| start(view, id.clone(), window, cx)),
                 ),
+        )
+        .child(
+            Button::new("detach-container-terminal")
+                .ghost()
+                .small()
+                .icon(Icon::empty().path("icons/external-link.svg"))
+                .disabled(panel.current().is_none() || panel.detached.is_some())
+                .tooltip(gui::GUI_DESKTOP_CONTAINERS_DETACH_TERMINAL.text(screen.locale))
+                .accessibility_label(
+                    gui::GUI_DESKTOP_CONTAINERS_DETACH_TERMINAL.text(screen.locale),
+                )
+                .on_click(cx.listener(|view, _, _, cx| detach(view, cx))),
         )
         .child(div().flex_1())
         .child(
@@ -247,11 +268,21 @@ pub(super) fn render(
                 })),
         )
         .child(
+            div()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .border_1()
+                .border_color(color(palette, ColorToken::BorderSubtle))
+                .text_xs()
+                .child(isolate_technical_text("/bin/sh")),
+        )
+        .child(
             Button::new("end-terminal-shell")
                 .outline()
                 .small()
                 .label(message(screen.locale, gui::GUI_DESKTOP_END_SESSION))
-                .disabled(panel.current().is_none())
+                .disabled(panel.current().is_none() || panel.detached.is_some())
                 .on_click(cx.listener(|view, _, _, cx| {
                     if let Some(id) = view.terminal.selected {
                         view.terminal.close(id);
@@ -259,6 +290,187 @@ pub(super) fn render(
                     cx.notify();
                 })),
         );
+    let terminal = if panel.detached.is_some() {
+        div()
+            .flex_1()
+            .flex()
+            .items_center()
+            .justify_center()
+            .border_1()
+            .rounded_lg()
+            .border_color(color(palette, ColorToken::BorderSubtle))
+            .bg(color(palette, ColorToken::BgCode))
+            .text_color(color(palette, ColorToken::TextMuted))
+            .child(gui::GUI_DESKTOP_CONTAINERS_TERMINAL_DETACHED.text(screen.locale))
+            .into_any_element()
+    } else {
+        viewport(view, entry, screen, window, cx).into_any_element()
+    };
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .gap_3()
+        .child(buttons)
+        .child(terminal)
+        .into_any_element()
+}
+
+struct Detached {
+    owner: WeakEntity<ContainerView>,
+    _observation: Subscription,
+    ready: bool,
+}
+
+fn detach(view: &mut ContainerView, cx: &mut Context<ContainerView>) {
+    if view.terminal.current().is_none() || view.terminal.detached.is_some() {
+        return;
+    }
+    let owner = cx.entity();
+    let weak = owner.downgrade();
+    let bounds = Bounds::centered(None, size(px(960.), px(600.)), cx);
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        window_min_size: Some(size(px(520.), px(320.))),
+        titlebar: Some(TitlebarOptions {
+            title: Some(
+                gui::GUI_DESKTOP_CONTAINERS_TERMINAL_TAB
+                    .text(view.locale)
+                    .into(),
+            ),
+            appears_transparent: true,
+            traffic_light_position: Some(point(px(24.), px(22.))),
+        }),
+        ..WindowOptions::default()
+    };
+    let window = cx.open_window(options, |window, cx| {
+        let closing = weak.clone();
+        window.on_window_should_close(cx, move |_, cx| {
+            let _ = closing.update(cx, |view, cx| {
+                view.terminal.detached = None;
+                view.terminal.compose = ime::Composition::default();
+                cx.notify();
+            });
+            true
+        });
+        cx.new(|cx: &mut Context<Detached>| Detached {
+            owner: weak.clone(),
+            _observation: cx.observe(&owner, |_, _, cx| cx.notify()),
+            ready: false,
+        })
+    });
+    if let Ok(window) = window {
+        view.terminal.detached = Some(window);
+        view.terminal.compose = ime::Composition::default();
+        let focus = view.terminal.focus.clone();
+        let _ = window.update(cx, |detached, window, cx| {
+            detached.ready = true;
+            if let Some(focus) = &focus {
+                focus.focus(window, cx);
+            }
+            cx.notify();
+        });
+    }
+    cx.notify();
+}
+
+impl Render for Detached {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.ready {
+            return div();
+        }
+        self.owner
+            .update(cx, |view, cx| {
+                let screen = view.screen();
+                let entry = view
+                    .focused
+                    .as_ref()
+                    .and_then(|id| screen.state.container(id))?;
+                let palette = screen.palette;
+                let heading = format!("{}  ·  /bin/sh", name(entry));
+                Some(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .size_full()
+                        .min_h_0()
+                        .p_3()
+                        .gap_3()
+                        .bg(color(palette, ColorToken::BgCanvas))
+                        .text_color(color(palette, ColorToken::TextPrimary))
+                        .child(
+                            row(cx)
+                                .h(px(42.))
+                                .items_center()
+                                .gap_2()
+                                .child(div().w(px(84.)))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .font_family("IBM Plex Mono")
+                                        .text_xs()
+                                        .child(isolate_technical_text(&heading)),
+                                )
+                                .child(
+                                    Button::new("return-detached-terminal")
+                                        .ghost()
+                                        .size(px(36.))
+                                        .p_0()
+                                        .bg(color(palette, ColorToken::BgSubtle))
+                                        .icon(IconName::ChevronLeft)
+                                        .tooltip(
+                                            gui::GUI_DESKTOP_CONTAINERS_DOCK_TERMINAL
+                                                .text(screen.locale),
+                                        )
+                                        .accessibility_label(
+                                            gui::GUI_DESKTOP_CONTAINERS_DOCK_TERMINAL
+                                                .text(screen.locale),
+                                        )
+                                        .on_click(cx.listener(|view, _, window, cx| {
+                                            view.terminal.detached = None;
+                                            view.terminal.compose = ime::Composition::default();
+                                            window.remove_window();
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    Button::new("fullscreen-detached-terminal")
+                                        .ghost()
+                                        .size(px(36.))
+                                        .p_0()
+                                        .bg(color(palette, ColorToken::BgSubtle))
+                                        .icon(Icon::empty().path("icons/monitor.svg"))
+                                        .tooltip(
+                                            gui::GUI_DESKTOP_CONTAINERS_FULLSCREEN_TERMINAL
+                                                .text(screen.locale),
+                                        )
+                                        .accessibility_label(
+                                            gui::GUI_DESKTOP_CONTAINERS_FULLSCREEN_TERMINAL
+                                                .text(screen.locale),
+                                        )
+                                        .on_click(|_, window, _| window.toggle_fullscreen()),
+                                ),
+                        )
+                        .child(viewport(view, entry, &screen, window, cx)),
+                )
+            })
+            .ok()
+            .flatten()
+            .unwrap_or_else(div)
+    }
+}
+
+fn viewport(
+    view: &ContainerView,
+    entry: &ContainerSummary,
+    screen: &ScreenContext<'_>,
+    window: &Window,
+    cx: &mut Context<ContainerView>,
+) -> impl IntoElement {
+    let panel = &view.terminal;
+    let palette = screen.palette;
+    let cell_width = cell_width(window);
     let mut terminal = div()
         .id("container-terminal-viewport")
         .relative()
@@ -372,15 +584,7 @@ pub(super) fn render(
                 .child(message(screen.locale, key)),
         );
     }
-    div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h_0()
-        .gap_3()
-        .child(buttons)
-        .child(terminal)
-        .into_any_element()
+    terminal
 }
 
 fn screen_lines(

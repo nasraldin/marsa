@@ -3,9 +3,9 @@
 use std::{cell::Cell, process::ExitCode, rc::Rc};
 
 use gpui::{
-    App, AppContext, Application, Bounds, Context, Entity, FocusHandle, Global, InteractiveElement,
-    IntoElement, KeyBinding, Menu, MenuItem, ParentElement, QuitMode, Render, Styled,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, point, px, size,
+    AnyWindowHandle, App, AppContext, Application, Bounds, Context, Entity, FocusHandle, Global,
+    InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, QuitMode, Render,
+    Styled, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, point, px, size,
 };
 use gpui_component::{Root, Theme};
 use marsa_l10n::{Locale, keys};
@@ -27,27 +27,35 @@ impl<T: Render> Render for MarsaWindow<T> {
     }
 }
 
-type OpenWindow = Rc<dyn Fn(&mut App) -> gpui::Result<()>>;
+type OpenWindow = Rc<dyn Fn(&mut App) -> gpui::Result<AnyWindowHandle>>;
 
-struct Launcher(OpenWindow);
+struct Launcher {
+    open: OpenWindow,
+    workspace: Option<AnyWindowHandle>,
+}
 
 impl Global for Launcher {}
 
-/// Open or activate the workspace, including after its last window was closed.
+/// Open or activate the workspace, including after its main window was closed.
 pub fn show_workspace(cx: &mut App) -> gpui::Result<()> {
-    if let Some(handle) = cx.windows().into_iter().next() {
-        cx.update_window(handle, |_, window, cx| {
-            window.activate_window();
-            cx.activate(true);
-        })
-    } else if let Some(launcher) = cx
-        .try_global::<Launcher>()
-        .map(|launcher| launcher.0.clone())
+    let Some(launcher) = cx.try_global::<Launcher>() else {
+        return Ok(());
+    };
+    let workspace = launcher.workspace;
+    let open = launcher.open.clone();
+    if let Some(handle) = workspace
+        && cx
+            .update_window(handle, |_, window, cx| {
+                window.activate_window();
+                cx.activate(true);
+            })
+            .is_ok()
     {
-        launcher(cx)
-    } else {
-        Ok(())
+        return Ok(());
     }
+    let workspace = open(cx)?;
+    cx.global_mut::<Launcher>().workspace = Some(workspace);
+    Ok(())
 }
 
 /// Runs the desktop and keeps its notification observer alive until the app quits.
@@ -81,9 +89,10 @@ pub fn run<T: Render>(
             MenuItem::action(keys::GUI_WINDOW_CLOSE.text(locale), CloseWindow),
             MenuItem::action(keys::GUI_WINDOW_QUIT.text(locale), QuitMarsa),
         ])]);
-        cx.set_global(Launcher(Rc::new(move |cx| {
-            launch_window(&create, cx, locale)
-        })));
+        cx.set_global(Launcher {
+            open: Rc::new(move |cx| launch_window(&create, cx, locale)),
+            workspace: None,
+        });
         if let Err(error) = show_workspace(cx) {
             eprintln!("{}", keys::GUI_WINDOW_OPEN_FAILED.text(locale));
             eprintln!("{error}");
@@ -98,11 +107,11 @@ fn launch_window<T: Render>(
     create: &impl Fn(&mut Window, &mut App, Locale) -> Entity<T>,
     cx: &mut App,
     locale: Locale,
-) -> gpui::Result<()> {
+) -> gpui::Result<AnyWindowHandle> {
     let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        window_min_size: Some(size(px(800.0), px(560.0))),
+        window_min_size: Some(size(px(960.0), px(600.0))),
         titlebar: Some(TitlebarOptions {
             title: Some(keys::GUI_WINDOW_TITLE.text(locale).into()),
             appears_transparent: true,
@@ -110,7 +119,7 @@ fn launch_window<T: Render>(
         }),
         ..WindowOptions::default()
     };
-    cx.open_window(options, |window, cx| {
+    let handle = cx.open_window(options, |window, cx| {
         let view = create(window, cx, locale);
         let content = cx.new(|cx| {
             let focus = cx.focus_handle();
@@ -120,7 +129,7 @@ fn launch_window<T: Render>(
         cx.new(|cx| Root::new(content, window, cx))
     })?;
     cx.activate(true);
-    Ok(())
+    Ok(handle.into())
 }
 
 fn system_locale() -> Locale {

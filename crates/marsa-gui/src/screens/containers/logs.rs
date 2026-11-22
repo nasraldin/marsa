@@ -14,9 +14,10 @@ use marsa_ui::{
         Styled as _, Subscription, Task, UniformListScrollHandle, Window, div, px, uniform_list,
     },
     gpui_component::{
-        Disableable as _, IconName, Sizable as _,
+        Disableable as _, Icon, IconName, Selectable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
         input::{Input, InputEvent, InputState},
+        menu::{DropdownMenu as _, PopupMenuItem},
     },
 };
 
@@ -206,14 +207,17 @@ pub(super) fn render(
     let mut toolbar = row(cx).gap_2().items_center();
     if let Some(input) = log.search_input.as_ref() {
         toolbar = toolbar.child(
-            div()
-                .w(px(232.))
-                .child(Input::new(input).small().cleanable(true)),
+            div().w(px(232.)).child(
+                Input::new(input)
+                    .small()
+                    .cleanable(true)
+                    .prefix(IconName::Search),
+            ),
         );
     }
     let matches = log.matching.len();
     let filtering = !log.query.is_empty() || log.source.is_some();
-    if filtering {
+    {
         toolbar = toolbar
             .child(
                 Button::new("previous-log-match")
@@ -233,36 +237,67 @@ pub(super) fn render(
                     .disabled(matches == 0)
                     .on_click(cx.listener(|view, _, _, cx| move_match(view, true, cx))),
             )
-            .child(div().text_size(px(11.)).child(if matches == 0 {
+            .child(div().text_size(px(11.)).child(if !filtering {
+                String::new()
+            } else if matches == 0 {
                 "0 / 0".to_owned()
             } else {
                 format!("{} / {matches}", log.match_cursor + 1)
             }));
     }
-    let (source_en, source_ar) = match log.source {
-        None => ("All output", "كل المخرجات"),
-        Some(LogSource::Stdout) => ("Standard output", "المخرجات القياسية"),
-        Some(LogSource::Stderr) => ("Standard error", "الأخطاء القياسية"),
-        Some(LogSource::Terminal) => ("Terminal output", "مخرجات الطرفية"),
-    };
+    let weak = cx.entity().downgrade();
+    let locale = screen.locale;
     toolbar = toolbar
         .child(
             Button::new("log-source-filter")
                 .outline()
                 .small()
-                .label(label(screen, source_en, source_ar))
+                .label(source_label(log.source).text(locale))
                 .icon(IconName::ChevronDown)
-                .on_click(cx.listener(|view, _, _, cx| {
-                    view.logs.source = match view.logs.source {
-                        None => Some(LogSource::Stdout),
-                        Some(LogSource::Stdout) => Some(LogSource::Stderr),
-                        Some(LogSource::Stderr) => Some(LogSource::Terminal),
-                        Some(LogSource::Terminal) => None,
-                    };
-                    view.logs.refilter(cx);
-                })),
+                .dropdown_menu(move |menu, _, _| {
+                    [
+                        None,
+                        Some(LogSource::Stdout),
+                        Some(LogSource::Stderr),
+                        Some(LogSource::Terminal),
+                    ]
+                    .into_iter()
+                    .fold(menu, |menu, source| {
+                        let view = weak.clone();
+                        menu.item(
+                            PopupMenuItem::new(source_label(source).text(locale)).on_click(
+                                move |_, _, cx| {
+                                    let _ = view.update(cx, |view, cx| {
+                                        view.logs.source = source;
+                                        view.logs.refilter(cx);
+                                    });
+                                },
+                            ),
+                        )
+                    })
+                }),
+        )
+        .child(
+            Button::new("log-timestamps")
+                .outline()
+                .small()
+                .disabled(true)
+                .label(gui::GUI_DESKTOP_CONTAINERS_LOG_TIMESTAMPS.text(locale))
+                .tooltip(gui::GUI_DESKTOP_CONTAINERS_LOG_TIMESTAMPS_UNAVAILABLE.text(locale)),
         )
         .child(div().flex_1())
+        .child(
+            Button::new("log-follow")
+                .small()
+                .primary()
+                .selected(log.paused.is_none())
+                .label(gui::GUI_DESKTOP_CONTAINERS_LOG_FOLLOW_LIVE.text(locale))
+                .on_click(cx.listener(|view, _, _, cx| {
+                    if view.logs.paused.take().is_some() {
+                        view.logs.refilter(cx);
+                    }
+                })),
+        )
         .child(
             Button::new("log-pause")
                 .outline()
@@ -272,10 +307,10 @@ pub(super) fn render(
                 } else {
                     IconName::Pause
                 })
-                .label(if log.paused.is_some() {
-                    message(screen.locale, gui::GUI_DESKTOP_FOLLOW)
+                .accessibility_label(if log.paused.is_some() {
+                    gui::GUI_DESKTOP_FOLLOW.text(locale)
                 } else {
-                    message(screen.locale, gui::GUI_DESKTOP_PAUSE)
+                    gui::GUI_DESKTOP_PAUSE.text(locale)
                 })
                 .on_click(cx.listener(|view, _, _, cx| {
                     view.logs.paused = view.logs.paused.is_none().then(|| view.logs.rows.clone());
@@ -384,7 +419,7 @@ pub(super) fn render(
                     Button::new("save-container-logs")
                         .ghost()
                         .small()
-                        .icon(IconName::FileText)
+                        .icon(Icon::empty().path("icons/download.svg"))
                         .accessibility_label(message(
                             screen.locale,
                             gui::GUI_DESKTOP_SAVE_BUFFERED_LOGS,
@@ -481,7 +516,27 @@ pub(super) fn render(
         .child(toolbar)
         .child(source_bar)
         .child(output)
+        .child(
+            div()
+                .text_xs()
+                .text_color(color(palette, ColorToken::TextMuted))
+                .child(match screen.locale {
+                    marsa_ui::Locale::EnglishUs => format!("{} lines in buffer", log.rows.len()),
+                    marsa_ui::Locale::Arabic => {
+                        format!("{} سطر في الذاكرة المؤقتة", log.rows.len())
+                    }
+                }),
+        )
         .into_any_element()
+}
+
+fn source_label(source: Option<LogSource>) -> marsa_ui::TextKey {
+    match source {
+        None => gui::GUI_DESKTOP_CONTAINERS_LOG_ALL_OUTPUT,
+        Some(LogSource::Stdout) => gui::GUI_DESKTOP_CONTAINERS_LOG_STANDARD_OUTPUT,
+        Some(LogSource::Stderr) => gui::GUI_DESKTOP_CONTAINERS_LOG_STANDARD_ERROR,
+        Some(LogSource::Terminal) => gui::GUI_DESKTOP_CONTAINERS_LOG_TERMINAL_OUTPUT,
+    }
 }
 
 fn move_match(view: &mut ContainerView, forward: bool, cx: &mut Context<ContainerView>) {

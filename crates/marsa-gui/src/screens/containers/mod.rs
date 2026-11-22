@@ -1,10 +1,12 @@
 //! Containers, their lifecycle commands, and selected-resource streams.
 
 mod ansi;
+mod create;
 mod detail;
 mod list;
 mod logs;
 mod removal;
+mod states;
 mod stats;
 mod terminal;
 
@@ -43,6 +45,7 @@ impl PartialEq for Snapshot {
     fn eq(&self, other: &Self) -> bool {
         self.0.engine() == other.0.engine()
             && Arc::ptr_eq(&self.0.containers(), &other.0.containers())
+            && Arc::ptr_eq(&self.0.images(), &other.0.images())
     }
 }
 
@@ -90,6 +93,7 @@ pub(crate) struct ContainerView {
     mode: list::ViewMode,
     collapsed: BTreeSet<Option<String>>,
     command_pending: bool,
+    connection_waited: bool,
     command_failed: bool,
     inspection: Inspection,
     revealed: Option<(String, RevealedEnvironment)>,
@@ -99,6 +103,7 @@ pub(crate) struct ContainerView {
     stats: stats::StatsState,
     terminal: terminal::State,
     _store_task: Option<Task<()>>,
+    _connection_timer: Task<()>,
     stream_tasks: Vec<Task<()>>,
     combined_logs: bool,
     input_subscription: Option<Subscription>,
@@ -111,6 +116,8 @@ impl ContainerView {
         palette: Palette,
         cx: &mut Context<Self>,
     ) -> Self {
+        cx.on_release(|view, cx| view.terminal.close_detached(cx))
+            .detach();
         let mut state = AppState::default();
         let store_task = services.as_ref().map(|services| {
             let mut selection = services.store().select(|state| Snapshot(state.clone()));
@@ -125,6 +132,16 @@ impl ContainerView {
                     }
                 }
             })
+        });
+        let clock = cx
+            .background_executor()
+            .timer(std::time::Duration::from_secs(3));
+        let connection_timer = cx.spawn(async move |view, cx| {
+            clock.await;
+            let _ = view.update(cx, |view, cx| {
+                view.connection_waited = true;
+                cx.notify();
+            });
         });
         Self {
             services,
@@ -141,6 +158,7 @@ impl ContainerView {
             mode: list::ViewMode::default(),
             collapsed: BTreeSet::new(),
             command_pending: false,
+            connection_waited: false,
             command_failed: false,
             inspection: Inspection::Idle,
             revealed: None,
@@ -150,6 +168,7 @@ impl ContainerView {
             stats: stats::StatsState::default(),
             terminal: terminal::State::default(),
             _store_task: store_task,
+            _connection_timer: connection_timer,
             stream_tasks: Vec::new(),
             combined_logs: false,
             input_subscription: None,
@@ -200,6 +219,13 @@ impl ContainerView {
         self.input = Some(input);
     }
 
+    /// Open an existing container from the desktop command palette.
+    pub(crate) fn show_container(&mut self, id: ContainerId, cx: &mut Context<Self>) {
+        if self.state.container(&id).is_some() {
+            self.open_detail(id, cx);
+        }
+    }
+
     fn open_detail(&mut self, id: ContainerId, cx: &mut Context<Self>) {
         self.focused = Some(id);
         self.combined_logs = false;
@@ -213,6 +239,7 @@ impl ContainerView {
 
     fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.stream_tasks.clear();
+        self.terminal.close_detached(cx);
         self.terminal = terminal::State::default();
         self.revealed = None;
         self.reveal_task = None;
