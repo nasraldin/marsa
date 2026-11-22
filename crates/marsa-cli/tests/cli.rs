@@ -142,11 +142,30 @@ fn global_json_handles_help_and_errors_at_any_depth() {
 }
 
 #[test]
+#[cfg(unix)]
 fn double_dash_keeps_json_literal_out_of_global_flags() {
-    let result = marsa(&["config", "set", "key", "--", "--json"]);
+    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+        .args(["config", "set", "key", "--", "--json"])
+        .env("HOME", "/")
+        .env("LC_ALL", "en_US.UTF-8")
+        .output()
+        .expect("launch marsa");
     assert!(result.stdout.is_empty());
-    assert_eq!(result.status.code(), Some(1));
-    assert_eq!(result.stderr, b"This command is not available yet.\n");
+    assert_eq!(result.status.code(), Some(4));
+    assert!(!result.stderr.is_empty());
+}
+
+#[test]
+#[cfg(unix)]
+fn config_list_reports_connection_failure_without_a_home() {
+    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+        .args(["config", "list", "--json"])
+        .env("HOME", "/")
+        .output()
+        .expect("launch marsa");
+    assert_eq!(result.status.code(), Some(4));
+    let document: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(document["code"], "home_unavailable");
 }
 
 #[test]
@@ -174,6 +193,33 @@ fn env_quotes_the_socket_for_a_shell_and_reports_json_without_a_daemon() {
     let result = Command::new("sh").args(["-c", &script]).output().unwrap();
     assert!(result.status.success());
     assert_eq!(result.stdout, expected.as_bytes());
+}
+
+#[test]
+#[cfg(unix)]
+fn disk_usage_does_not_report_success_when_the_daemon_cannot_be_reached() {
+    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+        .args(["disk", "usage", "--json"])
+        .env("HOME", "/")
+        .output()
+        .expect("launch marsa");
+    assert_eq!(result.status.code(), Some(4));
+    let body: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(body["code"], "home_unavailable");
+}
+
+#[test]
+fn unsupported_cleanup_and_reclaim_report_nonzero() {
+    for arguments in [
+        &["disk", "cleanup", "--dry-run", "--json"][..],
+        &["disk", "cleanup", "--yes", "--json"],
+        &["disk", "reclaim", "--json"],
+    ] {
+        let result = marsa(arguments);
+        assert_eq!(result.status.code(), Some(1));
+        let body: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(body["code"], "not_available");
+    }
 }
 
 #[test]

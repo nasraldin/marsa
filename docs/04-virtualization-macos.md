@@ -179,12 +179,17 @@ Boot-time budget (**Proposed**, measured by the agent handshake timings): kernel
 
 ## Memory management
 
-**Proposed**, with every mechanism to be measured:
+The default boot allocation is half of host RAM capped at 8 GiB.
+`vm.memory` overrides it. When no workload or Docker connection needs
+the VM, `vm.idle_stop` and `vm.idle_timeout` govern stopping it. This
+releases the VZ worker and network helper, leaving the daemon running to
+start the next request.
 
-1. **Right-size at start.** Default memory is a fraction of host RAM, capped, and changeable in settings.
-2. **Balloon on idle.** When containers stop, lower the guest memory target through the balloon device. **Verify** how much memory Virtualization.framework actually returns to macOS; planning research found this is its weak point.
-3. **Stop when idle.** With no running containers for `idle_timeout`, stop the VM. This always returns all memory and is the dependable mechanism.
-4. **Fast restart.** Because boot is fast, stopping when idle is nearly invisible to the user.
+On macOS 27.2.1 the guest accepted a 2.5 GiB balloon request after a
+2 GiB workload. The VZ worker footprint did not fall within 25 seconds.
+Idle stop released both VM-related processes about 4.4 seconds after the
+workload ended with a four-second timeout. The production idle policy
+therefore uses stopping. [M9-04 VZ measurements](spikes/M9-04-memory.md).
 
 ## Failure handling
 

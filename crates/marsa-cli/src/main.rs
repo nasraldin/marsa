@@ -2,7 +2,15 @@
 
 mod command;
 #[cfg(unix)]
+mod disk;
+#[cfg(unix)]
 mod engine;
+#[cfg(unix)]
+mod network;
+#[cfg(unix)]
+mod settings;
+#[cfg(unix)]
+mod share_folders;
 
 use std::{
     env,
@@ -101,6 +109,7 @@ enum Outcome {
         text: String,
     },
     Streamed,
+    Rejected(String),
     Failure(Failure),
 }
 
@@ -158,6 +167,26 @@ async fn execute(
         return completions(args);
     }
     #[cfg(unix)]
+    if name == "network" && args.subcommand_matches("status").is_some() {
+        return network::status(language)
+            .await
+            .unwrap_or_else(Outcome::Failure);
+    }
+    #[cfg(unix)]
+    if name == "config" {
+        return settings::run(args, language).await;
+    }
+    #[cfg(unix)]
+    if name == "share"
+        && let Some(outcome) = share_folders::run(args, language).await
+    {
+        return outcome;
+    }
+    #[cfg(unix)]
+    if name == "disk" && args.subcommand_matches("usage").is_some() {
+        return disk::usage(language).await.unwrap_or_else(Outcome::Failure);
+    }
+    #[cfg(unix)]
     if let Some(outcome) = engine::run(name, args, language, json).await {
         return outcome;
     }
@@ -190,6 +219,7 @@ fn completions(args: &ArgMatches) -> Outcome {
 fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result<u8> {
     let code = match outcome {
         Outcome::Failure(failure) => failure.code(),
+        Outcome::Rejected(_) => 1,
         _ => 0,
     };
     if json_output {
@@ -200,6 +230,12 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
             }
             Outcome::Streamed => return Ok(code),
             Outcome::Data { document, .. } => document,
+            Outcome::Rejected(message) => json!({
+                "schema_version": 1,
+                "kind": "error",
+                "code": "request_rejected",
+                "message": message,
+            }),
             Outcome::Failure(failure) => json!({
                 "schema_version": 1,
                 "kind": "error",
@@ -211,6 +247,7 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
     } else {
         match outcome {
             Outcome::Streamed => (),
+            Outcome::Rejected(message) => writeln!(io::stderr().lock(), "{message}")?,
             Outcome::Help(text) | Outcome::Data { text, .. } => {
                 write!(io::stdout().lock(), "{text}")?
             }

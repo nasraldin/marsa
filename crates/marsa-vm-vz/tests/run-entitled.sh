@@ -12,6 +12,9 @@ features=()
 if [[ ${MARSA_ENTITLED_DAEMON_NETWORK:-0} == 1 ]]; then
     package=marsad
     test_name=network_boot
+elif [[ ${MARSA_ENTITLED_SSH_TRANSPORT:-0} == 1 ]]; then
+    features=(--features ssh-transport-system-test)
+    set -- ssh_transport::host_initiated_signing_stays_with_the_approved_socket_peer --exact "$@"
 elif [[ ${MARSA_ENTITLED_NATIVE_IPV4:-0} == 1 ]]; then
     features=(--features native-ipv4-system-test)
     set -- native_ipv4::packaged_guest_nat_address_gateway_and_https --exact "$@"

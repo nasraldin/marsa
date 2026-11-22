@@ -40,8 +40,8 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-04 Memory behaviour
 
-- **Status:** todo
-- **Depends on:** M4-02, M3-04
+- **Status:** done
+- **Depends on:** M4-02, M3-12
 - **Docs:** [04 Memory management](../04-virtualization-macos.md#memory-management), V-04, R-03
 - **Do:** Measure how much memory the balloon actually returns to macOS under `vz` (V-04) and record it. Implement the memory policy: right-sized default, balloon on idle if it helps, idle stop as the dependable mechanism, all configurable.
 - **Deliver:** memory policy in the supervisor, a measurement report in `docs/spikes/M9-04-memory.md`.
@@ -49,6 +49,11 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
   - The report states measured host memory before, during and after a 2 GiB workload, with and without ballooning.
   - With idle stop on, host memory returns to the daemon's idle footprint after the timeout.
   - V-04 is resolved in the docs.
+
+Run the offline workload in the signed packaged VZ runtime with user-space
+networking. VZ memory devices and idle-stop transitions are shared across
+attachments. Strict native IPv4 DHCP, gateway and external HTTPS validation
+remain in M3-04 under [D-028](../15-decisions.md#d-028-qualify-native-ipv4-independently-of-runtime-and-power-management).
 
 ### M9-05 Sleep, wake and network-change robustness
 
@@ -212,7 +217,7 @@ redirected stage member was refused and its target remained intact.
 
 ### M9-15 Fuzz the Docker create-request inspector
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-06, M9-02
 - **Docs:** [11 Process hardening on the host](../11-security.md#process-hardening-on-the-host), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements)
 - **Do:** Exercise the production Docker create-request inspector with a committed corpus of representative and malformed request bodies. Check that malformed or unsupported inputs cannot bypass the bind-mount policy.
@@ -220,3 +225,18 @@ redirected stage member was refused and its target remained intact.
 - **Accept when:**
   - The target runs for a fixed budget in CI without crashes.
   - Any crash found is fixed and its input added as a regression test.
+
+The [hosted fuzz run](https://github.com/nasraldin/marsa/actions/runs/44974259069) completed the configured budget for all four targets without a crash.
+
+### M9-19 Synchronize the crash-recovery test with daemon readiness
+
+- **Status:** done
+- **Depends on:** M9-06
+- **Docs:** [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
+- **Do:** Synchronize crash injection with an authenticated daemon RPC. A transport handshake can complete while PID-file publication is still in progress.
+- **Deliver:** corrected daemon lifecycle regression.
+- **Accept when:**
+  - The test proves the first process published its PID before injecting SIGKILL and verifies recovery by the replacement process.
+  - Repeated execution and the daemon lifecycle test suite pass on the standard user account.
+
+**Evidence.** The complete lifecycle test passed and the corrected crash case passed 24 consecutive runs on Apple silicon.
