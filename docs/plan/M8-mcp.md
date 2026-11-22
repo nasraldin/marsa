@@ -115,7 +115,7 @@ M8-10 owns bind preparation and active host share policy checks. Operate tools r
 
 ### M8-10 Agent bind authorization and run preparation
 
-- **Status:** todo
+- **Status:** blocked (stock Docker start lacks an exact container identity guarantee)
 - **Depends on:** M8-02, M4-06
 - **Docs:** [10 Permission tiers](../10-mcp-server.md#permission-tiers), [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), D-012, D-013
 - **Do:** Validate typed container run mounts and privilege effects. Apply both agent policy and the current attached host share policy. Keep the normalized run request immutable across approval and revalidate share authorization before forwarding it to Docker.
@@ -124,3 +124,5 @@ M8-10 owns bind preparation and active host share policy checks. Operate tools r
   - A bind requested through AgentOps passes both the agent policy and the active shared-folder allowlist before Docker receives it.
   - Denied, unattached and revoked paths are refused even if the owner approved the agent operation.
   - A signed packaged test observes a permitted host bind, and a fake engine test proves it received no request for a rejected bind.
+
+- **Blocker:** The pinned engine can prepare a create request using a local immutable image digest and an explicit platform. Containerd image indexes also require verifying the resolved platform manifest. Docker starts the resulting container in a separate operation. Its start lookup can fall back to a name or prefix after attempting the full ID, so the create response does not guarantee the start target. Host-side authorization also needs to bind the approved mount to the same live VM activation through execution. A signed running-bind acceptance requires both guarantees. Delegated writes remain refused while they are missing. [Pinned image resolver](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/containerd/image.go#L132-L170) · [Pinned start handler](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/start.go#L48-L75) · [Pinned container lookup](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/container.go#L37-L66)
