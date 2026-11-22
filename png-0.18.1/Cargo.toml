@@ -97,7 +97,7 @@ version = "0.3.3"
 version = "1.0.35"
 
 [dependencies.miniz_oxide]
-version = "0.8"
+version = "=0.9.1"
 features = ["simd"]
 
 [dev-dependencies.approx]

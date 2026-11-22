@@ -200,7 +200,7 @@ version = "2.1.0"
 version = "^0.5.2"
 
 [dependencies.miniz_oxide]
-version = "^0.8.0"
+version = "=0.9.1"
 
 [dependencies.rayon-core]
 version = "^1.11.0"

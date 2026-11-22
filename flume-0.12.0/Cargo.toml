@@ -185,7 +185,7 @@ optional = true
 default-features = false
 
 [dependencies.spin1]
-version = "0.9.8"
+version = "=0.12.3"
 features = ["mutex"]
 package = "spin"
 
