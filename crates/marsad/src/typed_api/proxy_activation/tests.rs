@@ -76,9 +76,12 @@ impl Fixture {
     async fn new() -> Self {
         use std::{fs, os::unix::fs::PermissionsExt};
         let home = tempfile::tempdir().unwrap();
+        fs::set_permissions(home.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let paths = MarsaPaths::from_root(home.path().to_owned()).unwrap();
-        fs::create_dir(paths.state_dir()).unwrap();
-        fs::set_permissions(paths.state_dir(), fs::Permissions::from_mode(0o700)).unwrap();
+        for directory in [paths.state_dir(), paths.vm_dir()] {
+            fs::create_dir(&directory).unwrap();
+            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        }
         let mut initial = Settings::default();
         initial.network.mode = NetworkMode::Userspace;
         let api = TypedApi::new(paths.clone(), nix::unistd::geteuid().as_raw(), initial).unwrap();
@@ -316,4 +319,78 @@ async fn disconnect_during_candidate_keeps_exclusive_admission_and_replays_commi
         *fixture.probe.attempts.lock().unwrap(),
         [Some(WORKING.into())]
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn factory_reset_clears_the_approved_proxy_from_storage_and_runtime() {
+    use marsa_proto::host::v1::reset_response::Result as FactoryResult;
+
+    let fixture = Fixture::new().await;
+    let revision = fixture.draft(WORKING).await;
+    assert_eq!(
+        fixture
+            .api
+            .apply_proxy(fixture.approval(revision).await)
+            .await
+            .unwrap()
+            .outcome(),
+        Outcome::Applied
+    );
+    assert_eq!(fixture.approved().as_deref(), Some(WORKING));
+    let id = "22000000-0000-4000-8000-000000000002";
+    let prepared = fixture.api.prepare_factory_reset(id.into()).await.unwrap();
+    let Some(FactoryResult::Challenge(confirmation)) = prepared.result else {
+        panic!("expected a factory confirmation");
+    };
+    let result = fixture
+        .api
+        .confirm_factory_reset(
+            "22000000-0000-4000-8000-000000000003",
+            confirmation.confirmation_token,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(result.result, Some(FactoryResult::Completed(_))));
+    assert_eq!(fixture.approved(), None);
+    assert!(
+        fixture
+            .api
+            .proxy
+            .as_ref()
+            .unwrap()
+            .approved()
+            .guest_configuration()
+            .is_none()
+    );
+    assert_eq!(fixture.supervisor().snapshot().state, State::Stopped);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_approved_proxy_must_be_explicitly_disabled_before_network_mode_changes() {
+    let fixture = Fixture::new().await;
+    let revision = fixture.draft(WORKING).await;
+    assert_eq!(
+        fixture
+            .api
+            .apply_proxy(fixture.approval(revision).await)
+            .await
+            .unwrap()
+            .outcome(),
+        Outcome::Applied
+    );
+    let error = fixture
+        .api
+        .edit_settings(None, |settings, _| {
+            settings.network.mode = NetworkMode::Nat;
+            Ok(())
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::FailedPrecondition);
+    assert_eq!(
+        fixture.api.inner.events.configured_network_mode(),
+        NetworkMode::Userspace
+    );
+    assert_eq!(fixture.approved().as_deref(), Some(WORKING));
+    assert_eq!(fixture.supervisor().snapshot().state, State::Ready);
 }

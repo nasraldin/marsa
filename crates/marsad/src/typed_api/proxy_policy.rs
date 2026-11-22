@@ -21,7 +21,7 @@ use nix::{
 };
 use serde::{Deserialize, Serialize};
 
-const FILENAME: &str = "daemon-proxy.json";
+use crate::factory::PROXY_POLICY_FILENAME as FILENAME;
 const MAX_BYTES: u64 = 4096;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -220,11 +220,23 @@ impl RuntimeProxy {
         self.state().approved = policy;
     }
 
-    pub(super) fn launch_settings(&self, desired: Settings) -> (Settings, bool) {
+    pub(super) fn has_approved_proxy(&self) -> bool {
+        self.state().approved.has_proxy()
+    }
+
+    pub(super) fn launch_settings(&self, desired: Settings) -> io::Result<(Settings, bool)> {
         let state = self.state();
         match &state.candidate {
-            Some(candidate) => (candidate.clone(), true),
-            None => (state.approved.effective(desired), false),
+            Some(candidate) => Ok((candidate.clone(), true)),
+            None if state.approved.has_proxy()
+                && desired.network.mode != NetworkMode::Userspace =>
+            {
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "approved proxy requires user-space networking",
+                ))
+            }
+            None => Ok((state.approved.effective(desired), false)),
         }
     }
 

@@ -197,7 +197,7 @@ impl TypedApi {
         let settings = events.clone();
         let preparation = Arc::new(move || {
             let (desired, _) = settings.settings();
-            let (effective, reserved) = proxy.launch_settings(desired);
+            let (effective, reserved) = proxy.launch_settings(desired)?;
             let (backend, mut spec) = prepare(&effective)?;
             let automatic = select_network(&effective, &mut spec, backend.capabilities());
             let network_policy = proxy_policy::BootProxy::from_draft(&effective.network.proxy)?

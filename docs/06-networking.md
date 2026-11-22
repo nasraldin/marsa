@@ -217,6 +217,8 @@ the draft pending and restores the previous policy. If restoration cannot
 start a previously running engine, the result tells the client that recovery
 is required. Reopening the daemon still uses the last approved policy.
 
+When a manual daemon proxy is approved, disable it with explicit activation before changing the network mode. A confirmed factory reset clears the approved policy with the other private state.
+
 ## IPv6
 
 **Proposed:** IPv6 inside Docker networks follows the engine's configuration. IPv6 to the internet depends on the mode and on what macOS NAT provides. Treat full IPv6 egress as best effort in version 1 and document the behaviour that the tests observe.
