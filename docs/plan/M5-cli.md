@@ -77,6 +77,8 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
   - `marsa diagnose` reports the path returned by M9-13. Verify the settings reset using the daemon's separate prepare and confirm actions. M9-07 owns the GUI diagnostic flow and M9-18 retains factory-reset acceptance.
 - **Evidence:** The signed CLI and daemon wrote a mode-0600 archive locally with the VM stopped. A settings reset without confirmation left the fixture configuration intact. The confirmed request restored defaults through the settings challenge. The factory request reported unavailable, and the fixture disk kept its original inode and contents.
 
+A signed CLI and daemon in a disposable home also exercised the factory service from M9-18. The CLI returned exit 3 without confirmation, preserved the original disk and grants, and then returned a successful reset after `--yes`. The new disk was sparse, grants were cleared, defaults persisted and an unrelated state entry was unchanged.
+
 ### M5-07 CLI localisation
 
 - **Status:** todo
