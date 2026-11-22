@@ -21,7 +21,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 ### M10-02 Signing and notarization pipeline
 
 - **Status:** todo
-- **Depends on:** M10-01, M3-10, M10-14
+- **Depends on:** M10-01, M3-10, M10-14, M10-15
 - **Docs:** [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization), Q-04
 - **Do:** Complete `cargo xtask sign`. Sign every binary inside-out with a secure timestamp, hardened runtime and per-binary entitlements. Re-sign bundled upstream binaries. Verify the final submission artifact in private staging without concurrent writers, bind verification to its SHA-256, and confirm the digest before submitting the same artifact. Notarize, staple, and verify with Gatekeeper tooling. Credentials come only from the release environment.
 - **Deliver:** the signing step, entitlements files.
@@ -169,3 +169,14 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
   - The verifier checks the expected app ID and native roles, including Mach-O files under resources.
   - A valid hardened ad-hoc fixture fails the Developer ID requirement.
   - M10-02 retains the production signing, notarization, stapling, Gatekeeper, and clean-Mac acceptance.
+
+### M10-15 Require secure timestamps in release signature verification
+
+- **Status:** in progress
+- **Depends on:** M10-14
+- **Docs:** [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization)
+- **Do:** Extend the offline release signature verifier to require Apple's certified signing timestamp for every native executable. The check is independent of signing and notarizing Marsa.
+- **Deliver:** Secure timestamp verification in `cargo xtask verify-signature`.
+- **Accept when:**
+  - The verifier reads the typed timestamp through Security.framework after strict Developer ID verification and preserves the current entitlement and bundle checks.
+  - A hardened ad-hoc Mach-O without a secure timestamp fails the timestamp policy. A Developer ID-signed reference executable with a secure timestamp passes the isolated timestamp check.
