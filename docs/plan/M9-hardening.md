@@ -63,7 +63,7 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-06 Crash recovery
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-06, M4-07
 - **Docs:** [04 Failure handling](../04-virtualization-macos.md#failure-handling)
 - **Do:** Recover from daemon death without leaving a VM or user-space helper alive, replace stale runtime sockets on start and preserve the data disk. M9-16 verifies stale published port listeners after M4-09 implements forwarding.
@@ -71,6 +71,8 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 - **Accept when:**
   - Killing `marsad` at each supervisor state and restarting always reaches a correct state without manual steps.
   - A named volume written before the kill is intact afterwards.
+
+**Verification.** Private subprocesses were killed at all eight supervisor states. Each replacement served the Unix API and rebound the Docker socket. The signed Apple silicon test killed the daemon in `Ready`, observed the old network helper exit and verified that the replacement used the original disk and named volume. A later clean shutdown left no ext4 recovery flag.
 
 ### M9-16 Recover published ports after a daemon crash
 

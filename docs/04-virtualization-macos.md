@@ -191,6 +191,7 @@ Boot-time budget (**Proposed**, measured by the agent handshake timings): kernel
 | Failure | Detection | Response |
 |---|---|---|
 | VM exits unexpectedly | Backend state event | Move to `Failed`, capture console tail, retry with backoff |
+| Host daemon is killed | The OS closes daemon-owned descriptors and the user-space helper observes EOF | The old VZ guest and helper exit. The replacement acquires the same instance lock, replaces stale private runtime paths and starts from `Stopped`. The next boot reuses the data image and ext4 replays its journal when needed. |
 | Agent handshake timeout | Supervisor timer | Stop the VM, report `Failed` with the boot stage reached |
 | dockerd never healthy | Agent health report | Report the engine log tail; keep the VM up for diagnosis if the user asks |
 | Entitlement missing | VM creation error | Fail fast with a clear message; this is a packaging bug |

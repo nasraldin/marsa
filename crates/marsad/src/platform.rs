@@ -1,5 +1,7 @@
 //! Run the Unix daemon and keep its transport and files scoped to the current user.
 
+#[cfg(test)]
+mod crash_tests;
 mod files;
 mod logging;
 #[cfg(target_os = "macos")]
