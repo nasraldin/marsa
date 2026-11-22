@@ -22,7 +22,7 @@ impl Meta for TypedApi {
             api_major: API_MAJOR,
             api_minor: API_MINOR,
             daemon_version: env!("CARGO_PKG_VERSION").to_owned(),
-            components: Vec::new(),
+            components: self.components.to_vec(),
         }))
     }
 

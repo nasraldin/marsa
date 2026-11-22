@@ -293,3 +293,9 @@ impl MarsaClient {
         EventSubscription::new(self.daemon.clone(), self.events())
     }
 }
+
+/// Resolve the current user's Docker socket without starting a daemon.
+pub fn docker_socket_path() -> Result<PathBuf, ClientError> {
+    let home = std::env::home_dir().ok_or(ClientError::Home)?;
+    marsa_proto::host::docker_socket_path(home).map_err(|_| ClientError::Home)
+}

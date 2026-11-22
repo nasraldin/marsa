@@ -164,9 +164,25 @@ Forwarder requirements:
 - TCP and UDP.
 - IPv4 and IPv6 loopback.
 - **Bind address policy (Proposed):** ports published on `0.0.0.0` are bound to `127.0.0.1` on the Mac by default, so containers are not exposed to the local network unless the user enables "allow LAN access". This is safer than Docker Desktop's default and must be stated clearly in the UI.
-- Privileged ports (below 1024): **Verify** current macOS behaviour for unprivileged binding; if binding fails, report it clearly.
+- When macOS denies a host bind, report its address and port. For a privileged host port, suggest a host port of 1024 or higher. For example, `-p 8080:80` keeps the container service on port 80.
 - Port conflicts produce a clear error naming the process that holds the port when it can be determined.
 - The forwarder is zero-copy where the platform allows and must not be the bottleneck in the network benchmark.
+
+### macOS loopback port privilege
+
+On macOS 27.2.1 on Apple silicon, a standard-user process called `bind()` on
+`127.0.0.1` and `::1` using one socket at a time. The IPv6 socket used
+`IPV6_V6ONLY`; the TCP socket called `listen()` after a successful bind. Each
+socket closed before the next attempt. No LAN address or system setting was used.
+
+| Loopback address | Transport | Ports 80, 443 and 1023 | Port 1024 |
+|---|---|---|---|
+| `127.0.0.1` | TCP | `EACCES` | Bound and listened |
+| `127.0.0.1` | UDP | `EACCES` | Bound |
+| `::1` | TCP | `EACCES` | Bound and listened |
+| `::1` | UDP | `EACCES` | Bound |
+
+The forwarder handles the actual OS bind result for each address and transport.
 
 ## Container to host
 
