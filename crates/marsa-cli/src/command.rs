@@ -1,6 +1,7 @@
 //! Define the command tree once for argument parsing, help and completion scripts.
 
 use clap::{Arg, ArgAction, Command, builder::PossibleValuesParser};
+use marsa_client::l10n::Locale;
 
 #[derive(Clone, Copy)]
 pub(super) enum Language {
@@ -21,6 +22,13 @@ impl Language {
             Self::Arabic
         } else {
             Self::English
+        }
+    }
+
+    pub(super) fn locale(self) -> Locale {
+        match self {
+            Self::English => Locale::EnglishUs,
+            Self::Arabic => Locale::Arabic,
         }
     }
 
