@@ -75,6 +75,9 @@ struct Argument {
 
 enum Form {
     Flag,
+    Option {
+        label: &'static str,
+    },
     Positional {
         label: &'static str,
         required: bool,
@@ -87,6 +90,14 @@ const fn flag(id: &'static str, about: Text) -> Argument {
         id,
         about,
         form: Form::Flag,
+    }
+}
+
+const fn required_option(id: &'static str, label: &'static str, about: Text) -> Argument {
+    Argument {
+        id,
+        about,
+        form: Form::Option { label },
     }
 }
 
@@ -328,12 +339,25 @@ static ROOT: Spec = command(
                 leaf("apply", ("Apply an update", "طبّق تحديثًا")),
             ],
         ),
-        leaf(
+        command(
             "mcp",
             (
                 "Run the MCP server on stdio",
                 "شغّل خادم MCP عبر الإدخال والإخراج القياسيين",
             ),
+            &[
+                required_option(
+                    "client-id",
+                    "ID",
+                    ("Registered client ID", "معرّف العميل المسجّل"),
+                ),
+                required_option(
+                    "project",
+                    "PATH",
+                    ("Absolute project folder", "المسار المطلق لمجلد المشروع"),
+                ),
+            ],
+            &[],
         ),
         command(
             "agents",
@@ -443,6 +467,9 @@ impl Spec {
             help.push_str(&format!(" <{command_label}>"));
         }
         for arg in self.arguments {
+            if let Form::Option { label } = arg.form {
+                help.push_str(&format!(" --{} <{label}>", arg.id));
+            }
             if let Form::Positional {
                 label, required, ..
             } = arg.form
@@ -485,10 +512,13 @@ impl Spec {
             language.text(HELP.0, HELP.1)
         ));
         for arg in [JSON, YES].iter().chain(self.arguments) {
-            if matches!(arg.form, Form::Flag) {
-                let about = language.text(arg.about.0, arg.about.1);
-                help.push_str(&format!("  --{:<12} {about}\n", arg.id));
-            }
+            let option = match arg.form {
+                Form::Flag => format!("--{}", arg.id),
+                Form::Option { label } => format!("--{} <{label}>", arg.id),
+                Form::Positional { .. } => continue,
+            };
+            let about = language.text(arg.about.0, arg.about.1);
+            help.push_str(&format!("  {option:<18} {about}\n"));
         }
         help
     }
@@ -499,6 +529,7 @@ impl Argument {
         let arg = Arg::new(self.id).help(language.text(self.about.0, self.about.1));
         match self.form {
             Form::Flag => arg.long(self.id).action(ArgAction::SetTrue),
+            Form::Option { label } => arg.long(self.id).value_name(label).required(true),
             Form::Positional {
                 label,
                 required,

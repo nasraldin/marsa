@@ -1,5 +1,7 @@
 //! Marsa command-line interface and stable response handling.
 
+#[cfg(unix)]
+mod agents;
 mod command;
 #[cfg(unix)]
 mod disk;
@@ -9,6 +11,8 @@ mod engine;
 mod maintenance;
 #[cfg(unix)]
 mod network;
+#[cfg(unix)]
+mod platform;
 #[cfg(unix)]
 mod settings;
 #[cfg(unix)]
@@ -25,6 +29,8 @@ use std::{
 
 use clap::{ArgMatches, error::ErrorKind};
 use clap_complete::Shell;
+#[cfg(unix)]
+use serde_json::Value;
 use serde_json::json;
 
 use command::{Language, build};
@@ -45,6 +51,20 @@ enum Failure {
     Reclaim,
     CleanupApplyUnavailable,
     CleanupPreview,
+    #[cfg(unix)]
+    DaemonUnavailable,
+    #[cfg(unix)]
+    AgentRequestFailed,
+    #[cfg(unix)]
+    AgentApprovalMissing,
+    #[cfg(unix)]
+    AgentGrantMissing,
+    #[cfg(unix)]
+    AgentReviewRequired,
+    #[cfg(unix)]
+    AgentReviewDeclined,
+    #[cfg(unix)]
+    McpUnavailable,
 }
 
 impl Failure {
@@ -62,6 +82,14 @@ impl Failure {
             Self::ConfirmationDeclined => 3,
             Self::Connection | Self::Home | Self::Root => 4,
             Self::Incompatible => 5,
+            #[cfg(unix)]
+            Self::AgentReviewRequired | Self::AgentReviewDeclined => 3,
+            #[cfg(unix)]
+            Self::DaemonUnavailable
+            | Self::AgentRequestFailed
+            | Self::AgentApprovalMissing
+            | Self::AgentGrantMissing
+            | Self::McpUnavailable => 1,
         }
     }
 
@@ -78,6 +106,20 @@ impl Failure {
             Self::Incompatible => "incompatible_daemon",
             Self::Operation | Self::Reclaim | Self::CleanupPreview => "operation_failed",
             Self::BindResolution => "bind_resolution_failed",
+            #[cfg(unix)]
+            Self::DaemonUnavailable => "daemon_unavailable",
+            #[cfg(unix)]
+            Self::AgentRequestFailed => "agent_request_failed",
+            #[cfg(unix)]
+            Self::AgentApprovalMissing => "agent_approval_missing",
+            #[cfg(unix)]
+            Self::AgentGrantMissing => "agent_grant_missing",
+            #[cfg(unix)]
+            Self::AgentReviewRequired => "confirmation_required",
+            #[cfg(unix)]
+            Self::AgentReviewDeclined => "confirmation_declined",
+            #[cfg(unix)]
+            Self::McpUnavailable => "mcp_unavailable",
         }
     }
 
@@ -135,6 +177,40 @@ impl Failure {
                 "Could not reclaim disk space. Reclaim requires a running VM.",
                 "تعذّر استرداد مساحة القرص. تتطلب العملية تشغيل الآلة الافتراضية.",
             ),
+            #[cfg(unix)]
+            Self::DaemonUnavailable => language.text(
+                "Could not connect to the local Marsa daemon.",
+                "تعذّر الاتصال بخادم مرسى المحلي.",
+            ),
+            #[cfg(unix)]
+            Self::AgentRequestFailed => language.text(
+                "Marsa could not complete the agent command.",
+                "تعذّر على مرسى إكمال أمر الوكيل.",
+            ),
+            #[cfg(unix)]
+            Self::AgentApprovalMissing => language.text(
+                "No pending approval matches that ID.",
+                "لا توجد موافقة معلّقة تطابق هذا المعرّف.",
+            ),
+            #[cfg(unix)]
+            Self::AgentGrantMissing => language.text(
+                "No active grant matches that ID.",
+                "لا يوجد إذن نشط يطابق هذا المعرّف.",
+            ),
+            #[cfg(unix)]
+            Self::AgentReviewRequired => language.text(
+                "Approving an agent request requires reviewing and confirming it in a terminal.",
+                "تتطلب الموافقة على طلب الوكيل مراجعته وتأكيده في الطرفية.",
+            ),
+            #[cfg(unix)]
+            Self::AgentReviewDeclined => {
+                language.text("The confirmation was declined.", "تم رفض التأكيد.")
+            }
+            #[cfg(unix)]
+            Self::McpUnavailable => language.text(
+                "Could not start marsa-mcp beside the Marsa CLI.",
+                "تعذّر تشغيل marsa-mcp بجانب واجهة سطر أوامر مرسى.",
+            ),
         }
     }
 }
@@ -152,6 +228,12 @@ enum Outcome {
     Streamed,
     Rejected(String),
     Failure(Failure),
+    #[cfg(unix)]
+    Success {
+        kind: &'static str,
+        text: String,
+        data: Value,
+    },
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -257,6 +339,12 @@ async fn execute(
         return outcome;
     }
     #[cfg(unix)]
+    match name {
+        "agents" => return agents::run(args, Language::current(), yes).await,
+        "mcp" => return Outcome::Failure(agents::mcp(args, json)),
+        _ => {}
+    }
+    #[cfg(unix)]
     if let Some(outcome) = engine::run(name, args, language, json).await {
         return outcome;
     }
@@ -298,6 +386,13 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
                 "code": "request_rejected",
                 "message": message,
             }),
+            #[cfg(unix)]
+            Outcome::Success { kind, data, .. } => {
+                let body = json!({"schema_version": 1, "kind": kind, "data": data});
+                let body = agents::escape_terminal_controls(&body.to_string());
+                writeln!(io::stdout().lock(), "{body}")?;
+                return Ok(code);
+            }
             Outcome::Failure(failure) => json!({
                 "schema_version": 1,
                 "kind": "error",
@@ -314,6 +409,8 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
                 write!(io::stdout().lock(), "{text}")?
             }
             Outcome::Completion { script, .. } => write!(io::stdout().lock(), "{script}")?,
+            #[cfg(unix)]
+            Outcome::Success { text, .. } => write!(io::stdout().lock(), "{text}")?,
             Outcome::Failure(failure) => {
                 writeln!(io::stderr().lock(), "{}", failure.message(language))?
             }
