@@ -10,7 +10,7 @@ Before starting, verify the current MCP specification version and the maintained
 
 ### M8-01 Policy engine and grants
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M3-08
 - **Docs:** [10 Permission tiers](../10-mcp-server.md#permission-tiers), [10 Client identity and grants](../10-mcp-server.md#client-identity-and-grants)
 - **Do:** Implement the policy engine in `marsad`: the tier of every operation, the decision function (allow, needs approval, refuse), the refusal of privilege flags for agents, grants per client and project with expiry, and the grants store.
