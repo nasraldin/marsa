@@ -47,6 +47,10 @@ message DiskUsageResponse {
   uint64 guest_used_bytes = 2;
   uint64 guest_capacity_bytes = 3;
   repeated DiskCategoryUsage categories = 4;
+  // Logical size of the actual raw image. Zero means no image has been created.
+  uint64 host_capacity_bytes = 5;
+  // Guest totals require a sample from the currently ready VM.
+  bool guest_usage_available = 6;
 }
 
 message DiskCategoryUsage {
