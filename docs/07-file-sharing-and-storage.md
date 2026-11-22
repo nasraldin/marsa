@@ -72,7 +72,7 @@ These were listed in planning as the quiet source of most bug reports.
 
 | Requirement | Design | Status |
 |---|---|---|
-| File-change events reach containers (hot reload) | Configure scoped Compose Watch sync into the container's filesystem | Linux 7.3.5 on Apple virtiofs observed updated bytes without host-origin inotify. Signed Compose 5.8.0 copied the initial file and delivered native Linux inotify create, modify and close-write events after a Mac atomic save. M4-19 verifies the workflow with a common development server. |
+| File-change events reach containers (hot reload) | Configure scoped Compose Watch sync into the container's filesystem | Linux 7.3.5 on Apple virtiofs observed updated bytes without host-origin inotify. Signed Compose 5.8.0 copied the initial file and delivered native Linux inotify create, modify and close-write events after a Mac atomic save. In M4-19 Hugo 0.170.1 rebuilt and sent browser LiveReload notifications after both regular writes and atomic replacement. |
 | Files created in a container are owned by the user on the host | Use the Apple virtiofs ownership mapping provided by the pinned guest | With Linux 7.3.5 on macOS 27.2.1, Docker UID/GID 12345 wrote to a Mac-owned folder, and the file belonged to the Mac user. Apple virtiofs rejected an ID-mapped mount with EINVAL. Guest ext4 accepted the same operation in the control test. |
 | Case sensitivity | Document host case behavior and detect collisions in diagnostics | The default APFS share resolved a case-variant lookup in both macOS and Linux. |
 | Symlinks, hard links, extended attributes | Cover them in the compatibility suite | Relative and dangling symlinks, hard links, and one user extended attribute worked in both directions in the VZ spike. |
@@ -81,7 +81,25 @@ These were listed in planning as the quiet source of most bug reports.
 See the [virtiofs spike](spikes/M1-04-virtiofs.md) for the test scope,
 measurements, and limitations.
 
-Configure Compose Watch for the source directories a development service needs. The signed verification used `develop.watch`, `action: sync` and `initial_sync: true`, with a target on the container's writable filesystem. The ignored file and two sentinel files outside the watch scope stayed absent. [Docker Compose Watch](https://docs.docker.com/compose/how-tos/file-watch/)
+### Hot reload with Compose Watch
+
+Configure `develop.watch` for the source directories your development service needs. Set `action: sync` and a writable container path. `initial_sync: true` copies the selected files when watching starts. Omit a bind mount on the watched path so the server reads from its own filesystem. Run `docker compose up --watch` from the project directory. The image needs `stat`, `mkdir`, and `rmdir`, and its configured user needs write access to the target. [Docker Compose Watch](https://docs.docker.com/compose/how-tos/file-watch/)
+
+```yaml
+services:
+  app:
+    build: .
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+          initial_sync: true
+          ignore:
+            - node_modules/
+```
+
+Compose Watch copies files from the Mac into the selected container. This workflow needs no Marsa folder grant. Edits inside the container do not sync back to the Mac. Direct virtiofs bind mounts expose changes in file contents, but the pinned Apple virtualization stack did not deliver host-origin inotify events. Development servers that watch a direct bind therefore need a documented polling mode or Compose Watch into writable container storage.
 
 ### Performance guidance shown to users
 

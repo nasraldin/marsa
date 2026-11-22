@@ -48,9 +48,13 @@ jobs:
           test -n "$bundle"
           test -x "$bundle/bin/docker"
           test -x "$bundle/bin/cli-plugins/docker-buildx"
+          test -x "$bundle/bin/cli-plugins/docker-compose"
           export PATH="$bundle/bin:$bundle/bin/cli-plugins:$PATH"
           export MARSA_VZ_GUEST_DIR="$PWD/target/guest"
           export MARSA_VZ_NETWORK_HELPER="$PWD/target/network-helper/marsa-net-helper"
+          watch_hugo="$(python3 crates/marsad/tests/packaged_runtime/compose_watch.py fetch target/dev-fixtures)"
+          test -r "$watch_hugo"
+          export MARSA_VZ_WATCH_HUGO_ARCHIVE="$watch_hugo"
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
             --test packaged_runtime -- --ignored --nocapture --test-threads=1 --skip disk_schema::
       - name: Build the entitled VZ test runner
