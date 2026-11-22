@@ -202,6 +202,18 @@ API rules:
 - Engine lifecycle and settings update RPCs deduplicate retries by UUID for a bounded period within the daemon process. Stop can cancel a pending start. A restart with the same UUID joins or replays its earlier result.
 - The daemon accepts engine lifecycle commands when a VM runtime is attached. Stats and guest health reflect observations from the current guest session.
 
+Clients use `marsa_client::DaemonEndpoint::discover()` to locate the current
+user's socket. The client checks the private socket and its kernel-reported
+peer UID, then calls `Meta.Version` before exposing the typed service
+clients. The connection reports the API minor revision supported by both
+sides. To retry another RPC after a disconnect, open a fresh connection and
+keep the original request ID and payload for interrupted mutations.
+
+The event subscription reconnects and checks the API version again. It
+delivers a replacement snapshot when the stream identity changes or a
+newer snapshot covers a gap. It suppresses a snapshot at an already
+delivered cursor and checks that live updates follow the cursor in order.
+
 ## Docker socket proxy
 
 `marsad` listens on `~/.marsa/run/docker.sock` (mode 0600, owner only) and forwards each connection to dockerd in the guest over vsock. The sequence below includes on-demand startup (M4-02) and share policy (M4-06).
@@ -325,7 +337,7 @@ The read-only guest image (kernel and root filesystem) ships inside the app bund
 
 - From the signed app, `Contents/MacOS/marsad login status`, `enable` and `disable` read or change the start-at-login setting for the current user. Service Management stores the setting. If macOS requests approval, enable Marsa under **System Settings → General → Login Items & Extensions**.
 - The bundled per-user LaunchAgent uses `SMAppService.agent(plistName:)` from macOS 13 onward. [Apple documents](https://developer.apple.com/documentation/servicemanagement/smappservice/register%28%29?changes=_4) that an approved LaunchAgent starts when registered and on subsequent logins. Unregistering removes the job and terminates the running agent. The plist uses bundle-relative `BundleProgram` to locate `Contents/MacOS/marsad`.
-- The GUI and CLI start `marsad` if it is not running.
+- The GUI and CLI can start `marsad` through `marsa-client` when the socket is absent or refuses connections. A packaged client verifies the containing app and the sibling daemon signatures before starting the daemon as the current user. The daemon lock resolves simultaneous launches. On-demand starts leave the start-at-login preference alone.
 - `marsad` holds an exclusive lock on `marsad.lock` so only one instance runs per user. On SIGINT or SIGTERM it closes Docker connections, drains the local API, removes both sockets and the PID file, and releases the lock. The lock file stays in place for the next launch.
 - With start at login enabled, launchd restarts the daemon after a crash or a nonzero exit. The agent stays stopped after a successful exit. On restart the daemon reattaches or cleans up any orphaned VM before accepting requests.
 
