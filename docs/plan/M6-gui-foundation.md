@@ -148,7 +148,7 @@ The tray stays in the daemon and runs with the GUI closed.
 
 ### M6-12 Shared Fluent catalogs and typed keys
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-01, M5-02
 - **Docs:** [08 Internationalisation](../08-gui.md#internationalisation), [13 Definition of done](../13-testing-and-benchmarks.md#definition-of-done-for-any-task)
 - **Do:** Add framework-independent Fluent catalogs for English (US) and Arabic. Validate both catalogs at build time and generate typed keys. Use a key for an existing CLI message. Exercise all six Arabic plural categories in test catalogs using the same parser and runtime as production.
