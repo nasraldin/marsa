@@ -117,7 +117,7 @@ Arabic editing and VoiceOver integration.
 
 ### M6-07 App store and services
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-01, M5-01
 - **Docs:** [08 Data flow](../08-gui.md#data-flow)
 - **Do:** Implement the normalised app store with selectors, and the services layer: daemon client, Docker client, snapshot-then-events loading, batching and rate-capping of log and stats streams, command dispatch, and cancellation of all streams on window close.
