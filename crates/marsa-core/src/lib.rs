@@ -6,3 +6,4 @@ pub mod guest_manifest;
 pub mod paths;
 pub mod platform;
 pub mod settings;
+pub mod update_manifest;

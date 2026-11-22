@@ -60,7 +60,7 @@ flowchart TB
 | T3 | A container escapes to the guest kernel | The VM contains it. Guest kernel and runc are patched quickly. The guest holds no host credentials |
 | T4 | A guest compromise attacks the host through virtual devices or the control channel | Minimal device set; the control protocol is a strict, versioned schema with bounded message sizes; `marsad` treats everything from the guest as untrusted input |
 | T5 | An AI agent is tricked (for example by text in container logs) into destructive actions | Permission tiers; destructive actions always need human approval; workload output is marked untrusted; full audit log |
-| T6 | A tampered update or guest image is installed | Signature verification with a pinned public key before anything is applied; notarized app; rollback on failed start |
+| T6 | A tampered update or guest image is installed | TUF verification against an embedded public root before installation; notarized app; rollback on failed start |
 | T7 | Supply-chain compromise of a dependency | Pinned versions and checksums; `cargo-deny` and `cargo-audit` in CI; SBOM per release; reproducible guest build |
 | T8 | Registry credentials leak | Stored only in the macOS keychain through the credential helper; never written to disk in plain text; never sent to the guest except per request by the engine |
 | T9 | Published container ports exposed to the local network unintentionally | Loopback binding by default; LAN exposure is an explicit setting |
@@ -111,11 +111,11 @@ See [07](07-file-sharing-and-storage.md#the-allowlist). Security-relevant points
 flowchart LR
     rel["Release build in CI"] --> sign["Sign app (Developer ID)<br/>and notarize"]
     rel --> man["Create update manifest<br/>(versions, sizes, hashes)"]
-    man --> msig["Sign manifest with<br/>offline update key"]
+    man --> msig["Sign target metadata with<br/>offline targets keys"]
     sign --> pub["Publish artifacts"]
     msig --> pub
     pub --> chk["marsad downloads manifest"]
-    chk --> v1{"Signature valid with<br/>pinned public key?"}
+    chk --> v1{"TUF signatures, version<br/>and expiry valid?"}
     v1 -- no --> rej["Reject, report, keep current version"]
     v1 -- yes --> dl["Download artifact"]
     dl --> v2{"Hash matches manifest and<br/>code signature valid?"}
@@ -126,7 +126,7 @@ flowchart LR
     hc -- yes --> done["Done"]
 ```
 
-- The update signing key is separate from the Apple signing identity and kept offline or in a hardware-backed store.
+- TUF root and targets keys are held separately from the Apple signing identity, offline or hardware-backed with threshold signatures. See the [key handling procedures](reference/update-manifest.md#keys-and-expiry).
 - Downgrades are refused unless the user explicitly requests one.
 - Details in [12](12-build-release-update.md).
 
