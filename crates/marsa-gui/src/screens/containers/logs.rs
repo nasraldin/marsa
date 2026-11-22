@@ -10,8 +10,8 @@ use marsa_ui::{
     direction::{isolate_technical_text, row},
     gpui::{
         AnyElement, AppContext as _, ClipboardItem, Context, Div, Entity, InteractiveElement as _,
-        IntoElement, ParentElement as _, ScrollStrategy, Styled as _, Subscription, Task,
-        UniformListScrollHandle, Window, div, px, uniform_list,
+        IntoElement, ParentElement as _, ScrollStrategy, StatefulInteractiveElement as _,
+        Styled as _, Subscription, Task, UniformListScrollHandle, Window, div, px, uniform_list,
     },
     gpui_component::{
         Disableable as _, IconName, Sizable as _,

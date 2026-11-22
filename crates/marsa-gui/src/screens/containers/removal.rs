@@ -7,7 +7,10 @@ use marsa_client::docker::{ContainerId, ContainerRemoval, RemovalMode};
 use marsa_ui::{
     ColorToken, Locale,
     direction::{LogicalStyle as _, isolate_technical_text, row},
-    gpui::{Context, InteractiveElement as _, ParentElement as _, Styled as _, Window, div, px},
+    gpui::{
+        Context, InteractiveElement as _, ParentElement as _, StatefulInteractiveElement as _,
+        Styled as _, Window, div, px,
+    },
     gpui_component::{
         Disableable as _, Sizable as _, WindowExt as _,
         button::{Button, ButtonVariants as _},
@@ -15,7 +18,7 @@ use marsa_ui::{
     },
 };
 
-use crate::screens::common::services::Command;
+use crate::services::Command;
 
 use super::{ContainerView, color, list, name};
 

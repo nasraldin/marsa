@@ -18,8 +18,7 @@ use marsa_client::docker::{
 use marsa_ui::{
     ColorToken, Locale, Palette,
     gpui::{
-        AnyElement, AppContext as _, Context, Entity, Hsla, IntoElement, Render, Subscription,
-        Task, Window,
+        AppContext as _, Context, Entity, Hsla, IntoElement, Render, Subscription, Task, Window,
     },
     gpui_component::input::{InputEvent, InputState},
 };
@@ -98,6 +97,7 @@ pub(crate) struct ContainerView {
     reveal_task: Option<Task<()>>,
     logs: logs::LogsState,
     stats: stats::StatsState,
+    terminal: terminal::State,
     _store_task: Option<Task<()>>,
     stream_tasks: Vec<Task<()>>,
     combined_logs: bool,
@@ -148,6 +148,7 @@ impl ContainerView {
             reveal_task: None,
             logs: logs::LogsState::default(),
             stats: stats::StatsState::default(),
+            terminal: terminal::State::default(),
             _store_task: store_task,
             stream_tasks: Vec::new(),
             combined_logs: false,
@@ -212,6 +213,7 @@ impl ContainerView {
 
     fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.stream_tasks.clear();
+        self.terminal = terminal::State::default();
         self.revealed = None;
         self.reveal_task = None;
         self.reveal_failed = false;
@@ -378,6 +380,9 @@ impl ContainerView {
 impl Render for ContainerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.prepare_search(window, cx);
+        if self.tab == Tab::Terminal {
+            self.terminal.prepare(cx);
+        }
         if self.tab == Tab::Logs {
             self.logs.prepare_search(window, self.locale, cx);
         }
@@ -386,7 +391,7 @@ impl Render for ContainerView {
             .as_ref()
             .and_then(|id| self.state.container(id))
         {
-            detail::render(self, entry, cx)
+            detail::render(self, entry, window, cx)
         } else {
             list::render(self, cx)
         }

@@ -8,7 +8,8 @@ use marsa_ui::{
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
         AnyElement, App, Context, Div, FontWeight, InteractiveElement as _, IntoElement,
-        ParentElement as _, SharedString, Styled as _, div, px,
+        ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
+        div, px,
     },
     gpui_component::{
         Disableable as _, Icon, IconName, Sizable as _,
@@ -23,6 +24,7 @@ use super::{ContainerView, Inspection, Tab, color, list, logs, name, stats};
 pub(super) fn render(
     view: &ContainerView,
     entry: &ContainerSummary,
+    window: &Window,
     cx: &mut Context<ContainerView>,
 ) -> AnyElement {
     let screen = view.screen();
@@ -88,7 +90,7 @@ pub(super) fn render(
     let content = match view.tab {
         Tab::Overview => overview(entry, &view.inspection, &screen, cx).into_any_element(),
         Tab::Logs => logs::render(view, entry, &screen, cx),
-        Tab::Terminal => super::terminal::render(&screen, cx).into_any_element(),
+        Tab::Terminal => super::terminal::render(view, entry, &screen, window, cx),
         Tab::Inspect => inspect(view, entry, &view.inspection, &screen, cx).into_any_element(),
         Tab::Stats => stats::render(view, &screen, cx),
     };

@@ -262,6 +262,8 @@ gui-desktop-choose-compose-file = Choose Compose file
 gui-desktop-choose-the-compose-file-for-this-project-after-confirming = Choose the Compose file for this project after confirming.
 gui-desktop-cleanup-candidates = Cleanup candidates
 gui-desktop-cleanup-preview = Cleanup preview
+gui-desktop-cleanup-preview-only = Cleanup preview only.
+gui-desktop-cleanup-apply-engine-unsupported = Applying cleanup requires a Docker Engine that can verify each reviewed resource at deletion.
 gui-desktop-clear-selection = Clear selection
 gui-desktop-close = Close
 gui-desktop-collapse-group = Collapse group
@@ -500,3 +502,86 @@ gui-desktop-wrap-lines = Wrap lines
 gui-desktop-yes = Yes
 gui-desktop-copy-redacted-inspect-json = Copy redacted inspect JSON
 gui-desktop-virtual-machine-usage = Virtual machine usage
+
+### Updates
+
+gui-update-auto-check = Check for updates automatically
+gui-update-loading = Waiting for the updater.
+gui-update-retry-status = Updater status is unavailable. Try again.
+gui-update-install = Install update
+gui-update-confirm-install = Install the verified Marsa update?
+gui-update-workload-warning = Installing this update can stop running containers. Save your work first.
+gui-update-checking = Checking for updates…
+gui-update-available = Update available
+gui-update-downloading = Downloading the verified update…
+gui-update-ready = The verified update is ready to install.
+gui-update-installing = Installing the update…
+gui-update-failed = The update failed. Try checking again.
+gui-update-rolled-back = The app restored the previous version after the update failed.
+gui-update-installed = The update is installed.
+gui-update-idle = Ready to check for updates.
+gui-update-security = Recommended security update
+gui-container-terminal-copy = Copy terminal screen
+gui-container-terminal-input-failed = Couldn’t send input to the terminal.
+gui-container-terminal-connection-failed = Couldn’t connect to the container shell.
+gui-container-terminal-ended = Session ended.
+gui-container-terminal-connected = Connected through Docker exec
+gui-container-terminal-opening = Opening a shell…
+gui-container-terminal-open = Open a session to run a shell in this container.
+gui-container-terminal-start-required = Start this container to open a shell.
+gui-desktop-notification-engine-title = Engine failed
+gui-desktop-notification-engine-body = Open Machine to review diagnostics or retry startup.
+gui-desktop-notification-update-title = A Marsa update is available
+gui-desktop-notification-update-body = Review the available release in Settings.
+gui-desktop-notification-approval-title = Approval needed
+gui-desktop-notification-approval-body = Open Activity to review the request and decide.
+gui-desktop-notification-network-title = Network mode changed
+gui-desktop-notification-network-body = Check the active connection in Network settings.
+gui-desktop-notification-review = Review in Marsa
+gui-desktop-notification-settings-title = macOS notifications
+gui-desktop-notification-settings-body = Choose which events appear in Notification Center. Allow Marsa notifications in macOS System Settings if prompted.
+gui-desktop-agent-deny-operation-requests = Refuse operation requests
+gui-desktop-agent-advanced-requests = Advanced approval requests
+gui-desktop-agent-advanced-confirmation = Clients can ask about destructive or host-affecting operations. Each request still requires your approval in Activity.
+gui-desktop-proxy-injection = Apply the proxy to new containers
+gui-desktop-proxy-injection-help = Add the configured credential-free proxy to containers created after activation.
+gui-desktop-proxy-review-and-apply = Review and apply proxy changes
+gui-desktop-proxy-apply = Apply proxy changes
+gui-desktop-proxy-confirm-running = Applying these changes restarts the engine and may interrupt containers, builds, attached streams, and one-session shares. Review active work before proceeding.
+gui-desktop-proxy-confirm-stopped = Apply the saved proxy configuration. New containers use the new policy after activation.
+gui-desktop-proxy-previous-policy = The proxy change could not be completed. Review the current network settings before trying again.
+gui-desktop-proxy-recovery-required = The proxy change needs attention. Open Machine to review recovery and check the current network settings.
+
+gui-window-quit = Quit Marsa
+gui-desktop-settings-language = Language
+gui-desktop-settings-appearance = Appearance
+gui-desktop-network-active-mode = Active network mode
+gui-desktop-network-no-active-mode = No active connection
+gui-desktop-network-restart-pending = The saved network mode takes effect when the engine next starts.
+
+gui-desktop-open-containers = Open containers
+
+### Overview
+
+gui-desktop-overview-container-usage = Containers
+gui-desktop-overview-compose-projects = Compose projects
+gui-desktop-overview-docker-disk = Docker disk
+gui-desktop-overview-architecture = Architecture
+gui-desktop-overview-runtime = Runtime
+gui-desktop-overview-virtual-machine = Virtual machine
+gui-desktop-overview-disk-description = Used by containers, images, volumes, and cache.
+gui-desktop-overview-view-disk = View disk & cleanup
+gui-desktop-running = Running
+gui-desktop-stopped = Stopped
+gui-desktop-paused = Paused
+
+### Figma accent choices
+
+gui-accent-title = Accent color
+gui-accent-description = Use this color for buttons, links, and selections in any theme.
+gui-accent-marsa-blue = Marsa Blue
+gui-accent-ocean = Ocean
+gui-accent-fern = Fern
+gui-accent-coral = Coral
+gui-accent-amber = Amber
+gui-accent-violet = Violet

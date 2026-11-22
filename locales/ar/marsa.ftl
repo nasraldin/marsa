@@ -262,6 +262,8 @@ gui-desktop-choose-compose-file = اختر ملف Compose
 gui-desktop-choose-the-compose-file-for-this-project-after-confirming = اختر ملف Compose لهذا المشروع بعد التأكيد.
 gui-desktop-cleanup-candidates = عناصر التنظيف
 gui-desktop-cleanup-preview = معاينة التنظيف
+gui-desktop-cleanup-preview-only = معاينة التنظيف فقط.
+gui-desktop-cleanup-apply-engine-unsupported = يتطلب تنفيذ التنظيف محرك Docker يستطيع التحقق من هوية كل مورد تمت مراجعته عند حذفه.
 gui-desktop-clear-selection = مسح التحديد
 gui-desktop-close = إغلاق
 gui-desktop-collapse-group = طي المجموعة
@@ -500,3 +502,86 @@ gui-desktop-wrap-lines = التفاف الأسطر
 gui-desktop-yes = نعم
 gui-desktop-copy-redacted-inspect-json = نسخ بيانات الفحص المحجوبة بصيغة JSON
 gui-desktop-virtual-machine-usage = استخدام الجهاز الافتراضي
+
+### Updates
+
+gui-update-auto-check = التحقّق من التحديثات تلقائيًا
+gui-update-loading = بانتظار خدمة التحديث.
+gui-update-retry-status = حالة التحديث غير متاحة. حاول مجددًا.
+gui-update-install = تثبيت التحديث
+gui-update-confirm-install = هل تريد تثبيت تحديث مرسى المتحقّق منه؟
+gui-update-workload-warning = قد يؤدي تثبيت التحديث إلى إيقاف الحاويات قيد التشغيل. احفظ عملك أولًا.
+gui-update-checking = جارٍ التحقّق من التحديثات…
+gui-update-available = يتوفّر تحديث
+gui-update-downloading = جارٍ تنزيل التحديث المتحقّق منه…
+gui-update-ready = التحديث المتحقّق منه جاهز للتثبيت.
+gui-update-installing = جارٍ تثبيت التحديث…
+gui-update-failed = تعذّر التحديث. حاول التحقّق مجددًا.
+gui-update-rolled-back = استعاد التطبيق الإصدار السابق بعد تعذّر التحديث.
+gui-update-installed = تم تثبيت التحديث.
+gui-update-idle = جاهز للتحقّق من التحديثات.
+gui-update-security = تحديث أمني موصى به
+gui-container-terminal-copy = نسخ شاشة الطرفية
+gui-container-terminal-input-failed = تعذّر إرسال الإدخال إلى الطرفية.
+gui-container-terminal-connection-failed = تعذّر الاتصال بصدفة الحاوية.
+gui-container-terminal-ended = انتهت الجلسة.
+gui-container-terminal-connected = متصل عبر Docker exec
+gui-container-terminal-opening = جارٍ فتح الصدفة…
+gui-container-terminal-open = افتح جلسة لتشغيل صدفة داخل هذه الحاوية.
+gui-container-terminal-start-required = شغّل هذه الحاوية لفتح صدفة.
+gui-desktop-notification-engine-title = تعذّر تشغيل المحرّك
+gui-desktop-notification-engine-body = افتح الجهاز لمراجعة التشخيصات أو إعادة محاولة التشغيل.
+gui-desktop-notification-update-title = يتوفر تحديث لمرسى
+gui-desktop-notification-update-body = راجع الإصدار المتاح في الإعدادات.
+gui-desktop-notification-approval-title = يلزم الحصول على موافقة
+gui-desktop-notification-approval-body = افتح النشاط لمراجعة الطلب واتخاذ قرار.
+gui-desktop-notification-network-title = تغيّر وضع الشبكة
+gui-desktop-notification-network-body = تحقّق من الاتصال النشط في إعدادات الشبكة.
+gui-desktop-notification-review = راجع في مرسى
+gui-desktop-notification-settings-title = إشعارات macOS
+gui-desktop-notification-settings-body = اختر الأحداث التي تظهر في مركز الإشعارات. اسمح بإشعارات مرسى في إعدادات نظام macOS إذا طُلب منك ذلك.
+gui-desktop-agent-deny-operation-requests = ارفض طلبات العمليات
+gui-desktop-agent-advanced-requests = طلبات الموافقة المتقدمة
+gui-desktop-agent-advanced-confirmation = يمكن للعملاء طلب تنفيذ عمليات إتلاف أو عمليات تؤثر على الجهاز المضيف. يظل كل طلب بحاجة إلى موافقتك في النشاط.
+gui-desktop-proxy-injection = طبّق الوكيل على الحاويات الجديدة
+gui-desktop-proxy-injection-help = أضف الوكيل المضبوط من دون بيانات اعتماد إلى الحاويات التي تُنشأ بعد التفعيل.
+gui-desktop-proxy-review-and-apply = راجع تغييرات الوكيل وطبّقها
+gui-desktop-proxy-apply = طبّق تغييرات الوكيل
+gui-desktop-proxy-confirm-running = يؤدي تطبيق هذه التغييرات إلى إعادة تشغيل المحرّك، وقد يقاطع الحاويات وعمليات البناء والتدفقات المتصلة والمشاركات المخصصة لجلسة واحدة. راجع العمل الجاري قبل المتابعة.
+gui-desktop-proxy-confirm-stopped = طبّق إعدادات الوكيل المحفوظة. تستخدم الحاويات الجديدة السياسة الجديدة بعد التفعيل.
+gui-desktop-proxy-previous-policy = تعذّر إكمال تغيير الوكيل. راجع إعدادات الشبكة الحالية قبل المحاولة مجددًا.
+gui-desktop-proxy-recovery-required = يحتاج تغيير الوكيل إلى مراجعة. افتح الجهاز لمراجعة الاستعادة وتحقّق من إعدادات الشبكة الحالية.
+
+gui-window-quit = إنهاء مرسى
+gui-desktop-settings-language = اللغة
+gui-desktop-settings-appearance = المظهر
+gui-desktop-network-active-mode = وضع الشبكة النشط
+gui-desktop-network-no-active-mode = لا يوجد اتصال نشط
+gui-desktop-network-restart-pending = يسري وضع الشبكة المحفوظ عند بدء تشغيل المحرّك في المرة القادمة.
+
+gui-desktop-open-containers = فتح الحاويات
+
+### Overview
+
+gui-desktop-overview-container-usage = الحاويات
+gui-desktop-overview-compose-projects = مشاريع Compose
+gui-desktop-overview-docker-disk = قرص Docker
+gui-desktop-overview-architecture = البنية
+gui-desktop-overview-runtime = وقت التشغيل
+gui-desktop-overview-virtual-machine = الجهاز الافتراضي
+gui-desktop-overview-disk-description = تستخدمه الحاويات والصور ووحدات التخزين والذاكرة المؤقتة.
+gui-desktop-overview-view-disk = عرض القرص والتنظيف
+gui-desktop-running = قيد التشغيل
+gui-desktop-stopped = متوقف
+gui-desktop-paused = متوقف مؤقتًا
+
+### Figma accent choices
+
+gui-accent-title = لون التمييز
+gui-accent-description = استخدم هذا اللون للأزرار والروابط والتحديدات في أي مظهر.
+gui-accent-marsa-blue = أزرق مرسى
+gui-accent-ocean = محيط
+gui-accent-fern = سرخس
+gui-accent-coral = مرجاني
+gui-accent-amber = كهرماني
+gui-accent-violet = بنفسجي

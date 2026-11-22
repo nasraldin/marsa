@@ -26,3 +26,7 @@ pub mod preferences {
         Language, NetworkMode, OperateApproval, Settings, Theme, UpdateChannel, VmBackend,
     };
 }
+
+/// VT emulation engine used by the macOS terminal view.
+#[cfg(target_os = "macos")]
+pub use vt100;
