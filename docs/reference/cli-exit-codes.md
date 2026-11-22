@@ -33,3 +33,8 @@ per log record. In the record, `message` contains a safe classification of
 the source log and `at_unix_millis` is zero when wall-clock time is unavailable.
 `marsa status --json` returns `resources: null` until the guest provides an
 observation. The CPU field is cumulative VM CPU busy time in nanoseconds.
+
+`marsa config list --json` and `marsa config get KEY --json` show the daemon
+settings revision as a decimal string. `marsa config set KEY VALUE` accepts a
+TOML value or a bare string. A rejected settings or shared-folder mutation
+returns `request_rejected` with exit status 1 and the daemon's explanation.

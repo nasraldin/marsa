@@ -11,7 +11,7 @@ This plan turns the design in [`docs/`](../README.md) into ordered, checkable ta
 | M2 | [Guest image](M2-guest-image.md) | A reproducible minimal Linux image that boots to a healthy engine | 10 |
 | M3 | [VM and daemon](M3-vm-and-daemon.md) | `marsad` boots, supervises and stops the VM through the `vz` backend | 16 |
 | M4 | [Docker integration](M4-docker-integration.md) | The standard `docker` CLI and tools work against Marsa | 22 |
-| M5 | [CLI](M5-cli.md) | The `marsa` command-line tool | 8 |
+| M5 | [CLI](M5-cli.md) | The `marsa` command-line tool | 9 |
 | M6 | [GUI foundation](M6-gui-foundation.md) | Design system, direction, i18n, themes and the app shell | 13 |
 | M7 | [GUI features](M7-gui-features.md) | Every "must have" screen, in four variants | 14 |
 | M8 | [MCP server](M8-mcp.md) | Agents can operate containers under permission tiers | 9 |
