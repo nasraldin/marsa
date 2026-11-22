@@ -242,7 +242,7 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 
 ### M4-23 Verify unprivileged macOS loopback binds
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [06 Published ports](../06-networking.md#published-ports), V-08
 - **Do:** Check standard-user IPv4 and IPv6 loopback binds below 1024 with a control at 1024, for both TCP and UDP. Record the result and the port forwarder’s expected behavior when macOS denies a bind.
