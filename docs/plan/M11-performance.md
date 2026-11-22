@@ -20,7 +20,7 @@ Design: [13 Benchmarks](../13-testing-and-benchmarks.md#benchmarks), [04 Choosin
 
 ### M11-02 libkrun spike
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-01, M2-10
 - **Docs:** [04 The krun backend](../04-virtualization-macos.md#the-krun-backend), V-09
 - **Do:** Verify the current libkrun release, licence, macOS requirements, API and kernel requirements (whether it needs its own bundled kernel). Boot the Marsa guest image with it, or document exactly what must change in the guest for it to boot. Check virtiofs, vsock, block and network device support against `VmSpec`.
@@ -29,9 +29,11 @@ Design: [13 Benchmarks](../13-testing-and-benchmarks.md#benchmarks), [04 Choosin
   - The report states whether every `VmSpec` field can be satisfied and at what cost.
   - It recommends proceed or stop, with reasons.
 
+**Verification.** The signed probe booted the unchanged Marsa image and checked its block, console, vsock, virtiofs and disconnected Ethernet devices. The [report](../spikes/M11-02-libkrun.md) recommends stopping until supported macOS isolation can enforce the shared-folder allowlist.
+
 ### M11-03 `krun` backend
 
-- **Status:** todo
+- **Status:** blocked (libkrun requires a supported macOS share isolation boundary)
 - **Depends on:** M11-02
 - **Docs:** [04 The krun backend](../04-virtualization-macos.md#the-krun-backend)
 - **Do:** If M11-02 recommends proceeding, implement `marsa-vm-krun` behind the Hypervisor trait with accurate `Capabilities`, selectable through the `vm.backend` setting, with the hypervisor entitlement added to signing.
@@ -43,12 +45,12 @@ Design: [13 Benchmarks](../13-testing-and-benchmarks.md#benchmarks), [04 Choosin
 ### M11-04 Backend gate evaluation
 
 - **Status:** todo
-- **Depends on:** M11-01, M11-03, M9-10
+- **Depends on:** M11-01, M11-02, M9-10, and M11-03 if the spike recommends proceeding
 - **Docs:** [04 Choosing the default](../04-virtualization-macos.md#choosing-the-default-the-benchmark-gate)
 - **Do:** Run every gate measure on both backends on the reference Mac, including the 72-hour soak for `krun`. Write the comparison and record the default-backend decision. If M11-02 or M11-03 stopped early, record that `vz` remains the default and why.
 - **Deliver:** `docs/spikes/M11-04-backend-gate.md`, a decision record.
 - **Accept when:**
-  - Each gate measure has numbers for both backends.
+  - If both backends qualify, each gate measure has numbers for both. If the spike recommends stopping, report the Virtualization.framework measurements and the verified reason a comparison is unavailable.
   - The decision record names the default backend for version 1 and has the owner's agreement.
 
 ### M11-05 Comparative benchmarks
