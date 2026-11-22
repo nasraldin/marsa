@@ -36,7 +36,6 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
-| V-04 | How much guest memory does the balloon actually return to macOS? | [04](04-virtualization-macos.md) | M9-04 |
 | V-06 | Complete development-server qualification. The production guest verifies Mac ownership from UID/GID 12345 and scoped Compose Watch produces native Linux notifications. The direct virtiofs mount received new bytes without host-origin inotify. | [07](07-file-sharing-and-storage.md#correctness-requirements), [M1-04](spikes/M1-04-virtiofs.md) | M4-19 |
 | V-07 | NAT attachment requirements; user-space attachment class | [06](06-networking.md) | M4-08, M4-10 |
 | V-09 | libkrun: current release, API, kernel requirements (own kernel or libkrunfw) | [04](04-virtualization-macos.md) | M11-02 |
@@ -50,6 +49,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 |---|---|---|
 | V-02 | Both bridges booted the same stock Linux fixture and delivered start, vsock and shutdown callbacks. M1-02 recommends the Rust bindings for gate G2. | [M1-02](spikes/M1-02-vz-binding.md) |
 | V-03 | All planned VZ device and lifecycle classes are available by macOS 12. The full configuration booted on macOS 27.2.1 with a 27.0 deployment target and the virtualization entitlement. | [Availability and boot results](spikes/M1-02-vz-binding.md#verified-class-availability) |
+| V-04 | A 2.5 GiB balloon successfully inflated in the Linux guest after a 2 GiB workload on macOS 27.2.1. The VZ worker physical footprint did not fall over 25 seconds. Idle stop ended the worker and helper, leaving the idle daemon. | [M9-04 VZ measurements](spikes/M9-04-memory.md) |
 | V-05 | `fstrim` returned approximately 4 GiB of sparse RAW allocation to APFS in each VZ cache mode on macOS 27.2.1. M9-03 verifies the product cleanup path. | [Allocated byte measurements](spikes/M1-03-disk-reclaim.md#measured-allocated-bytes) |
 | V-09 | Libkrun 1.19.8 booted the stock Marsa kernel and image on macOS 27.2.1. Its documented virtiofs isolation is insufficient without a separate host boundary. | [M11-02](spikes/M11-02-libkrun.md) |
 | V-12 | Docker CLI, Buildx, Dev Containers and current Testcontainers for Python support contexts. The verified Java, Node.js and Go Testcontainers discovery paths take an explicit Docker host. JetBrains supports a custom Unix endpoint. | [Client discovery](09-cli-and-docker-compat.md#client-discovery) |
@@ -63,7 +63,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 |---|---|---|---|---|---|
 | R-01 | GPUI integration cannot deliver correct Arabic and right-to-left | Medium | High | Build direction into the component layer and qualify the native editor in M6-08 ([D-023](15-decisions.md#d-023-choose-gpui-for-the-desktop)) | M6 |
 | R-02 | GPUI API churn breaks the build on upgrade | High | Medium | Pin GPUI and gpui-component revisions; upgrade in dedicated tasks; keep Marsa's wrapper layer thin and central | M6 |
-| R-03 | Memory is not returned to macOS under `vz` | Medium | Medium | Idle stop as the dependable mechanism; balloon as a bonus; `krun` backend as the long-term answer | M9, M11 |
+| R-03 | Memory is not returned to macOS under `vz` | Medium | Medium | Idle stop as the dependable mechanism; VZ balloon measured separately in M9-04, with `krun` evaluated as the longer-term option | M9, M11 |
 | R-04 | File sharing is too slow or semantically off for real projects | Medium | High | Benchmarks and a compatibility suite early (M4); guidance for named volumes; `krun` evaluation | M4, M11 |
 | R-05 | Corporate networks break pulls and builds | High | High | Automatic user-space fallback; proxy and CA import; test matrix | M4, M9 |
 | R-06 | A container-escape CVE lands and the fix is slow | Medium | High | Whole-image updates; monitoring; a rehearsed fast-release path | M10 |
