@@ -108,7 +108,7 @@ The local tests run the real CLI and stdio bridge against a private in-process d
 
 ### M8-09 Agent setup guides
 
-- **Status:** todo
+- **Status:** blocked (no qualified approved operate provider)
 - **Depends on:** M8-07
 - **Docs:** [10 MCP server](../10-mcp-server.md)
 - **Do:** Write user documentation for connecting common MCP clients to `marsa mcp`, explaining the permission tiers and how to review and revoke grants. English and Arabic.
@@ -116,6 +116,10 @@ The local tests run the real CLI and stdio bridge against a private in-process d
 - **Accept when:**
   - Following the guide on a clean machine connects a client and completes one read call and one approved operate call.
 
+The owner CLI and read-only MCP stdio operation passed the isolated native
+fixtures in M8-07. The guide acceptance also requires an approved operate
+call on a clean machine. That requires the exact execution guarantees in
+M8-05 and M8-10. Q-06 covers the independent Arabic review.
 
 ### M8-10 Agent bind authorization and run preparation
 
