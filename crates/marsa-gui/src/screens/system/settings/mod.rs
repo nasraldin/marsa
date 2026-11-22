@@ -166,7 +166,7 @@ impl SystemView {
             SettingsTab::Docker => self.docker(screen, cx),
             SettingsTab::Agents => self.agent_settings(screen, cx),
             SettingsTab::Updates => self.updates(screen, cx),
-            SettingsTab::About => self.about(screen),
+            SettingsTab::About => self.about(screen, cx),
         };
         div()
             .flex()

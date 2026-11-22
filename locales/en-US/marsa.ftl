@@ -739,3 +739,6 @@ gui-system-machine-stage-vm = Start virtual machine
 gui-system-machine-stage-agent = Connect guest agent
 gui-system-machine-stage-engine = Start Docker engine
 gui-system-machine-recent-boot-logs = Recent boot logs
+gui-desktop-show-release-notices = Show third-party notices in Finder
+gui-desktop-release-notices-unavailable = This bundle has no complete release notices
+gui-desktop-release-notices-use-signed-release = Use a distribution build to review its third-party notices and source references.

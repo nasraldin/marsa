@@ -172,7 +172,7 @@ impl SystemView {
         }));
     }
 
-    pub(super) fn about(&self, screen: &ScreenContext<'_>) -> Div {
+    pub(super) fn about(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
         let locale = screen.locale;
         settings_card(screen)
             .child(settings_heading(
@@ -180,6 +180,17 @@ impl SystemView {
                 gui::GUI_DESKTOP_MARSA.text(locale),
                 gui::GUI_DESKTOP_MARSA_IS_RELEASED_UNDER_THE_MIT_LICENSE.text(locale),
             ))
+            .child(
+                row(locale).child(
+                    Button::new("show-release-notices")
+                        .outline()
+                        .disabled(self.busy())
+                        .label(gui::GUI_DESKTOP_SHOW_RELEASE_NOTICES.text(locale))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.reveal_release_notices(locale, window, cx);
+                        })),
+                ),
+            )
             .child(component_row(
                 screen,
                 gui::GUI_DESKTOP_MARSA.text(locale),
@@ -204,6 +215,38 @@ impl SystemView {
                         }))
                 },
             ))
+    }
+
+    fn reveal_release_notices(
+        &mut self,
+        locale: Locale,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let path = cx
+            .app_path()
+            .ok()
+            .map(|app| app.join("Contents/Resources/licenses/THIRD-PARTY-NOTICES.txt"));
+        let check = cx
+            .background_executor()
+            .spawn(async move { path.filter(|path| path.is_file()) });
+        cx.spawn_in(window, async move |_, cx| {
+            let path = check.await;
+            let _ = cx.update(|window, cx| {
+                if let Some(path) = path {
+                    cx.reveal_path(&path);
+                } else {
+                    drop(window.prompt(
+                        PromptLevel::Info,
+                        gui::GUI_DESKTOP_RELEASE_NOTICES_UNAVAILABLE.text(locale),
+                        Some(gui::GUI_DESKTOP_RELEASE_NOTICES_USE_SIGNED_RELEASE.text(locale)),
+                        &[PromptButton::Ok(gui::GUI_DESKTOP_CLOSE.text(locale).into())],
+                        cx,
+                    ));
+                }
+            });
+        })
+        .detach();
     }
 }
 

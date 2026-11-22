@@ -739,3 +739,6 @@ gui-system-machine-stage-vm = تشغيل الجهاز الافتراضي
 gui-system-machine-stage-agent = الاتصال بوكيل النظام الضيف
 gui-system-machine-stage-engine = تشغيل محرك Docker
 gui-system-machine-recent-boot-logs = أحدث سجلات بدء التشغيل
+gui-desktop-show-release-notices = اعرض إشعارات المكوّنات الخارجية في Finder
+gui-desktop-release-notices-unavailable = إشعارات الإصدار الكاملة غير متوفرة في هذه الحزمة
+gui-desktop-release-notices-use-signed-release = استخدم إصدارًا مخصّصًا للتوزيع لمراجعة إشعارات المكوّنات الخارجية ومراجع المصادر.
