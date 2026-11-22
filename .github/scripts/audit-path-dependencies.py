@@ -7,6 +7,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 import tomllib
 
 
@@ -83,6 +84,20 @@ def restore_lock_sources(lock, origins, workspace_packages):
     return "[[package]]\n".join(sections)
 
 
+def populate_registry_index(origins):
+    # Cargo does not fetch registry records for a crate resolved by a path patch.
+    # Cargo Deny uses the sparse registry cache to check whether it was yanked.
+    with tempfile.TemporaryDirectory(prefix="marsa-audit-registry-") as directory:
+        for name, version in sorted(origins):
+            subprocess.run(
+                ["cargo", "info", "--quiet", "--registry", "crates-io", f"{name}@{version}"],
+                cwd=directory,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                timeout=60,
+            )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("format", choices=["metadata", "lock"])
@@ -94,6 +109,7 @@ def main():
         command = ["cargo", "metadata", "--all-features", "--locked", "--format-version", "1"]
         metadata = json.loads(subprocess.check_output(command, cwd=ROOT))
         restore_metadata_sources(metadata, origins, ROOT)
+        populate_registry_index(origins)
         json.dump(metadata, sys.stdout)
     else:
         workspace_packages = set()
@@ -111,5 +127,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         sys.exit(f"Could not prepare RustSec audit input: {error}")
