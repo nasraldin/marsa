@@ -114,6 +114,15 @@ impl Catalog {
         Ok(Self { bundle })
     }
 
+    /// Use only the caller’s explicit directional isolates.
+    ///
+    /// A terminal renderer can use this when it isolates each technical
+    /// value using its required direction before passing it to Fluent.
+    pub fn with_explicit_isolates(mut self) -> Self {
+        self.bundle.set_use_isolating(false);
+        self
+    }
+
     /// Resolve the generated key with optional Fluent arguments.
     pub fn format(
         &self,

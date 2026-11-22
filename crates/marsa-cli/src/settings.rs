@@ -3,22 +3,26 @@
 use clap::ArgMatches;
 use marsa_client::{
     DaemonEndpoint, MarsaClient,
-    api::{GetSettingsRequest, UpdateSettingsRequest},
+    api::{ConfigurationIssue, GetSettingsRequest, UpdateSettingsRequest},
+    l10n::keys,
 };
 use serde_json::json;
 use toml::{Table, Value};
 
 use crate::{
     Failure, Outcome,
-    command::Language,
+    command::{Language, escape_terminal_controls},
+    configuration_feedback::rejection,
     engine::{connection_failure, request_id},
 };
 
-pub(super) async fn run(args: &ArgMatches, language: Language) -> Outcome {
-    apply(args, language).await.unwrap_or_else(Outcome::Failure)
+pub(super) async fn run(args: &ArgMatches, language: Language, terminal: bool) -> Outcome {
+    apply(args, language, terminal)
+        .await
+        .unwrap_or_else(Outcome::Failure)
 }
 
-async fn apply(args: &ArgMatches, language: Language) -> Result<Outcome, Failure> {
+async fn apply(args: &ArgMatches, language: Language, terminal: bool) -> Result<Outcome, Failure> {
     let (command, args) = args.subcommand().ok_or(Failure::Usage)?;
     let name = args.try_get_one::<String>("key").ok().flatten();
     let path = name.map(|key| setting_path(key)).transpose()?;
@@ -43,7 +47,7 @@ async fn apply(args: &ArgMatches, language: Language) -> Result<Outcome, Failure
                 "settings": table,
                 "restart_required": base.restart_required,
             }),
-            text: base.settings_toml,
+            text: config_text(base.settings_toml, language, terminal),
         }),
         ("get", Some(name), Some(path)) => {
             let value = find(&table, &path).ok_or(Failure::Usage)?;
@@ -52,7 +56,7 @@ async fn apply(args: &ArgMatches, language: Language) -> Result<Outcome, Failure
                 value,
                 base.revision,
                 base.restart_required,
-                value.to_string() + "\n",
+                config_text(value.to_string() + "\n", language, terminal),
             ))
         }
         ("set", Some(name), Some(path)) => {
@@ -62,6 +66,21 @@ async fn apply(args: &ArgMatches, language: Language) -> Result<Outcome, Failure
         }
         _ => Err(Failure::Usage),
     }
+}
+
+fn config_text(toml: String, language: Language, terminal: bool) -> String {
+    if !terminal {
+        return toml;
+    }
+    let mut display = String::new();
+    for line in toml.split_inclusive('\n') {
+        let content = line.strip_suffix('\n').unwrap_or(line);
+        display.push_str(&language.isolate(escape_terminal_controls(content)));
+        if line.ends_with('\n') {
+            display.push('\n');
+        }
+    }
+    display
 }
 
 fn setting_path(name: &str) -> Result<Vec<&str>, Failure> {
@@ -126,7 +145,13 @@ async fn save(
         .await;
     let result = match reply {
         Ok(reply) => reply.into_inner(),
-        Err(error) => return Ok(rejection(language, error.message())),
+        Err(error) => {
+            return Ok(rejection(
+                language,
+                ConfigurationIssue::from_status(&error),
+                (client.api_minor() < ConfigurationIssue::API_MINOR).then(|| error.message()),
+            ));
+        }
     };
     let message = saved(language, result.restart_required);
     Ok(value_result(
@@ -154,32 +179,29 @@ fn value_result(name: &str, value: &Value, revision: u64, restart: bool, text: S
 
 pub(super) fn saved(language: Language, restart: bool) -> &'static str {
     if restart {
-        language.text(
-            "Saved. Restart the VM to apply the change.",
-            "تم الحفظ. أعد تشغيل الآلة الافتراضية لتطبيق التغيير.",
-        )
+        language.label(keys::CLI_SETTINGS_SAVED_RESTART)
     } else {
-        language.text("Saved.", "تم الحفظ.")
+        language.label(keys::CLI_SETTINGS_SAVED)
     }
-}
-
-pub(super) fn rejection(language: Language, detail: &str) -> Outcome {
-    let message = language.text(
-        "The Marsa daemon rejected the request.",
-        "رفض خادم مرسى الطلب.",
-    );
-    // Leave controller output on one terminal line and bound the diagnostic.
-    let detail: String = detail
-        .chars()
-        .take(512)
-        .flat_map(char::escape_debug)
-        .collect();
-    Outcome::Rejected(format!("{message} {detail}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toml_controls_are_neutralized_only_in_terminal_display() {
+        let raw = "a = \"path\u{202e}name\"\nb = \"other\"\n";
+        assert_eq!(config_text(raw.into(), Language::Arabic, false), raw);
+        assert_eq!(
+            config_text(raw.into(), Language::English, true),
+            "a = \"path\\u202ename\"\nb = \"other\"\n"
+        );
+        assert_eq!(
+            config_text(raw.into(), Language::Arabic, true),
+            "\u{2066}a = \"path\\u202ename\"\u{2069}\n\u{2066}b = \"other\"\u{2069}\n"
+        );
+    }
 
     #[test]
     fn one_setting_value_cannot_assign_a_sibling_key() {

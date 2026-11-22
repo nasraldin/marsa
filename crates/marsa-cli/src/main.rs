@@ -4,6 +4,8 @@
 mod agents;
 mod command;
 #[cfg(unix)]
+mod configuration_feedback;
+#[cfg(unix)]
 mod disk;
 #[cfg(unix)]
 mod engine;
@@ -29,11 +31,12 @@ use std::{
 
 use clap::{ArgMatches, error::ErrorKind};
 use clap_complete::Shell;
+use marsa_client::l10n::keys;
 #[cfg(unix)]
 use serde_json::Value;
 use serde_json::json;
 
-use command::{Language, build};
+use command::{Language, build, explicit_language};
 
 #[derive(Clone, Copy)]
 enum Failure {
@@ -125,92 +128,34 @@ impl Failure {
 
     fn message(self, language: Language) -> &'static str {
         match self {
-            Self::Unavailable => {
-                marsa_client::l10n::keys::CLI_NOT_AVAILABLE.text(language.locale())
-            }
-            Self::Usage => language.text(
-                "Invalid invocation. Run marsa --help for usage.",
-                "استدعاء غير صالح. شغّل marsa --help لعرض طريقة الاستخدام.",
-            ),
-            Self::Confirmation => language.text(
-                "This operation requires --yes when run non-interactively.",
-                "تتطلب هذه العملية الخيار --yes عند تشغيلها دون تفاعل.",
-            ),
+            Self::Unavailable => language.label(keys::CLI_NOT_AVAILABLE),
+            Self::Usage => language.label(keys::CLI_INVALID_INVOCATION),
+            Self::Confirmation => language.label(keys::CLI_CONFIRMATION_REQUIRED),
             #[cfg(unix)]
-            Self::ConfirmationDeclined => language.text(
-                "Reset canceled. The confirmation did not match.",
-                "أُلغيَت إعادة الضبط لأن عبارة التأكيد غير مطابقة.",
-            ),
-            Self::Connection => language.text(
-                "Could not connect to the Marsa daemon. Open Marsa and try again.",
-                "تعذّر الاتصال بخادم مرسى. افتح التطبيق ثم أعد المحاولة.",
-            ),
-            Self::Home => language.text(
-                "Could not resolve the socket under the current user's home directory.",
-                "تعذّر تحديد موقع المقبس في المجلد الرئيسي للمستخدم الحالي.",
-            ),
-            Self::Root => language.text(
-                "Run Marsa as an unprivileged user.",
-                "شغّل مرسى بحساب مستخدم عادي.",
-            ),
-            Self::Incompatible => language.text(
-                "The daemon API is incompatible with this version of the Marsa CLI.",
-                "واجهة الخادم غير متوافقة مع إصدار سطر أوامر مرسى الحالي.",
-            ),
-            Self::Operation => language.text(
-                "The Marsa operation failed. Run marsa status or check marsa logs for details.",
-                "فشلت عملية مرسى. شغّل marsa status أو اطّلع على marsa logs لمعرفة التفاصيل.",
-            ),
-            Self::BindResolution => language.text(
-                "Could not answer the bind request. Run marsa share approvals to check whether it is still pending.",
-                "تعذّر الرد على طلب الوصل. شغّل marsa share approvals للتحقق من أن الطلب ما زال معلّقًا.",
-            ),
-            Self::CleanupApplyUnavailable => language.text(
-                "Cleanup apply is unavailable. Run marsa disk cleanup --dry-run to preview.",
-                "تنفيذ التنظيف غير متاح. شغّل marsa disk cleanup --dry-run للمعاينة.",
-            ),
-            Self::CleanupPreview => language.text(
-                "Could not preview unused storage. Disk cleanup preview requires a running engine.",
-                "تعذّرت معاينة المساحة غير المستخدمة. تتطلب المعاينة محركًا قيد التشغيل.",
-            ),
-            Self::Reclaim => language.text(
-                "Could not reclaim disk space. Reclaim requires a running VM.",
-                "تعذّر استرداد مساحة القرص. تتطلب العملية تشغيل الآلة الافتراضية.",
-            ),
+            Self::ConfirmationDeclined => language.label(keys::CLI_CONFIRMATION_DECLINED),
+            Self::Connection => language.label(keys::CLI_CONNECTION_FAILED),
+            Self::Home => language.label(keys::CLI_HOME_UNAVAILABLE),
+            Self::Root => language.label(keys::CLI_UNPRIVILEGED_USER_REQUIRED),
+            Self::Incompatible => language.label(keys::CLI_INCOMPATIBLE_DAEMON),
+            Self::Operation => language.label(keys::CLI_OPERATION_FAILED),
+            Self::BindResolution => language.label(keys::CLI_BIND_RESOLUTION_FAILED),
+            Self::CleanupApplyUnavailable => language.label(keys::CLI_CLEANUP_APPLY_UNAVAILABLE),
+            Self::CleanupPreview => language.label(keys::CLI_CLEANUP_PREVIEW),
+            Self::Reclaim => language.label(keys::CLI_RECLAIM),
             #[cfg(unix)]
-            Self::DaemonUnavailable => language.text(
-                "Could not connect to the local Marsa daemon.",
-                "تعذّر الاتصال بخادم مرسى المحلي.",
-            ),
+            Self::DaemonUnavailable => language.label(keys::CLI_DAEMON_UNAVAILABLE),
             #[cfg(unix)]
-            Self::AgentRequestFailed => language.text(
-                "Marsa could not complete the agent command.",
-                "تعذّر على مرسى إكمال أمر الوكيل.",
-            ),
+            Self::AgentRequestFailed => language.label(keys::CLI_AGENT_REQUEST_FAILED),
             #[cfg(unix)]
-            Self::AgentApprovalMissing => language.text(
-                "No pending approval matches that ID.",
-                "لا توجد موافقة معلّقة تطابق هذا المعرّف.",
-            ),
+            Self::AgentApprovalMissing => language.label(keys::CLI_AGENT_APPROVAL_MISSING),
             #[cfg(unix)]
-            Self::AgentGrantMissing => language.text(
-                "No active grant matches that ID.",
-                "لا يوجد إذن نشط يطابق هذا المعرّف.",
-            ),
+            Self::AgentGrantMissing => language.label(keys::CLI_AGENT_GRANT_MISSING),
             #[cfg(unix)]
-            Self::AgentReviewRequired => language.text(
-                "Approving an agent request requires reviewing and confirming it in a terminal.",
-                "تتطلب الموافقة على طلب الوكيل مراجعته وتأكيده في الطرفية.",
-            ),
+            Self::AgentReviewRequired => language.label(keys::CLI_AGENT_REVIEW_REQUIRED),
             #[cfg(unix)]
-            Self::AgentReviewDeclined => {
-                language.text("The confirmation was declined.", "تم رفض التأكيد.")
-            }
+            Self::AgentReviewDeclined => language.label(keys::CLI_AGENT_REVIEW_DECLINED),
             #[cfg(unix)]
-            Self::McpUnavailable => language.text(
-                "Could not start marsa-mcp beside the Marsa CLI.",
-                "تعذّر تشغيل marsa-mcp بجانب واجهة سطر أوامر مرسى.",
-            ),
+            Self::McpUnavailable => language.label(keys::CLI_MCP_UNAVAILABLE),
         }
     }
 }
@@ -226,7 +171,10 @@ enum Outcome {
         text: String,
     },
     Streamed,
-    Rejected(String),
+    Rejected {
+        text: String,
+        message: String,
+    },
     Failure(Failure),
     #[cfg(unix)]
     Success {
@@ -244,19 +192,20 @@ async fn main() -> ExitCode {
         .skip(1)
         .take_while(|arg| *arg != "--")
         .any(|arg| arg == "--json");
-    let language = if json {
-        Language::English
-    } else {
-        Language::current()
-    };
+    let explicit = explicit_language(&args);
+    let language = explicit.ok().flatten().unwrap_or_else(Language::current);
     let interactive = io::stdin().is_terminal() && !json;
-    let outcome = execute(args, language, interactive, json).await;
+    let outcome = if explicit.is_err() {
+        Outcome::Failure(Failure::Usage)
+    } else {
+        execute(args, language, interactive, json).await
+    };
     match render(outcome, language, json) {
         Ok(code) => ExitCode::from(code),
-        Err(error) => {
+        Err(_) => {
             if !json {
-                let message = language.text("Could not write the response", "تعذّرت كتابة الاستجابة");
-                let _ = writeln!(io::stderr().lock(), "{message} ({error})");
+                let message = language.label(keys::CLI_WRITE_RESPONSE_FAILED);
+                let _ = writeln!(io::stderr().lock(), "{message}");
             }
             ExitCode::FAILURE
         }
@@ -265,25 +214,31 @@ async fn main() -> ExitCode {
 
 async fn execute(
     args: Vec<OsString>,
-    language: Language,
+    display_language: Language,
     interactive: bool,
     json: bool,
 ) -> Outcome {
-    let mut cli = build(language);
-    if args.len() == 1 || args.len() == 2 && args[1] == "--json" {
-        return Outcome::Help(cli.render_help().to_string());
-    }
-    let matches = match cli.try_get_matches_from(args) {
+    let language = if json {
+        Language::English
+    } else {
+        display_language
+    };
+    let root_help = args.last().is_none_or(|arg| arg != "--");
+    let matches = match build(language).try_get_matches_from(args) {
         Ok(matches) => matches,
         Err(error) if error.kind() == ErrorKind::DisplayHelp => {
             return Outcome::Help(error.to_string());
         }
         Err(_) => return Outcome::Failure(Failure::Usage),
     };
-    let Some((name, args)) = matches.subcommand() else {
-        return Outcome::Failure(Failure::Usage);
-    };
     let yes = matches.get_flag("yes");
+    let Some((name, args)) = matches.subcommand() else {
+        return if yes || !root_help {
+            Outcome::Failure(Failure::Usage)
+        } else {
+            Outcome::Help(build(language).render_help().to_string())
+        };
+    };
     if name == "reset" && !interactive && !yes {
         return Outcome::Failure(Failure::Confirmation);
     }
@@ -310,7 +265,7 @@ async fn execute(
     }
     #[cfg(unix)]
     if name == "config" {
-        return settings::run(args, language).await;
+        return settings::run(args, language, !json && io::stdout().is_terminal()).await;
     }
     #[cfg(unix)]
     if name == "share"
@@ -340,7 +295,7 @@ async fn execute(
     }
     #[cfg(unix)]
     match name {
-        "agents" => return agents::run(args, Language::current(), yes).await,
+        "agents" => return agents::run(args, display_language, yes).await,
         "mcp" => return Outcome::Failure(agents::mcp(args, json)),
         _ => {}
     }
@@ -369,7 +324,7 @@ fn completions(args: &ArgMatches) -> Outcome {
 fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result<u8> {
     let code = match outcome {
         Outcome::Failure(failure) => failure.code(),
-        Outcome::Rejected(_) => 1,
+        Outcome::Rejected { .. } => 1,
         _ => 0,
     };
     if json_output {
@@ -380,7 +335,7 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
             }
             Outcome::Streamed => return Ok(code),
             Outcome::Data { document, .. } => document,
-            Outcome::Rejected(message) => json!({
+            Outcome::Rejected { message, .. } => json!({
                 "schema_version": 1,
                 "kind": "error",
                 "code": "request_rejected",
@@ -389,7 +344,7 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
             #[cfg(unix)]
             Outcome::Success { kind, data, .. } => {
                 let body = json!({"schema_version": 1, "kind": kind, "data": data});
-                let body = agents::escape_terminal_controls(&body.to_string());
+                let body = command::escape_terminal_controls(&body.to_string());
                 writeln!(io::stdout().lock(), "{body}")?;
                 return Ok(code);
             }
@@ -404,7 +359,7 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
     } else {
         match outcome {
             Outcome::Streamed => (),
-            Outcome::Rejected(message) => writeln!(io::stderr().lock(), "{message}")?,
+            Outcome::Rejected { text, .. } => writeln!(io::stderr().lock(), "{text}")?,
             Outcome::Help(text) | Outcome::Data { text, .. } => {
                 write!(io::stdout().lock(), "{text}")?
             }

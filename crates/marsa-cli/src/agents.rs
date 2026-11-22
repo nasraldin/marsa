@@ -12,10 +12,11 @@ use marsa_client::{
         AgentGrant, ApproveRequest, DenyRequest, ListAgentClientsRequest, ListGrantsRequest,
         ListPendingApprovalsRequest, PendingApproval, RevokeGrantRequest,
     },
+    l10n::keys,
 };
 use serde_json::{Value, json};
 
-use super::{Failure, Language, Outcome, platform};
+use super::{Failure, Language, Outcome, command::escape_terminal_controls, platform};
 
 pub(super) fn mcp(args: &ArgMatches, json_output: bool) -> Failure {
     let (Some(client_id), Some(project)) = (
@@ -82,14 +83,18 @@ async fn execute(
                 .approvals;
 
             let mut text = String::new();
-            text.push_str(language.text("Clients\n", "العملاء\n"));
+            text.push_str(language.label(keys::CLI_AGENTS_CLIENTS));
+            text.push('\n');
             let clients: Vec<_> = clients
                 .into_iter()
                 .map(|client| {
-                    text.push_str(&format!(
-                        "  {:?}  {:?}  {:?}\n",
+                    let row = format!(
+                        "{:?}  {:?}  {:?}",
                         client.client_id, client.client_name, client.project_path
-                    ));
+                    );
+                    text.push_str("  ");
+                    text.push_str(&language.isolate(escape_terminal_controls(&row)));
+                    text.push('\n');
                     json!({
                         "client_id": client.client_id,
                         "client_name": client.client_name,
@@ -97,22 +102,26 @@ async fn execute(
                     })
                 })
                 .collect();
-            text.push_str(language.text("\nGrants\n", "\nالأذونات\n"));
+            text.push('\n');
+            text.push_str(language.label(keys::CLI_AGENTS_GRANTS));
+            text.push('\n');
             let grants: Vec<_> = grants
                 .into_iter()
                 .map(|grant| {
                     let data = grant_data(&grant);
-                    text.push_str(&escape_terminal_controls(&data.to_string()));
+                    text.push_str(&language.isolate(escape_terminal_controls(&data.to_string())));
                     text.push('\n');
                     data
                 })
                 .collect();
-            text.push_str(language.text("\nPending requests\n", "\nالطلبات المعلّقة\n"));
+            text.push('\n');
+            text.push_str(language.label(keys::CLI_AGENTS_PENDING));
+            text.push('\n');
             let pending: Vec<_> = pending
                 .into_iter()
                 .map(|approval| {
                     let data = approval_data(approval)?;
-                    text.push_str(&escape_terminal_controls(&data.to_string()));
+                    text.push_str(&language.isolate(escape_terminal_controls(&data.to_string())));
                     text.push('\n');
                     Ok(data)
                 })
@@ -141,10 +150,7 @@ async fn execute(
                 confirm(
                     data,
                     language,
-                    language.text(
-                        "Approve this request once?",
-                        "هل توافق على هذا الطلب لمرة واحدة؟",
-                    ),
+                    language.label(keys::CLI_AGENTS_APPROVE_PROMPT),
                 )
                 .await?;
                 agents
@@ -159,7 +165,7 @@ async fn execute(
                     "approved",
                     "approval_id",
                     id,
-                    language.text("Request approved.", "تمت الموافقة على الطلب."),
+                    language.label(keys::CLI_AGENTS_APPROVED),
                 ))
             } else {
                 agents
@@ -173,7 +179,7 @@ async fn execute(
                     "denied",
                     "approval_id",
                     id,
-                    language.text("Request denied.", "تم رفض الطلب."),
+                    language.label(keys::CLI_AGENTS_DENIED),
                 ))
             }
         }
@@ -192,7 +198,7 @@ async fn execute(
                 confirm(
                     grant_data(&grant),
                     language,
-                    language.text("Revoke this grant?", "هل تريد إلغاء هذا الإذن؟"),
+                    language.label(keys::CLI_AGENTS_REVOKE_PROMPT),
                 )
                 .await?;
             }
@@ -207,7 +213,7 @@ async fn execute(
                 "revoked",
                 "grant_id",
                 id,
-                language.text("Grant revoked.", "تم إلغاء الإذن."),
+                language.label(keys::CLI_AGENTS_REVOKED),
             ))
         }
         _ => Err(Failure::Usage),
@@ -261,35 +267,32 @@ fn approval_data(approval: PendingApproval) -> Result<Value, Failure> {
     }))
 }
 
-pub(super) fn escape_terminal_controls(json: &str) -> String {
-    // JSON escapes ASCII control bytes itself. Escape other invisible controls so
-    // untrusted labels cannot reorder or obscure the rest of the terminal review.
-    let mut escaped = String::with_capacity(json.len());
-    for ch in json.chars() {
-        match ch {
-            '\u{007f}'..='\u{009f}'
-            | '\u{061c}'
-            | '\u{200b}'..='\u{200f}'
-            | '\u{2028}'..='\u{202e}'
-            | '\u{2060}'..='\u{206f}'
-            | '\u{feff}' => {
-                use std::fmt::Write as _;
-                let _ = write!(escaped, "\\u{:04x}", u32::from(ch));
-            }
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
-}
-
 async fn confirm(data: Value, language: Language, question: &'static str) -> Result<(), Failure> {
     tokio::task::spawn_blocking(move || {
         let mut terminal = io::stderr().lock();
-        let instructions = language.text("Type yes and press Enter.", "اكتب نعم ثم اضغط Enter.");
+        // These tokens are accepted input, independent of catalog wording.
+        let affirmative = match language {
+            Language::English => "yes",
+            Language::Arabic => "نعم",
+        };
+        let instructions = language.message(
+            keys::CLI_AGENTS_CONFIRM_INSTRUCTIONS,
+            &[
+                ("answer", &language.technical(affirmative)),
+                ("enter", &language.technical("Enter")),
+            ],
+        );
         let review =
             serde_json::to_string_pretty(&data).map_err(|_| Failure::AgentRequestFailed)?;
-        let review = escape_terminal_controls(&review);
-        writeln!(terminal, "{review}\n{question} {instructions}")
+        for row in review.lines() {
+            writeln!(
+                terminal,
+                "{}",
+                language.isolate(escape_terminal_controls(row))
+            )
+            .map_err(|_| Failure::AgentReviewRequired)?;
+        }
+        writeln!(terminal, "{question} {instructions}")
             .and_then(|()| terminal.flush())
             .map_err(|_| Failure::AgentReviewRequired)?;
         drop(terminal);
@@ -300,11 +303,10 @@ async fn confirm(data: Value, language: Language, question: &'static str) -> Res
             .take(16)
             .read_until(b'\n', &mut line)
             .map_err(|_| Failure::AgentReviewRequired)?;
-        let affirmative = language.text("yes", "نعم").as_bytes();
         let answer = line
             .strip_suffix(b"\r\n")
             .or_else(|| line.strip_suffix(b"\n"));
-        if answer == Some(affirmative) {
+        if answer == Some(affirmative.as_bytes()) {
             Ok(())
         } else {
             Err(Failure::AgentReviewDeclined)
