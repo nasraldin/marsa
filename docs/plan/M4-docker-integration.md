@@ -191,7 +191,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-18 Qualify fallback DNS recovery and expose network status
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M2-07, M3-12, M3-14, M3-15, M5-01
 - **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 DNS](../06-networking.md#dns)
 - **Do:** Verify live scoped resolver changes through the existing user-space DNS gateway. Expose the configured and active attachment, current guest IPv4 and gateway, and available connectivity reason through the authenticated typed API. Keep native NAT and Docker host aliases in M4-08.
@@ -200,3 +200,13 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - An authenticated caller can read the configured mode while the engine is stopped. While it is running, the result reports the active mode, available connectivity reason, and separately observed IPv4 and gateway. A stopped guest has no stale addresses.
   - A signed packaged user-space VM resolves a controlled macOS-scoped name from existing default-bridge and custom-network containers. Both containers observe a changed scoped answer without restart, and the Docker API remains available.
   - The existing registry TLS and host-security checks still pass. The live test uses disposable DNS records and leaves host networking and firewall settings alone.
+
+- **Evidence:** On macOS 27.2.1, the signed packaged runtime returned the current user-space guest and gateway addresses through `Network.Status`. Existing default-bridge and custom-network containers saw the macOS local-only DNS answer change from `192.0.2.64` to `192.0.2.65` with unchanged startup timestamps. The signed registry pull with TLS verification and the helper's loopback-isolation fixture also passed.
+
+With the pinned Docker CLI on `PATH` and the built guest and network-helper paths set for the [packaged runtime tests](../../crates/marsad/tests/packaged_runtime.rs), run:
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+  fallback_dns::scoped_dns_updates_reach_existing_containers_without_restart \
+  -- --exact --ignored --nocapture --test-threads=1
+```

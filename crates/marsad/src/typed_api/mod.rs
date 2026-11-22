@@ -18,8 +18,8 @@ use marsa_core::{
 };
 use marsa_proto::host::v1::{
     CollectDiagnosticsResponse, diagnostics_server::DiagnosticsServer, engine_server::EngineServer,
-    events_server::EventsServer, meta_server::MetaServer, network_server::NetworkServer, settings_server::SettingsServer,
-    shares_server::SharesServer, stats_server::StatsServer,
+    events_server::EventsServer, meta_server::MetaServer, network_server::NetworkServer,
+    settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
 };
 use marsa_share::SharePolicy;
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
