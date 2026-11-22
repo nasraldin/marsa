@@ -33,3 +33,8 @@ per log record. In the record, `message` contains a safe classification of
 the source log and `at_unix_millis` is zero when wall-clock time is unavailable.
 `marsa status --json` returns `resources: null` until the guest provides an
 observation. The CPU field is cumulative VM CPU busy time in nanoseconds.
+
+`marsa share approvals --json` shows exact requested directories and expiry
+times. `marsa share resolve ID once|always|deny --json` reports whether the
+owner needs to restart the VM before retrying Docker. A request that cannot be
+resolved returns `bind_resolution_failed` with exit status 1.

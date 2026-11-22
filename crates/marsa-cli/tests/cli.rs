@@ -151,6 +151,15 @@ fn double_dash_keeps_json_literal_out_of_global_flags() {
 
 #[test]
 #[cfg(unix)]
+fn share_resolution_rejects_malformed_approval_ids() {
+    let result = marsa(&["share", "resolve", "not-an-approval-id", "always", "--json"]);
+    assert_eq!(result.status.code(), Some(2));
+    let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(response["code"], "invalid_invocation");
+}
+
+#[test]
+#[cfg(unix)]
 fn env_quotes_the_socket_for_a_shell_and_reports_json_without_a_daemon() {
     let home = "/private/tmp/Marsa home 'quoted' $var";
     let command = |args: &[&str]| {

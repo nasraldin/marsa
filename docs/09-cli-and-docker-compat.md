@@ -171,6 +171,8 @@ marsa start | stop | restart    Control the engine VM
 marsa env                       Print DOCKER_HOST export for the current shell
 marsa config get|set|list       Read and change settings
 marsa share list|add|remove     Manage the shared-folder allowlist
+marsa share approvals           Review current Docker bind requests
+marsa share resolve ID DECISION Answer a request with once, always, or deny
 marsa disk usage                Show data-disk usage
 marsa disk cleanup [--dry-run]  Preview and run cleanup, then reclaim space
 marsa disk reclaim              Return freed space to macOS
