@@ -506,6 +506,63 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_docker_read_marks_its_schema_without_storing_arguments() {
+        let container = "a".repeat(64);
+        let target = json!({"id":container}).to_string();
+        let image = json!({"id":format!("sha256:{container}")}).to_string();
+        let logs = json!({"id":container,"tail":12,"cursor":"2026-07-28T01:00:00Z"}).to_string();
+        let page = r#"{"cursor":"99","limit":2}"#;
+        for (operation, args, shape) in [
+            (
+                AgentOperation::ListContainers,
+                page,
+                AuditArguments::PageOptionsRedacted,
+            ),
+            (
+                AgentOperation::ListImages,
+                page,
+                AuditArguments::PageOptionsRedacted,
+            ),
+            (
+                AgentOperation::ListNetworks,
+                page,
+                AuditArguments::PageOptionsRedacted,
+            ),
+            (
+                AgentOperation::ListVolumes,
+                page,
+                AuditArguments::PageOptionsRedacted,
+            ),
+            (
+                AgentOperation::InspectContainer,
+                &target,
+                AuditArguments::ContainerTargetRedacted,
+            ),
+            (
+                AgentOperation::ContainerStats,
+                &target,
+                AuditArguments::ContainerTargetRedacted,
+            ),
+            (
+                AgentOperation::InspectImage,
+                &image,
+                AuditArguments::ImageTargetRedacted,
+            ),
+            (
+                AgentOperation::ContainerLogs,
+                &logs,
+                AuditArguments::ContainerLogOptionsRedacted,
+            ),
+        ] {
+            assert!(Read::supports(operation));
+            assert_eq!(
+                Read::parse(operation, args).unwrap().audit_arguments(),
+                shape
+            );
+        }
+    }
+
+    #[test]
     fn bounded_lists_drop_unrequested_metadata_and_page_live_results() {
         let items = vec![
             json!({"Id":"first","Labels":{"credential":"not-returned"}}),
