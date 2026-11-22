@@ -42,7 +42,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 
 ### M10-04 Updater implementation and rollback
 
-- **Status:** todo
+- **Status:** blocked (requires a policy-compliant maintained TUF verifier and the signed bundle qualification)
 - **Depends on:** M10-03, M10-02, M10-11
 - **Docs:** [12 Auto-update](../12-build-release-update.md#auto-update), [11 Updates and supply chain](../11-security.md#updates-and-supply-chain)
 - **Do:** Implement the `Updates` service: check, verify the manifest signature, download, verify hash and code signature, stop the VM cleanly, swap the bundle atomically while keeping the previous version, relaunch, health-check, and roll back automatically on failure.
@@ -123,7 +123,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 
 ### M10-11 Qualify maintained Rust update verifier candidates
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M10-03, M0-07
 - **Docs:** [12 Auto-update](../12-build-release-update.md#auto-update), [Update manifest](../reference/update-manifest.md)
 - **Do:** Evaluate current released Rust TUF verification candidates against the unchanged workspace dependency policy in disposable checkouts. Record exact versions, configuration, and findings for M10-04.
