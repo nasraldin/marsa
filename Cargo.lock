@@ -588,7 +588,15 @@ dependencies = [
 name = "marsa-client"
 version = "0.1.0"
 dependencies = [
+ "hyper-util",
  "marsa-proto",
+ "nix",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tower",
 ]
 
 [[package]]
