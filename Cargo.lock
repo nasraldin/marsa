@@ -2797,7 +2797,9 @@ dependencies = [
 name = "marsa-ui"
 version = "0.1.0"
 dependencies = [
+ "gpui-base",
  "gpui-component",
+ "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-macos",
  "marsa-core",

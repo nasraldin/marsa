@@ -47,7 +47,7 @@ Arabic editing and VoiceOver integration.
 
 ### M6-02 Design tokens, themes and fonts
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-01, M6-13
 - **Docs:** [08 Design tokens](../08-gui.md#design-tokens), [08 Themes](../08-gui.md#themes)
 - **Do:** Define semantic tokens for colour, typography, spacing, radius, elevation and motion, each with light and dark values. Implement live theme switching and following the system appearance. Register and use the verified bundled font assets from M6-13. Add a contrast test for text and status colours in both themes.
@@ -71,7 +71,7 @@ Arabic editing and VoiceOver integration.
 
 ### M6-03 Direction layer
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-01
 - **Docs:** [08 Direction layer](../08-gui.md#direction-layer), D-015
 - **Do:** Implement the start and end layout API wrapping the framework's styling, automatic row reversal, the directional-icon mirroring registry, and a left-to-right isolation helper for technical text. Add a lint or test that fails the build if screen code uses left or right layout properties directly.
