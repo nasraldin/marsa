@@ -123,7 +123,7 @@ fn stamp(file: &File, member: Member) -> io::Result<Stamp> {
         )
     });
     Ok(Stamp {
-        inode: Inode::from(&metadata),
+        inode: Inode::identify(&metadata)?,
         mode: metadata.mode(),
         length: metadata.len(),
         modification,
@@ -233,13 +233,13 @@ impl Prepared {
             let size = defaults.disk.data_size_limit;
             data.set_len(size - size % 512)?;
             data.sync_all()?;
-            let disk = Some(Inode::from(&data.metadata()?));
+            let disk = Some(Inode::identify(&data.metadata()?)?);
             // Drop writable handles before assigning their durable live names.
             drop(data);
             let mut config = directory.create_file("new-config")?;
             config.write_all(document.as_bytes())?;
             config.sync_all()?;
-            let config = Some(Inode::from(&config.metadata()?));
+            let config = Some(Inode::identify(&config.metadata()?)?);
             let replacement = [config, disk, None, None];
             let journal = Journal {
                 version: 2,
