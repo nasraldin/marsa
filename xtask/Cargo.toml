@@ -16,3 +16,6 @@ toml = "1.2.2"
 
 [lints]
 workspace = true
+
+[target.'cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))'.dependencies]
+nix = { version = "=0.32.0", features = ["dir", "user"] }

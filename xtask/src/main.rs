@@ -1,6 +1,8 @@
 //! Build and verification commands used by Marsa contributors.
 
 mod guest;
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
+mod release_resources;
 mod upstream;
 
 use std::env;
@@ -43,6 +45,11 @@ const COMMANDS: &[Subcommand] = &[
         action: Action::Deferred,
     },
     Subcommand {
+        name: "stage-release-resources",
+        description: "Stage verified guest and Docker resources",
+        action: Action::Deferred,
+    },
+    Subcommand {
         name: "bundle",
         description: "Assemble the macOS app bundle (pending)",
         action: Action::Deferred,
@@ -77,6 +84,18 @@ fn main() -> ExitCode {
         .is_some_and(|argument| argument == "fetch-upstream")
     {
         return upstream::run(&arguments[1..]);
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "stage-release-resources")
+    {
+        #[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
+        return release_resources::run(&arguments[1..]);
+        #[cfg(not(any(target_os = "macos", all(target_os = "linux", target_env = "gnu"))))]
+        {
+            eprintln!("Release resource staging requires macOS or GNU/Linux.");
+            return ExitCode::FAILURE;
+        }
     }
     match arguments.as_slice() {
         [] => print_help(),

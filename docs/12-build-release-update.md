@@ -84,10 +84,29 @@ Marsa.app/
 
 Use `io.github.nasraldin.marsa` as the app's `CFBundleIdentifier` for the checked-in [LaunchAgent template](../packaging/macos/LaunchAgents/io.github.nasraldin.marsa.marsad.plist). If the bundle identifier changes, update the plist filename and its `Label` together.
 
-Copy the verified `bin/` tree from the directory printed by
-[`cargo xtask fetch-upstream`](09-cli-and-docker-compat.md#bundled-upstream-binaries)
-into `Contents/Resources/bin/`. Feed the staging directory’s
-`upstream-sbom-input.json` into the release SBOM.
+Prepare the guest and Docker resources in a private release workspace before
+assembling the app:
+
+```sh
+cargo xtask stage-release-resources \
+  --guest-dir "$guest_handoff" \
+  --guest-manifest-sha256 "$trusted_manifest_sha256" \
+  --output "$release_workspace/staged"
+```
+
+The guest handoff contains exactly `Image`, `rootfs.img`, and
+`guest-manifest.json`. Obtain the manifest SHA-256 from the trusted guest
+build record through a separate trusted channel. Hashing the manifest after
+receiving the handoff provides no independent validation. The stager checks
+the manifest and guest bytes, then fetches and verifies the four
+[pinned Docker artifacts](09-cli-and-docker-compat.md#bundled-upstream-binaries).
+
+Use paths without symlink components and a new output directory inside a
+workspace you own and control. The command publishes the complete stage
+atomically on macOS and GNU/Linux. Copy the staged `Resources/guest` and
+`Resources/bin` trees into `Contents/Resources/` and use
+`upstream-sbom-input.json` as an input to the combined release SBOM and
+third-party notices (M10-08).
 
 ## Signing and notarization
 
