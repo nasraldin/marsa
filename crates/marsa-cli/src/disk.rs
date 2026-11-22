@@ -3,26 +3,81 @@
 use std::fmt::Write as _;
 
 use marsa_client::{
-    ClientError, DaemonEndpoint,
-    api::{DiskCategory, DiskUsageRequest, DiskUsageResponse},
+    ClientError, DaemonEndpoint, MarsaClient,
+    api::{DiskCategory, DiskReclaimRequest, DiskUsageRequest, DiskUsageResponse},
 };
 use serde_json::{Value, json};
 
 use crate::{Failure, Outcome, command::Language};
 
 pub(super) async fn usage(language: Language) -> Result<Outcome, Failure> {
-    let client = DaemonEndpoint::discover()
-        .map_err(connection_failure)?
-        .connect()
-        .await
-        .map_err(connection_failure)?;
+    let client = connect().await?;
     let usage = client
         .disk()
         .usage(DiskUsageRequest {})
         .await
         .map_err(|_| Failure::Operation)?
         .into_inner();
-    Ok(report(&usage, language))
+    let (document, text) = report(&usage, language);
+    Ok(Outcome::Data { document, text })
+}
+
+pub(super) async fn reclaim(language: Language) -> Result<Outcome, Failure> {
+    let client = connect().await?;
+    let result = client
+        .disk()
+        .reclaim(DiskReclaimRequest {
+            request_id: request_id()?,
+        })
+        .await
+        .map_err(|_| Failure::Reclaim)?
+        .into_inner();
+    let usage = result.usage.ok_or(Failure::Reclaim)?;
+    let (usage, details) = report(&usage, language);
+    let host = language.text(
+        "Host space reclaimed (bytes)",
+        "المساحة المستردة على المضيف (بايت)",
+    );
+    let guest = language.text(
+        "Guest space submitted for discard (bytes)",
+        "المساحة التي طلب الضيف تحريرها (بايت)",
+    );
+    Ok(Outcome::Data {
+        text: format!(
+            "{host} {}\n{guest} {}\n{details}",
+            result.host_reclaimed_bytes, result.guest_trimmed_bytes
+        ),
+        document: json!({
+            "schema_version": 1,
+            "kind": "disk_reclaim",
+            "guest_trimmed_bytes": result.guest_trimmed_bytes,
+            "host_reclaimed_bytes": result.host_reclaimed_bytes,
+            "usage": usage,
+        }),
+    })
+}
+
+async fn connect() -> Result<MarsaClient, Failure> {
+    DaemonEndpoint::discover()
+        .map_err(connection_failure)?
+        .connect()
+        .await
+        .map_err(connection_failure)
+}
+
+fn request_id() -> Result<String, Failure> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).map_err(|_| Failure::Reclaim)?;
+    bytes[6] = bytes[6] & 0x0f | 0x40;
+    bytes[8] = bytes[8] & 0x3f | 0x80;
+    let mut id = String::with_capacity(36);
+    for (index, byte) in bytes.into_iter().enumerate() {
+        if matches!(index, 4 | 6 | 8 | 10) {
+            id.push('-');
+        }
+        let _ = write!(id, "{byte:02x}");
+    }
+    Ok(id)
 }
 
 fn connection_failure(error: ClientError) -> Failure {
@@ -36,7 +91,7 @@ fn connection_failure(error: ClientError) -> Failure {
     }
 }
 
-fn report(usage: &DiskUsageResponse, language: Language) -> Outcome {
+fn report(usage: &DiskUsageResponse, language: Language) -> (Value, String) {
     let allocated = language.text(
         "Host allocation (bytes)",
         "المساحة المخصّصة على المضيف (بايت)",
@@ -91,9 +146,8 @@ fn report(usage: &DiskUsageResponse, language: Language) -> Outcome {
             })
         })
         .collect();
-    Outcome::Data {
-        text,
-        document: json!({
+    (
+        json!({
             "schema_version": 1,
             "kind": "disk_usage",
             "host": {
@@ -103,7 +157,8 @@ fn report(usage: &DiskUsageResponse, language: Language) -> Outcome {
             "guest": guest,
             "categories": categories,
         }),
-    }
+        text,
+    )
 }
 
 fn category_name(category: DiskCategory, language: Language) -> &'static str {
@@ -124,16 +179,14 @@ mod tests {
 
     #[test]
     fn reports_sparse_allocation_and_leaves_missing_guest_usage_null() {
-        let Outcome::Data { document, text } = report(
+        let (document, text) = report(
             &DiskUsageResponse {
                 host_capacity_bytes: 1 << 30,
                 host_allocated_bytes: 4096,
                 ..Default::default()
             },
             Language::English,
-        ) else {
-            panic!("expected usage data")
-        };
+        );
         assert_eq!(document["kind"], "disk_usage");
         assert_eq!(document["host"]["capacity_bytes"], 1 << 30);
         assert_eq!(document["host"]["allocated_bytes"], 4096);
@@ -144,7 +197,7 @@ mod tests {
 
     #[test]
     fn preserves_a_zero_use_guest_sample_and_category_bytes() {
-        let Outcome::Data { document, text } = report(
+        let (document, text) = report(
             &DiskUsageResponse {
                 guest_usage_available: true,
                 guest_capacity_bytes: 1024,
@@ -156,9 +209,7 @@ mod tests {
                 ..Default::default()
             },
             Language::Arabic,
-        ) else {
-            panic!("expected usage data")
-        };
+        );
         assert_eq!(
             document["guest"],
             json!({"used_bytes": 0, "capacity_bytes": 1024})

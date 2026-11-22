@@ -29,12 +29,13 @@ enum Failure {
     Root,
     Incompatible,
     Operation,
+    Reclaim,
 }
 
 impl Failure {
     fn code(self) -> u8 {
         match self {
-            Self::Unavailable | Self::Operation => 1,
+            Self::Unavailable | Self::Operation | Self::Reclaim => 1,
             Self::Usage => 2,
             Self::Confirmation => 3,
             Self::Connection | Self::Home | Self::Root => 4,
@@ -51,7 +52,7 @@ impl Failure {
             Self::Home => "home_unavailable",
             Self::Root => "unprivileged_user_required",
             Self::Incompatible => "incompatible_daemon",
-            Self::Operation => "operation_failed",
+            Self::Operation | Self::Reclaim => "operation_failed",
         }
     }
 
@@ -87,6 +88,10 @@ impl Failure {
             Self::Operation => language.text(
                 "The Marsa operation failed. Run marsa status or check marsa logs for details.",
                 "فشلت عملية مرسى. شغّل marsa status أو اطّلع على marsa logs لمعرفة التفاصيل.",
+            ),
+            Self::Reclaim => language.text(
+                "Could not reclaim disk space. Reclaim requires a running VM.",
+                "تعذّر استرداد مساحة القرص. تتطلب العملية تشغيل الآلة الافتراضية.",
             ),
         }
     }
@@ -160,8 +165,13 @@ async fn execute(
         return completions(args);
     }
     #[cfg(unix)]
-    if name == "disk" && args.subcommand_matches("usage").is_some() {
-        return disk::usage(language).await.unwrap_or_else(Outcome::Failure);
+    if name == "disk" {
+        let result = match args.subcommand_name() {
+            Some("usage") => disk::usage(language).await,
+            Some("reclaim") => disk::reclaim(language).await,
+            _ => Err(Failure::Unavailable),
+        };
+        return result.unwrap_or_else(Outcome::Failure);
     }
     #[cfg(unix)]
     if let Some(outcome) = engine::run(name, args, language, json).await {

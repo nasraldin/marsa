@@ -58,6 +58,7 @@ pub struct TypedApi {
     components: Arc<[ComponentVersion]>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
     verify_keychain: Option<docker_discovery::VerifyKeychain>,
+    guest_control: Option<Arc<GuestControl>>,
 }
 
 struct Shared {
@@ -70,6 +71,8 @@ struct Shared {
     settings_reset: reset::SettingsReset,
     factory_reset: factory_reset::FactoryReset,
     grants: GrantStore,
+    reclaim_requests: requests::Cache<(), marsa_proto::host::v1::DiskReclaimResponse>,
+    reclaim_active: tokio::sync::Mutex<()>,
     share_policy: SharePolicy,
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
@@ -101,6 +104,8 @@ impl TypedApi {
                 diagnostics_requests: requests::Cache::new(),
                 settings_reset: reset::SettingsReset::new(),
                 factory_reset: factory_reset::FactoryReset::new(),
+                reclaim_requests: requests::Cache::new(),
+                reclaim_active: tokio::sync::Mutex::new(()),
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
@@ -114,6 +119,7 @@ impl TypedApi {
             components: Arc::default(),
             docker_contexts: None,
             verify_keychain: None,
+            guest_control: None,
         })
     }
 
@@ -191,10 +197,11 @@ impl TypedApi {
         let supervisor = Supervisor::spawn_packaged(
             preparation,
             self.inner.paths.console_log(),
-            control,
+            control.clone(),
             config,
             Arc::new(move |transition| events.engine(transition)),
         );
+        self.guest_control = Some(control);
         self.supervisor = Some(supervisor);
         Ok(self)
     }

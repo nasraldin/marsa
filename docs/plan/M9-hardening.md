@@ -29,7 +29,7 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-03 Explicit disk space reclaim
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M4-07, M2-08, M1-03, M5-05
 - **Docs:** [07 Returning space to macOS](../07-file-sharing-and-storage.md#returning-space-to-macos), V-05, R-14
 - **Do:** Implement authenticated `Disk.Reclaim` and wire `marsa disk reclaim`. Send the existing Trim command to the ready guest on explicit request. Measure actual host sparse allocation before and after, and report the observed delta separately from guest bytes submitted for discard. Keep automatic and post-cleanup reclaim in M9-14.
@@ -37,6 +37,12 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 - **Accept when:**
   - After deleting several GiB of disposable data in a dedicated test VM, explicit reclaim drops host image allocation by at least 90% of the freed amount.
   - A stopped VM does not boot for reclaim. Reclaim only runs on explicit request and concurrent or retried requests remain bounded.
+
+The signed macOS 27.2.1 fixture freed 3,054,608,384 guest filesystem bytes
+after deleting a disposable container layer. Reclaim released 3,221,209,088
+host bytes from the same sparse image, and the guest passed the ext4
+clean-shutdown check. The CLI and request UUID replay were verified against
+the same running guest.
 
 ### M9-04 Memory behaviour
 

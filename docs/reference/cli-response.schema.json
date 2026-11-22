@@ -11,9 +11,22 @@
     { "$ref": "#/$defs/version" },
     { "$ref": "#/$defs/lifecycle" },
     { "$ref": "#/$defs/logs" },
-    { "$ref": "#/$defs/log" }
+    { "$ref": "#/$defs/log" },
+    { "$ref": "#/$defs/disk_reclaim" }
   ],
   "$defs": {
+    "disk_reclaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "guest_trimmed_bytes", "host_reclaimed_bytes", "usage"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "disk_reclaim" },
+        "guest_trimmed_bytes": { "type": "integer", "minimum": 0 },
+        "host_reclaimed_bytes": { "type": "integer", "minimum": 0 },
+        "usage": { "$ref": "#/$defs/disk_usage" }
+      }
+    },
     "disk_usage": {
       "type": "object",
       "additionalProperties": false,

@@ -38,3 +38,7 @@ per log record. In the record, `message` contains a safe classification of
 the source log and `at_unix_millis` is zero when wall-clock time is unavailable.
 `marsa status --json` returns `resources: null` until the guest provides an
 observation. The CPU field is cumulative VM CPU busy time in nanoseconds.
+
+`marsa disk reclaim --json` returns bytes the guest submitted for discard,
+the observed decrease in allocated host bytes, and the disk usage after
+the request. A stopped VM causes an operation error without booting it.
