@@ -2,7 +2,8 @@
 
 use super::*;
 use marsa_proto::host::v1::{
-    AgentOperation, AgentOperationRequest, AgentOperationResponse, ApproveRequest, DenyRequest,
+    AgentOperation, AgentOperationRequest, AgentOperationResponse, ApproveRequest, AuditApprover,
+    AuditArguments, AuditDecision, AuditResult, DenyRequest, ListAgentAuditRequest,
     ListPendingApprovalsRequest, OpenAgentSessionRequest, PendingApproval,
     agent_operation_response::Result as WireResult, agent_ops_client::AgentOpsClient,
     agents_client::AgentsClient,
@@ -264,6 +265,25 @@ async fn denied_expired_or_out_of_scope_operations_do_not_start_the_engine() {
             .state(),
         EngineState::Stopped
     );
+    let log = fixture
+        .owner()
+        .list_audit(ListAgentAuditRequest::default())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(log.records.len(), 5);
+    assert_eq!(log.records[0].decision(), AuditDecision::Expired);
+    assert_eq!(log.records[0].result(), AuditResult::TimedOut);
+    assert_eq!(log.records[0].approver(), AuditApprover::None);
+    assert_eq!(log.records[1].decision(), AuditDecision::Denied);
+    assert_eq!(log.records[1].result(), AuditResult::Denied);
+    assert_eq!(log.records[1].approver(), AuditApprover::LocalOwner);
+    let unauthenticated = log
+        .records
+        .iter()
+        .find(|record| record.result() == AuditResult::Unauthenticated)
+        .unwrap();
+    assert!(unauthenticated.client_ref.is_none());
 }
 
 #[tokio::test]
@@ -379,4 +399,127 @@ async fn configured_operate_denial_keeps_read_calls_available() {
     };
     let data: serde_json::Value = serde_json::from_str(&output.data_json).unwrap();
     assert_eq!(data["state"], "ENGINE_STATE_STOPPED");
+}
+
+#[tokio::test]
+async fn refused_agent_call_has_one_audit_entry_without_request_secrets() {
+    let fixture = AgentFixture::new().await;
+    let mut request = fixture.request(56, TARGET);
+    request.operation = AgentOperation::RunContainer.into();
+    request.arguments_json = r#"{"env":["AWS_SECRET_ACCESS_KEY=fixture-secret-never-log"],"password":"another-fixture-secret"}"#.into();
+    let response = AgentOpsClient::new(fixture.restricted.clone())
+        .execute(fixture.auth(tonic::Request::new(request)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(error_code(response), "unsupported_operation");
+    let log = fixture
+        .fixture
+        .home
+        .path()
+        .join(".marsa/state/agent-audit.jsonl");
+    let records = std::fs::read_to_string(log).expect("refused call must be recorded");
+    assert_eq!(records.lines().count(), 1);
+    for secret in [
+        "AWS_SECRET_ACCESS_KEY",
+        "fixture-secret-never-log",
+        "another-fixture-secret",
+    ] {
+        assert!(!records.contains(secret));
+    }
+}
+
+#[tokio::test]
+async fn owner_can_page_and_filter_audit_without_exposing_it_to_the_agent() {
+    let fixture = AgentFixture::new().await;
+    let mut rpc = AgentOpsClient::new(fixture.restricted.clone());
+    let mut request = fixture.request(57, TARGET);
+    request.operation = AgentOperation::EngineStatus.into();
+    request.arguments_json = "{}".into();
+    for _ in 0..2 {
+        rpc.execute(fixture.auth(tonic::Request::new(request.clone())))
+            .await
+            .unwrap();
+    }
+    let mut owner = fixture.owner();
+    let filter = ListAgentAuditRequest {
+        operation: Some(AgentOperation::EngineStatus.into()),
+        decision: Some(AuditDecision::Allowed.into()),
+        limit: 1,
+        ..Default::default()
+    };
+    let newest = owner.list_audit(filter.clone()).await.unwrap().into_inner();
+    assert_eq!(newest.records.len(), 1);
+    assert_eq!(newest.records[0].result(), AuditResult::Succeeded);
+    assert_eq!(newest.records[0].arguments(), AuditArguments::Empty);
+    let client_ref = newest.records[0].client_ref.clone().unwrap();
+    assert_eq!(client_ref.len(), 64);
+    let prior = owner
+        .list_audit(ListAgentAuditRequest {
+            client_ref: Some(client_ref),
+            cursor: newest.next_cursor,
+            ..filter
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(prior.records.len(), 1);
+    assert_ne!(prior.records[0].id, newest.records[0].id);
+    assert!(prior.next_cursor.is_none());
+    assert_eq!(
+        AgentsClient::new(fixture.restricted.clone())
+            .list_audit(fixture.auth(tonic::Request::new(ListAgentAuditRequest::default())))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::Unimplemented
+    );
+    assert_eq!(
+        owner
+            .list_audit(fixture.auth(tonic::Request::new(ListAgentAuditRequest::default())))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied
+    );
+}
+
+#[tokio::test]
+async fn a_disconnected_agent_call_still_has_one_terminal_record() {
+    let fixture = AgentFixture::new().await;
+    let mut events = fixture.fixture.events().await;
+    let call = fixture.submit(58, TARGET);
+    let approval = pending(&mut events).await;
+    call.abort();
+    assert!(call.await.unwrap_err().is_cancelled());
+    let mut owner = fixture.owner();
+    owner
+        .deny(DenyRequest {
+            request_id: action(59).request_id,
+            approval_id: approval.id,
+        })
+        .await
+        .unwrap();
+    let completed = timeout(WAIT, async {
+        loop {
+            let page = owner
+                .list_audit(ListAgentAuditRequest::default())
+                .await
+                .unwrap()
+                .into_inner();
+            if !page.records.is_empty() {
+                break page.records;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(completed.len(), 1);
+    assert_eq!(completed[0].result(), AuditResult::Denied);
+    assert_eq!(
+        completed[0].arguments(),
+        AuditArguments::ContainerTargetRedacted
+    );
+    assert_eq!(completed[0].approver(), AuditApprover::LocalOwner);
 }

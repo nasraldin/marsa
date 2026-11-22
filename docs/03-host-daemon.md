@@ -190,7 +190,7 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 | `Disk` | `Usage`, `Reclaim`, `PrunePreview` |
 | `Updates` | `Check`, `Download`, `Apply`, `Status` |
 | `Diagnostics` | `Collect` (returns a bundle path), `Logs` (stream) |
-| `Agents` | `OpenSession`, `ListPendingApprovals`, `Approve`, `Deny`, `ListGrants`, `RevokeGrant` (see [10 MCP](10-mcp-server.md)) |
+| `Agents` | `OpenSession`, `ListPendingApprovals`, `Approve`, `Deny`, `ListGrants`, `RevokeGrant`, `ListAudit` (see [10 MCP](10-mcp-server.md)) |
 | `AgentOps` | Engine operations performed on behalf of MCP clients. Every call names the client, passes through the policy engine and is written to the audit log. `marsad` executes the operation against dockerd itself; the MCP server never touches the Docker socket |
 | `Meta` | `Version`, `Capabilities` |
 
@@ -356,6 +356,7 @@ The archive includes build and protocol versions, selected settings, engine stat
 ├── diagnostics/             # user-requested support archives
 ├── state/
 │   ├── grants.json          # agent permission grants
+│   ├── agent-audit.jsonl    # private audit, with rotated segments
 │   └── update/
 └── bin/                     # optional tool links
 ```
