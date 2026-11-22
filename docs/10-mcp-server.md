@@ -99,7 +99,8 @@ sequenceDiagram
 - If no GUI is open, the tray and CLI are planned owner clients for the same approval API.
 - The owner-only daemon socket serves `Agents.OpenSession` and approval decisions. A trusted local owner client registers the agent and project, then delegates a 12-hour capability to the restricted `agent.sock` endpoint. The agent capability authenticates `AgentOps` and has no owner permissions. Do not give an agent the owner connection or raw Docker socket.
 - This protects against an agent using only its delegated operations. Local processes running with the unrestricted owner's Unix access are inside the trusted host boundary. The daemon does not attest physical user presence. The owner GUI or CLI is responsible for collecting the user's decision.
-- M8-02 supports engine status and a reviewed stop for a full container ID. A stop requires approval each time because the handler cannot prove project ownership of a Docker container. The daemon verifies the target ID before issuing the stop.
+- M8-02 implements scoped engine status and the owner approval queue. Container mutations require an engine provider that can bind execution to the immutable target reviewed by the owner.
+- The pinned Docker stop endpoint resolves the target again when applying the operation and may interpret a missing full ID as a name. A prior inspect cannot guarantee the stop targets the reviewed container. [Moby stop handler](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/stop.go#L25-L39), [Moby target resolution](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/container.go#L37-L53)
 - M8-10 enables requests that create bind mounts after the agent and active host share checks are integrated. Until then, the daemon refuses container creation through `AgentOps`.
 
 ## Tools

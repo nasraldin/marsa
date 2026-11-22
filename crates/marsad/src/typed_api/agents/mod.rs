@@ -1,8 +1,10 @@
 //! Expose only typed operations on the restricted transport and decisions on the owner transport.
 
-mod engine;
 pub(super) mod queue;
 mod sessions;
+
+#[cfg(test)]
+mod tests;
 
 use std::{
     path::Path,
@@ -57,7 +59,6 @@ impl State {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Prepared {
     EngineStatus,
-    StopContainer(String),
 }
 
 impl Prepared {
@@ -65,11 +66,6 @@ impl Prepared {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Empty {}
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Target {
-            container_id: String,
-        }
 
         if args.len() > ARGUMENT_LIMIT {
             return None;
@@ -79,15 +75,6 @@ impl Prepared {
                 serde_json::from_str::<Empty>(args).ok()?;
                 Some(Self::EngineStatus)
             }
-            AgentOperation::StopContainer => {
-                let target: Target = serde_json::from_str(args).ok()?;
-                let id = target.container_id;
-                (id.len() == 64
-                    && id
-                        .bytes()
-                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
-                .then_some(Self::StopContainer(id))
-            }
             _ => None,
         }
     }
@@ -95,21 +82,6 @@ impl Prepared {
     const fn operation(&self) -> AgentOperation {
         match self {
             Self::EngineStatus => AgentOperation::EngineStatus,
-            Self::StopContainer(_) => AgentOperation::StopContainer,
-        }
-    }
-
-    fn details(&self) -> (String, Vec<AffectedResource>) {
-        match self {
-            Self::EngineStatus => ("{}".into(), Vec::new()),
-            Self::StopContainer(id) => (
-                json!({"container_id": id}).to_string(),
-                vec![AffectedResource {
-                    kind: "container".into(),
-                    name: id.clone(),
-                    ..Default::default()
-                }],
-            ),
         }
     }
 }
@@ -136,7 +108,9 @@ impl AgentOps for TypedApi {
             ));
         }
         let operation = request.operation();
-        if operation != AgentOperation::EngineStatus && operation != AgentOperation::StopContainer {
+        // A full ID is not an immutable mutation selector in Docker's HTTP API:
+        // the Engine can fall back to a mutable name after a separate inspect.
+        if operation != AgentOperation::EngineStatus {
             return Ok(Response::new(self.operation_error(
                 "unsupported_operation",
                 "This agent operation is unavailable.",
@@ -332,7 +306,11 @@ impl TypedApi {
         principal: Arc<Session>,
         operation: Prepared,
     ) -> AgentOperationResponse {
-        let result = self.allow_operation(&principal, &operation).await;
+        let result = self
+            .allow_operation(&principal, operation.operation(), || {
+                ("{}".into(), Vec::new())
+            })
+            .await;
         if let Err(result) = result {
             return result;
         }
@@ -341,52 +319,25 @@ impl TypedApi {
                 let status = self.inner.events.engine_status();
                 output(json!({"state":status.state().as_str_name(), "backend":status.backend}))
             }
-            Prepared::StopContainer(id) => match engine::stop_container(
-                self,
-                &id,
-                self.permission_still_valid(&principal, AgentOperation::StopContainer),
-            )
-            .await
-            {
-                Ok(engine::StopResult::Stopped) => {
-                    output(json!({"container_id":id,"stopped":true}))
-                }
-                Ok(engine::StopResult::AlreadyStopped) => {
-                    output(json!({"container_id":id,"already_stopped":true}))
-                }
-                Ok(engine::StopResult::NotFound) => self.operation_error(
-                    "not_found",
-                    "The container no longer exists.",
-                    "لم تعد الحاوية موجودة.",
-                    None,
-                ),
-                Ok(engine::StopResult::Refused) => self.policy_refusal(),
-                Err(_) => self.operation_error(
-                    "engine_error",
-                    "Docker could not confirm the container stopped.",
-                    "لم يتمكّن دوكر من تأكيد إيقاف الحاوية.",
-                    None,
-                ),
-            },
         }
     }
 
     async fn allow_operation(
         &self,
         principal: &Session,
-        operation: &Prepared,
+        kind: AgentOperation,
+        details: impl FnOnce() -> (String, Vec<AffectedResource>),
     ) -> Result<(), AgentOperationResponse> {
         if !self.scope_is_current(principal).await {
             return Err(self.project_changed());
         }
-        let kind = operation.operation();
         let (settings, _) = self.inner.events.settings();
         match decide(kind, Effect::Ordinary, &settings.agents) {
             Decision::Allow => return Ok(()),
             Decision::Refuse(_) => return Err(self.policy_refusal()),
             Decision::Approve { tier, .. } => {
                 let expires = principal.expires.min(Instant::now() + queue::LIFETIME);
-                let (redacted_arguments_json, affected) = operation.details();
+                let (redacted_arguments_json, affected) = details();
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default();
@@ -405,8 +356,7 @@ impl TypedApi {
                     redacted_arguments_json,
                     affected,
                     expires_at_unix_millis,
-                    // The initial Docker lifecycle handler cannot establish project
-                    // ownership of a container, so the owner approves each target.
+                    // Reusable mutations require independently verified project scope.
                     can_grant_for_project: false,
                 };
                 let (id, answer) = self
@@ -467,20 +417,6 @@ impl TypedApi {
             return Err(self.policy_refusal());
         }
         Ok(())
-    }
-
-    async fn permission_still_valid(&self, principal: &Session, kind: AgentOperation) -> bool {
-        self.scope_is_current(principal).await
-            && principal.expires > Instant::now()
-            && !*self.inner.closing.borrow()
-            && !matches!(
-                decide(
-                    kind,
-                    Effect::Ordinary,
-                    &self.inner.events.settings().0.agents
-                ),
-                Decision::Refuse(_)
-            )
     }
 
     async fn scope_is_current(&self, principal: &Session) -> bool {

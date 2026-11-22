@@ -214,8 +214,9 @@ keep the original request ID and payload for interrupted mutations.
 
 The private `agent.sock` serves only `AgentOps`. Its clients authenticate
 with a short-lived capability from `Agents.OpenSession` on `marsad.sock`.
-The daemon selects the principal and project from that session and retains
-validated inputs while the owner reviews a pending approval. The owner socket
+The daemon selects the principal and project from that session. Delegated
+execution initially exposes engine status. The owner approval queue retains
+immutable request details for providers that support an identity-bound mutation. The owner socket
 authenticates the trusted local account through Unix peer credentials.
 Agent tokens do not authorize owner approval RPCs. The [approval design](10-mcp-server.md#approval-flow)
 describes the trust boundary and available operations.

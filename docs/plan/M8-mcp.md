@@ -22,7 +22,7 @@ Before starting, verify the current MCP specification version and the maintained
 
 ### M8-02 `AgentOps` service and approval queue
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M8-01, M4-02
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [10 Approval flow](../10-mcp-server.md#approval-flow)
 - **Do:** Implement read-only engine status on the daemon-issued restricted agent session. Implement owner registration and decisions over the separate trusted local socket. Queue immutable approval documents, publish updates and expire unanswered requests. Refuse container mutations before queuing.

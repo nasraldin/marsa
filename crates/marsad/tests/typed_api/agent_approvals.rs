@@ -2,14 +2,13 @@
 
 use super::*;
 use marsa_proto::host::v1::{
-    AgentOperation, AgentOperationRequest, AgentOperationResponse, ApproveRequest, DenyRequest,
-    ListPendingApprovalsRequest, OpenAgentSessionRequest, PendingApproval,
+    AgentOperation, AgentOperationRequest, AgentOperationResponse, ApproveRequest,
+    ListPendingApprovalsRequest, OpenAgentSessionRequest,
     agent_operation_response::Result as WireResult, agent_ops_client::AgentOpsClient,
     agents_client::AgentsClient,
 };
 
 const TARGET: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const OTHER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 struct AgentFixture {
     fixture: Fixture,
@@ -20,28 +19,7 @@ struct AgentFixture {
 
 impl AgentFixture {
     async fn new() -> Self {
-        let inspect_body = format!(r#"{{"Id":"{TARGET}"}}"#);
-        let fixture = Fixture::with_docker(
-            vec![AgentStep::Send(b"HR".to_vec())],
-            vec![
-                AgentStep::Expect(
-                    format!("GET /v1.57/containers/{TARGET}/json HTTP/1.1\r\nhost: docker\r\n\r\n")
-                        .into_bytes(),
-                ),
-                AgentStep::Send(
-                    format!(
-                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{inspect_body}",
-                        inspect_body.len()
-                    )
-                    .into_bytes(),
-                ),
-                AgentStep::Expect(
-                    format!("POST /v1.57/containers/{TARGET}/stop HTTP/1.1\r\n").into_bytes(),
-                ),
-                AgentStep::Send(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_vec()),
-            ],
-        )
-        .await;
+        let fixture = Fixture::with_docker(vec![AgentStep::Send(b"HR".to_vec())], Vec::new()).await;
         let path = fixture.home.path().join("agent.sock");
         let socket = UnixListener::bind(&path).unwrap();
         let api = fixture.api.clone();
@@ -91,24 +69,8 @@ impl AgentFixture {
         }
     }
 
-    fn submit(&self, id: u32, target: &str) -> tokio::task::JoinHandle<AgentOperationResponse> {
-        let request = self.auth(tonic::Request::new(self.request(id, target)));
-        let mut client = AgentOpsClient::new(self.restricted.clone());
-        tokio::spawn(async move { client.execute(request).await.unwrap().into_inner() })
-    }
-
     fn owner(&self) -> AgentsClient<Channel> {
         AgentsClient::new(self.fixture.channel.clone())
-    }
-}
-
-async fn pending(events: &mut Streaming<DaemonEvent>) -> PendingApproval {
-    loop {
-        if let Some(Body::Approvals(approvals)) = next(events).await.body
-            && let Some(approval) = approvals.approvals.into_iter().next()
-        {
-            return approval;
-        }
     }
 }
 
@@ -120,27 +82,11 @@ fn error_code(response: AgentOperationResponse) -> String {
 }
 
 #[tokio::test]
-async fn approval_uses_the_reviewed_target_and_restricted_credentials_cannot_approve() {
+async fn delegated_credentials_cannot_decide_or_impersonate_another_scope() {
     let fixture = AgentFixture::new().await;
-    let mut events = fixture.fixture.events().await;
-    let initial = next(&mut events).await;
-    assert!(
-        matches!(initial.body, Some(Body::Snapshot(s)) if s.approvals.as_ref().unwrap().approvals.is_empty())
-    );
-    let pending_call = fixture.submit(42, TARGET);
-    let approval = pending(&mut events).await;
-    assert_eq!(approval.client_name, "Fixture agent");
-    assert_eq!(approval.project_path, fixture.project);
-    assert_eq!(approval.affected[0].name, TARGET);
-    assert_eq!(
-        approval.redacted_arguments_json,
-        fixture.request(42, TARGET).arguments_json
-    );
-    assert!(!pending_call.is_finished());
-
     let approve = ApproveRequest {
         request_id: action(43).request_id,
-        approval_id: approval.id.clone(),
+        approval_id: "fixture".into(),
         grant_for_project: false,
     };
     assert_eq!(
@@ -154,47 +100,13 @@ async fn approval_uses_the_reviewed_target_and_restricted_credentials_cannot_app
     assert_eq!(
         fixture
             .owner()
-            .approve(fixture.auth(tonic::Request::new(approve.clone())))
+            .approve(fixture.auth(tonic::Request::new(approve)))
             .await
             .unwrap_err()
             .code(),
         Code::PermissionDenied
     );
-    assert_eq!(
-        AgentOpsClient::new(fixture.restricted.clone())
-            .execute(fixture.auth(tonic::Request::new(fixture.request(42, OTHER))))
-            .await
-            .unwrap_err()
-            .code(),
-        Code::AlreadyExists
-    );
 
-    let mut owner = fixture.owner();
-    owner.approve(approve.clone()).await.unwrap();
-    owner.approve(approve).await.unwrap();
-    let result = timeout(WAIT, pending_call).await.unwrap().unwrap();
-    let Some(WireResult::Output(output)) = result.result else {
-        panic!("reviewed fake engine command did not execute")
-    };
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&output.data_json).unwrap(),
-        serde_json::json!({"container_id": TARGET, "stopped": true})
-    );
-    assert!(
-        owner
-            .list_pending_approvals(ListPendingApprovalsRequest {})
-            .await
-            .unwrap()
-            .into_inner()
-            .approvals
-            .is_empty()
-    );
-}
-
-#[tokio::test]
-async fn denied_expired_or_out_of_scope_operations_do_not_start_the_engine() {
-    let fixture = AgentFixture::new().await;
-    let mut events = fixture.fixture.events().await;
     let mut client = AgentOpsClient::new(fixture.restricted.clone());
     let mut forged = fixture.request(44, TARGET);
     forged.client_id = "forged".into();
@@ -219,50 +131,6 @@ async fn denied_expired_or_out_of_scope_operations_do_not_start_the_engine() {
             .unwrap_err()
             .code(),
         Code::PermissionDenied
-    );
-
-    let call = fixture.submit(46, TARGET);
-    let approval = pending(&mut events).await;
-    fixture
-        .owner()
-        .deny(DenyRequest {
-            request_id: action(47).request_id,
-            approval_id: approval.id,
-        })
-        .await
-        .unwrap();
-    assert_eq!(error_code(call.await.unwrap()), "denied");
-
-    let call = fixture.submit(48, TARGET);
-    let approval = pending(&mut events).await;
-    tokio::time::pause();
-    tokio::time::advance(Duration::from_secs(121)).await;
-    tokio::time::resume();
-    assert_eq!(
-        error_code(timeout(WAIT, call).await.unwrap().unwrap()),
-        "approval_timed_out"
-    );
-    assert_eq!(
-        fixture
-            .owner()
-            .approve(ApproveRequest {
-                request_id: action(49).request_id,
-                approval_id: approval.id,
-                grant_for_project: false
-            })
-            .await
-            .unwrap_err()
-            .code(),
-        Code::NotFound
-    );
-    assert_eq!(
-        EngineClient::new(fixture.fixture.channel.clone())
-            .status(EngineStatusRequest {})
-            .await
-            .unwrap()
-            .into_inner()
-            .state(),
-        EngineState::Stopped
     );
 }
 
@@ -301,36 +169,20 @@ async fn delegated_container_creation_is_refused_before_mounts_can_reach_docker(
 }
 
 #[tokio::test]
-async fn replacing_the_registered_project_invalidates_a_pending_approval() {
+async fn replacing_the_registered_project_invalidates_delegated_reads() {
     let fixture = AgentFixture::new().await;
-    let mut events = fixture.fixture.events().await;
-    let call = fixture.submit(51, TARGET);
-    let approval = pending(&mut events).await;
     let project = std::path::Path::new(&fixture.project);
     std::fs::rename(project, project.with_file_name("old-project")).unwrap();
     std::fs::create_dir(project).unwrap();
-    fixture
-        .owner()
-        .approve(ApproveRequest {
-            request_id: action(52).request_id,
-            approval_id: approval.id,
-            grant_for_project: false,
-        })
+    let mut read = fixture.request(51, TARGET);
+    read.operation = AgentOperation::EngineStatus.into();
+    read.arguments_json = "{}".into();
+    let response = AgentOpsClient::new(fixture.restricted.clone())
+        .execute(fixture.auth(tonic::Request::new(read)))
         .await
-        .unwrap();
-    assert_eq!(
-        error_code(timeout(WAIT, call).await.unwrap().unwrap()),
-        "scope_changed"
-    );
-    assert_eq!(
-        EngineClient::new(fixture.fixture.channel.clone())
-            .status(EngineStatusRequest {})
-            .await
-            .unwrap()
-            .into_inner()
-            .state(),
-        EngineState::Stopped,
-    );
+        .unwrap()
+        .into_inner();
+    assert_eq!(error_code(response), "scope_changed");
 }
 
 #[tokio::test]
@@ -352,10 +204,6 @@ async fn configured_operate_denial_keeps_read_calls_available() {
         })
         .await
         .unwrap();
-    assert_eq!(
-        error_code(fixture.submit(54, TARGET).await.unwrap()),
-        "policy_refused"
-    );
     assert!(
         fixture
             .owner()
@@ -379,4 +227,40 @@ async fn configured_operate_denial_keeps_read_calls_available() {
     };
     let data: serde_json::Value = serde_json::from_str(&output.data_json).unwrap();
     assert_eq!(data["state"], "ENGINE_STATE_STOPPED");
+}
+
+#[tokio::test]
+async fn delegated_exact_id_stop_is_rejected_without_queuing_on_a_running_engine() {
+    let fixture = AgentFixture::new().await;
+    let mut engine = EngineClient::new(fixture.fixture.channel.clone());
+    let ready = engine.start(action(70)).await.unwrap().into_inner();
+    assert_eq!(ready.state(), EngineState::Ready);
+    let mut delegated = AgentOpsClient::new(fixture.restricted.clone());
+    let operation =
+        delegated.execute(fixture.auth(tonic::Request::new(fixture.request(71, TARGET))));
+    let response = timeout(Duration::from_millis(500), operation)
+        .await
+        .expect("an unsupported stop must return without waiting for approval")
+        .unwrap()
+        .into_inner();
+    assert_eq!(error_code(response), "unsupported_operation");
+    assert!(
+        fixture
+            .owner()
+            .list_pending_approvals(ListPendingApprovalsRequest {})
+            .await
+            .unwrap()
+            .into_inner()
+            .approvals
+            .is_empty()
+    );
+    assert_eq!(
+        engine
+            .status(EngineStatusRequest {})
+            .await
+            .unwrap()
+            .into_inner()
+            .state(),
+        EngineState::Ready
+    );
 }
