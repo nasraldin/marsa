@@ -218,8 +218,15 @@ challenge, which expires after 60 seconds and is invalidated by a settings
 revision or configuration member change. Retrying the original confirmation
 UUID and payload replays its result without applying the reset again. The
 daemon persists the defaults atomically, then publishes the new settings
-revision. Settings reset leaves the VM disk and grants intact. Factory
-preparation and confirmation are tracked in M9-18.
+revision. Settings reset leaves the VM disk and grants intact.
+
+Factory reset has separate preparation and confirmation messages. On
+confirmation the daemon reserves the supervisor, stops any guest and blocks
+new storage mutations and reads during replacement. It records the prior
+settings, raw disk and grants in a private journal before installing defaults.
+If interrupted before commit, it restores the original generation before
+serving either socket. After commit it completes backup cleanup. The next
+guest boot formats the fresh sparse disk.
 
 Clients use `marsa_client::DaemonEndpoint::discover()` to locate the current
 user's socket. The client checks the private socket and its kernel-reported
