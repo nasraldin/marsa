@@ -5,6 +5,8 @@
     { "$ref": "#/$defs/help" },
     { "$ref": "#/$defs/completion" },
     { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/bind_approvals" },
+    { "$ref": "#/$defs/bind_resolution" },
     { "$ref": "#/$defs/disk_usage" },
     { "$ref": "#/$defs/network_status" },
     { "$ref": "#/$defs/settings" },
@@ -20,6 +22,44 @@
     { "$ref": "#/$defs/log" }
   ],
   "$defs": {
+    "bind_approvals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "approvals"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "bind_approvals" },
+        "approvals": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "directories", "expires_at_unix_millis"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+              "directories": {
+                "type": "array", "minItems": 1, "maxItems": 16,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "expires_at_unix_millis": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "bind_resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "id", "decision", "requires_restart"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "bind_resolution" },
+        "id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "decision": { "enum": ["once", "always", "deny"] },
+        "requires_restart": { "type": "boolean" }
+      }
+    },
     "disk_usage": {
       "type": "object",
       "additionalProperties": false,
@@ -303,7 +343,7 @@
       "properties": {
         "schema_version": { "const": 1 },
         "kind": { "const": "error" },
-        "code": { "enum": ["confirmation_required", "invalid_invocation", "not_available", "connection_failed", "home_unavailable", "unprivileged_user_required", "incompatible_daemon", "operation_failed", "request_rejected"] },
+        "code": { "enum": ["confirmation_required", "invalid_invocation", "not_available", "connection_failed", "home_unavailable", "unprivileged_user_required", "incompatible_daemon", "operation_failed", "request_rejected", "bind_resolution_failed"] },
         "message": { "type": "string", "minLength": 1 }
       }
     }

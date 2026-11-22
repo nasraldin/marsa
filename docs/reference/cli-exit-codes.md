@@ -47,3 +47,8 @@ returns `request_rejected` with exit status 1 and the daemon's explanation.
 `marsa network status --json` reports the configured and active network modes.
 The guest and gateway fields are IPv4 strings when observed. When the VM is
 stopped, the active mode and both addresses are `null`.
+
+`marsa share approvals --json` shows exact requested directories and expiry
+times. `marsa share resolve ID once|always|deny --json` reports whether the
+owner needs to restart the VM before retrying Docker. A request that cannot be
+resolved returns `bind_resolution_failed` with exit status 1.

@@ -25,6 +25,8 @@ fn all_commands_have_help() {
         &["config", "list"],
         &["share"],
         &["share", "list"],
+        &["share", "approvals"],
+        &["share", "resolve"],
         &["share", "add"],
         &["share", "remove"],
         &["disk"],
@@ -157,15 +159,41 @@ fn double_dash_keeps_json_literal_out_of_global_flags() {
 
 #[test]
 #[cfg(unix)]
-fn config_list_reports_connection_failure_without_a_home() {
-    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
-        .args(["config", "list", "--json"])
-        .env("HOME", "/")
-        .output()
-        .expect("launch marsa");
-    assert_eq!(result.status.code(), Some(4));
-    let document: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
-    assert_eq!(document["code"], "home_unavailable");
+fn authenticated_settings_share_and_network_commands_discover_the_daemon() {
+    let commands: &[&[&str]] = &[
+        &["config", "list"],
+        &["share", "list"],
+        &["share", "add", "/tmp/project"],
+        &["share", "remove", "shared-folder-id"],
+        &["share", "approvals"],
+        &[
+            "share",
+            "resolve",
+            "0123456789abcdef0123456789abcdef",
+            "deny",
+        ],
+        &["network", "status"],
+    ];
+    for args in commands {
+        let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+            .args(*args)
+            .arg("--json")
+            .env("HOME", "/")
+            .output()
+            .expect("launch marsa");
+        assert_eq!(result.status.code(), Some(4), "{args:?}: {result:?}");
+        let document: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(document["code"], "home_unavailable", "{args:?}");
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn share_resolution_rejects_malformed_approval_ids() {
+    let result = marsa(&["share", "resolve", "not-an-approval-id", "always", "--json"]);
+    assert_eq!(result.status.code(), Some(2));
+    let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(response["code"], "invalid_invocation");
 }
 
 #[test]

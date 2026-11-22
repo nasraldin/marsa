@@ -184,6 +184,37 @@ static ROOT: Spec = command(
             &[],
             &[
                 leaf("list", ("List shared folders", "اسرد المجلدات المشتركة")),
+                leaf(
+                    "approvals",
+                    (
+                        "List pending bind approvals",
+                        "اعرض طلبات وصل المجلدات المعلّقة",
+                    ),
+                ),
+                command(
+                    "resolve",
+                    ("Answer a pending bind request", "أجب عن طلب وصل معلّق"),
+                    &[
+                        value(
+                            "id",
+                            "ID",
+                            true,
+                            &[],
+                            ("Approval identifier", "معرّف طلب الموافقة"),
+                        ),
+                        value(
+                            "decision",
+                            "DECISION",
+                            true,
+                            &["once", "always", "deny"],
+                            (
+                                "Share once, always, or deny",
+                                "شارك مرة واحدة أو دائمًا، أو ارفض",
+                            ),
+                        ),
+                    ],
+                    &[],
+                ),
                 command(
                     "add",
                     ("Allow a folder to be shared", "اسمح بمشاركة مجلد"),

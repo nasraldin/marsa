@@ -10,6 +10,8 @@ mod network;
 #[cfg(unix)]
 mod settings;
 #[cfg(unix)]
+mod share;
+#[cfg(unix)]
 mod share_folders;
 
 use std::{
@@ -35,12 +37,13 @@ enum Failure {
     Root,
     Incompatible,
     Operation,
+    BindResolution,
 }
 
 impl Failure {
     fn code(self) -> u8 {
         match self {
-            Self::Unavailable | Self::Operation => 1,
+            Self::Unavailable | Self::Operation | Self::BindResolution => 1,
             Self::Usage => 2,
             Self::Confirmation => 3,
             Self::Connection | Self::Home | Self::Root => 4,
@@ -58,6 +61,7 @@ impl Failure {
             Self::Root => "unprivileged_user_required",
             Self::Incompatible => "incompatible_daemon",
             Self::Operation => "operation_failed",
+            Self::BindResolution => "bind_resolution_failed",
         }
     }
 
@@ -93,6 +97,10 @@ impl Failure {
             Self::Operation => language.text(
                 "The Marsa operation failed. Run marsa status or check marsa logs for details.",
                 "فشلت عملية مرسى. شغّل marsa status أو اطّلع على marsa logs لمعرفة التفاصيل.",
+            ),
+            Self::BindResolution => language.text(
+                "Could not answer the bind request. Run marsa share approvals to check whether it is still pending.",
+                "تعذّر الرد على طلب الوصل. شغّل marsa share approvals للتحقق من أن الطلب ما زال معلّقًا.",
             ),
         }
     }
@@ -175,6 +183,12 @@ async fn execute(
     #[cfg(unix)]
     if name == "config" {
         return settings::run(args, language).await;
+    }
+    #[cfg(unix)]
+    if name == "share"
+        && let Some(outcome) = share::run(args, language).await
+    {
+        return outcome;
     }
     #[cfg(unix)]
     if name == "share"

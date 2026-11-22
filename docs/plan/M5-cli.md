@@ -99,7 +99,7 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 
 ### M5-09 Review and answer bind approvals from the CLI
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M5-02, M4-06
 - **Docs:** [07 The allowlist](../07-file-sharing-and-storage.md#the-allowlist), [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
 - **Do:** List current typed bind-approval events, show the exact requested directories, and submit once, always or deny by approval ID. Explain when a VM restart is needed. Provide English and Arabic display strings and stable JSON.
