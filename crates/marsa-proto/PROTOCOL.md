@@ -153,3 +153,26 @@ record before retaining the facts, and abandons a connection that does
 not respond within its deadline. The guest reads the configured upstream
 interface and its default route from the kernel. The record describes
 guest state and is independent of the guest control session.
+
+
+## Bind authorization
+
+The host initiates a dedicated AF_VSOCK connection to guest port 5003.
+Only the host CID can enter the listener. The guest sends
+`BindAuthorizationRequest` and the host replies with
+`BindAuthorizationResponse`. Each protobuf payload has a four-byte
+big-endian length prefix, with a limit of 64 KiB. This channel declares
+protocol 1.0 in each frame independently of the guest control session.
+
+One request is outstanding at a time. The guest starts request IDs at one
+after each connection and increments by one for each query. A response must
+echo the outstanding ID. Unexpected IDs, versions, incomplete frames or a
+deadline close the stream and provide no authorization.
+
+Queries carry only one to 64 absolute UTF-8 bind source strings of at most
+4096 bytes each. A request supplies candidate paths, not approvals or an
+attachment inventory. The host validates every source against the grants
+and attachments for that VM. A denial carries an actionable message of at
+most 1024 bytes. An allow has an empty message. Source and message strings
+exclude control characters. Neither the Docker body nor any headers cross
+this channel.
