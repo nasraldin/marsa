@@ -11,14 +11,32 @@ use nix::unistd::geteuid;
 use tokio::{fs, net::UnixStream, process::Command};
 
 pub(super) async fn open_socket(path: PathBuf) -> io::Result<UnixStream> {
-    open_local_socket(path, 0o077).await
+    open_local_socket(path, 0o077, None).await
 }
 
-pub(super) async fn open_inventory_socket(path: PathBuf) -> io::Result<UnixStream> {
-    open_local_socket(path, 0o022).await
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct SocketIdentity(u64, u64);
+
+pub(super) async fn socket_identity(path: &Path) -> io::Result<SocketIdentity> {
+    let metadata = fs::symlink_metadata(path).await?;
+    if !metadata.file_type().is_socket() {
+        return Err(unsafe_endpoint());
+    }
+    Ok(SocketIdentity(metadata.dev(), metadata.ino()))
 }
 
-async fn open_local_socket(path: PathBuf, forbidden_parent_modes: u32) -> io::Result<UnixStream> {
+pub(super) async fn open_external_socket(
+    path: PathBuf,
+    expected: SocketIdentity,
+) -> io::Result<UnixStream> {
+    open_local_socket(path, 0o022, Some(expected)).await
+}
+
+async fn open_local_socket(
+    path: PathBuf,
+    forbidden_parent_modes: u32,
+    expected: Option<SocketIdentity>,
+) -> io::Result<UnixStream> {
     let parent = path
         .parent()
         .filter(|_| path.is_absolute())
@@ -40,7 +58,15 @@ async fn open_local_socket(path: PathBuf, forbidden_parent_modes: u32) -> io::Re
     if !metadata.file_type().is_socket() || metadata.uid() != uid || metadata.mode() & 0o077 != 0 {
         return Err(unsafe_endpoint());
     }
-    let socket = UnixStream::connect(path).await?;
+    if expected.is_some_and(|expected| expected != SocketIdentity(metadata.dev(), metadata.ino())) {
+        return Err(unsafe_endpoint());
+    }
+    let socket = UnixStream::connect(&path).await?;
+    if let Some(expected) = expected
+        && socket_identity(&path).await? != expected
+    {
+        return Err(unsafe_endpoint());
+    }
     if socket.peer_cred()?.uid() != uid {
         return Err(unsafe_endpoint());
     }

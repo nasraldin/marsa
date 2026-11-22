@@ -4,7 +4,7 @@ use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
 use std::{collections::VecDeque, io::Write as _, path::Path, sync::Arc};
 
-use marsa_client::docker::{ContainerId, ContainerSummary, LogLine, LogSource};
+use marsa_client::docker::{ContainerSummary, LogLine, LogSource};
 use marsa_ui::{
     ColorToken,
     direction::{isolate_technical_text, row},
@@ -21,10 +21,7 @@ use marsa_ui::{
     },
 };
 
-use crate::{
-    screens::common::{ScreenContext, label},
-    services::Services,
-};
+use crate::screens::common::{ScreenContext, label};
 
 use super::{ContainerView, ansi, color, name};
 
@@ -50,7 +47,7 @@ pub(super) struct LogsState {
     open_streams: usize,
     closed: bool,
     save_failed: bool,
-    search_input: Option<Entity<InputState>>,
+    pub(super) search_input: Option<Entity<InputState>>,
     subscription: Option<Subscription>,
     search_task: Option<Task<()>>,
 }
@@ -163,12 +160,10 @@ impl LogsState {
 }
 
 pub(super) fn follow(
-    services: &Services,
-    id: ContainerId,
+    mut stream: crate::services::Batches<LogLine>,
     container: Arc<str>,
     cx: &Context<ContainerView>,
 ) -> Task<()> {
-    let mut stream = services.logs(id);
     cx.spawn(async move |view, cx| {
         while let Some(batch) = stream.next().await {
             if view
@@ -207,12 +202,9 @@ pub(super) fn render(
     let mut toolbar = row(cx).gap_2().items_center();
     if let Some(input) = log.search_input.as_ref() {
         toolbar = toolbar.child(
-            div().w(px(232.)).child(
-                Input::new(input)
-                    .small()
-                    .cleanable(true)
-                    .prefix(IconName::Search),
-            ),
+            div()
+                .w(px(232.))
+                .child(Input::new(input).cleanable(true).prefix(IconName::Search)),
         );
     }
     let matches = log.matching.len();
@@ -222,7 +214,6 @@ pub(super) fn render(
             .child(
                 Button::new("previous-log-match")
                     .outline()
-                    .small()
                     .icon(IconName::ChevronLeft)
                     .accessibility_label(message(screen.locale, gui::GUI_DESKTOP_PREVIOUS_MATCH))
                     .disabled(matches == 0)
@@ -231,7 +222,6 @@ pub(super) fn render(
             .child(
                 Button::new("next-log-match")
                     .outline()
-                    .small()
                     .icon(IconName::ChevronRight)
                     .accessibility_label(message(screen.locale, gui::GUI_DESKTOP_NEXT_MATCH))
                     .disabled(matches == 0)
@@ -251,7 +241,6 @@ pub(super) fn render(
         .child(
             Button::new("log-source-filter")
                 .outline()
-                .small()
                 .label(source_label(log.source).text(locale))
                 .icon(IconName::ChevronDown)
                 .dropdown_menu(move |menu, _, _| {
@@ -280,7 +269,6 @@ pub(super) fn render(
         .child(
             Button::new("log-timestamps")
                 .outline()
-                .small()
                 .disabled(true)
                 .label(gui::GUI_DESKTOP_CONTAINERS_LOG_TIMESTAMPS.text(locale))
                 .tooltip(gui::GUI_DESKTOP_CONTAINERS_LOG_TIMESTAMPS_UNAVAILABLE.text(locale)),
@@ -288,7 +276,6 @@ pub(super) fn render(
         .child(div().flex_1())
         .child(
             Button::new("log-follow")
-                .small()
                 .primary()
                 .selected(log.paused.is_none())
                 .label(gui::GUI_DESKTOP_CONTAINERS_LOG_FOLLOW_LIVE.text(locale))
@@ -301,7 +288,6 @@ pub(super) fn render(
         .child(
             Button::new("log-pause")
                 .outline()
-                .small()
                 .icon(if log.paused.is_some() {
                     IconName::Play
                 } else {

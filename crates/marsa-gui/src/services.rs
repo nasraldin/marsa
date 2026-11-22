@@ -181,6 +181,40 @@ impl Services {
         self.pending(async { Ok(marsa_client::docker::discover_external_inventory().await) })
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn inspect_external(
+        &self,
+        endpoint: marsa_client::docker::ExternalEndpoint,
+        id: ContainerId,
+    ) -> Pending<ContainerDetails> {
+        self.pending(async move { Ok(endpoint.inspect(&id).await?) })
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn act_external(
+        &self,
+        endpoint: marsa_client::docker::ExternalEndpoint,
+        id: ContainerId,
+        action: ContainerAction,
+    ) -> Pending<(bool, Option<Vec<ContainerSummary>>)> {
+        self.pending(async move {
+            let failed = endpoint.act(&id, action).await.is_err();
+            let containers = endpoint.containers().await.ok();
+            Ok((failed, containers))
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn external_logs(
+        &self,
+        endpoint: marsa_client::docker::ExternalEndpoint,
+        id: ContainerId,
+    ) -> Batches<LogLine> {
+        log_batches(&self.session.runtime, async move {
+            Ok(endpoint.logs(&id).await?)
+        })
+    }
+
     /// Dispatch a command on the worker and receive its completion separately from state updates.
     pub fn dispatch(&self, command: Command) -> PendingCommand {
         self.session.dispatch(command)
@@ -459,17 +493,7 @@ impl<B: Clients> Session<B> {
 
     fn logs(&self, id: ContainerId) -> Batches<LogLine> {
         let backend = Arc::clone(&self.backend);
-        batch_stream(
-            &self.runtime,
-            async move { backend.logs(&id).await },
-            Rate {
-                interval: LOG_RATE,
-                maximum: LOG_LINES,
-                budget: LOG_BYTES,
-                latest: false,
-            },
-            |line| line.text.len(),
-        )
+        log_batches(&self.runtime, async move { backend.logs(&id).await })
     }
 
     fn stats(&self, id: ContainerId) -> Batches<StatsSample> {
@@ -486,6 +510,23 @@ impl<B: Clients> Session<B> {
             |_| 1,
         )
     }
+}
+
+fn log_batches<F: Feed<LogLine>>(
+    runtime: &Background,
+    open: impl Future<Output = Result<F, ServiceError>> + Send + 'static,
+) -> Batches<LogLine> {
+    batch_stream(
+        runtime,
+        open,
+        Rate {
+            interval: LOG_RATE,
+            maximum: LOG_LINES,
+            budget: LOG_BYTES,
+            latest: false,
+        },
+        |line| line.text.len(),
+    )
 }
 
 struct Rate {

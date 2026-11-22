@@ -25,7 +25,7 @@ Every task here carries these standing acceptance conditions in addition to its 
   - 2,000 containers scroll smoothly and state changes appear within one second.
   - Remove always asks for confirmation; running containers require an explicit force choice.
 
-The desktop route renders grouped live container snapshots. Passive invalidation without an idle lease is pending.
+The desktop route renders grouped live container snapshots. Detected Lima rows use the same table and keep their source badge. Start and stop target the authenticated Unix socket captured for that row. Passive invalidation without an idle lease is pending.
 
 ---
 
@@ -40,7 +40,7 @@ The desktop route renders grouped live container snapshots. Passive invalidation
   - Every inspect section matches `docker inspect`.
   - Masked values are not exposed in snapshots or logs.
 
-The detail route masks environment fields. The clipboard export contains redacted inspect metadata.
+The detail route opens detected Lima containers through the same authenticated socket as the selected row. The detail route masks environment fields. The clipboard export contains redacted inspect metadata.
 
 ---
 
@@ -56,7 +56,7 @@ The detail route masks environment fields. The clipboard export contains redacte
   - Search runs off the UI thread and stays responsive on a full buffer.
   - Mixed Arabic and English log lines render in correct order within a left-to-right log line.
 
-Bounded per-container and combined streams are wired. High-rate, navigation, and visual acceptance remain open.
+Bounded per-container and combined streams are wired. External log streams use the selected engine and keep Compose log sources within that engine. High-rate, navigation, and visual acceptance remain open.
 
 ---
 

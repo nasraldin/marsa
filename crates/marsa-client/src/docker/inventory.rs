@@ -5,14 +5,94 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use hyper::Method;
+
 use super::{
-    ContainerSummary, DockerClient, ImageSummary, NetworkSummary, VolumeSummary, docker_socket_path,
+    ContainerAction, ContainerDetails, ContainerId, ContainerSummary, DockerClient, DockerError,
+    DockerLogs, DockerScope, ImageSummary, NetworkSummary, VolumeSummary, docker_socket_path,
 };
+use crate::platform;
+
+/// Authenticated endpoint captured by discovery. Operations never consult the current context again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalEndpoint {
+    socket: PathBuf,
+    identity: platform::SocketIdentity,
+}
+
+impl ExternalEndpoint {
+    fn client(&self, containers: bool) -> DockerClient {
+        DockerClient {
+            socket: self.socket.clone(),
+            scope: DockerScope::External {
+                identity: self.identity,
+                containers,
+            },
+        }
+    }
+
+    /// Read details from this engine and verify the returned full container identifier.
+    pub async fn inspect(&self, id: &ContainerId) -> Result<ContainerDetails, DockerError> {
+        self.client(true).inspect(id).await
+    }
+
+    /// Stream the selected container's bounded log output from this engine.
+    pub async fn logs(&self, id: &ContainerId) -> Result<DockerLogs, DockerError> {
+        self.client(true).logs(id).await
+    }
+
+    /// Start or stop the selected container on this engine.
+    pub async fn act(&self, id: &ContainerId, action: ContainerAction) -> Result<(), DockerError> {
+        self.client(true).act(id, action).await
+    }
+
+    /// Refresh this engine's container snapshot without searching for another endpoint.
+    pub async fn containers(&self) -> Result<Vec<ContainerSummary>, DockerError> {
+        self.client(false).containers().await
+    }
+}
+
+pub(super) fn external_route(method: &Method, path: &str, containers: bool) -> bool {
+    if method == Method::GET
+        && matches!(
+            path,
+            "/containers/json?all=true" | "/images/json?all=true" | "/volumes" | "/networks"
+        )
+    {
+        return true;
+    }
+    if !containers {
+        return false;
+    }
+    let Some((id, action)) = path
+        .strip_prefix("/containers/")
+        .and_then(|tail| tail.split_once('/'))
+    else {
+        return false;
+    };
+    if id.len() != 64
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return false;
+    }
+    match *method {
+        Method::GET => matches!(
+            action,
+            "json" | "logs?stdout=true&stderr=true&follow=true&tail=200"
+        ),
+        Method::POST => matches!(action, "start" | "stop"),
+        _ => false,
+    }
+}
 
 /// Containers and images reported by a detected local Docker engine.
 pub struct ExternalInventory {
     /// Authenticated local socket queried for this inventory.
     pub socket: PathBuf,
+    /// Pinned engine connection for the detected resources.
+    pub endpoint: ExternalEndpoint,
     /// Provider or instance label for the socket.
     pub source: String,
     /// Running and stopped containers.
@@ -57,10 +137,14 @@ pub async fn discover_external_inventory() -> Option<ExternalInventory> {
         if !seen.insert(socket.clone()) {
             continue;
         }
-        let client = DockerClient {
-            socket: socket.clone(),
-            inventory_only: true,
+        let Ok(identity) = platform::socket_identity(&socket).await else {
+            continue;
         };
+        let endpoint = ExternalEndpoint {
+            socket: socket.clone(),
+            identity,
+        };
+        let client = endpoint.client(false);
         let (containers, images, volumes, networks) = tokio::join!(
             client.containers(),
             client.images(),
@@ -71,6 +155,7 @@ pub async fn discover_external_inventory() -> Option<ExternalInventory> {
             let source = source_name(&socket, &owner.dir);
             return Some(ExternalInventory {
                 socket,
+                endpoint,
                 source,
                 containers,
                 images,
@@ -131,10 +216,8 @@ mod tests {
         let listener = UnixListener::bind(&socket).unwrap();
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
 
-        let client = DockerClient {
-            socket,
-            inventory_only: true,
-        };
+        let identity = platform::socket_identity(&socket).await.unwrap();
+        let client = ExternalEndpoint { socket, identity }.client(false);
         assert!(
             client
                 .request(hyper::Method::POST, "/containers/example/start")
@@ -157,6 +240,61 @@ mod tests {
         });
         assert!(client.containers().await.unwrap().is_empty());
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn lifecycle_uses_the_discovered_socket_and_rejects_its_replacement() {
+        use std::{fs, os::unix::fs::PermissionsExt};
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::UnixListener,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("docker.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let endpoint = ExternalEndpoint {
+            identity: platform::socket_identity(&socket).await.unwrap(),
+            socket: socket.clone(),
+        };
+        let id = ContainerId::parse("a".repeat(64)).unwrap();
+        let server_id = id.clone();
+        let server = tokio::spawn(async move {
+            for action in ["start", "stop"] {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(stream.read_u8().await.unwrap());
+                }
+                assert!(
+                    request.starts_with(
+                        format!(
+                            "POST /containers/{}/{action} HTTP/1.1\r\n",
+                            server_id.as_str()
+                        )
+                        .as_bytes()
+                    )
+                );
+                stream
+                    .write_all(b"HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n")
+                    .await
+                    .unwrap();
+            }
+            listener
+        });
+        assert!(endpoint.act(&id, ContainerAction::Restart).await.is_err());
+        endpoint.act(&id, ContainerAction::Start).await.unwrap();
+        endpoint.act(&id, ContainerAction::Stop).await.unwrap();
+        let _original = server.await.unwrap();
+
+        fs::rename(&socket, directory.path().join("original.sock")).unwrap();
+        let _replacement = UnixListener::bind(&socket).unwrap();
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(matches!(
+            endpoint.act(&id, ContainerAction::Start).await,
+            Err(DockerError::Socket(error)) if error.kind() == std::io::ErrorKind::PermissionDenied
+        ));
     }
 
     #[test]

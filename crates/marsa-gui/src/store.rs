@@ -65,6 +65,12 @@ impl AppState {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn replace_containers(&mut self, containers: Vec<ContainerSummary>) {
+        self.containers = container_index(containers);
+        self.compose_projects = project_index(&self.containers);
+    }
+
     /// Last observed daemon state.
     pub fn daemon(&self) -> Option<&DaemonSnapshot> {
         self.daemon.as_ref()

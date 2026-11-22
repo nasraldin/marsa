@@ -22,7 +22,7 @@ use tokio::time::timeout;
 use crate::{ClientError, docker_socket_path, platform};
 
 mod inventory;
-pub use inventory::{ExternalInventory, discover_external_inventory};
+pub use inventory::{ExternalEndpoint, ExternalInventory, discover_external_inventory};
 
 pub use actions::{
     CreatedNetwork, ImageDetails, ImageId, ImageRemoval, NetworkRemoval, ResourceName,
@@ -244,7 +244,16 @@ pub enum DockerError {
 #[derive(Debug, Clone)]
 pub struct DockerClient {
     socket: PathBuf,
-    inventory_only: bool,
+    scope: DockerScope,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DockerScope {
+    Marsa,
+    External {
+        identity: platform::SocketIdentity,
+        containers: bool,
+    },
 }
 
 impl DockerClient {
@@ -257,7 +266,7 @@ impl DockerClient {
     pub fn at(socket: impl Into<PathBuf>) -> Self {
         Self {
             socket: socket.into(),
-            inventory_only: false,
+            scope: DockerScope::Marsa,
         }
     }
 
@@ -365,24 +374,34 @@ impl DockerClient {
         if geteuid().is_root() {
             return Err(ClientError::Root.into());
         }
-        timeout(REQUEST_TIMEOUT, async {
-            let socket = if self.inventory_only {
-                if method != Method::GET
-                    || !matches!(
-                        path,
-                        "/containers/json?all=true"
-                            | "/images/json?all=true"
-                            | "/volumes"
-                            | "/networks"
-                    )
-                {
-                    return Err(DockerError::Socket(
-                        std::io::ErrorKind::PermissionDenied.into(),
-                    ));
+        let deadline = if matches!(
+            self.scope,
+            DockerScope::External {
+                containers: true,
+                ..
+            }
+        ) && method == Method::POST
+            && path.ends_with("/stop")
+        {
+            Duration::from_secs(60)
+        } else {
+            REQUEST_TIMEOUT
+        };
+        timeout(deadline, async {
+            let socket = match self.scope {
+                DockerScope::Marsa => platform::open_socket(self.socket.clone()).await,
+                DockerScope::External {
+                    identity,
+                    containers,
+                } => {
+                    if !inventory::external_route(&method, path, containers) || !payload.is_empty()
+                    {
+                        return Err(DockerError::Socket(
+                            std::io::ErrorKind::PermissionDenied.into(),
+                        ));
+                    }
+                    platform::open_external_socket(self.socket.clone(), identity).await
                 }
-                platform::open_inventory_socket(self.socket.clone()).await
-            } else {
-                platform::open_socket(self.socket.clone()).await
             }
             .map_err(DockerError::Socket)?;
             let (mut sender, connection) = http1::Builder::new()
@@ -392,10 +411,9 @@ impl DockerClient {
             let task = stream::ConnectionTask::new(tokio::spawn(connection).abort_handle());
             // These inventory routes are available directly on the external daemon.
             // The fixed Marsa API version may be newer than that daemon supports.
-            let uri = if self.inventory_only {
-                path.to_owned()
-            } else {
-                format!("{API_PREFIX}{path}")
+            let uri = match self.scope {
+                DockerScope::Marsa => format!("{API_PREFIX}{path}"),
+                DockerScope::External { .. } => path.to_owned(),
             };
             let mut request = Request::builder()
                 .method(method.clone())

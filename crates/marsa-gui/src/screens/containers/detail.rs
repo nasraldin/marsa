@@ -20,15 +20,17 @@ use marsa_ui::{
 
 use crate::screens::common::{ScreenContext, label, panel};
 
-use super::{ContainerView, Inspection, Tab, color, list, logs, name, stats};
+use super::{ContainerTarget, ContainerView, Inspection, Tab, color, list, logs, name, stats};
 
 pub(super) fn render(
     view: &ContainerView,
+    target: &ContainerTarget,
     entry: &ContainerSummary,
     window: &Window,
     cx: &mut Context<ContainerView>,
 ) -> AnyElement {
     let screen = view.screen();
+    let external = target.endpoint().is_some();
     let mut title = row(cx)
         .gap_2()
         .items_center()
@@ -38,6 +40,16 @@ pub(super) fn render(
                 .min_w_0()
                 .child(isolate_technical_text(name(entry))),
         )
+        .children(view.external_inventory.as_ref().map(|inventory| {
+            crate::screens::external_inventory::source_badge(
+                screen.palette,
+                if external {
+                    isolate_technical_text(&inventory.source)
+                } else {
+                    "Marsa".into()
+                },
+            )
+        }))
         .child(list::state_pill(
             &entry.state,
             screen.palette,
@@ -62,6 +74,7 @@ pub(super) fn render(
     if super::eligible(entry, ContainerAction::Stop) {
         title = title.child(list::action_button(
             entry,
+            target.clone(),
             ContainerAction::Stop,
             view.command_pending,
             screen.locale,
@@ -70,19 +83,23 @@ pub(super) fn render(
     } else {
         title = title.child(list::action_button(
             entry,
+            target.clone(),
             ContainerAction::Start,
             view.command_pending,
             screen.locale,
             &entity,
         ));
     }
-    title = title.child(list::action_button(
-        entry,
-        ContainerAction::Restart,
-        view.command_pending,
-        screen.locale,
-        &entity,
-    ));
+    if !external {
+        title = title.child(list::action_button(
+            entry,
+            target.clone(),
+            ContainerAction::Restart,
+            view.command_pending,
+            screen.locale,
+            &entity,
+        ));
+    }
 
     let short_id = entry.id.as_str().get(..12).unwrap_or(entry.id.as_str());
     let subtitle = format!("{}  ·  {short_id}", entry.image);
@@ -99,10 +116,10 @@ pub(super) fn render(
                 Tab::Inspect,
                 Tab::Stats,
             ]
-            .map(|tab| tab_button(tab, tab == view.tab, &screen, cx)),
+            .map(|tab| tab_button(tab, tab == view.tab, target.supports(tab), &screen, cx)),
         );
     let content = match view.tab {
-        Tab::Overview => overview(entry, &view.inspection, &screen, cx).into_any_element(),
+        Tab::Overview => overview(entry, &view.inspection, target, &screen, cx).into_any_element(),
         Tab::Logs => logs::render(view, entry, &screen, cx),
         Tab::Terminal => super::terminal::render(view, entry, &screen, window, cx),
         Tab::Inspect => inspect(view, entry, &view.inspection, &screen, cx).into_any_element(),
@@ -151,6 +168,7 @@ pub(super) fn render(
 fn tab_button(
     tab: Tab,
     active: bool,
+    enabled: bool,
     screen: &ScreenContext<'_>,
     cx: &Context<ContainerView>,
 ) -> Button {
@@ -183,11 +201,13 @@ fn tab_button(
     } else {
         button.ghost()
     };
-    button.on_click(cx.listener(move |view, _, _, cx| {
-        if view.tab != tab {
-            view.set_tab(tab, cx);
-        }
-    }))
+    button
+        .disabled(!enabled)
+        .on_click(cx.listener(move |view, _, _, cx| {
+            if view.tab != tab {
+                view.set_tab(tab, cx);
+            }
+        }))
 }
 
 fn overview_action(tab: Tab, screen: &ScreenContext<'_>, cx: &Context<ContainerView>) -> Button {
@@ -221,6 +241,7 @@ fn overview_action(tab: Tab, screen: &ScreenContext<'_>, cx: &Context<ContainerV
 fn overview(
     entry: &ContainerSummary,
     inspection: &Inspection,
+    target: &ContainerTarget,
     screen: &ScreenContext<'_>,
     cx: &Context<ContainerView>,
 ) -> Div {
@@ -325,11 +346,16 @@ fn overview(
                     div()
                         .text_size(px(12.))
                         .text_color(color(screen.palette, ColorToken::TextMuted))
-                        .child(message(screen.locale, gui::GUI_DESKTOP_REVIEW_OUTPUT_OPEN_A_SHELL_OR_CHECK_HOW_THE_CONTAINER_RUNS)),
+                        .child(if target.supports(Tab::Terminal) {
+                            message(screen.locale, gui::GUI_DESKTOP_REVIEW_OUTPUT_OPEN_A_SHELL_OR_CHECK_HOW_THE_CONTAINER_RUNS)
+                        } else {
+                            label(screen, "Review logs or inspect this container.", "راجع السجلات أو افحص هذه الحاوية.")
+                        }),
                 )
                 .child(
                     row(cx).gap_2().children(
                         [Tab::Logs, Tab::Terminal, Tab::Inspect]
+                            .into_iter().filter(|tab| target.supports(*tab))
                             .map(|tab| overview_action(tab, screen, cx)),
                     ),
                 ),
@@ -425,7 +451,13 @@ fn inspect(
                         .font_family("IBM Plex Mono")
                         .child(isolate_technical_text(&summary)),
                 )
-                .child(control),
+                .children(
+                    (view
+                        .focused
+                        .as_ref()
+                        .is_some_and(|target| target.endpoint().is_none()))
+                    .then_some(control),
+                ),
         );
     }
     if details.environment.is_empty() {

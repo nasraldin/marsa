@@ -280,13 +280,16 @@ impl Render for Desktop {
         let palette = palette_for(window, self.appearance_preference).with_accent(self.accent);
         if self.themed_palette != Some((palette, self.locale)) {
             self.themed_palette = Some((palette, self.locale));
+            self.resources
+                .update(cx, |view, cx| view.set_locale(self.locale, window, cx));
             palette.apply_to_components(self.locale, cx);
         }
         if palette != self.palette || self.container_locale != self.locale {
             self.palette = palette;
             self.container_locale = self.locale;
-            self.containers
-                .update(cx, |view, cx| view.set_appearance(self.locale, palette, cx));
+            self.containers.update(cx, |view, cx| {
+                view.set_appearance(self.locale, palette, window, cx)
+            });
         }
         let screen = ScreenContext {
             locale: self.locale,

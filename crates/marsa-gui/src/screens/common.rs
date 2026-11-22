@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use marsa_ui::{
     ColorToken, Locale, Palette,
-    gpui::{Div, Hsla, SharedString, Styled, div, px},
+    gpui::{App, Div, Entity, Hsla, SharedString, Styled, Window, div, px},
+    gpui_component::input::{Input, InputState},
+    tokens::scale::Space,
 };
 
 use crate::{services::Services, store::AppState};
@@ -55,4 +57,19 @@ pub(crate) use marsa_ui::direction::{align_to_start as align, row_for as row};
 
 pub(crate) fn technical(value: &str) -> SharedString {
     marsa_ui::direction::isolate_technical_text(value)
+}
+
+pub(crate) fn resource_input(state: &Entity<InputState>) -> Input {
+    Styled::h(Input::new(state), px(Space::S36.pixels()))
+}
+
+pub(crate) fn update_input_placeholder(
+    state: &Entity<InputState>,
+    value: &'static str,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if state.read(cx).presentation().placeholder() != value {
+        state.update(cx, |state, cx| state.set_placeholder(value, window, cx));
+    }
 }

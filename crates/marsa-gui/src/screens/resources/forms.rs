@@ -9,7 +9,7 @@ use marsa_ui::{
         Disableable, WindowExt,
         button::{Button, ButtonVariants},
         checkbox::Checkbox,
-        input::{Input, InputState},
+        input::InputState,
     },
     tokens::{
         scale::{Radius, Space},
@@ -329,7 +329,7 @@ impl Form {
             ));
         }
         if let Some(input) = &self.input {
-            let mut control = Input::new(input);
+            let mut control = crate::screens::common::resource_input(input);
             if let Some(placeholder) = self.kind.placeholder(screen.locale) {
                 control = control.aria_label(placeholder);
             }

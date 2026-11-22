@@ -15,7 +15,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use marsa_client::docker::{
     ContainerAction, ContainerDetails, ContainerId, ContainerSummary, EnvironmentReveal,
-    RevealedEnvironment,
+    ExternalEndpoint, RevealedEnvironment,
 };
 use marsa_ui::{
     ColorToken, Locale, Palette,
@@ -58,6 +58,34 @@ enum Tab {
     Stats,
 }
 
+#[derive(Clone)]
+enum ContainerTarget {
+    Marsa(ContainerId),
+    External {
+        id: ContainerId,
+        endpoint: ExternalEndpoint,
+    },
+}
+
+impl ContainerTarget {
+    fn id(&self) -> &ContainerId {
+        match self {
+            Self::Marsa(id) | Self::External { id, .. } => id,
+        }
+    }
+
+    fn endpoint(&self) -> Option<&ExternalEndpoint> {
+        match self {
+            Self::Marsa(_) => None,
+            Self::External { endpoint, .. } => Some(endpoint),
+        }
+    }
+
+    fn supports(&self, tab: Tab) -> bool {
+        self.endpoint().is_none() || matches!(tab, Tab::Overview | Tab::Logs | Tab::Inspect)
+    }
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum StatusFilter {
     #[default]
@@ -88,7 +116,7 @@ pub(crate) struct ContainerView {
     query: String,
     filter: StatusFilter,
     selected: BTreeSet<ContainerId>,
-    focused: Option<ContainerId>,
+    focused: Option<ContainerTarget>,
     tab: Tab,
     descending: bool,
     mode: list::ViewMode,
@@ -181,8 +209,25 @@ impl ContainerView {
         &mut self,
         locale: Locale,
         palette: Palette,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(input) = &self.input {
+            super::common::update_input_placeholder(
+                input,
+                gui::GUI_DESKTOP_SEARCH_CONTAINERS.text(locale),
+                window,
+                cx,
+            );
+        }
+        if let Some(input) = &self.logs.search_input {
+            super::common::update_input_placeholder(
+                input,
+                gui::GUI_DESKTOP_SEARCH_LOGS.text(locale),
+                window,
+                cx,
+            );
+        }
         self.locale = locale;
         self.palette = palette;
         cx.notify();
@@ -194,11 +239,9 @@ impl ContainerView {
 
     fn replace_snapshot(&mut self, state: AppState, cx: &mut Context<Self>) {
         self.selected.retain(|id| state.container(id).is_some());
-        if self
-            .focused
-            .as_ref()
-            .is_some_and(|id| state.container(id).is_none())
-        {
+        if self.focused.as_ref().is_some_and(
+            |target| matches!(target, ContainerTarget::Marsa(id) if state.container(id).is_none()),
+        ) {
             self.close_detail(cx);
         }
         self.state = state;
@@ -224,12 +267,19 @@ impl ContainerView {
     /// Open an existing container from the desktop command palette.
     pub(crate) fn show_container(&mut self, id: ContainerId, cx: &mut Context<Self>) {
         if self.state.container(&id).is_some() {
-            self.open_detail(id, cx);
+            self.open_detail(ContainerTarget::Marsa(id), cx);
         }
     }
 
-    fn open_detail(&mut self, id: ContainerId, cx: &mut Context<Self>) {
-        self.focused = Some(id);
+    fn open_detail(&mut self, target: ContainerTarget, cx: &mut Context<Self>) {
+        if self
+            .target_state(&target)
+            .and_then(|state| state.container(target.id()))
+            .is_none()
+        {
+            return;
+        }
+        self.focused = Some(target);
         self.combined_logs = false;
         self.set_tab(Tab::Overview, cx);
     }
@@ -239,7 +289,25 @@ impl ContainerView {
         self.set_tab(Tab::Overview, cx);
     }
 
+    fn target_state(&self, target: &ContainerTarget) -> Option<&AppState> {
+        match target {
+            ContainerTarget::Marsa(_) => Some(&self.state),
+            ContainerTarget::External { endpoint, .. } => self
+                .external_inventory
+                .as_ref()
+                .filter(|inventory| inventory.endpoint == *endpoint)
+                .map(|inventory| &inventory.state),
+        }
+    }
+
     fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
+        if self
+            .focused
+            .as_ref()
+            .is_some_and(|target| !target.supports(tab))
+        {
+            return;
+        }
         self.stream_tasks.clear();
         self.terminal.close_detached(cx);
         self.terminal = terminal::State::default();
@@ -250,7 +318,7 @@ impl ContainerView {
         self.stats = stats::StatsState::default();
         self.inspection = Inspection::Idle;
         self.tab = tab;
-        let Some(id) = self.focused.clone() else {
+        let Some(target) = self.focused.clone() else {
             cx.notify();
             return;
         };
@@ -258,12 +326,23 @@ impl ContainerView {
             cx.notify();
             return;
         };
+        let id = target.id().clone();
         match tab {
             Tab::Logs => {
-                let selected = self.state.container(&id);
-                let project = selected.and_then(ContainerSummary::compose_project);
-                let containers = self.state.containers();
-                if let Some(project) = project.filter(|_| self.combined_logs) {
+                let Some(state) = self.target_state(&target) else {
+                    return;
+                };
+                let selected = state.container(&id);
+                let project = selected
+                    .and_then(ContainerSummary::compose_project)
+                    .map(str::to_owned);
+                let label: Arc<str> = Arc::from(selected.map_or(id.as_str(), name));
+                let containers = state.containers();
+                let open_stream = |id| match target.endpoint() {
+                    Some(endpoint) => services.external_logs(endpoint.clone(), id),
+                    None => services.logs(id),
+                };
+                if let Some(project) = project.as_deref().filter(|_| self.combined_logs) {
                     let matches = containers
                         .values()
                         .filter(|entry| entry.compose_project() == Some(project));
@@ -271,27 +350,24 @@ impl ContainerView {
                         .set_source_limit(matches.clone().count() > logs::MAX_SOURCES);
                     for entry in matches.take(logs::MAX_SOURCES) {
                         self.stream_tasks.push(logs::follow(
-                            services,
-                            entry.id.clone(),
+                            open_stream(entry.id.clone()),
                             Arc::from(name(entry)),
                             cx,
                         ));
                     }
                 } else {
-                    let label = selected.map_or(id.as_str(), name);
-                    self.stream_tasks.push(logs::follow(
-                        services,
-                        id.clone(),
-                        Arc::from(label),
-                        cx,
-                    ));
+                    self.stream_tasks
+                        .push(logs::follow(open_stream(id), label, cx));
                 }
                 self.logs.set_stream_count(self.stream_tasks.len());
             }
             Tab::Stats => self.stream_tasks.push(stats::follow(services, id, cx)),
             Tab::Overview | Tab::Inspect => {
                 self.inspection = Inspection::Loading;
-                let mut pending = services.inspect(id);
+                let mut pending = match target.endpoint() {
+                    Some(endpoint) => services.inspect_external(endpoint.clone(), id),
+                    None => services.inspect(id),
+                };
                 let task = cx.spawn(async move |view, cx| {
                     let inspection = match pending.result().await {
                         Some(Ok(value)) => Inspection::Ready(Box::new(value)),
@@ -313,7 +389,9 @@ impl ContainerView {
         self.revealed = None;
         self.reveal_task = None;
         self.reveal_failed = false;
-        let (Some(id), Some(services)) = (self.focused.clone(), self.services.as_ref()) else {
+        let (Some(ContainerTarget::Marsa(id)), Some(services)) =
+            (self.focused.clone(), self.services.as_ref())
+        else {
             return;
         };
         let Ok(request) = EnvironmentReveal::confirmed(id, name) else {
@@ -363,6 +441,70 @@ impl ContainerView {
         }
     }
 
+    fn dispatch_target(
+        &mut self,
+        target: ContainerTarget,
+        action: ContainerAction,
+        cx: &mut Context<Self>,
+    ) {
+        let ContainerTarget::External { id, endpoint } = target else {
+            self.dispatch(vec![target.id().clone()], action, cx);
+            return;
+        };
+        if self.command_pending || !matches!(action, ContainerAction::Start | ContainerAction::Stop)
+        {
+            return;
+        }
+        let Some(inventory) = self
+            .external_inventory
+            .as_ref()
+            .filter(|inventory| inventory.endpoint == endpoint)
+        else {
+            return;
+        };
+        if !inventory
+            .state
+            .container(&id)
+            .is_some_and(|entry| eligible(entry, action))
+        {
+            return;
+        }
+        let Some(services) = self.services.as_ref() else {
+            return;
+        };
+        let mut pending = services.act_external(endpoint.clone(), id.clone(), action);
+        self.command_failed = false;
+        self.command_pending = true;
+        cx.spawn(async move |view, cx| {
+            let (failed, containers) = match pending.result().await {
+                Some(Ok(result)) => result,
+                _ => (true, None),
+            };
+            let _ = view.update(cx, |view, cx| {
+                if let (Some(containers), Some(inventory)) =
+                    (containers, view.external_inventory.as_mut())
+                    && inventory.endpoint == endpoint
+                {
+                    Arc::make_mut(inventory)
+                        .state
+                        .replace_containers(containers);
+                }
+                view.command_pending = false;
+                view.command_failed = failed;
+                if matches!(view.tab, Tab::Overview | Tab::Inspect)
+                    && view.focused.as_ref().is_some_and(|selected| {
+                        selected.id() == &id && selected.endpoint() == Some(&endpoint)
+                    })
+                {
+                    view.set_tab(view.tab, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     fn request_remove(
         &mut self,
         ids: Vec<ContainerId>,
@@ -402,6 +544,15 @@ impl ContainerView {
         cx: &mut Context<Self>,
     ) {
         self.external_inventory = inventory;
+        if self.focused.as_ref().is_some_and(|target| {
+            target.endpoint().is_some()
+                && self
+                    .target_state(target)
+                    .and_then(|state| state.container(target.id()))
+                    .is_none()
+        }) {
+            self.close_detail(cx);
+        }
         cx.notify();
     }
 
@@ -424,12 +575,12 @@ impl Render for ContainerView {
         if self.tab == Tab::Logs {
             self.logs.prepare_search(window, self.locale, cx);
         }
-        if let Some(entry) = self
-            .focused
-            .as_ref()
-            .and_then(|id| self.state.container(id))
-        {
-            detail::render(self, entry, window, cx)
+        if let Some((target, entry)) = self.focused.as_ref().and_then(|target| {
+            self.target_state(target)
+                .and_then(|state| state.container(target.id()))
+                .map(|entry| (target, entry))
+        }) {
+            detail::render(self, target, entry, window, cx)
         } else {
             list::render(self, cx)
         }

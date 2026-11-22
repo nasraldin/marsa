@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use marsa_client::docker::ExternalInventory;
+use marsa_client::docker::{ExternalEndpoint, ExternalInventory};
 use marsa_ui::{
     ColorToken, Palette,
     gpui::{Div, ParentElement as _, SharedString, Styled as _, div, px},
@@ -13,8 +13,10 @@ use crate::{
     store::{AppState, ResourceSnapshot},
 };
 
+#[derive(Clone)]
 pub(crate) struct ExternalWorkspace {
     pub(crate) socket: PathBuf,
+    pub(crate) endpoint: ExternalEndpoint,
     pub(crate) source: String,
     pub(crate) state: AppState,
     pub(crate) volumes_available: bool,
@@ -25,6 +27,7 @@ impl From<ExternalInventory> for ExternalWorkspace {
     fn from(inventory: ExternalInventory) -> Self {
         Self {
             socket: inventory.socket,
+            endpoint: inventory.endpoint,
             source: inventory.source,
             volumes_available: inventory.volumes.is_some(),
             networks_available: inventory.networks.is_some(),

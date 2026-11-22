@@ -20,16 +20,16 @@ use marsa_ui::{
         Disableable as _, Icon, IconName, Sizable as _,
         button::{Button, ButtonVariants as _},
         checkbox::Checkbox,
-        input::Input,
         menu::{DropdownMenu as _, PopupMenuItem},
     },
-    tokens::typography::Role,
+    tokens::{scale::Space, typography::Role},
 };
 
-use crate::screens::common::{ScreenContext, copy, label, panel};
+use crate::screens::common::{ScreenContext, copy, label, panel, resource_input};
 
 use super::{
-    ContainerView, StatusFilter, action_label, color, eligible, name, state_label, states,
+    ContainerTarget, ContainerView, StatusFilter, action_label, color, eligible, name, state_label,
+    states,
 };
 
 const ROW_HEIGHT: f32 = 43.;
@@ -141,8 +141,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     if let Some(input) = view.input.as_ref() {
         toolbar = toolbar.child(
             div().w(px(if loaded { 216. } else { 244. })).child(
-                Input::new(input)
-                    .small()
+                resource_input(input)
                     .cleanable(true)
                     .prefix(IconName::Search),
             ),
@@ -153,7 +152,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     toolbar = toolbar.child(
         Button::new("state-filter")
             .outline()
-            .small()
+            .h(px(Space::S36.pixels()))
             .icon(IconName::ChevronDown)
             .label(filter_label(locale, view.filter))
             .dropdown_menu(move |menu, _, _| {
@@ -339,6 +338,10 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         locale,
         mode,
         view: entity,
+        endpoint: view
+            .external_inventory
+            .as_ref()
+            .map(|inventory| inventory.endpoint.clone()),
     };
     let items = uniform_list("containers-table", item_count, move |range, _, cx| {
         if mode == ViewMode::Cards {
@@ -487,6 +490,7 @@ fn matches_filter(view: &ContainerView, item: &ContainerSummary) -> bool {
 }
 
 struct RowPresentation {
+    endpoint: Option<marsa_client::docker::ExternalEndpoint>,
     palette: Palette,
     locale: Locale,
     mode: ViewMode,
@@ -511,7 +515,22 @@ fn render_entry(
         TableRow::External(entry) => (entry, external_source, None),
         TableRow::Group { .. } => return None,
     };
-    Some(container_row(entry, source, local, presentation, cx))
+    let target = match row {
+        TableRow::External(_) => ContainerTarget::External {
+            id: entry.id.clone(),
+            endpoint: presentation.endpoint.as_ref()?.clone(),
+        },
+        _ => ContainerTarget::Marsa(entry.id.clone()),
+    };
+    Some(container_row(
+        entry,
+        target,
+        source,
+        local.map(|(checked, _)| checked),
+        busy,
+        presentation,
+        cx,
+    ))
 }
 
 fn cell_row(palette: Palette, cx: &App) -> Div {
@@ -551,6 +570,7 @@ fn group_row(
         palette,
         mode,
         view,
+        ..
     } = presentation;
     let (locale, palette, mode) = (*locale, *palette, *mode);
     let (external, project) = key;
@@ -621,8 +641,10 @@ fn group_row(
 
 fn container_row(
     entry: &ContainerSummary,
+    target: ContainerTarget,
     source: Option<&SharedString>,
-    local: Option<(bool, bool)>,
+    local: Option<bool>,
+    busy: bool,
     presentation: &RowPresentation,
     cx: &App,
 ) -> Div {
@@ -631,14 +653,15 @@ fn container_row(
         locale,
         mode,
         view,
+        ..
     } = presentation;
     let (palette, locale, mode) = (*palette, *locale, *mode);
-    let (checked, busy) = local.unwrap_or_default();
+    let checked = local.unwrap_or_default();
     let id = entry.id.clone();
     let check_view = view.downgrade();
     let check_id = id.clone();
     let detail_view = view.downgrade();
-    let detail_id = id.clone();
+    let detail_target = target.clone();
     let menu_view = view.downgrade();
     let menu_id = id.clone();
     let action = if eligible(entry, ContainerAction::Stop) {
@@ -676,31 +699,26 @@ fn container_row(
             });
         })
     });
-    let name_button = local.map(|_| {
-        Button::new((
-            ElementId::from("container-details"),
-            SharedString::from(id.as_str().to_owned()),
-        ))
-        .ghost()
-        .small()
-        .compact()
-        .label(isolate_technical_text(name(entry)))
-        .on_click(move |_, _, cx| {
-            let _ = detail_view.update(cx, |view, cx| view.open_detail(detail_id.clone(), cx));
-        })
+    let name_button = Button::new((
+        ElementId::from(if local.is_some() {
+            "container-details"
+        } else {
+            "external-details"
+        }),
+        SharedString::from(id.as_str().to_owned()),
+    ))
+    .ghost()
+    .small()
+    .compact()
+    .label(isolate_technical_text(name(entry)))
+    .on_click(move |_, _, cx| {
+        let _ = detail_view.update(cx, |view, cx| view.open_detail(detail_target.clone(), cx));
     });
     let name_cell = || {
         row(cx)
             .min_w_0()
             .gap_1()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .children(name_button)
-                    .children(local.is_none().then(|| isolate_technical_text(name(entry)))),
-            )
+            .child(div().flex_1().min_w_0().truncate().child(name_button))
             .children(source.map(|source| {
                 crate::screens::external_inventory::source_badge(palette, source.clone())
             }))
@@ -725,8 +743,9 @@ fn container_row(
                 PopupMenuItem::new(gui::GUI_DESKTOP_OPEN_DETAILS.text(locale))
                     .icon(IconName::ChevronLeft)
                     .on_click(move |_, _, cx| {
-                        let _ = detail_view
-                            .update(cx, |view, cx| view.open_detail(detail_id.clone(), cx));
+                        let _ = detail_view.update(cx, |view, cx| {
+                            view.open_detail(ContainerTarget::Marsa(detail_id.clone()), cx)
+                        });
                     }),
             );
             let menu = [
@@ -778,11 +797,9 @@ fn container_row(
             )
         })
     });
-    let lifecycle = local.map(|_| {
-        action_button(entry, action, busy, locale, view)
-            .ghost()
-            .bg(color(palette, ColorToken::GlassControl))
-    });
+    let lifecycle = action_button(entry, target, action, busy, locale, view)
+        .ghost()
+        .bg(color(palette, ColorToken::GlassControl));
     let image = isolate_technical_text(&entry.image);
     let tiny_image = || {
         div()
@@ -842,7 +859,7 @@ fn container_row(
                 row(cx)
                     .gap_2()
                     .justify_row_end()
-                    .children(lifecycle)
+                    .child(lifecycle)
                     .children(more),
             );
     }
@@ -892,20 +909,23 @@ fn container_row(
     if mode != ViewMode::Tree {
         result = result.child(fixed_column(78., age_text(entry.created, locale)));
     }
+    let result = result.child(lifecycle);
     if local.is_none() && mode == ViewMode::Table {
-        result = result.child(div().w(px(80.)).flex_shrink_0());
+        return result.child(div().w(px(28.)).flex_shrink_0());
     }
-    result.children(lifecycle).children(more)
+    result.children(more)
 }
 
 pub(super) fn action_button(
     entry: &ContainerSummary,
+    target: ContainerTarget,
     action: ContainerAction,
     busy: bool,
     locale: Locale,
     entity: &marsa_ui::gpui::Entity<ContainerView>,
 ) -> Button {
-    let id = entry.id.clone();
+    let id = entry.id.as_str().to_owned();
+    let external = target.endpoint().is_some();
     let weak = entity.downgrade();
     let icon = match action {
         ContainerAction::Start => IconName::Play,
@@ -914,8 +934,8 @@ pub(super) fn action_button(
     };
     let (en, ar) = action_label(action);
     Button::new((
-        ElementId::from(en),
-        SharedString::from(id.as_str().to_owned()),
+        ElementId::from(if external { "external-lifecycle" } else { en }),
+        SharedString::from(id),
     ))
     .outline()
     .size(px(36.))
@@ -925,7 +945,9 @@ pub(super) fn action_button(
     .accessibility_label(copy(locale, en, ar))
     .disabled(busy || !eligible(entry, action))
     .on_click(move |_, _, cx| {
-        let _ = weak.update(cx, |view, cx| view.dispatch(vec![id.clone()], action, cx));
+        let _ = weak.update(cx, |view, cx| {
+            view.dispatch_target(target.clone(), action, cx)
+        });
     })
 }
 
@@ -1098,7 +1120,7 @@ fn bulk_toolbar(
                 .tooltip(gui::GUI_DESKTOP_OPEN_DETAILS.text(screen.locale))
                 .on_click(cx.listener(|view, _, _, cx| {
                     if let Some(id) = view.selected.iter().next().cloned() {
-                        view.open_detail(id, cx);
+                        view.open_detail(ContainerTarget::Marsa(id), cx);
                     }
                 })),
         );

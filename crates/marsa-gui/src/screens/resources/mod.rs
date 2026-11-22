@@ -19,9 +19,9 @@ use marsa_ui::{
         App, AppContext, Context, Div, Entity, ParentElement, Styled, Task, Window, div, px, svg,
     },
     gpui_component::{
-        Disableable, IconName, Sizable, WindowExt,
+        Disableable, IconName, WindowExt,
         button::{Button, ButtonVariants},
-        input::{Input, InputState},
+        input::InputState,
     },
     tokens::{
         scale::{Radius, Space},
@@ -30,7 +30,7 @@ use marsa_ui::{
 };
 
 use crate::{
-    screens::common::{ScreenContext, align, row, technical},
+    screens::common::{ScreenContext, align, resource_input, row, technical},
     services::Services,
 };
 
@@ -119,6 +119,15 @@ impl ResourcesView {
         }
     }
 
+    pub(crate) fn set_locale(&self, locale: Locale, window: &mut Window, cx: &mut App) {
+        super::common::update_input_placeholder(
+            &self.filter,
+            gui::GUI_DESKTOP_FILTER_RESOURCES.text(locale),
+            window,
+            cx,
+        );
+    }
+
     /// Reveal the resource chosen from global search.
     ///
     /// An image content ID selects the first row tagged with that image. A
@@ -197,12 +206,12 @@ pub(crate) fn render(
     let data = view.read(cx);
     let filter = data.filter.read(cx).value().to_lowercase();
     let mut toolbar = logical_row(screen.locale)
+        .items_center()
         .gap(px(Space::S8.pixels()))
         .flex_wrap()
         .child(
             div().w(px(216.)).child(
-                Input::new(&data.filter)
-                    .small()
+                resource_input(&data.filter)
                     .cleanable(true)
                     .prefix(IconName::Search)
                     .aria_label(message(screen.locale, gui::GUI_DESKTOP_FILTER_RESOURCES)),
@@ -243,6 +252,7 @@ pub(crate) fn render(
         toolbar = toolbar.child(
             Button::new("measure-volume-usage")
                 .outline()
+                .h(px(Space::S36.pixels()))
                 .label(message(
                     screen.locale,
                     gui::GUI_DESKTOP_MEASURE_VOLUME_SIZES,
