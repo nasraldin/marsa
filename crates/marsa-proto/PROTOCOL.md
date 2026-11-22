@@ -55,6 +55,10 @@ Host API minor 6 adds the separate owner Agents service and capability-scoped
 AgentOps endpoint. They negotiate through the daemon and keep owner approval
 authentication separate from delegated agent sessions.
 
+Host API minor 12 adds the `ui.setup_complete` owner setting and optional
+`PrunePreviewResponse.observed_usage` with measured Docker category totals.
+The latter is read-only and does not authorize cleanup.
+
 `Disk.Reclaim` requests discard of unused blocks from the current ready
 guest's data disk. It returns the guest's submitted discard bytes and the
 observed decrease in allocated bytes on the same host image. A stopped

@@ -89,6 +89,8 @@ message PrunePreviewResponse {
   optional uint64 estimated_reclaimable_bytes = 2;
   repeated DiskCategory unavailable_categories = 3;
   PruneApplyCapability apply_capability = 4;
+  // Guest-engine category totals from the same inventory, where available.
+  repeated DiskCategoryUsage observed_usage = 5;
 }
 
 // The owner's ability to apply this preview through the daemon.

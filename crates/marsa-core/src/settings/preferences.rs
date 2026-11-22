@@ -66,6 +66,9 @@ pub struct UiSettings {
     /// Tint used by interactive desktop controls.
     #[serde(skip_serializing_if = "AccentColor::is_default")]
     pub accent_color: AccentColor,
+    /// Whether the owner completed the desktop setup flow.
+    #[serde(skip_serializing_if = "is_false")]
+    pub setup_complete: bool,
     /// macOS notification preferences for each event category.
     pub notifications: NotificationSettings,
 }
@@ -146,4 +149,8 @@ pub struct AgentSettings {
 pub struct TelemetrySettings {
     /// Reserved opt-in. This build accepts only `false`.
     pub enabled: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
