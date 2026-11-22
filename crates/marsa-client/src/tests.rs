@@ -57,6 +57,9 @@ impl TestDaemon {
             Server::builder()
                 .add_service(meta_server::MetaServer::new(MetaVersion(major)))
                 .add_service(events_server::EventsServer::new(fixture))
+                .add_service(docker_discovery_server::DockerDiscoveryServer::new(
+                    FixtureDocker,
+                ))
                 .serve_with_incoming(UnixListenerStream::new(listener))
                 .await
                 .unwrap();
@@ -112,6 +115,38 @@ impl meta_server::Meta for MetaVersion {
         _: Request<CapabilitiesRequest>,
     ) -> Result<Response<CapabilitiesResponse>, Status> {
         Ok(Response::new(CapabilitiesResponse::default()))
+    }
+}
+
+struct FixtureDocker;
+
+#[tonic::async_trait]
+impl docker_discovery_server::DockerDiscovery for FixtureDocker {
+    async fn get_endpoint(
+        &self,
+        _: Request<GetDockerEndpointRequest>,
+    ) -> Result<Response<DockerEndpoint>, Status> {
+        Ok(Response::new(DockerEndpoint {
+            socket_path: "/fixture/docker.sock".into(),
+            docker_host: "unix:///fixture/docker.sock".into(),
+            context_name: "marsa".into(),
+        }))
+    }
+
+    async fn ensure_context(
+        &self,
+        _: Request<EnsureDockerContextRequest>,
+    ) -> Result<Response<EnsureDockerContextResponse>, Status> {
+        Err(Status::unimplemented("fixture"))
+    }
+
+    async fn enable_registry_keychain(
+        &self,
+        _: Request<marsa_proto::host::v1::EnableRegistryKeychainRequest>,
+    ) -> Result<Response<marsa_proto::host::v1::EnableRegistryKeychainResponse>, Status> {
+        Ok(Response::new(
+            marsa_proto::host::v1::EnableRegistryKeychainResponse { configured: true },
+        ))
     }
 }
 
@@ -186,6 +221,16 @@ async fn starts_once_and_connects_when_daemon_is_ready() {
         .capabilities(CapabilitiesRequest {})
         .await
         .unwrap();
+    assert_eq!(
+        client
+            .docker_discovery()
+            .get_endpoint(GetDockerEndpointRequest {})
+            .await
+            .unwrap()
+            .into_inner()
+            .docker_host,
+        "unix:///fixture/docker.sock"
+    );
 }
 
 #[tokio::test]

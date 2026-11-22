@@ -37,12 +37,20 @@ process-local history, evicting completed requests before admitting new ones.
 Retry an interrupted request with the same UUID and payload. Reusing a cached
 UUID with a different operation or payload fails with `ALREADY_EXISTS`.
 
+Host API minor 3 adds settings reset. Send `PrepareSettingsReset`, obtain user
+confirmation, then send `ResetSettings` with that token and a separate request
+UUID. The token is scoped to the current configuration state.
+
 `Events.Subscribe` emits a snapshot before live updates on each connection.
 The daemon takes that snapshot at an event cursor and then emits events after
 that cursor in order. Sequence numbers are scoped to the stream ID of the
 daemon process. If a subscriber falls behind the bounded buffer, the daemon
 ends the stream with `RESOURCE_EXHAUSTED`. Clients replace their view with the
 new snapshot on reconnect.
+Host minor 2 introduces `DockerDiscovery.GetEndpoint` and
+`DockerDiscovery.EnsureContext`. Registration is explicit, and the request has
+no shell command, executable path, or context selection fields.
+
 The API design and service table live in the daemon design.
 [Host typed API](../../docs/03-host-daemon.md#typed-api)
 
@@ -153,3 +161,5 @@ record before retaining the facts, and abandons a connection that does
 not respond within its deadline. The guest reads the configured upstream
 interface and its default route from the kernel. The record describes
 guest state and is independent of the guest control session.
+
+Host API minor 3 adds the explicit `DockerDiscovery.EnableRegistryKeychain` mutation. The RPC accepts no credentials and returns only whether it added the setting.
