@@ -698,8 +698,10 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "clap_complete",
+ "getrandom 0.4.3",
  "marsa-client",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -875,6 +877,7 @@ dependencies = [
  "tar",
  "tempfile",
  "thiserror",
+ "time",
  "tokio",
  "tokio-stream",
  "tonic",
