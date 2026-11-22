@@ -2,6 +2,9 @@
 
 #![cfg(unix)]
 
+#[path = "typed_api/agent_approvals.rs"]
+mod agent_approvals;
+
 use std::{io, sync::Arc, time::Duration};
 
 use hyper_util::rt::TokioIo;
@@ -40,6 +43,18 @@ use tonic::{
 use tower::service_fn;
 
 const WAIT: Duration = Duration::from_secs(3);
+
+#[tokio::test]
+async fn local_owner_can_read_the_pending_agent_approval_snapshot() {
+    use marsa_proto::host::v1::{ListPendingApprovalsRequest, agents_client::AgentsClient};
+
+    let fixture = Fixture::new(vec![]).await;
+    let mut agents = AgentsClient::new(fixture.channel.clone());
+    let result = agents
+        .list_pending_approvals(ListPendingApprovalsRequest {})
+        .await;
+    assert!(result.unwrap().into_inner().approvals.is_empty());
+}
 
 #[tokio::test]
 async fn restart_has_one_activation_and_lifecycle_events_follow_the_same_cursor() {
@@ -595,11 +610,25 @@ struct Fixture {
 
 impl Fixture {
     async fn new(steps: Vec<AgentStep>) -> Self {
-        Self::with_network_info(steps, None).await
+        Self::with_scenario(steps, Vec::new(), None).await
+    }
+
+    async fn with_docker(steps: Vec<AgentStep>, docker: Vec<AgentStep>) -> Self {
+        Self::with_scenario(steps, docker, None).await
     }
 
     async fn with_network_info(steps: Vec<AgentStep>, info: Option<NetworkInfo>) -> Self {
-        let mut scenario = FakeScenario::default().with_agent(5000, steps);
+        Self::with_scenario(steps, Vec::new(), info).await
+    }
+
+    async fn with_scenario(
+        steps: Vec<AgentStep>,
+        docker: Vec<AgentStep>,
+        info: Option<NetworkInfo>,
+    ) -> Self {
+        let mut scenario = FakeScenario::default()
+            .with_agent(5000, steps)
+            .with_agent(marsa_proto::guest::DOCKER_API_PORT, docker);
         if let Some(info) = info {
             scenario = scenario.with_network_info(info);
         }

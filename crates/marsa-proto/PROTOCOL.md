@@ -51,6 +51,10 @@ guest, restores settings defaults, clears grants and installs a fresh sparse
 data disk. An interrupted transaction is resolved before the daemon serves
 either socket.
 
+Host API minor 6 adds the separate owner Agents service and capability-scoped
+AgentOps endpoint. They negotiate through the daemon and keep owner approval
+authentication separate from delegated agent sessions.
+
 `Events.Subscribe` emits a snapshot before live updates on each connection.
 The daemon takes that snapshot at an event cursor and then emits events after
 that cursor in order. Sequence numbers are scoped to the stream ID of the

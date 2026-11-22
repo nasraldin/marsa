@@ -197,7 +197,7 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 | `Disk` | `Usage`, `Reclaim`, `PrunePreview` |
 | `Updates` | `Check`, `Download`, `Apply`, `Status` |
 | `Diagnostics` | `Collect` (returns a bundle path), `Logs` (stream) |
-| `Agents` | `ListPendingApprovals`, `Approve`, `Deny`, `ListGrants`, `RevokeGrant` (see [10 MCP](10-mcp-server.md)) |
+| `Agents` | `OpenSession`, `ListPendingApprovals`, `Approve`, `Deny`, `ListGrants`, `RevokeGrant` (see [10 MCP](10-mcp-server.md)) |
 | `AgentOps` | Engine operations performed on behalf of MCP clients. Every call names the client, passes through the policy engine and is written to the audit log. `marsad` executes the operation against dockerd itself; the MCP server never touches the Docker socket |
 | `Meta` | `Version`, `Capabilities` |
 
@@ -242,6 +242,15 @@ peer UID, then calls `Meta.Version` before exposing the typed service
 clients. The connection reports the API minor revision supported by both
 sides. To retry another RPC after a disconnect, open a fresh connection and
 keep the original request ID and payload for interrupted mutations.
+
+The private `agent.sock` serves only `AgentOps`. Its clients authenticate
+with a short-lived capability from `Agents.OpenSession` on `marsad.sock`.
+The daemon selects the principal and project from that session. Delegated
+execution initially exposes engine status. The owner approval queue retains
+immutable request details for providers that support an identity-bound mutation. The owner socket
+authenticates the trusted local account through Unix peer credentials.
+Agent tokens do not authorize owner approval RPCs. The [approval design](10-mcp-server.md#approval-flow)
+describes the trust boundary and available operations.
 
 The event subscription reconnects and checks the API version again. It
 delivers a replacement snapshot when the stream identity changes or a
@@ -369,6 +378,7 @@ The archive includes build and protocol versions, selected settings, engine stat
 ~/.marsa/
 ├── config.toml
 ├── run/
+│   ├── agent.sock          # delegated agent RPCs
 │   ├── marsad.sock          # typed API
 │   ├── docker.sock          # Docker Engine API
 │   ├── marsad.pid

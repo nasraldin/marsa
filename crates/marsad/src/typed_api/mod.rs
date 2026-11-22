@@ -1,5 +1,6 @@
 //! Serve typed host APIs from one state and a composable VM supervisor.
 
+mod agents;
 mod bind_policy;
 mod bind_prompts;
 mod diagnostics;
@@ -26,6 +27,7 @@ use marsa_core::{
 };
 use marsa_proto::host::v1::{
     CollectDiagnosticsResponse, ComponentVersion, EnsureDockerContextResponse,
+    agent_ops_server::AgentOpsServer, agents_server::AgentsServer,
     diagnostics_server::DiagnosticsServer, disk_server::DiskServer,
     docker_discovery_server::DockerDiscoveryServer, engine_server::EngineServer,
     events_server::EventsServer, meta_server::MetaServer, network_server::NetworkServer,
@@ -68,6 +70,7 @@ struct Shared {
     paths: MarsaPaths,
     uid: u32,
     events: events::Bus,
+    agents: agents::State,
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
     proxy_requests: requests::Cache<
         marsa_proto::host::v1::ActivateProxyRequest,
@@ -104,6 +107,7 @@ impl TypedApi {
         let (closing, _) = watch::channel(false);
         Ok(Self {
             inner: Arc::new(Shared {
+                agents: agents::State::new(),
                 grants: GrantStore::new(paths.clone(), uid),
                 paths,
                 uid,
@@ -298,6 +302,11 @@ impl TypedApi {
                     .max_encoding_message_size(CONFIG_LIMIT),
             )
             .add_service(
+                AgentsServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT * 2)
+                    .max_encoding_message_size(CONFIG_LIMIT),
+            )
+            .add_service(
                 DockerDiscoveryServer::new(self.clone())
                     .max_decoding_message_size(CONTROL_LIMIT)
                     .max_encoding_message_size(CONTROL_LIMIT),
@@ -314,6 +323,24 @@ impl TypedApi {
                 {
                     tracing::warn!(%error, "engine shutdown failed");
                 }
+            })
+            .await
+    }
+
+    /// Serve delegated agent operations on a separate owner-protected Unix socket.
+    pub async fn serve_agents(
+        &self,
+        listener: UnixListener,
+    ) -> Result<(), tonic::transport::Error> {
+        let mut closing = self.inner.closing.subscribe();
+        Server::builder()
+            .add_service(
+                AgentOpsServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT * 3)
+                    .max_encoding_message_size(CONTROL_LIMIT),
+            )
+            .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
+                let _ = closing.wait_for(|closing| *closing).await;
             })
             .await
     }
