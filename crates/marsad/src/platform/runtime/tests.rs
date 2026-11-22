@@ -93,7 +93,7 @@ fn configured_shares_require_the_protected_path_allowlist() {
 }
 
 #[test]
-fn custom_dns_and_proxy_settings_require_the_guest_network_policy() {
+fn packaged_runtime_rejects_custom_dns_and_proxy_outside_approved_scope() {
     let (home, paths, uid) = private_state();
     let package = Packaged {
         bundle: home.path().join("Marsa.app"),
@@ -102,7 +102,8 @@ fn custom_dns_and_proxy_settings_require_the_guest_network_policy() {
         "[network]\ndns = ['192.0.2.53']",
         "[network.proxy]\nhttp = 'http://proxy.invalid'",
         "[network.proxy]\nhttps = 'https://proxy.invalid'",
-        "[network.proxy]\ninject_into_containers = true",
+        "[network]\nmode = 'nat'\n[network.proxy]\nhttp = 'http://proxy.invalid'",
+        "[network]\nmode = 'userspace'\n[network.proxy]\ninject_into_containers = true",
     ] {
         let settings = Settings::from_toml(configuration).unwrap();
         let error = package.prepare(&paths, uid, &settings).err().unwrap();
