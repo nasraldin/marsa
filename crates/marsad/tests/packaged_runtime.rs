@@ -400,3 +400,6 @@ async fn packaged_docker_socket_preserves_cli_streams_and_bounded_memory() {
 
 #[path = "packaged_runtime/on_demand.rs"]
 mod on_demand;
+
+#[path = "packaged_runtime/fallback_dns.rs"]
+mod fallback_dns;
