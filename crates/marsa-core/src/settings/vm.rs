@@ -88,6 +88,8 @@ pub struct DiskSettings {
     pub data_size_limit: u64,
     /// Automatically reclaim unused blocks where the backend supports it.
     pub auto_reclaim: bool,
+    /// Exclude the raw image from Time Machine backups on macOS.
+    pub exclude_from_backup: bool,
 }
 
 impl Default for DiskSettings {
@@ -95,6 +97,7 @@ impl Default for DiskSettings {
         Self {
             data_size_limit: 64 * GIB,
             auto_reclaim: true,
+            exclude_from_backup: true,
         }
     }
 }

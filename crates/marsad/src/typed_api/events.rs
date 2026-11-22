@@ -139,6 +139,16 @@ impl Bus {
         }
     }
 
+    pub(super) fn disk_sample(&self) -> Option<VmStatsSample> {
+        let state = self.lock();
+        matches!(
+            state.engine.state(),
+            marsa_proto::host::v1::EngineState::Ready | marsa_proto::host::v1::EngineState::Idle
+        )
+        .then_some(state.stats)
+        .flatten()
+    }
+
     pub(super) fn settings(&self) -> (Settings, SettingsSnapshot) {
         let state = self.lock();
         (state.settings.clone(), state.settings_snapshot.clone())
@@ -366,6 +376,7 @@ fn restart_changed(applied: &Settings, desired: &Settings) -> bool {
         || applied.vm.backend != desired.vm.backend
         || applied.vm.memory != desired.vm.memory
         || applied.disk.data_size_limit != desired.disk.data_size_limit
+        || applied.disk.exclude_from_backup != desired.disk.exclude_from_backup
         || applied.shares != desired.shares
         || applied.network != desired.network
 }

@@ -1,0 +1,6 @@
+schema_version = 1
+shares = ["/Users/example/Workspace"]
+
+[ui]
+language = "ar"
+theme = "dark"
