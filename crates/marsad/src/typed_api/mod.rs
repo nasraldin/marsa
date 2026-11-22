@@ -11,6 +11,7 @@ mod events;
 mod factory_reset;
 mod meta;
 mod network;
+mod proxy_activation;
 mod proxy_policy;
 mod requests;
 mod reset;
@@ -62,6 +63,7 @@ pub struct TypedApi {
     components: Arc<[ComponentVersion]>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
     verify_keychain: Option<docker_discovery::VerifyKeychain>,
+    proxy: Option<Arc<proxy_policy::RuntimeProxy>>,
 }
 
 struct Shared {
@@ -70,6 +72,11 @@ struct Shared {
     events: events::Bus,
     agents: agents::State,
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
+    proxy_requests: requests::Cache<
+        marsa_proto::host::v1::ActivateProxyRequest,
+        marsa_proto::host::v1::ProxyActivationResult,
+    >,
+    proxy_approval: std::sync::Mutex<Option<proxy_activation::Approval>>,
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
     settings_reset: reset::SettingsReset,
@@ -105,6 +112,8 @@ impl TypedApi {
                 uid,
                 events: events::Bus::new(settings)?,
                 engine_requests: requests::Cache::new(),
+                proxy_requests: requests::Cache::new(),
+                proxy_approval: std::sync::Mutex::new(None),
                 settings_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
                 settings_reset: reset::SettingsReset::new(),
@@ -124,6 +133,7 @@ impl TypedApi {
             components: Arc::default(),
             docker_contexts: None,
             verify_keychain: None,
+            proxy: None,
         })
     }
 
@@ -161,9 +171,36 @@ impl TypedApi {
     /// The factory runs on a blocking worker at every cold activation. It sees
     /// one settings snapshot for the whole attempt, including network fallback.
     pub async fn with_packaged_runtime(
-        mut self,
+        self,
         capabilities: Capabilities,
         control: GuestControl,
+        config: SupervisorConfig,
+        prepare: impl Fn(&Settings, &SharePolicy) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)>
+        + Send
+        + Sync
+        + 'static,
+    ) -> io::Result<Self> {
+        let observations = self.inner.events.clone();
+        let control = Arc::new(
+            control
+                .observe_active(move |event| match event {
+                    GuestEvent::Health(health) => engine::publish_health(&observations, health),
+                    GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
+                    GuestEvent::Port(_) => (),
+                })
+                .authorize_binds(bind_policy::Policy::new(
+                    self.inner.events.clone(),
+                    self.inner.share_policy.clone(),
+                )),
+        );
+        self.with_packaged_probe(capabilities, control, config, prepare)
+            .await
+    }
+
+    async fn with_packaged_probe(
+        mut self,
+        capabilities: Capabilities,
+        control: Arc<dyn GuestProbe>,
         config: SupervisorConfig,
         prepare: impl Fn(&Settings, &SharePolicy) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)>
         + Send
@@ -180,11 +217,13 @@ impl TypedApi {
         self.capabilities = Some(capabilities);
         let (desired, _) = events.settings();
         events.runtime_applied(&proxy.effective(desired));
+        let proxy = Arc::new(proxy_policy::RuntimeProxy::new(proxy));
+        self.proxy = Some(proxy.clone());
         let settings = events.clone();
         let share_policy = self.inner.share_policy.clone();
         let preparation = Arc::new(move || {
             let (desired, once) = settings.boot_configuration();
-            let effective = proxy.effective(desired);
+            let (effective, reserved) = proxy.launch_settings(desired)?;
             let mut startup = effective.clone();
             startup.shares.extend(once.iter().cloned());
             let (backend, mut spec) = prepare(&startup, &share_policy)?;
@@ -196,31 +235,22 @@ impl TypedApi {
                 .map_err(io::Error::other)?,
             );
             let automatic = select_network(&effective, &mut spec, backend.capabilities());
+            let network_policy = proxy_policy::BootProxy::from_draft(&effective.network.proxy)?
+                .guest_configuration();
             let bus = settings.clone();
             Ok(Launch {
                 backend,
                 spec,
                 selection: Selection::new(automatic),
-                network_policy: proxy.guest_configuration(),
+                network_policy,
                 applied: Some(Arc::new(move || {
-                    bus.runtime_applied(&effective);
+                    if !reserved {
+                        bus.runtime_applied(&effective);
+                    }
                     bus.activate_binds(mounted.clone(), &once);
                 })),
             })
         });
-        let observations = self.inner.events.clone();
-        let control = Arc::new(
-            control
-                .observe_active(move |event| match event {
-                    GuestEvent::Health(health) => engine::publish_health(&observations, health),
-                    GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
-                    GuestEvent::Port(_) => (),
-                })
-                .authorize_binds(bind_policy::Policy::new(
-                    self.inner.events.clone(),
-                    self.inner.share_policy.clone(),
-                )),
-        );
         let supervisor = Supervisor::spawn_packaged(
             preparation,
             self.inner.paths.console_log(),

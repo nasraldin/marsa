@@ -236,6 +236,9 @@ impl TypedApi {
                 return Err(recovery_required());
             }
         }
+        if let Some(proxy) = &self.proxy {
+            proxy.replace_approved(super::proxy_policy::BootProxy::default());
+        }
         let idle_applied = if let Some(supervisor) = &self.supervisor {
             supervisor
                 .set_idle_policy(

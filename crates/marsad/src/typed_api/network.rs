@@ -1,8 +1,9 @@
 //! Expose the chosen guest attachment and its observed network facts.
 
 use marsa_proto::host::v1::{
-    ListForwardedPortsRequest, ListForwardedPortsResponse, NetworkStatus, NetworkStatusRequest,
-    SetNetworkModeRequest, network_server::Network,
+    ActivateProxyRequest, ListForwardedPortsRequest, ListForwardedPortsResponse, NetworkStatus,
+    NetworkStatusRequest, PrepareProxyActivationRequest, ProxyActivationPreview,
+    ProxyActivationResult, SetNetworkModeRequest, network_server::Network,
 };
 use tonic::{Request, Response, Status};
 
@@ -38,6 +39,32 @@ impl Network for TypedApi {
             },
         };
         Ok(Response::new(status))
+    }
+
+    async fn prepare_proxy_activation(
+        &self,
+        request: Request<PrepareProxyActivationRequest>,
+    ) -> Result<Response<ProxyActivationPreview>, Status> {
+        let request = self.authorize(request)?;
+        self.preview_proxy(request.expected_settings_revision)
+            .await
+            .map(Response::new)
+    }
+
+    async fn activate_proxy(
+        &self,
+        request: Request<ActivateProxyRequest>,
+    ) -> Result<Response<ProxyActivationResult>, Status> {
+        let request = self.authorize(request)?;
+        let api = self.clone();
+        let request_id = request.request_id.clone();
+        self.inner
+            .proxy_requests
+            .run(&request_id, request.clone(), move || async move {
+                api.apply_proxy(request).await
+            })
+            .await
+            .map(Response::new)
     }
 
     async fn set_mode(

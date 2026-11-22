@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 pub(super) mod storage;
 
-use marsa_core::settings::Settings as Document;
+use marsa_core::settings::{NetworkMode, Settings as Document};
 use marsa_proto::host::v1::{
     GetSettingsRequest, SettingsSnapshot, UpdateSettingsRequest, WatchSettingsRequest,
     settings_server::Settings,
@@ -128,9 +128,18 @@ impl TypedApi {
         let root = self.inner.paths.root().to_owned();
         let uid = self.inner.uid;
         let policy = self.inner.share_policy.clone();
+        let proxy = self.proxy.clone();
         let (updated, result) = tokio::task::spawn_blocking(move || {
             let mut settings = prior.clone();
             let result = edit(&mut settings, &policy)?;
+            if prior.network.mode != settings.network.mode
+                && settings.network.mode != NetworkMode::Userspace
+                && proxy.is_some_and(|runtime| runtime.has_approved_proxy())
+            {
+                return Err(Status::failed_precondition(
+                    "disable the approved daemon proxy before changing network mode",
+                ));
+            }
             if prior == settings && prepared.is_none() {
                 return Ok((None, result));
             }

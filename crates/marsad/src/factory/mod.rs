@@ -22,15 +22,22 @@ const ACTIVE: &str = ".factory-reset";
 const FINISHED: &str = ".factory-reset-finished";
 const MANIFEST: &str = "manifest.json";
 const COMMITTED: &str = "committed";
+pub(crate) const PROXY_POLICY_FILENAME: &str = "daemon-proxy.json";
 
 #[derive(Clone, Copy)]
 enum Member {
     Config,
     Disk,
     Grants,
+    ProxyPolicy,
 }
 
-const MEMBERS: [Member; 3] = [Member::Config, Member::Disk, Member::Grants];
+const MEMBERS: [Member; 4] = [
+    Member::Config,
+    Member::Disk,
+    Member::Grants,
+    Member::ProxyPolicy,
+];
 
 impl Member {
     fn names(self) -> (&'static str, &'static str, &'static str) {
@@ -38,6 +45,11 @@ impl Member {
             Self::Config => ("config.toml", "old-config", "new-config"),
             Self::Disk => ("data.img", "old-disk", "new-disk"),
             Self::Grants => ("grants.json", "old-grants", "new-grants"),
+            Self::ProxyPolicy => (
+                PROXY_POLICY_FILENAME,
+                "old-proxy-policy",
+                "new-proxy-policy",
+            ),
         }
     }
 }
@@ -63,7 +75,7 @@ impl Layout {
         match member {
             Member::Config => &self.root,
             Member::Disk => &self.vm,
-            Member::Grants => &self.state,
+            Member::Grants | Member::ProxyPolicy => &self.state,
         }
     }
 
@@ -126,7 +138,7 @@ struct Captured {
 pub(crate) struct Prepared {
     _layout: Layout,
     directories: [Inode; 3],
-    original: [Option<Captured>; 3],
+    original: [Option<Captured>; MEMBERS.len()],
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -141,7 +153,7 @@ struct Record {
 struct Journal {
     version: u16,
     directories: [Inode; 3],
-    members: [Record; 3],
+    members: Vec<Record>,
 }
 
 #[derive(Debug)]
@@ -154,7 +166,7 @@ impl Prepared {
     pub(crate) fn capture(paths: &MarsaPaths, uid: u32) -> io::Result<Self> {
         let layout = Layout::open(paths, uid)?;
         let directories = layout.inodes()?;
-        let mut original = [None, None, None];
+        let mut original = std::array::from_fn(|_| None);
         for (index, member) in MEMBERS.into_iter().enumerate() {
             if let Some(file) = layout.open_member(member)? {
                 original[index] = Some(Captured {
@@ -228,16 +240,19 @@ impl Prepared {
             config.write_all(document.as_bytes())?;
             config.sync_all()?;
             let config = Some(Inode::identify(&config.metadata()?)?);
-            let replacement = [config, disk, None];
+            let replacement = [config, disk, None, None];
             let journal = Journal {
-                version: 1,
+                version: 2,
                 directories: self.directories,
-                members: std::array::from_fn(|index| Record {
-                    prior: self.original[index]
-                        .as_ref()
-                        .map(|captured| captured.stamp.inode),
-                    replacement: replacement[index],
-                }),
+                members: self
+                    .original
+                    .iter()
+                    .zip(replacement)
+                    .map(|(prior, replacement)| Record {
+                        prior: prior.as_ref().map(|captured| captured.stamp.inode),
+                        replacement,
+                    })
+                    .collect(),
             };
             let mut manifest = directory.create_file(MANIFEST)?;
             serde_json::to_writer(&mut manifest, &journal)?;
@@ -269,7 +284,7 @@ impl Prepared {
 
         checkpoint();
         let operations = (|| {
-            for (member, record) in MEMBERS.into_iter().zip(journal.members) {
+            for (member, record) in MEMBERS.into_iter().zip(&journal.members) {
                 let live = layout.directory(member);
                 let (name, backup, stage) = member.names();
                 if let Some(prior) = record.prior {
@@ -328,7 +343,7 @@ impl Prepared {
     }
 
     fn live_replacement(&self, layout: &Layout, journal: &Journal) -> io::Result<bool> {
-        for (member, record) in MEMBERS.into_iter().zip(journal.members) {
+        for (member, record) in MEMBERS.into_iter().zip(&journal.members) {
             if layout.directory(member).entry_inode(member.names().0)? != record.replacement {
                 return Ok(false);
             }
