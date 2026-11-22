@@ -96,6 +96,18 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
   - A request from `docker run -v` can be reviewed and granted from a separate terminal, and the mount works after explicit application.
   - An expired or mismatched approval has no effect on the configured shares.
 
+### M5-10 Settings and shared-folder CLI commands
+
+- **Status:** done
+- **Depends on:** M5-02, M4-05
+- **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
+- **Do:** Implement `config get|set|list` and `share list|add|remove` through the authenticated typed client. Use the current revision for settings updates and expose the daemon's validation and restart results.
+- **Deliver:** command implementations and tests in English, Arabic, and JSON.
+- **Accept when:**
+  - The daemon's validation message explains an invalid setting.
+  - Adding a protected path fails safely with an explanation.
+  - The owner can list, add and remove an ordinary folder without changing other settings.
+
 ### M5-11 Report active networking from the CLI
 
 - **Status:** done
