@@ -17,18 +17,13 @@ use nix::{
 
 use super::{Snapshot, summaries, versions};
 
-const MAX_LOG_BYTES: u64 = 256 * 1024;
+pub(super) const MAX_LOG_BYTES: u64 = 256 * 1024;
 const DIRECTORY_FLAGS: OFlag = OFlag::O_DIRECTORY.union(OFlag::O_NOFOLLOW);
 const FILE_FLAGS: OFlag = OFlag::O_NOFOLLOW.union(OFlag::O_NONBLOCK);
 const REVIEW: &str = "Review this archive before sharing it. Marsa saves it locally.\nراجع هذا الأرشيف قبل مشاركته. يحفظه Marsa محليًا.\n";
 
 pub(super) fn collect(paths: &MarsaPaths, uid: u32, snapshot: Snapshot) -> io::Result<String> {
-    let root = OpenOptions::new()
-        .read(true)
-        .custom_flags(DIRECTORY_FLAGS.bits())
-        .open(paths.root())
-        .map_err(private_directory_error)?;
-    require_directory(&root.metadata()?, uid)?;
+    let root = private_root(paths, uid)?;
     let output = paths.diagnostics_dir();
     // Check that the RPC can return the path before creating anything.
     output
@@ -123,6 +118,10 @@ fn entry(tar: &mut tar::Builder<&mut File>, name: &str, data: &[u8]) -> io::Resu
 }
 
 fn daemon_tail(root: &File, paths: &MarsaPaths, uid: u32) -> io::Result<Vec<u8>> {
+    tail_file(daemon_file(root, paths, uid)?)
+}
+
+fn daemon_file(root: &File, paths: &MarsaPaths, uid: u32) -> io::Result<File> {
     let path = paths.logs_dir();
     let directory = directory_in(root, name(&path)?, uid)?;
     let target = readlinkat(&directory, name(&paths.daemon_log())?)?;
@@ -133,22 +132,44 @@ fn daemon_tail(root: &File, paths: &MarsaPaths, uid: u32) -> io::Result<Vec<u8>>
     {
         return Err(io::ErrorKind::PermissionDenied.into());
     }
-    tail(&directory, target_name, uid)
+    private_file(&directory, target_name, uid)
 }
 
 fn console_tail(root: &File, paths: &MarsaPaths, uid: u32) -> io::Result<Vec<u8>> {
-    let directory = directory_in(root, name(&paths.vm_dir())?, uid)?;
-    tail(&directory, name(&paths.console_log())?, uid)
+    tail_file(console_file(root, paths, uid)?)
 }
 
-fn tail(directory: &File, name: &str, uid: u32) -> io::Result<Vec<u8>> {
+fn console_file(root: &File, paths: &MarsaPaths, uid: u32) -> io::Result<File> {
+    let directory = directory_in(root, name(&paths.vm_dir())?, uid)?;
+    private_file(&directory, name(&paths.console_log())?, uid)
+}
+
+pub(super) fn log_files(paths: &MarsaPaths, uid: u32) -> io::Result<[io::Result<File>; 2]> {
+    let root = private_root(paths, uid)?;
+    Ok([
+        daemon_file(&root, paths, uid),
+        console_file(&root, paths, uid),
+    ])
+}
+
+fn private_root(paths: &MarsaPaths, uid: u32) -> io::Result<File> {
+    let root = OpenOptions::new()
+        .read(true)
+        .custom_flags(DIRECTORY_FLAGS.bits())
+        .open(paths.root())
+        .map_err(private_directory_error)?;
+    require_directory(&root.metadata()?, uid)?;
+    Ok(root)
+}
+
+fn private_file(directory: &File, name: &str, uid: u32) -> io::Result<File> {
     let file = openat(
         directory,
         name,
         FILE_FLAGS | OFlag::O_CLOEXEC,
         Mode::empty(),
     )?;
-    let mut file = File::from(file);
+    let file = File::from(file);
     let metadata = file.metadata()?;
     if !metadata.is_file()
         || metadata.mode() & 0o7777 != 0o600
@@ -157,7 +178,11 @@ fn tail(directory: &File, name: &str, uid: u32) -> io::Result<Vec<u8>> {
     {
         return Err(io::ErrorKind::PermissionDenied.into());
     }
-    let offset = metadata.len().saturating_sub(MAX_LOG_BYTES);
+    Ok(file)
+}
+
+fn tail_file(mut file: File) -> io::Result<Vec<u8>> {
+    let offset = file.metadata()?.len().saturating_sub(MAX_LOG_BYTES);
     file.seek(SeekFrom::Start(offset))?;
     let mut data = Vec::new();
     file.take(MAX_LOG_BYTES).read_to_end(&mut data)?;
@@ -259,7 +284,8 @@ mod tests {
         fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
         let fd = File::open(directory.path()).unwrap();
         assert_eq!(
-            tail(&fd, "console.log", nix::unistd::geteuid().as_raw()).unwrap(),
+            tail_file(private_file(&fd, "console.log", nix::unistd::geteuid().as_raw()).unwrap())
+                .unwrap(),
             b"last record\n"
         );
     }

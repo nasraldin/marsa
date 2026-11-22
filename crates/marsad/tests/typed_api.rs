@@ -731,6 +731,98 @@ async fn next_state(
     }
 }
 
+#[tokio::test]
+async fn follows_classified_logs_across_append_and_rotation() {
+    use marsa_proto::host::v1::{LogsRequest, diagnostics_client::DiagnosticsClient};
+    use std::{
+        fs,
+        io::Write,
+        os::unix::fs::{PermissionsExt, symlink},
+    };
+
+    let fixture = Fixture::new(vec![]).await;
+    let paths = MarsaPaths::from_home(fixture.home.path()).unwrap();
+    for path in [paths.root().to_owned(), paths.logs_dir(), paths.vm_dir()] {
+        match fs::create_dir(&path) {
+            Ok(()) => (),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(error) => panic!("{error}"),
+        }
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let first = paths.logs_dir().join("marsad.2026-11-22.jsonl");
+    let next = paths.logs_dir().join("marsad.2026-11-23.jsonl");
+    const FIRST: &str = "{\"timestamp\":\"2026-11-22T00:00:00.123Z\",\"level\":\"INFO\",\"fields\":{\"message\":\"daemon started\",\"token\":\"opaque_daemon_secret\"}}\n";
+    const SECOND: &str =
+        "{\"level\":\"INFO\",\"fields\":{\"message\":\"daemon shutdown requested\"}}\n";
+    const ROTATED: &str = "{\"level\":\"INFO\",\"fields\":{\"message\":\"daemon stopped\"}}\n";
+    for (path, text) in [
+        (first.as_path(), FIRST),
+        (
+            paths.console_log().as_path(),
+            "[    0.00000] Kernel command line: opaque_guest_secret\n",
+        ),
+    ] {
+        fs::write(path, text).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    symlink(&first, paths.daemon_log()).unwrap();
+    let mut client = DiagnosticsClient::new(fixture.channel.clone());
+    let mut tail = client
+        .logs(LogsRequest {
+            follow: false,
+            tail_lines: 2,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let daemon = next_log(&mut tail).await;
+    assert_eq!(
+        (daemon.component.as_str(), daemon.message.as_str()),
+        ("daemon", "daemon_started")
+    );
+    assert_eq!(daemon.at_unix_millis, 1795305600123);
+    let guest = next_log(&mut tail).await;
+    assert_eq!(
+        (guest.component.as_str(), guest.message.as_str()),
+        ("guest", "kernel_command_line_redacted")
+    );
+    assert!(tail.message().await.unwrap().is_none());
+
+    let mut follow = client
+        .logs(LogsRequest {
+            follow: true,
+            tail_lines: 2,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(next_log(&mut follow).await, daemon);
+    assert_eq!(next_log(&mut follow).await, guest);
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&first)
+        .unwrap()
+        .write_all(SECOND.as_bytes())
+        .unwrap();
+    assert_eq!(next_log(&mut follow).await.message, "shutdown_requested");
+    fs::write(&next, ROTATED).unwrap();
+    fs::set_permissions(&next, fs::Permissions::from_mode(0o600)).unwrap();
+    let replacement = paths.logs_dir().join(".current-log");
+    symlink(&next, &replacement).unwrap();
+    fs::rename(&replacement, paths.daemon_log()).unwrap();
+    assert_eq!(next_log(&mut follow).await.message, "daemon_stopped");
+}
+
+async fn next_log(
+    stream: &mut Streaming<marsa_proto::host::v1::LogEntry>,
+) -> marsa_proto::host::v1::LogEntry {
+    timeout(WAIT, stream.message())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+}
 #[path = "typed_api/settings_reset.rs"]
 mod settings_reset;
 

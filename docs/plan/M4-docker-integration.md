@@ -107,9 +107,9 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-09 Port forwarder
 
 - **Status:** todo
-- **Depends on:** M4-08, M2-08
-- **Docs:** [06 Published ports](../06-networking.md#published-ports), V-08, Q-07
-- **Do:** Implement `marsa-net`'s forwarder for TCP and UDP driven by agent port events: bind on loopback by default (LAN exposure behind a setting), IPv4 and IPv6 loopback, conflict detection with a clear error, teardown on close. Verify unprivileged binding of low ports on current macOS (V-08).
+- **Depends on:** M4-08, M2-08, M4-23
+- **Docs:** [06 Published ports](../06-networking.md#published-ports), Q-07
+- **Do:** Implement `marsa-net`'s forwarder for TCP and UDP driven by agent port events: bind on loopback by default (LAN exposure behind a setting), IPv4 and IPv6 loopback, conflict detection with a clear error, teardown on close. Report denied host binds with the affected address and port.
 - **Deliver:** `crates/marsa-net` forwarder, `Network.ListForwardedPorts`.
 - **Accept when:**
   - `docker run -p 8080:80 nginx` is reachable at `localhost:8080` over IPv4 and IPv6.
@@ -274,3 +274,14 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - Draft edits persist without interrupting workloads, and ordinary boot/retry never activates an unapproved draft.
   - The user sees the potential impact before granting approval. Stale approvals and racing starts or connects cannot apply or use a candidate out of order.
   - A failed candidate leaves the draft pending, reports failure, and restores the last working configuration on the same data disk. Cancellation and daemon recovery preserve the last working policy.
+
+### M4-23 Verify unprivileged macOS loopback binds
+
+- **Status:** done
+- **Depends on:** M0-01
+- **Docs:** [06 Published ports](../06-networking.md#published-ports), V-08
+- **Do:** Check standard-user IPv4 and IPv6 loopback binds below 1024 with a control at 1024, for both TCP and UDP. Record the result and the port forwarder’s expected behavior when macOS denies a bind.
+- **Deliver:** verified port privilege behavior in the networking design and verification ledger.
+- **Accept when:**
+  - The documented experiment records the macOS version, address families, transports, and OS errors.
+  - No host privilege, LAN listener, or system setting is required.

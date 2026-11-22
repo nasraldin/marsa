@@ -24,14 +24,26 @@ The Apple silicon dependency audit of GPUI Kit and gpui-component 0.10.0 with GP
 ### M6-02 Design tokens, themes and fonts
 
 - **Status:** todo
-- **Depends on:** M6-01
-- **Docs:** [08 Design tokens](../08-gui.md#design-tokens), [08 Themes](../08-gui.md#themes), V-16
-- **Do:** Define semantic tokens for colour, typography, spacing, radius, elevation and motion, each with light and dark values. Implement live theme switching and following the system appearance. Verify font licences (V-16) and bundle the Latin, Arabic and monospace faces. Add a contrast test for text and status colours in both themes.
-- **Deliver:** token definitions and theme provider in `marsa-ui`, bundled fonts with licences, an updated V-16 entry.
+- **Depends on:** M6-01, M6-13
+- **Docs:** [08 Design tokens](../08-gui.md#design-tokens), [08 Themes](../08-gui.md#themes)
+- **Do:** Define semantic tokens for colour, typography, spacing, radius, elevation and motion, each with light and dark values. Implement live theme switching and following the system appearance. Register and use the verified bundled font assets from M6-13. Add a contrast test for text and status colours in both themes.
+- **Deliver:** token definitions and theme provider and font registration in `marsa-ui`.
 - **Accept when:**
   - Switching the system appearance changes the app live when the setting is `system`.
   - The contrast test passes WCAG AA for every text and status token pair.
   - No colour literal exists outside the token definitions (lint or test).
+
+### M6-13 Qualify and stage the Figma typography assets
+
+- **Status:** done
+- **Depends on:** M0-01
+- **Docs:** [08 Design tokens](../08-gui.md#design-tokens), V-16
+- **Do:** Identify the fonts and weights from the Figma Foundations styles. Verify their redistribution licences and exact released native font files. Stage the files and provenance independently of GPUI registration.
+- **Deliver:** pinned original native fonts, upstream licence notice, provenance and checksums.
+- **Accept when:**
+  - Each checked-in file matches the pinned upstream release and carries its redistributable licence.
+  - Latin and Arabic styles cover regular, medium and semibold. Monospace covers technical Latin text. Arabic joins in an offline shaping check.
+  - Font registration, application rendering and four-variant visual checks stay in the GUI tasks.
 
 ### M6-03 Direction layer
 
