@@ -68,7 +68,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-06 Attach shares and enforce bind-mount policy
 
 - **Status:** done
-- **Depends on:** M4-05, M4-01, M4-03, M3-16
+- **Depends on:** M4-05, M4-01, M4-03, M3-16, M9-18
 - **Docs:** [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
 - **Do:** Map allowlist entries to virtiofs shares at identical paths. Use the pinned Docker Engine authorization plugin for container-create checks and preserve the byte-transparent host proxy. Authorize each explicit bind source through the bounded VM policy channel. Expose owner approval actions for once, always and deny, with explicit restart on Apple VZ. Preserve the observed ownership behavior. M5-09 and M7-10 present the approvals. M4-19 qualifies the hot-reload workflow.
 - **Deliver:** share attachment, Docker authorization, typed approval events and decisions, and signed file-sharing tests.

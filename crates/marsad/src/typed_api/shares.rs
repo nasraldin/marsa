@@ -20,6 +20,7 @@ impl Shares for TypedApi {
         request: Request<ListSharesRequest>,
     ) -> Result<Response<ListSharesResponse>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         let (settings, _) = self.inner.events.settings();
         let shares = settings
             .shares
@@ -117,6 +118,7 @@ impl Shares for TypedApi {
                 &request.request_id,
                 (request.approval_id.clone(), request.decision),
                 || async move {
+                    let _admission = api.inner.factory_reset.read()?;
                     let _approval = api.inner.bind_edit.lock().await;
                     let approval = api
                         .inner

@@ -24,6 +24,7 @@ impl Settings for TypedApi {
         request: Request<GetSettingsRequest>,
     ) -> Result<Response<SettingsSnapshot>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         Ok(Response::new(self.inner.events.settings_snapshot()))
     }
 
@@ -52,6 +53,7 @@ impl Settings for TypedApi {
         request: Request<WatchSettingsRequest>,
     ) -> Result<Response<Self::WatchStream>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         Ok(Response::new(
             self.inner
                 .events
@@ -110,6 +112,7 @@ impl TypedApi {
         prepared: Option<PreparedConfig>,
         edit: impl FnOnce(&mut Document, &SharePolicy) -> Result<T, Status> + Send + 'static,
     ) -> Result<(SettingsSnapshot, T), Status> {
+        let _admission = self.inner.factory_reset.read()?;
         let _update = self.inner.edit.lock().await;
         let (prior, once) = self.inner.events.boot_configuration();
         let snapshot = self.inner.events.settings_snapshot();

@@ -45,6 +45,7 @@ pub(super) fn run() -> Result<(), DaemonError> {
 
     let uid = uid.as_raw();
     let mut instance = files::Instance::acquire(&paths, uid)?;
+    marsad::factory::recover(&paths, uid)?;
     let settings = files::read_settings(&paths, uid)?;
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     let vm_settings = settings.vm.clone();
@@ -60,6 +61,9 @@ pub(super) fn run() -> Result<(), DaemonError> {
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
         serve(socket, docker, agent, api, uid, signals).await
     });
+    // A canceled RPC may leave a durability worker in spawn_blocking. Keep
+    // the instance lock until the runtime has joined any such worker.
+    drop(runtime);
     let cleanup = instance.cleanup();
     serving?;
     cleanup?;
