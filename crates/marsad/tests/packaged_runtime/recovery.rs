@@ -4,7 +4,8 @@ use std::os::unix::process::ExitStatusExt;
 
 use super::*;
 
-const IMAGE: &str = "docker.io/library/alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf";
+const IMAGE: &str = "marsa-disk-recovery:local";
+const BUSYBOX: &str = "/bin/busybox";
 const VOLUME: &str = "marsa-disk-recovery:/proof";
 const MARKER: &str = "marsa-volume-survived";
 
@@ -34,7 +35,18 @@ async fn packaged_daemon_preserves_volume_and_grows_disk_after_sigkill() {
     assert_eq!(before.host_capacity_bytes, GIB);
     let identity = disk_identity(&paths.data_disk());
     let socket = paths.docker_socket();
-    docker(&socket, &["pull", "--platform", "linux/arm64", IMAGE]).await;
+    let fixture = offline_image(scratch.path());
+    docker(
+        &socket,
+        &[
+            "import",
+            "--platform",
+            "linux/arm64",
+            fixture.to_str().unwrap(),
+            IMAGE,
+        ],
+    )
+    .await;
     docker(
         &socket,
         &[
@@ -45,9 +57,10 @@ async fn packaged_daemon_preserves_volume_and_grows_disk_after_sigkill() {
             "-v",
             VOLUME,
             IMAGE,
+            BUSYBOX,
             "sh",
             "-c",
-            "printf '%s' \"$1\" > /proof/marker && sync",
+            "printf '%s' \"$1\" > /proof/marker && /bin/busybox sync",
             "sh",
             MARKER,
         ],
@@ -63,6 +76,7 @@ async fn packaged_daemon_preserves_volume_and_grows_disk_after_sigkill() {
             "-v",
             VOLUME,
             IMAGE,
+            BUSYBOX,
             "sleep",
             "600",
         ],
@@ -93,16 +107,87 @@ async fn packaged_daemon_preserves_volume_and_grows_disk_after_sigkill() {
             "-v",
             VOLUME,
             IMAGE,
+            BUSYBOX,
             "cat",
             "/proof/marker",
         ],
     )
     .await;
     assert_eq!(marker, MARKER);
+    drop(recovered);
+    signal_running_daemon(&mut process).await;
+    assert_clean_filesystem(&paths.data_disk());
     eprintln!(
         "Volume survived SIGKILL and guest capacity grew from {} to {} bytes.",
         before.guest_capacity_bytes, after.guest_capacity_bytes
     );
+}
+
+async fn signal_running_daemon(process: &mut Daemon) {
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(process.0.id().try_into().unwrap()),
+        nix::sys::signal::Signal::SIGTERM,
+    )
+    .unwrap();
+    let status = timeout(WAIT, async {
+        loop {
+            if let Some(status) = process.0.try_wait().unwrap() {
+                break status;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(status.success(), "{status}");
+}
+
+fn assert_clean_filesystem(path: &Path) {
+    // Verify the primary ext4 superblock after the daemon has released the disk.
+    // https://www.kernel.org/doc/html/v7.0/filesystems/ext4/super.html
+    const EXT4_SUPERBLOCK: u64 = 1024;
+    const NEEDS_RECOVERY: u32 = 0x4;
+    let mut superblock = [0_u8; 100];
+    fs::File::open(path)
+        .unwrap()
+        .read_exact_at(&mut superblock, EXT4_SUPERBLOCK)
+        .unwrap();
+    assert_eq!(&superblock[0x38..0x3a], &[0x53, 0xef]);
+    let state = u16::from_le_bytes(superblock[0x3a..0x3c].try_into().unwrap());
+    let incompatible = u32::from_le_bytes(superblock[0x60..0x64].try_into().unwrap());
+    assert_eq!(state, 0x1, "ext4 was not cleanly unmounted");
+    assert_eq!(
+        incompatible & NEEDS_RECOVERY,
+        0,
+        "ext4 needs journal replay"
+    );
+}
+
+fn offline_image(scratch: &Path) -> PathBuf {
+    // Use the locally built, pinned guest tools so a registry outage cannot
+    // turn the disk recovery test into a networking test.
+    let guest = PathBuf::from(env::var_os("MARSA_VZ_GUEST_DIR").unwrap());
+    let contents = scratch.join("recovery-image");
+    fs::create_dir(&contents).unwrap();
+    let members = ["./bin/busybox", "./lib/ld-musl-aarch64.so.1"];
+    checked(
+        Command::new("/usr/bin/tar")
+            .arg("-xf")
+            .arg(guest.join("rootfs.tar"))
+            .arg("-C")
+            .arg(&contents)
+            .args(members),
+    );
+    let archive = scratch.join("recovery-image.tar");
+    checked(
+        Command::new("/usr/bin/tar")
+            .arg("-cf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(contents)
+            .args(members),
+    );
+    archive
 }
 
 fn spawn(daemon: &Path, home: &Path, log: &Path) -> Daemon {

@@ -80,8 +80,8 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-07 Data disk management
 
-- **Status:** in progress
-- **Depends on:** M3-03, M2-05, M3-12
+- **Status:** done
+- **Depends on:** M3-03, M2-05, M3-12, M4-01
 - **Docs:** [07 Data disk](../07-file-sharing-and-storage.md#data-disk)
 - **Do:** Create the sparse data image on first run with the configured maximum size, grow it when the setting increases, expose usage through the `Disk` service, exclude it from Time Machine by default with a setting, and guarantee a clean guest shutdown on quit, logout and host shutdown.
 - **Deliver:** data-disk module in `marsad`, `Disk.Usage`.
@@ -89,6 +89,8 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - A fresh install creates and formats the disk on first boot.
   - Increasing the size limit grows the filesystem at next boot.
   - Killing `marsad` mid-run and restarting recovers without data loss in a test that writes a volume first.
+
+**Verification.** On macOS 27.2.1 the signed packaged daemon created a private 64 GiB sparse image and reported host and guest usage. The test verified Time Machine exclusion and opt-out. A separate 1 GiB VM wrote a named volume while Docker was active, then survived a host daemon `SIGKILL` and grew the same ext4 disk to 2 GiB on restart. A subsequent `SIGTERM` left ext4 clean without pending journal recovery. M4-01 provides the Docker socket for the physical recovery test.
 
 ### M4-08 NAT networking, DNS and host names
 
