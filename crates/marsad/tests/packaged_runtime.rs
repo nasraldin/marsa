@@ -397,3 +397,6 @@ async fn packaged_docker_socket_preserves_cli_streams_and_bounded_memory() {
         .unwrap();
     assert_eq!(stopped.into_inner().state(), EngineState::Stopped);
 }
+
+#[path = "packaged_runtime/on_demand.rs"]
+mod on_demand;
