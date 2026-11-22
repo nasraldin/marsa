@@ -6,6 +6,7 @@ mod events;
 mod meta;
 mod requests;
 mod settings;
+mod shares;
 mod stats;
 
 use std::{future::Future, io, sync::Arc, time::Duration};
@@ -17,9 +18,11 @@ use marsa_core::{
 use marsa_proto::host::v1::{
     CollectDiagnosticsResponse, diagnostics_server::DiagnosticsServer, engine_server::EngineServer,
     events_server::EventsServer, meta_server::MetaServer, settings_server::SettingsServer,
-    stats_server::StatsServer,
+    shares_server::SharesServer, stats_server::StatsServer,
 };
-use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
+use marsa_share::SharePolicy;
+use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec, VsockStream};
+use nix::unistd::{Uid, User};
 use tokio::{net::UnixListener, sync::watch};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{
@@ -50,6 +53,10 @@ struct Shared {
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
+    share_policy: SharePolicy,
+    add_share_requests:
+        requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
+    remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
 }
@@ -57,6 +64,12 @@ struct Shared {
 impl TypedApi {
     /// Initialize the authenticated services from the already-validated daemon settings.
     pub fn new(paths: MarsaPaths, uid: u32, settings: Settings) -> io::Result<Self> {
+        let home =
+            std::env::home_dir().ok_or_else(|| io::Error::other("could not find the user home"))?;
+        let account = User::from_uid(Uid::from_raw(uid))?
+            .ok_or_else(|| io::Error::other("could not find the daemon account"))?;
+        let share_policy =
+            SharePolicy::for_account(&home, &account.dir, &paths).map_err(io::Error::other)?;
         let (closing, _) = watch::channel(false);
         Ok(Self {
             inner: Arc::new(Shared {
@@ -66,6 +79,9 @@ impl TypedApi {
                 engine_requests: requests::Cache::new(),
                 settings_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
+                share_policy,
+                add_share_requests: requests::Cache::new(),
+                remove_share_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
                 closing,
             }),
@@ -171,6 +187,11 @@ impl TypedApi {
                     .max_decoding_message_size(CONTROL_LIMIT)
                     .max_encoding_message_size(CONTROL_LIMIT),
             )
+            .add_service(
+                SharesServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT)
+                    .max_encoding_message_size(CONFIG_LIMIT),
+            )
             .add_service(EventsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(StatsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
@@ -183,6 +204,15 @@ impl TypedApi {
                 }
             })
             .await
+    }
+
+    /// Connect to the already-ready guest Docker engine through the daemon's runtime.
+    pub async fn connect_docker(&self) -> io::Result<VsockStream> {
+        let supervisor = self
+            .supervisor
+            .as_ref()
+            .ok_or(io::ErrorKind::NotConnected)?;
+        supervisor.connect_docker().await
     }
 
     fn authorize<T>(&self, request: Request<T>) -> Result<T, Status> {

@@ -119,7 +119,8 @@ impl MarsaPaths {
     }
 }
 
-pub(crate) fn validate_directory(path: &Path) -> Result<(), PathError> {
+/// Check that a path is absolute, non-root and free of traversal or NUL bytes.
+pub fn validate_directory(path: &Path) -> Result<(), PathError> {
     if !path.is_absolute()
         || path.parent().is_none()
         || path.components().any(|part| part == Component::ParentDir)

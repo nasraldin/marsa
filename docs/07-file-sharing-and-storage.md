@@ -59,8 +59,8 @@ flowchart TD
 Rules:
 
 - **First run** offers to share the folders the user picks; a typical choice is a projects directory. Nothing is shared silently.
-- **Protected paths** can never be shared, even if a parent is: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.marsa`, keychains and similar credential stores. The list is defined in `marsa-share` and tested.
-- **Symlinks** are resolved before the check, so a link cannot escape the allowlist.
+- **Protected paths** include `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.marsa`, keychains and similar credential stores. The policy covers the configured home, the effective account home, and the daemon's active state directory. The list is defined and tested in `marsa-share`. A share cannot be a protected path, one of its ancestors, or one of its descendants, even if a credential directory has yet to be created.
+- **Path checks** resolve symlinks and check filesystem identities, including macOS case variants and APFS Data volume aliases. Bind-source checks accept existing files and directories inside a canonical allowlist entry. They return the canonical path for the caller to use. Revalidate configured directories before attaching them to a VM.
 - **Adding a share** uses a dynamic attach if the backend supports it; otherwise `marsad` explains that a VM restart is needed and performs it when no containers are running, or asks.
 - **Named volumes** are unaffected: they live on the data disk and need no sharing.
 

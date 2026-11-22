@@ -14,6 +14,7 @@ use marsa_proto::host::v1::{
     GetSettingsRequest, SettingsSnapshot, UpdateSettingsRequest, WatchSettingsRequest,
     settings_server::Settings,
 };
+use marsa_share::{Allowlist, SharePolicy};
 use nix::fcntl::OFlag;
 use tonic::{Request, Response, Status};
 
@@ -70,9 +71,31 @@ impl TypedApi {
         text: Arc<str>,
         expected: u64,
     ) -> Result<SettingsSnapshot, Status> {
+        let (snapshot, ()) = self
+            .edit_settings(Some(expected), move |current, policy| {
+                let mut desired = Document::from_toml(&text)
+                    .map_err(|error| Status::invalid_argument(error.to_string()))?;
+                if desired.shares != current.shares {
+                    desired.shares = Allowlist::from_paths(policy.clone(), &desired.shares)
+                        .map_err(super::shares::policy_status)?
+                        .roots()
+                        .to_vec();
+                }
+                *current = desired;
+                Ok(())
+            })
+            .await?;
+        Ok(snapshot)
+    }
+
+    pub(super) async fn edit_settings<T: Send + 'static>(
+        &self,
+        expected: Option<u64>,
+        edit: impl FnOnce(&mut Document, &SharePolicy) -> Result<T, Status> + Send + 'static,
+    ) -> Result<(SettingsSnapshot, T), Status> {
         let _update = self.inner.edit.lock().await;
         let (prior, snapshot) = self.inner.events.settings();
-        if expected != snapshot.revision {
+        if expected.is_some_and(|revision| revision != snapshot.revision) {
             return Err(Status::aborted(
                 "settings revision changed; load the latest settings",
             ));
@@ -83,11 +106,12 @@ impl TypedApi {
             .ok_or_else(|| Status::resource_exhausted("settings revisions are exhausted"))?;
         let path = self.inner.paths.config_file();
         let uid = self.inner.uid;
-        let updated = tokio::task::spawn_blocking(move || {
-            let settings = Document::from_toml(&text)
-                .map_err(|error| Status::invalid_argument(error.to_string()))?;
+        let policy = self.inner.share_policy.clone();
+        let (updated, result) = tokio::task::spawn_blocking(move || {
+            let mut settings = prior.clone();
+            let result = edit(&mut settings, &policy)?;
             if prior == settings {
-                return Ok(None);
+                return Ok((None, result));
             }
             let text = settings
                 .to_toml()
@@ -98,12 +122,12 @@ impl TypedApi {
             })?;
             let idle_changed = prior.vm.idle_stop != settings.vm.idle_stop
                 || prior.vm.idle_timeout != settings.vm.idle_timeout;
-            Ok::<_, Status>(Some((settings, text, idle_changed)))
+            Ok::<_, Status>((Some((settings, text, idle_changed)), result))
         })
         .await
         .map_err(|_| Status::internal("settings worker stopped"))??;
         let Some((settings, text, idle_changed)) = updated else {
-            return Ok(snapshot);
+            return Ok((snapshot, result));
         };
         let idle_applied = if idle_changed && let Some(supervisor) = &self.supervisor {
             supervisor
@@ -116,10 +140,11 @@ impl TypedApi {
         } else {
             true
         };
-        Ok(self
+        let snapshot = self
             .inner
             .events
-            .update_settings(settings, text, next, idle_applied))
+            .update_settings(settings, text, next, idle_applied);
+        Ok((snapshot, result))
     }
 }
 
