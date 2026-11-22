@@ -164,6 +164,7 @@ impl TypedApi {
         let settings = events.clone();
         let preparation = Arc::new(move || {
             let (desired, _) = settings.settings();
+            let configured_mode = desired.network.mode;
             let effective = proxy.effective(desired);
             let (backend, mut spec) = prepare(&effective)?;
             let automatic = select_network(&effective, &mut spec, backend.capabilities());
@@ -171,7 +172,7 @@ impl TypedApi {
             Ok(Launch {
                 backend,
                 spec,
-                selection: Selection::new(automatic).with_configured_mode(desired.network.mode),
+                selection: Selection::new(automatic).with_configured_mode(configured_mode),
                 network_policy: proxy.guest_configuration(),
                 applied: Some(Arc::new(move || bus.runtime_applied(&effective))),
             })
