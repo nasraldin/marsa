@@ -169,6 +169,12 @@ Rules:
 - **Idle behaviour is a setting.** An active or waiting Docker connection keeps the engine available. Once the last connection closes, the supervisor checks the guest for running, paused, and restarting containers. The idle countdown starts after a successful empty snapshot, with a fresh successful check required at expiry. A failed or oversized snapshot keeps the VM running.
 - **Failures are visible.** Every transition is published, and `Failed` carries the failed stage and a bounded console tail. Retries use a bounded backoff and share a budget across one explicit activation. If VM cleanup fails, the supervisor retains it for another stop attempt before starting a replacement.
 
+### Exclusive maintenance
+
+The supervisor actor can reserve the lifecycle for a single daemon worker. The worker may supply the lifecycle revision from a preview. The actor checks the revision before granting the permit and changes it on grants, releases, and lifecycle transitions. Ordinary start, stop, restart, pause, resume, and new Docker connections report busy while the permit is held. Existing streams stay attached to their original VM until the worker stops it.
+
+The worker must wait for its permit's stop to complete before editing offline VM storage. The permit can also start a candidate from the stopped state without an automatic supervisor retry. Keep the permit through the entire maintenance operation. If the worker drops it before candidate readiness, the actor cancels and cleans up that start before reopening admission. Idle checks resume after release.
+
 ### Guest control
 
 `marsad::guest_control::GuestControl` implements the supervisor's guest probe. It applies the [shared protocol limits](../crates/marsa-proto/PROTOCOL.md#guest-message-limits) before allocating for a frame and before accepting a decoded message. One command is in flight at a time. Up to eight commands can wait, and the request deadline includes that queue time. A stalled or out-of-sequence reply closes the session to prevent late replies from matching future requests.
