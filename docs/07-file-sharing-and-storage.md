@@ -45,24 +45,26 @@ Planning identified this as a top security gap in comparable tools: sharing the 
 
 ```mermaid
 flowchart TD
-    req["docker run -v /host/path:/x"] --> p["marsad proxy inspects the create request"]
-    p --> q{"/host/path inside<br/>an allowed folder?"}
-    q -- yes --> fwd["Forward to dockerd"]
-    q -- no --> gui{"GUI or CLI<br/>session available?"}
-    gui -- yes --> ask["Prompt: share this folder?<br/>once, always, or deny"]
-    gui -- no --> deny["Reject with a clear error<br/>and the command to share it"]
-    ask -- always --> add["Add to allowlist,<br/>attach share"] --> fwd
-    ask -- once --> tmp["Attach for this session"] --> fwd
-    ask -- deny --> deny
+    req["Docker container-create request"] --> p["Guest authorization plugin asks marsad"]
+    p --> q{"Source inside an active and approved share?"}
+    q -- yes --> mount["Docker creates the container"]
+    q -- "Unshared folder" --> ask["Marsa offers bounded owner approval"]
+    q -- "Invalid or protected" --> deny["Docker receives a denial"]
+    ask --> deny
+    ask -- always --> add["Save the exact folder"]
+    ask -- once --> tmp["Stage the exact folder for the next VM session"]
+    add --> apply["Restart the VM and rerun the Docker command"]
+    tmp --> apply
 ```
 
 Rules:
 
 - **First run** offers to share the folders the user picks; a typical choice is a projects directory. Nothing is shared silently.
 - **Protected paths** include `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.marsa`, keychains and similar credential stores. The policy covers the configured home, the effective account home, and the daemon's active state directory. The list is defined and tested in `marsa-share`. A share cannot be a protected path, one of its ancestors, or one of its descendants, even if a credential directory has yet to be created.
-- **Path checks** resolve symlinks and check filesystem identities, including macOS case variants and APFS Data volume aliases. Bind-source checks accept existing files and directories inside a canonical allowlist entry. They return the canonical path for the caller to use. Revalidate configured directories before attaching them to a VM.
-- **Adding a share** uses a dynamic attach if the backend supports it; otherwise `marsad` explains that a VM restart is needed and performs it when no containers are running, or asks.
+- **Path checks** resolve filesystem identities and require canonical host paths for Docker binds. Approval records the exact directory identity. Marsa verifies configured roots before attachment and checks the mounted root identities for each bind.
+- **Applying a share** on Virtualization.framework requires an explicit restart. A one-session approval applies to the next successful VM session and expires when it stops. Removing a grant revokes new authorized binds immediately. Restart to remove the VM mount and access from existing containers.
 - **Named volumes** are unaffected: they live on the data disk and need no sharing.
+- **Docker transport** retains the original byte stream for attach and BuildKit upgrades. Docker Engine calls its guest authorization plugin for container-create requests. The plugin submits explicit bind sources over a bounded host-initiated vsock session. The mounted roots define the host exposure boundary for guest root. A trusted Docker client can still use the exact guest Docker socket path. [Docker Engine authorization plugin interface](https://docs.docker.com/engine/extend/plugins_authorization/)
 
 ### Correctness requirements
 
@@ -70,14 +72,16 @@ These were listed in planning as the quiet source of most bug reports.
 
 | Requirement | Design | Status |
 |---|---|---|
-| File-change events reach containers (hot reload) | A host-side watcher forwards change events to the agent | The VZ spike saw file contents change with no inotify event. M4-06 verifies the relay with a dev server. |
-| Files created in a container are owned by the user on the host | Map ownership so container users can write appropriately and new files belong to the Mac user | The VZ spike mapped guest root to the Mac user. A tested non-root identity could not create a file. M4-06 verifies container-user handling. |
+| File-change events reach containers (hot reload) | Configure scoped Compose Watch sync into the container's filesystem | Linux 7.3.5 on Apple virtiofs observed updated bytes without host-origin inotify. Signed Compose 5.8.0 copied the initial file and delivered native Linux inotify create, modify and close-write events after a Mac atomic save. M4-19 verifies the workflow with a common development server. |
+| Files created in a container are owned by the user on the host | Use the Apple virtiofs ownership mapping provided by the pinned guest | With Linux 7.3.5 on macOS 27.2.1, Docker UID/GID 12345 wrote to a Mac-owned folder, and the file belonged to the Mac user. Apple virtiofs rejected an ID-mapped mount with EINVAL. Guest ext4 accepted the same operation in the control test. |
 | Case sensitivity | Document host case behavior and detect collisions in diagnostics | The default APFS share resolved a case-variant lookup in both macOS and Linux. |
 | Symlinks, hard links, extended attributes | Cover them in the compatibility suite | Relative and dangling symlinks, hard links, and one user extended attribute worked in both directions in the VZ spike. |
 | Performance | Benchmark small-file reads, large-file throughput, and directory walks | The VZ spike measured bulk reads at 5.86× native elapsed time in its cached workload. |
 
 See the [virtiofs spike](spikes/M1-04-virtiofs.md) for the test scope,
 measurements, and limitations.
+
+Configure Compose Watch for the source directories a development service needs. The signed verification used `develop.watch`, `action: sync` and `initial_sync: true`, with a target on the container's writable filesystem. The ignored file and two sentinel files outside the watch scope stayed absent. [Docker Compose Watch](https://docs.docker.com/compose/how-tos/file-watch/)
 
 ### Performance guidance shown to users
 

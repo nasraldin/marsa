@@ -114,7 +114,8 @@ impl TypedApi {
     ) -> Result<(SettingsSnapshot, T), Status> {
         let _admission = self.inner.factory_reset.read()?;
         let _update = self.inner.edit.lock().await;
-        let (prior, snapshot) = self.inner.events.settings();
+        let (prior, once) = self.inner.events.boot_configuration();
+        let snapshot = self.inner.events.settings_snapshot();
         if expected.is_some_and(|revision| revision != snapshot.revision) {
             return Err(Status::aborted(
                 "settings revision changed; load the latest settings",
@@ -132,6 +133,13 @@ impl TypedApi {
             let result = edit(&mut settings, &policy)?;
             if prior == settings && prepared.is_none() {
                 return Ok((None, result));
+            }
+            if settings.shares != prior.shares {
+                super::shares::validate_boot_roots(
+                    &policy,
+                    settings.shares.iter().chain(&once),
+                    settings.ui.language,
+                )?;
             }
             let text = settings
                 .to_toml()
