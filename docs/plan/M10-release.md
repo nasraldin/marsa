@@ -9,7 +9,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 ### M10-01 App bundle assembly
 
 - **Status:** todo
-- **Depends on:** M2-09, M4-03, M6-09
+- **Depends on:** M2-09, M4-03, M6-09, M10-13
 - **Docs:** [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
 - **Do:** Implement `cargo xtask bundle`: assemble `Marsa.app` with the host binaries, the guest image and manifest, the upstream binaries, locales, fonts, the launch agent definition, `Info.plist`, icons and third-party licences.
 - **Deliver:** the bundle step and `packaging/macos/`.
@@ -131,3 +131,15 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 - **Accept when:**
   - The candidate graph is evaluated for licences, advisories, and dependency bans using the normal workspace lockfile and strict checks.
   - The evaluation records which options remain eligible for release integration and why. The production graph and update trust policy are unchanged.
+
+
+### M10-13 Prepare the native Harbor app icon
+
+- **Status:** in progress
+- **Depends on:** M0-01
+- **Docs:** [12 App bundle layout](../12-build-release-update.md#app-bundle-layout), [Marsa Brand](https://www.figma.com/design/iXC1vWPKBgY2B6kDQVxI9W/Marsa-Desktop?node-id=2-17384)
+- **Do:** Export the authoritative full, small and tiny Harbor icon artwork. Build the native macOS bundle icon independently of the complete desktop package.
+- **Deliver:** original vector exports, an `icns` bundle resource and reproducible source-to-resource instructions.
+- **Accept when:**
+  - The native icon contains the platform size and scale variants with the intended small and tiny cuts.
+  - macOS reads the icon from a bundle's resource directory. The verified asset does not require the installed app, a signing identity, or a system-setting change.
