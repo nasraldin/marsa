@@ -5,7 +5,6 @@ mod diagnostics;
 mod platform;
 
 // Keep the architecture's dependency edges until the daemon wires these services.
-use marsa_dockerproxy as _;
 use marsa_net as _;
 use marsa_share as _;
 use marsa_vm_krun as _;

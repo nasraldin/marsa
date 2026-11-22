@@ -17,7 +17,7 @@ use marsa_proto::host::v1::{
     engine_server::EngineServer, events_server::EventsServer, meta_server::MetaServer,
     settings_server::SettingsServer, stats_server::StatsServer,
 };
-use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
+use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec, VsockStream};
 use tokio::{net::UnixListener, sync::watch};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{
@@ -174,6 +174,15 @@ impl TypedApi {
                 }
             })
             .await
+    }
+
+    /// Connect to the already-ready guest Docker engine through the daemon's runtime.
+    pub async fn connect_docker(&self) -> io::Result<VsockStream> {
+        let supervisor = self
+            .supervisor
+            .as_ref()
+            .ok_or(io::ErrorKind::NotConnected)?;
+        supervisor.connect_docker().await
     }
 
     fn authorize<T>(&self, request: Request<T>) -> Result<T, Status> {

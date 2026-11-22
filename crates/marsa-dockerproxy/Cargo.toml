@@ -10,5 +10,15 @@ license.workspace = true
 marsa-core = { path = "../marsa-core" }
 marsa-share = { path = "../marsa-share" }
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "=0.32.0", features = ["event", "fs"] }
+tokio = { version = "=1.54.1", features = ["io-util", "macros", "net", "rt", "time"] }
+tracing = "=0.1.44"
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "=0.32.0", features = ["user"] }
+tempfile = "=3.27.0"
+tokio = { version = "=1.54.1", features = ["sync"] }
+
 [lints]
 workspace = true
