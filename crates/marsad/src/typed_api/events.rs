@@ -179,6 +179,15 @@ impl Bus {
         }
     }
 
+    pub(super) fn reset_bind_approvals(&self) {
+        let mut state = self.lock();
+        state.once_staged.clear();
+        state.once_active.clear();
+        state.mounted_binds = None;
+        state.bind_prompts = bind_prompts::Pending::default();
+        state.publish(Body::BindApprovals(Default::default()));
+    }
+
     pub(super) fn activate_binds(&self, mounted: Arc<marsa_share::Allowlist>, paths: &[PathBuf]) {
         let mut state = self.lock();
         state.mounted_binds = Some(mounted);
