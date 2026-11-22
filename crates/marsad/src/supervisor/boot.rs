@@ -2,6 +2,7 @@
 
 use std::{future::Future, io, sync::Arc, time::Duration};
 
+use marsa_proto::guest::v1::ConfigureNetwork;
 use marsa_vm::{Hypervisor, Vm, VmError, VmEvent, VmEventStream, VmExitCause, VmSpec, VmState};
 use tokio::{
     sync::{oneshot, watch},
@@ -71,6 +72,7 @@ pub(super) struct Activation {
     pub(super) deadline: Instant,
     pub(super) stop_limit: Duration,
     pub(super) selection: Selection,
+    pub(super) network_policy: Option<ConfigureNetwork>,
 }
 
 pub(super) async fn run(
@@ -102,6 +104,7 @@ pub(super) async fn run(
             deadline,
             stop_limit,
             selection: launch.selection,
+            network_policy: launch.network_policy,
         },
         &mut cancel,
         &progress,
@@ -153,6 +156,7 @@ async fn attach(
     backend: &dyn Hypervisor,
     probe: &dyn GuestProbe,
     spec: VmSpec,
+    network_policy: Option<&ConfigureNetwork>,
     deadline: Instant,
     cancel: &mut oneshot::Receiver<()>,
     progress: &watch::Sender<BootStage>,
@@ -179,7 +183,7 @@ async fn attach(
             vm.as_ref(),
             &mut events,
             &mut network_lost,
-            probe.handshake(vm.as_ref()),
+            probe.handshake_for_boot(vm.as_ref(), network_policy),
         ),
     )
     .await;

@@ -405,3 +405,119 @@ async fn sample_workloads(json: &[u8]) -> io::Result<u32> {
         .await
         .unwrap()
 }
+
+fn boot_proxy_script(
+    policy: &marsa_proto::guest::v1::ConfigureNetwork,
+    outcome: GuestBody,
+) -> Vec<AgentStep> {
+    use marsa_proto::guest::{
+        PROTOCOL_VERSION,
+        v1::{Hello, HelloAck, SetTime},
+    };
+
+    vec![
+        send(
+            0,
+            GuestBody::Hello(Hello {
+                protocol: Some(PROTOCOL_VERSION),
+                image_version: "scripted-agent".into(),
+                ..Default::default()
+            }),
+        ),
+        expect(
+            0,
+            HostBody::HelloAck(HelloAck {
+                protocol: Some(PROTOCOL_VERSION),
+                defer_engine_start: true,
+            }),
+        ),
+        expect(
+            1,
+            HostBody::SetTime(SetTime {
+                unix_seconds: 1_800_000_000,
+                nanoseconds: 700,
+            }),
+        ),
+        command_result(1, CommandStatus::Ok),
+        expect(2, HostBody::ConfigureNetwork(policy.clone())),
+        send(2, outcome),
+    ]
+}
+
+fn boot_proxy() -> marsa_proto::guest::v1::ConfigureNetwork {
+    use marsa_proto::guest::v1::{ConfigureNetwork, Proxy};
+    ConfigureNetwork {
+        proxy: Some(Proxy {
+            http_url: Some("http://proxy.example.invalid:8080".into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn approved_proxy_is_acknowledged_before_engine_release() {
+    use marsa_proto::guest::v1::{CommandResult, EngineHealthState, StartEngine};
+
+    let policy = boot_proxy();
+    let mut script = boot_proxy_script(
+        &policy,
+        GuestBody::CommandResult(CommandResult {
+            status: CommandStatus::Ok.into(),
+            ..Default::default()
+        }),
+    );
+    script.extend([
+        expect(3, HostBody::StartEngine(StartEngine {})),
+        command_result(3, CommandStatus::Ok),
+        send(0, fixtures::health(EngineHealthState::Ready)),
+        AgentStep::Wait(WAIT),
+    ]);
+    let vm = vm(FakeScenario::default()
+        .with_agent(CONTROL_PORT, script)
+        .with_agent(DOCKER_API_PORT, docker_ping(200)))
+    .await;
+    let mut control = client()
+        .handshake_for_boot(vm.as_ref(), Some(&policy))
+        .await
+        .unwrap();
+    control.engine_ready(vm.as_ref()).await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn rejected_boot_proxy_prevents_ready_without_exposing_guest_detail() {
+    use marsa_proto::guest::v1::CommandResult;
+
+    let policy = boot_proxy();
+    let detail = "untrusted guest response with http://sensitive.example.invalid:8080";
+    let mut script = boot_proxy_script(
+        &policy,
+        GuestBody::CommandResult(CommandResult {
+            status: CommandStatus::Unavailable.into(),
+            detail: detail.into(),
+        }),
+    );
+    script.push(AgentStep::Wait(WAIT));
+    let vm = vm(FakeScenario::default().with_agent(CONTROL_PORT, script)).await;
+    let error = match client()
+        .handshake_for_boot(vm.as_ref(), Some(&policy))
+        .await
+    {
+        Ok(_) => panic!("guest policy rejection must abort activation"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert!(!error.to_string().contains("sensitive.example.invalid"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn approved_proxy_rejects_legacy_guest_before_acknowledging_startup() {
+    let vm =
+        vm(FakeScenario::default().with_agent(CONTROL_PORT, vec![hello(1), AgentStep::Wait(WAIT)]))
+            .await;
+    let policy = boot_proxy();
+    let result = client()
+        .handshake_for_boot(vm.as_ref(), Some(&policy))
+        .await;
+    assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::Unsupported));
+}
