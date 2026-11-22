@@ -205,3 +205,10 @@ is ready. `marsa status --json` shows engine state, the installed component
 versions and the latest resource observation from the guest. `marsa logs`
 shows a bounded tail of classified daemon, guest console and engine records.
 Use `--follow` to continue receiving new records.
+
+`marsa diagnose` creates a private local archive and prints its path. It
+works with the engine stopped. Review the archive before sharing it.
+
+At a terminal, `marsa reset` asks for `RESET SETTINGS` and
+`marsa reset --factory` asks for `FACTORY RESET`. Use `--yes` for an
+explicit non-interactive confirmation. [Factory reset](plan/M9-hardening.md#m9-18-recover-private-storage-with-confirmed-factory-reset) stops the guest, restores the default settings, clears grants and creates a fresh private data disk.

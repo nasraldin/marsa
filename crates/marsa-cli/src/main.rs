@@ -6,6 +6,8 @@ mod disk;
 #[cfg(unix)]
 mod engine;
 #[cfg(unix)]
+mod maintenance;
+#[cfg(unix)]
 mod network;
 #[cfg(unix)]
 mod settings;
@@ -32,6 +34,8 @@ enum Failure {
     Unavailable,
     Usage,
     Confirmation,
+    #[cfg(unix)]
+    ConfirmationDeclined,
     Connection,
     Home,
     Root,
@@ -46,6 +50,8 @@ impl Failure {
             Self::Unavailable | Self::Operation | Self::BindResolution => 1,
             Self::Usage => 2,
             Self::Confirmation => 3,
+            #[cfg(unix)]
+            Self::ConfirmationDeclined => 3,
             Self::Connection | Self::Home | Self::Root => 4,
             Self::Incompatible => 5,
         }
@@ -56,6 +62,8 @@ impl Failure {
             Self::Unavailable => "not_available",
             Self::Usage => "invalid_invocation",
             Self::Confirmation => "confirmation_required",
+            #[cfg(unix)]
+            Self::ConfirmationDeclined => "confirmation_required",
             Self::Connection => "connection_failed",
             Self::Home => "home_unavailable",
             Self::Root => "unprivileged_user_required",
@@ -77,6 +85,11 @@ impl Failure {
             Self::Confirmation => language.text(
                 "This operation requires --yes when run non-interactively.",
                 "تتطلب هذه العملية الخيار --yes عند تشغيلها دون تفاعل.",
+            ),
+            #[cfg(unix)]
+            Self::ConfirmationDeclined => language.text(
+                "Reset canceled. The confirmation did not match.",
+                "أُلغيَت إعادة الضبط لأن عبارة التأكيد غير مطابقة.",
             ),
             Self::Connection => language.text(
                 "Could not connect to the Marsa daemon. Open Marsa and try again.",
@@ -168,7 +181,8 @@ async fn execute(
     let Some((name, args)) = matches.subcommand() else {
         return Outcome::Failure(Failure::Usage);
     };
-    if destructive(name, args) && !interactive && !matches.get_flag("yes") {
+    let yes = matches.get_flag("yes");
+    if destructive(name, args) && !interactive && !yes {
         return Outcome::Failure(Failure::Confirmation);
     }
     if name == "completion" {
@@ -199,6 +213,10 @@ async fn execute(
     #[cfg(unix)]
     if name == "disk" && args.subcommand_matches("usage").is_some() {
         return disk::usage(language).await.unwrap_or_else(Outcome::Failure);
+    }
+    #[cfg(unix)]
+    if let Some(outcome) = maintenance::run(name, args, language, yes).await {
+        return outcome;
     }
     #[cfg(unix)]
     if let Some(outcome) = engine::run(name, args, language, json).await {

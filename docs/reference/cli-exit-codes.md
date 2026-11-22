@@ -5,7 +5,7 @@
 | 0 | | The command succeeded. Help and shell completion generation also return this status. |
 | 1 | `not_available`, `operation_failed` | A command is awaiting implementation, its operation failed, or a response could not be written. |
 | 2 | `invalid_invocation` | The command, its options or its arguments are invalid. |
-| 3 | `confirmation_required` | A destructive command needs the explicit `--yes` flag in a non-interactive invocation. |
+| 3 | `confirmation_required` | A destructive command needs explicit confirmation. Non-interactive invocations require `--yes`. |
 | 4 | `connection_failed`, `home_unavailable`, `unprivileged_user_required` | The CLI could not establish an authenticated daemon connection or resolve the per-user socket. |
 | 5 | `incompatible_daemon` | The daemon and CLI have incompatible API versions. |
 
@@ -52,3 +52,8 @@ stopped, the active mode and both addresses are `null`.
 times. `marsa share resolve ID once|always|deny --json` reports whether the
 owner needs to restart the VM before retrying Docker. A request that cannot be
 resolved returns `bind_resolution_failed` with exit status 1.
+
+`marsa diagnose --json` reports the daemon's local archive path in
+`bundle_path`. A successful reset response reports `scope` as `settings`
+or `factory`. With an older daemon that lacks reset support, the CLI reports
+`not_available` after confirmation and exits with status 1.
