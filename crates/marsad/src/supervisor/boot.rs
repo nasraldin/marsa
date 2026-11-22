@@ -13,6 +13,7 @@ use super::{
     AlternateFailure, BootNetwork, BootStage, GuestProbe, GuestSession, NetworkResult,
     launch::{Applied, Launch, Source},
     network::Selection,
+    platform,
 };
 
 mod selection;
@@ -91,6 +92,8 @@ pub(super) async fn run(
             }
         }
     };
+    let console = launch.spec.console_log.clone();
+    let console_position = platform::console_position(&console).await;
     let result = selection::select_and_start(
         launch.backend.as_ref(),
         probe.as_ref(),
@@ -109,7 +112,21 @@ pub(super) async fn run(
             guest.applied = launch.applied;
             Outcome::Ready(guest)
         }
-        Err(failure) => failure.into(),
+        Err(mut failure) => {
+            if failure.issue.stage == BootStage::Handshake
+                && !matches!(failure.issue.reason, Reason::Canceled)
+                && let Some(schema) = platform::disk_schema_error(console, console_position).await
+            {
+                failure.issue = Issue::failed(
+                    BootStage::DataDisk,
+                    format!(
+                        "Data disk schema {} requires a newer release of Marsa (this release supports {}). Use a compatible release to open the disk. | يتطلب تنسيق قرص البيانات {} إصدارًا أحدث من مارسا (يدعم هذا الإصدار {}). استخدم إصدارًا متوافقًا لفتح القرص.",
+                        schema.found, schema.supported, schema.found, schema.supported,
+                    ),
+                );
+            }
+            failure.into()
+        }
     }
 }
 

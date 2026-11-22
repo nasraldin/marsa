@@ -53,6 +53,8 @@ pub enum BootStage {
     Start,
     /// Negotiate the versioned guest control channel.
     Handshake,
+    /// The guest data disk uses a newer supported format than this guest understands.
+    DataDisk,
     /// Qualify the network before Docker starts.
     Network,
     /// Wait for Docker to serve requests.

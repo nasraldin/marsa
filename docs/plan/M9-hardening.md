@@ -138,7 +138,7 @@ the complete defaults.
 
 ### M9-09 Data-disk versioning and upgrade path
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-07
 - **Docs:** [05 Versioning and upgrades](../05-guest-image.md#versioning-and-upgrades)
 - **Do:** Add the data-disk schema version, the refusal to start on a newer schema with a clear host-side message, and the upgrade test: a data disk produced by the previous release must work with the new guest image.

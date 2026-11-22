@@ -34,6 +34,8 @@ use tonic::{
 };
 use tower::service_fn;
 
+#[path = "packaged_runtime/disk_schema.rs"]
+mod disk_schema;
 #[path = "packaged_runtime/recovery.rs"]
 mod recovery;
 #[path = "packaged_runtime/support.rs"]
