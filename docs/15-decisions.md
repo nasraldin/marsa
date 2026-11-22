@@ -212,6 +212,15 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Reopen if:** The fallback and native attachments require different stop, pause, resume or guest control semantics.
 - **Date and task:** 2026-11-22, M3-16.
 
+
+## D-030 Scope build SSH agent access to Buildx sessions
+
+- **Decision:** Use upstream Buildx SSH sessions for builds. Keep explicit container-mounted agent forwarding in M4-17.
+- **Why:** Buildx resolves the host agent when building the client session and BuildKit supplies a mount to the requesting step. The session affordance is sufficient for a private Git clone. The Docker byte proxy cannot infer which other guest workload, if any, the user authorized from that build session. A fixed guest listener would be visible across unrelated guest workloads with mount access. [Pinned Buildx setup](https://github.com/docker/buildx/blob/v0.39.1/commands/build.go#L1016-L1024) · [Pinned BuildKit provider](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).
+- **Consequence:** Validate the unmodified Docker CLI and Buildx against a private fixture. Require a separate host-side authorization and revocation model before adding a socket for regular containers.
+- **Reopen if:** The pinned CLI or engine changes the Buildx session contract.
+- **Date and task:** 2026-11-22, M4-13.
+
 ---
 
 ## Template

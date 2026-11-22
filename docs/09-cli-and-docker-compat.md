@@ -122,7 +122,9 @@ Each difference is documented for users and returned as an explicit error, never
 
 ## SSH agent forwarding
 
-**Proposed:** expose the host SSH agent socket to the guest over vsock so `docker build --ssh default` and containers mounting the agent socket work, as Docker Desktop does. The socket path inside the guest is fixed and documented.
+For Docker builds, pass `docker build --ssh default` with `SSH_AUTH_SOCK` pointing to the intended host agent. A Dockerfile step requests access using `RUN --mount=type=ssh,required=true`. Buildx forwards agent requests through that build's session and BuildKit supplies the step's socket. The private key stays with the host agent. [Build secrets documentation](https://docs.docker.com/build/building/secrets/#ssh-mounts) · [Pinned BuildKit provider](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).
+
+M4-17 tracks opt-in forwarding for bind-mounted agent sockets in regular containers. It requires a separate authorization and transport design. See [SSH agent access](11-security.md#ssh-agent-access).
 
 ## The `marsa` CLI
 
