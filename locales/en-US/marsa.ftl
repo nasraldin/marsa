@@ -215,3 +215,8 @@ cli-agents-denied = Request denied.
 cli-agents-revoke-prompt = Revoke this grant?
 cli-agents-revoked = Grant revoked.
 cli-agents-confirm-instructions = Type { $answer } and press { $enter }.
+
+### Desktop
+gui-window-title = Marsa
+gui-window-open-failed = Marsa could not open a window.
+gui-window-close = Close Window

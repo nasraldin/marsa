@@ -15,7 +15,7 @@ marsa-proto = { path = "../marsa-proto", default-features = false }
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
 nix = { version = "0.32.0", features = ["feature", "fs", "mount", "net", "signal", "socket", "time"] }
-base64 = "=0.22.1"
+base64 = "=0.23.1"
 http-body-util = "=0.1.5"
 hyper = { version = "=1.12.0", features = ["client", "http1", "server"] }
 hyper-util = { version = "=0.1.21", features = ["tokio"] }
@@ -30,7 +30,7 @@ tokio = { version = "1.54.1", features = ["fs", "io-util", "macros", "net", "pro
 
 [dev-dependencies]
 tempfile = "=3.27.0"
-base64 = "=0.22.1"
+base64 = "=0.23.1"
 http = "1.5.0"
 percent-encoding = "=2.3.2"
 marsa-core = { path = "../marsa-core" }

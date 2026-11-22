@@ -7,12 +7,13 @@ Start with the [architecture and component documentation](docs/README.md) and th
 Use an Apple silicon Mac with Rustup. The repository's toolchain file selects the Rust version and required components.
 
 ```sh
+git submodule update --init --depth 1 third-party/gpui
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
-Run the task's acceptance checks and record the commands and results in the pull request. The [testing guide](docs/13-testing-and-benchmarks.md) describes checks for VM, security, and GUI changes.
+See [GPUI source and upgrade policy](docs/reference/gpui-upgrade.md) when changing GUI dependencies. Run the task's acceptance checks and record the commands and results in the pull request. The [testing guide](docs/13-testing-and-benchmarks.md) describes checks for VM, security, and GUI changes.
 
 ## Submit a change
 
