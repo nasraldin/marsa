@@ -41,17 +41,17 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - A wrong checksum fails the step.
   - The binaries run and report the pinned versions.
 
-### M4-04 Docker context, `DOCKER_HOST` and the optional socket symlink
+### M4-04 Optional Docker socket symlink
 
-- **Status:** todo
-- **Depends on:** M4-01, M4-03
-- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), V-12, Q-08
-- **Do:** Create and maintain the `marsa` Docker context without touching other contexts; ask before switching the current context if another is active. Provide the data for `marsa env`. Implement the opt-in `/var/run/docker.sock` symlink as a single, auditable administrator action with a matching removal. Research which common tools ignore contexts (V-12) and document the recommended setting for each.
-- **Deliver:** context management in `marsad`, the symlink helper, a compatibility note in [09](../09-cli-and-docker-compat.md).
+- **Status:** blocked (owner decision Q-08)
+- **Depends on:** M4-01
+- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), Q-08
+- **Do:** Implement the opt-in `/var/run/docker.sock` symlink as a single, auditable administrator action with a matching removal.
+- **Deliver:** the symlink helper.
 - **Accept when:**
-  - Other contexts and an existing `config.json` are never modified beyond adding the `marsa` context (tested with fixtures).
   - Creating and removing the symlink leaves no other change on the system.
-  - V-12 is resolved in the docs.
+
+Q-08 governs where the optional administrator action is offered. Context registration and environment discovery have their own task, M4-16.
 
 ### M4-05 Shared-folder allowlist
 
@@ -145,7 +145,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 ### M4-12 Registry credentials
 
 - **Status:** todo
-- **Depends on:** M4-03, M4-04
+- **Depends on:** M4-03, M4-16
 - **Docs:** [11 Registry credentials](../11-security.md#registry-credentials)
 - **Do:** Offer to set the keychain credential helper as the Docker CLI credential store, never overwriting an existing store. Confirm that no credential is written to disk in plain text or stored in the guest.
 - **Deliver:** credential-store setup logic and tests with config fixtures.
@@ -188,3 +188,15 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - The host keeps desired settings when an update requires a later guest boot.
   - Active workloads are preserved, or the action reports the impact and requires explicit approval before stopping them.
   - A failed engine restart reports the failure and restores the last working configuration.
+
+### M4-16 Docker context and endpoint discovery
+
+- **Status:** in progress
+- **Depends on:** M4-01, M4-03
+- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), V-12
+- **Do:** Register the `marsa` context with the bundled upstream Docker CLI. Preserve current context selection and let users select Marsa explicitly. Expose the Docker socket and endpoint for `marsa env` through the authenticated host API. Verify common client discovery behavior.
+- **Deliver:** typed backend context and endpoint service, isolated integration tests, and the client compatibility note.
+- **Accept when:**
+  - Explicit context registration is repeatable, preserves other contexts and the existing `config.json`, and refuses to overwrite an unrelated `marsa` context.
+  - The bundled upstream CLI sees the registered context and the host API returns the correct `DOCKER_HOST` data.
+  - V-12 is resolved in the docs.

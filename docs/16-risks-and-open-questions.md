@@ -42,7 +42,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | V-09 | libkrun: current release, API, kernel requirements (own kernel or libkrunfw) | [04](04-virtualization-macos.md) | M11-02 |
 | V-10 | gpui-component's i18n and whether Fluent can coexist with it | [08](08-gui.md) | M6-04 |
 | V-11 | State of GPUI accessibility on macOS | [08](08-gui.md) | M6-08 |
-| V-12 | Which tools ignore Docker contexts | [09](09-cli-and-docker-compat.md) | M4-04 |
+| V-12 | Which tools ignore Docker contexts | [09](09-cli-and-docker-compat.md) | M4-16 |
 | V-16 | Licences of the fonts to bundle | [08](08-gui.md) | M6-02 |
 
 ### Verified findings
