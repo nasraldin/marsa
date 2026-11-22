@@ -21,6 +21,7 @@ fn help_lists_all_subcommands() {
         "fetch-upstream",
         "bundle",
         "sign",
+        "verify-signature",
         "package",
         "bench",
     ] {
@@ -79,4 +80,22 @@ fn fetch_upstream_help_describes_staged_output() {
 fn fetch_upstream_rejects_unknown_options() {
     let output = run(&["fetch-upstream", "--unknown"]);
     assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+fn verify_signature_requires_an_explicit_trusted_team_id() {
+    let help = run(&["verify-signature", "--help"]);
+    assert!(help.status.success());
+    assert!(
+        str::from_utf8(&help.stdout)
+            .unwrap()
+            .contains("--team-id TEAM_ID")
+    );
+    for arguments in [
+        &["verify-signature"][..],
+        &["verify-signature", "Marsa.app"][..],
+        &["verify-signature", "--team-id", "invalid", "Marsa.app"][..],
+    ] {
+        assert_eq!(run(arguments).status.code(), Some(2));
+    }
 }

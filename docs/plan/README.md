@@ -16,7 +16,7 @@ This plan turns the design in [`docs/`](../README.md) into ordered, checkable ta
 | M7 | [GUI features](M7-gui-features.md) | Every "must have" screen, in four variants | 14 |
 | M8 | [MCP server](M8-mcp.md) | Agents can operate containers under permission tiers | 9 |
 | M9 | [Hardening](M9-hardening.md) | Security, reliability and recovery proven by tests | 13 |
-| M10 | [Release](M10-release.md) | Signed, notarized, auto-updating distribution | 12 |
+| M10 | [Release](M10-release.md) | Signed, notarized, auto-updating distribution | 13 |
 | M11 | [Performance](M11-performance.md) | Benchmarks, the `krun` backend and the default-backend decision | 6 |
 
 ## Milestone dependencies
