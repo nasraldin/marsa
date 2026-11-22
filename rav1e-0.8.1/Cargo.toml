@@ -222,7 +222,8 @@ version = "0.4"
 version = "0.2"
 
 [dependencies.paste]
-version = "1.0"
+version = "=0.2.3"
+package = "pastey"
 
 [dependencies.profiling]
 version = "1"
