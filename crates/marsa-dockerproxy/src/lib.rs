@@ -8,4 +8,4 @@ use marsa_share as _;
 mod platform;
 
 #[cfg(unix)]
-pub use platform::serve;
+pub use platform::{Startup, serve};

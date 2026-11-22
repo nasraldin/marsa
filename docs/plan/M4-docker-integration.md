@@ -20,7 +20,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-02 Start the VM on demand
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M4-01, M3-06
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle)
 - **Do:** Make the proxy call `ensure_ready` before forwarding. Requests wait during boot up to a timeout and then return a clear error. Track running containers to drive the idle state.
