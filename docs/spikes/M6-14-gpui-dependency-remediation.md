@@ -93,3 +93,10 @@ dismissal. The component's public date controls also expose `chrono`
 types. A compatible migration must cover those APIs and replace
 `instant` and `paste` while preserving UI behavior. Run the full
 dependency check on the standalone component stack after those ports.
+A separate component scratch replaced `instant` with `web-time` and
+`paste` with `pastey` 0.2.3. Removing unused folder interpolation also
+let GPUI Kit Assets compile with literal asset paths. The same Apple
+audit then reported `chrono` as the sole advisory and no rejected
+licenses. Duplicate versions and the renderer API port remain. The
+unfiltered check also exposes older platform dependencies from the
+component graph.
