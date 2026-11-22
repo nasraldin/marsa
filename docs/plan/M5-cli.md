@@ -42,16 +42,15 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
   - `marsa status --json` includes VM state, versions and resource use.
   - `eval "$(marsa env)"` makes `docker ps` work in a shell with no context set.
 
-### M5-04 Network commands
+### M5-04 Network mode and settings
 
 - **Status:** todo
-- **Depends on:** M5-02, M4-10, M4-18
+- **Depends on:** M5-02, M4-10
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
-- **Do:** Implement `network status|mode` using authenticated network RPCs. M5-10 owns independent settings and folder management. M5-09 owns Docker bind approvals.
-- **Deliver:** network command implementations and tests.
+- **Do:** Implement `network mode` through the authenticated network API. Report when a change needs a restart. M5-10 owns settings and shared folders, M5-09 owns bind approvals, and M5-11 owns read-only network status.
+- **Deliver:** network mode command and tests.
 - **Accept when:**
-  - Status reports the configured and active modes, including an automatic fallback reason.
-  - Explicit configuration stages the selected mode and reports any restart requirement.
+  - An explicit mode stages only the requested configuration and reports the restart requirement.
 
 ### M5-05 Disk usage command
 
@@ -120,3 +119,14 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
   - The daemon's validation message explains an invalid setting.
   - Adding a protected path fails safely with an explanation.
   - The owner can list, add and remove an ordinary folder without changing other settings.
+
+### M5-11 Report active networking from the CLI
+
+- **Status:** done
+- **Depends on:** M5-02, M4-18
+- **Docs:** [06 Mode selection](../06-networking.md#network-modes), [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
+- **Do:** Report configured and active network modes, connectivity reason, and current addresses from the authenticated read-only network RPC. Localize the human-readable output and keep JSON stable.
+- **Deliver:** `marsa network status` and a packaged verification.
+- **Accept when:**
+  - A stopped daemon reports the configured mode without an active mode or stale addresses.
+  - A running user-space guest reports its active mode and IPv4 and gateway values.

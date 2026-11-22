@@ -6,6 +6,7 @@
     { "$ref": "#/$defs/completion" },
     { "$ref": "#/$defs/error" },
     { "$ref": "#/$defs/disk_usage" },
+    { "$ref": "#/$defs/network_status" },
     { "$ref": "#/$defs/settings" },
     { "$ref": "#/$defs/setting" },
     { "$ref": "#/$defs/shares" },
@@ -57,6 +58,20 @@
             }
           }
         }
+      }
+    },
+    "network_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "configured_mode", "active_mode", "reason", "guest_address", "gateway_address"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "network_status" },
+        "configured_mode": { "enum": ["auto", "nat", "userspace", null] },
+        "active_mode": { "enum": ["nat", "userspace", null] },
+        "reason": { "type": ["string", "null"] },
+        "guest_address": { "type": ["string", "null"] },
+        "gateway_address": { "type": ["string", "null"] }
       }
     },
     "settings": {

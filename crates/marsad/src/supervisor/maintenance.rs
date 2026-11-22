@@ -29,7 +29,21 @@ impl LifecyclePermit {
     /// Dropping the permit before readiness cancels and cleans up the launch.
     pub async fn start(&self) -> Result<(), SupervisorError> {
         self.owner
-            .request(|reply| Command::MaintenanceStart(self.id, reply))
+            .request(|reply| Command::MaintenanceStart(self.id, false, reply))
+            .await
+    }
+
+    /// Start a candidate that is discarded on permit release unless explicitly retained.
+    pub(crate) async fn start_candidate(&self) -> Result<(), SupervisorError> {
+        self.owner
+            .request(|reply| Command::MaintenanceStart(self.id, true, reply))
+            .await
+    }
+
+    /// Retain a started candidate after its owning transaction commits.
+    pub(crate) async fn keep_candidate(&self) -> Result<(), SupervisorError> {
+        self.owner
+            .request(|reply| Command::MaintenanceKeep(self.id, reply))
             .await
     }
 }
