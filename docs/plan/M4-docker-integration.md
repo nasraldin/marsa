@@ -155,7 +155,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-13 SSH agent forwarding for builds
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M4-01
 - **Docs:** [09 SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding), [11 SSH agent access](../11-security.md#ssh-agent-access)
 - **Do:** Qualify the upstream Buildx SSH mount through the Docker socket proxy. Use Buildx's per-build session and the invoking client's explicitly supplied SSH agent. Keep the separate guest socket proposal in M4-17.

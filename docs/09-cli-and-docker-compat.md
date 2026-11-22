@@ -126,6 +126,13 @@ For Docker builds, pass `docker build --ssh default` with `SSH_AUTH_SOCK` pointi
 
 M4-17 tracks opt-in forwarding for bind-mounted agent sockets in regular containers. It requires a separate authorization and transport design. See [SSH agent access](11-security.md#ssh-agent-access).
 
+Qualify build SSH forwarding on Apple silicon with the [signed VM test fixture](03-host-daemon.md#docker-socket-proxy). The test downloads checksum-pinned Alpine packages on the Mac, installs them without guest egress, and serves a disposable Git repository on the VM's loopback. Only the test public key is sent to that server. A separate macOS agent holds the fixture private key.
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
+  --test packaged_runtime packaged_buildkit_ssh_session -- --ignored --nocapture
+```
+
 ## The `marsa` CLI
 
 A thin client of the typed API. It never talks to the VM directly.
