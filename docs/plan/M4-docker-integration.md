@@ -70,13 +70,16 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 - **Status:** in progress
 - **Depends on:** M4-05, M4-01, M3-16
 - **Docs:** [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
-- **Do:** Map allowlist entries to virtiofs shares mounted at identical paths in the guest. Inspect `POST /containers/create` in the proxy for bind mounts outside the allowlist and return a clear error with the fix; raise an approval event that the GUI and CLI can answer (once, always, deny). Handle adding a share with or without a VM restart according to backend capabilities. Implement whatever M1-04 found necessary for change notifications and ownership.
+- **Do:** Map allowlist entries to virtiofs shares mounted at identical paths in the guest. Use the pinned Docker Engine authorization-plugin interface to inspect `POST /containers/create`. Keep the host Docker proxy byte-transparent and have the isolated guest plugin ask the host to authorize each bind source on a bounded, authenticated guest channel. Return a clear error with the fix, and raise an approval event that the GUI and CLI can answer (once, always, deny). Handle adding a share with or without a VM restart according to backend capabilities. Implement whatever M1-04 found necessary for change notifications and ownership.
 - **Deliver:** share attachment, proxy inspection, approval event flow, a file-sharing compatibility test suite.
 - **Accept when:**
   - `docker run -v <allowed path>:/x` works; an unlisted path is refused with an actionable message.
   - Files created in a container on a share are owned by the Mac user on the host.
   - A file edit on the host triggers a watcher inside a container (hot reload test with a common dev server).
   - V-06 is resolved in the docs.
+
+
+**Qualification.** The signed Apple silicon guest preserved raw HTTP 200 attach, HTTP 101 BuildKit upgrades and private SSH builds with the upstream authorization hook. The hook denied disallowed bind requests through fixed-length, chunked and native HTTP/2 REST, plus invalid or missing JSON. Host policy transport and plugin lifecycle still need validation. Docker's hook has a 4 MiB limit on JSON API bodies. The production Linux 7.3.5 kernel does not accept ID-mapped mounts on this Apple virtiofs server. Direct UID/GID 12345 writes in scratch shares produced Mac-user-owned files, but a host append and atomic rename produced no raw virtiofs inotify notification. Host-origin changes still need a qualified developer workflow.
 
 ### M4-07 Data disk management
 
