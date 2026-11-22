@@ -95,7 +95,7 @@ features = ["codegen"]
 version = "0.9.33"
 
 [build-dependencies.globwalk]
-version = "0.8.1"
+version = "0.9.1"
 
 [build-dependencies.regex]
 version = "1"

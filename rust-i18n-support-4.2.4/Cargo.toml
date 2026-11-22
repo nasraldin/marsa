@@ -49,11 +49,11 @@ version = "2.0.2"
 version = "0.2"
 
 [dependencies.globwalk]
-version = "0.8.1"
+version = "0.9.1"
 optional = true
 
 [dependencies.itertools]
-version = "0.11.0"
+version = "0.15.0"
 optional = true
 
 [dependencies.normpath]
@@ -77,7 +77,7 @@ optional = true
 version = "1.0"
 
 [dependencies.toml]
-version = "0.8.8"
+version = "1.2.2"
 optional = true
 
 [dependencies.triomphe]

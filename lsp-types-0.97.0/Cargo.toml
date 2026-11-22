@@ -31,10 +31,10 @@ license = "MIT"
 repository = "https://github.com/gluon-lang/lsp-types"
 
 [dependencies.bitflags]
-version = "1.0.1"
+version = "2.13.2"
 
-[dependencies.fluent-uri]
-version = "0.1.4"
+[dependencies.iri-string]
+version = "=0.7.15"
 
 [dependencies.serde]
 version = "1.0.34"

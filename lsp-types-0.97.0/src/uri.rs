@@ -1,10 +1,11 @@
-use std::{hash::Hash, ops::Deref, str::FromStr};
+use std::{convert::TryFrom, hash::Hash, ops::Deref, str::FromStr};
 
-use serde::{de::Error, Deserialize, Serialize};
+use iri_string::types::UriReferenceString;
+use serde::{Deserialize, Serialize, de::Error};
 
-/// Newtype struct around `fluent_uri::Uri<String>` with serialization implementations that use `as_str()` and 'from_str()' respectively.
+/// Newtype struct around `UriReferenceString` with serialization implementations that use `as_str()` and 'from_str()' respectively.
 #[derive(Debug, Clone)]
-pub struct Uri(fluent_uri::Uri<String>);
+pub struct Uri(UriReferenceString);
 
 impl Serialize for Uri {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -21,9 +22,9 @@ impl<'de> Deserialize<'de> for Uri {
         D: serde::Deserializer<'de>,
     {
         let string = String::deserialize(deserializer)?;
-        fluent_uri::Uri::<String>::parse_from(string)
+        UriReferenceString::try_from(string)
             .map(Uri)
-            .map_err(|(_, error)| Error::custom(error.to_string()))
+            .map_err(Error::custom)
     }
 }
 
@@ -40,31 +41,21 @@ impl PartialOrd for Uri {
 }
 
 impl FromStr for Uri {
-    type Err = fluent_uri::ParseError;
+    type Err = iri_string::validate::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // TOUCH-UP:
-        // Use upstream `FromStr` implementation if and when
-        // https://github.com/yescallop/fluent-uri-rs/pull/10
-        // gets merged.
-        // fluent_uri::Uri::from_str(s).map(Self)
-        fluent_uri::Uri::parse(s).map(|uri| Self(uri.to_owned()))
+        s.parse().map(Self)
     }
 }
 
 impl Deref for Uri {
-    type Target = fluent_uri::Uri<String>;
+    type Target = UriReferenceString;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-/*
-    TOUCH-UP: `PartialEq`, `Eq` and `Hash` could all be derived
-    if and when the respective implementations get merged upstream:
-    https://github.com/yescallop/fluent-uri-rs/pull/9
-*/
 impl PartialEq for Uri {
     fn eq(&self, other: &Self) -> bool {
         self.as_str() == other.as_str()
@@ -76,5 +67,44 @@ impl Eq for Uri {}
 impl Hash for Uri {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.as_str().hash(state)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uri_references_keep_original_spelling_and_optional_scheme() {
+        for value in [
+            "file:///a%20b",
+            "HTTPS://example.org/A%2fb?keep=Raw#anchor",
+            "untitled:Untitled-1",
+            "vfs://[2001:db8::1]/a",
+            "../relative%20file",
+            "#fragment",
+            "",
+        ] {
+            let uri = value.parse::<Uri>().unwrap();
+            assert_eq!(uri.as_str(), value);
+            let serialized = serde_json::to_string(&uri).unwrap();
+            let round_tripped = serde_json::from_str::<Uri>(&serialized).unwrap();
+            assert_eq!(round_tripped, uri);
+        }
+
+        assert_eq!(
+            "http://example.org".parse::<Uri>().unwrap().scheme_str(),
+            Some("http")
+        );
+        assert_eq!("../relative".parse::<Uri>().unwrap().scheme_str(), None);
+        for invalid in [
+            "file:///[x]",
+            "http://[::",
+            "bad path",
+            "file:///%yz",
+            "مجلد",
+        ] {
+            assert!(invalid.parse::<Uri>().is_err(), "invalid URI: {}", invalid);
+        }
     }
 }
