@@ -20,6 +20,7 @@ service Shares {
 service DockerDiscovery {
   rpc GetEndpoint(GetDockerEndpointRequest) returns (DockerEndpoint);
   rpc EnsureContext(EnsureDockerContextRequest) returns (EnsureDockerContextResponse);
+  rpc EnableRegistryKeychain(EnableRegistryKeychainRequest) returns (EnableRegistryKeychainResponse);
 }
 
 message GetDockerEndpointRequest {}
@@ -38,6 +39,16 @@ message EnsureDockerContextResponse {
   DockerEndpoint endpoint = 1;
   // False when an identical context was already installed.
   bool created = 2;
+}
+
+// Called after the user explicitly approves saving Docker credentials in Keychain.
+message EnableRegistryKeychainRequest {
+  string request_id = 1;
+}
+
+message EnableRegistryKeychainResponse {
+  // True only when this request added the opt-in to Docker's configuration.
+  bool configured = 1;
 }
 
 // Report and configure the engine's networking.

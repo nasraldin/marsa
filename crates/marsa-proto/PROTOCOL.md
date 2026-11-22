@@ -157,3 +157,5 @@ record before retaining the facts, and abandons a connection that does
 not respond within its deadline. The guest reads the configured upstream
 interface and its default route from the kernel. The record describes
 guest state and is independent of the guest control session.
+
+Host API minor 3 adds the explicit `DockerDiscovery.EnableRegistryKeychain` mutation. The RPC accepts no credentials and returns only whether it added the setting.
