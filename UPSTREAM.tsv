@@ -14,6 +14,7 @@ gpui-pre-scheduler	0.3.13	8cfb580e4fb7d02f4ad860adb12df5ef09bc7e92fcd0a59f1fae1a
 hashbrown	0.15.5	9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1	https://github.com/rust-lang/hashbrown
 lsp-types	0.97.0	53353550a17c04ac46c585feb189c2db82154fc84b79c7a66c96c2c644f66071	https://github.com/gluon-lang/lsp-types
 png	0.18.1	60769b8b31b2a9f263dae2776c37b1b28ae246943cf719eb6946a1db05128a61	https://github.com/image-rs/image-png
+rav1e	0.8.1	43b6dd56e85d9483277cde964fd1bdb0428de4fec5ebba7540995639a21cb32b	https://github.com/xiph/rav1e
 rust-i18n	4.2.4	8502e73e6461c738659455c5d2cf95bc132760a6f203c717e66ee72b78906d7f	https://github.com/longbridge/rust-i18n
 rust-i18n-support	4.2.4	e806c2a9701cbd6043992cd935c30cb1fdb128fa15e7b506f3b46f97045737c0	https://github.com/longbridge/rust-i18n
 tonic	0.14.9	e2cdfc673aabd30fe8fee92e65837b644c37c5d47f0f97ae6d5e0f1237d15e1b	https://github.com/grpc/grpc-rust
