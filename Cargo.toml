@@ -8,6 +8,7 @@ members = [
     "crates/marsa-dockerproxy",
     "crates/marsa-gui",
     "crates/marsa-init",
+    "crates/marsa-l10n",
     "crates/marsa-mcp",
     "crates/marsa-net",
     "crates/marsa-proto",

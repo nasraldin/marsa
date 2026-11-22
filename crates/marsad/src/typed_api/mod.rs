@@ -6,6 +6,8 @@ mod docker_discovery;
 mod engine;
 mod events;
 mod meta;
+mod network;
+mod proxy_policy;
 mod requests;
 mod reset;
 mod settings;
@@ -22,8 +24,8 @@ use marsa_proto::host::v1::{
     CollectDiagnosticsResponse, ComponentVersion, EnsureDockerContextResponse,
     diagnostics_server::DiagnosticsServer, disk_server::DiskServer,
     docker_discovery_server::DockerDiscoveryServer, engine_server::EngineServer,
-    events_server::EventsServer, meta_server::MetaServer, settings_server::SettingsServer,
-    shares_server::SharesServer, stats_server::StatsServer,
+    events_server::EventsServer, meta_server::MetaServer, network_server::NetworkServer,
+    settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
 };
 use marsa_share::SharePolicy;
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
@@ -53,6 +55,7 @@ pub struct TypedApi {
     capabilities: Option<Capabilities>,
     components: Arc<[ComponentVersion]>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
+    verify_keychain: Option<docker_discovery::VerifyKeychain>,
 }
 
 struct Shared {
@@ -68,6 +71,7 @@ struct Shared {
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
     remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
     docker_context_requests: requests::Cache<(), EnsureDockerContextResponse>,
+    docker_keychain_requests: requests::Cache<(), bool>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
 }
@@ -95,6 +99,7 @@ impl TypedApi {
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
                 docker_context_requests: requests::Cache::new(),
+                docker_keychain_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
                 closing,
             }),
@@ -102,6 +107,7 @@ impl TypedApi {
             capabilities: None,
             components: Arc::default(),
             docker_contexts: None,
+            verify_keychain: None,
         })
     }
 
@@ -138,27 +144,36 @@ impl TypedApi {
     ///
     /// The factory runs on a blocking worker at every cold activation. It sees
     /// one settings snapshot for the whole attempt, including network fallback.
-    pub fn with_packaged_runtime(
+    pub async fn with_packaged_runtime(
         mut self,
         capabilities: Capabilities,
         control: GuestControl,
         config: SupervisorConfig,
         prepare: impl Fn(&Settings) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> + Send + Sync + 'static,
-    ) -> Self {
+    ) -> io::Result<Self> {
+        let paths = self.inner.paths.clone();
+        let uid = self.inner.uid;
+        let proxy = tokio::task::spawn_blocking(move || proxy_policy::BootProxy::read(&paths, uid))
+            .await
+            .map_err(io::Error::other)??;
         let events = self.inner.events.clone();
         events.backend(capabilities.name);
         self.capabilities = Some(capabilities);
+        let (desired, _) = events.settings();
+        events.runtime_applied(&proxy.effective(desired));
         let settings = events.clone();
         let preparation = Arc::new(move || {
             let (desired, _) = settings.settings();
-            let (backend, mut spec) = prepare(&desired)?;
-            let automatic = select_network(&desired, &mut spec, backend.capabilities());
+            let effective = proxy.effective(desired);
+            let (backend, mut spec) = prepare(&effective)?;
+            let automatic = select_network(&effective, &mut spec, backend.capabilities());
             let bus = settings.clone();
             Ok(Launch {
                 backend,
                 spec,
                 selection: Selection::new(automatic),
-                applied: Some(Arc::new(move || bus.runtime_applied(&desired))),
+                network_policy: proxy.guest_configuration(),
+                applied: Some(Arc::new(move || bus.runtime_applied(&effective))),
             })
         });
         let observations = self.inner.events.clone();
@@ -175,7 +190,7 @@ impl TypedApi {
             Arc::new(move |transition| events.engine(transition)),
         );
         self.supervisor = Some(supervisor);
-        self
+        Ok(self)
     }
 
     /// Attach the release versions reported by this daemon's installed guest.
@@ -221,6 +236,7 @@ impl TypedApi {
             )
             .add_service(EventsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(StatsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
+            .add_service(NetworkServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 stop.await;
                 self.inner.closing.send_replace(true);
@@ -270,3 +286,7 @@ fn select_network(settings: &Settings, spec: &mut VmSpec, capabilities: Capabili
         && settings.network.proxy.http.is_none()
         && settings.network.proxy.https.is_none()
 }
+
+#[cfg(test)]
+#[path = "tests/proxy_policy.rs"]
+mod proxy_policy_tests;

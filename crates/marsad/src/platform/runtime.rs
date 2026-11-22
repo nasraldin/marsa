@@ -117,6 +117,25 @@ impl Packaged {
         Ok(cli.path)
     }
 
+    pub(super) fn verify_registry_keychain(&self) -> io::Result<()> {
+        let helper = Artifact::open(
+            self.bundle
+                .join("Contents/Resources/bin/docker-credential-osxkeychain"),
+        )?;
+        let mode = helper.metadata.mode();
+        if mode & 0o111 == 0
+            || mode & 0o6022 != 0
+            || !valid_signature(&self.bundle)?
+            || !valid_signature(&helper.path)?
+        {
+            return Err(invalid_artifact(localized(
+                "the bundled Docker credential helper is not a verified executable",
+                "أداة اعتماد Docker المضمّنة غير قابلة للتنفيذ أو لم يتم التحقق منها",
+            )));
+        }
+        helper.check_unchanged()
+    }
+
     /// Verify the boot files and build a spec snapshot before initializing persistent storage.
     pub(super) fn prepare(
         &self,
@@ -147,12 +166,25 @@ impl Packaged {
                 ),
             ));
         }
-        if !settings.network.dns.is_empty() || settings.network.proxy != ProxySettings::default() {
+        if !settings.network.dns.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 localized(
-                    "custom DNS and proxy settings require the guest network policy",
-                    "تتطلب إعدادات DNS والوكيل المخصصة سياسة شبكة الضيف",
+                    "custom DNS settings require the guest network policy",
+                    "تتطلب إعدادات DNS المخصصة سياسة شبكة الضيف",
+                ),
+            ));
+        }
+        let proxy = &settings.network.proxy;
+        if proxy.inject_into_containers
+            || (*proxy != ProxySettings::default()
+                && settings.network.mode != NetworkMode::Userspace)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                localized(
+                    "the manual daemon proxy requires user-space networking and cannot be injected into containers",
+                    "يتطلب وكيل الخادم اليدوي شبكة مساحة المستخدم ولا يمكن تمريره إلى الحاويات",
                 ),
             ));
         }

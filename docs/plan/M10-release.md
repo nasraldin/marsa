@@ -77,13 +77,14 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 ### M10-07 Release workflow
 
 - **Status:** todo
-- **Depends on:** M10-04, M10-06
+- **Depends on:** M10-04, M10-06, M9-09
 - **Docs:** [12 Continuous integration](../12-build-release-update.md#continuous-integration)
 - **Do:** Add the tag-triggered release workflow: full checks, guest build, bundle, sign, notarize, package, generate and sign the manifest, publish to the `beta` channel, with a manual promotion step to `stable`. Secrets are scoped to this workflow on protected tags.
 - **Deliver:** `.github/workflows/release.yml`, a release runbook.
 - **Accept when:**
   - A test tag produces a complete beta release end to end.
   - Signing secrets are not accessible to pull-request workflows.
+  - Updates run the signed disk compatibility check against the archived previous release before promotion.
 
 ### M10-08 Licence notices, SBOM and source publication
 
