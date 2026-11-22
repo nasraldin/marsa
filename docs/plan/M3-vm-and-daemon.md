@@ -242,3 +242,15 @@ remain tracked by Q-04. [Tart nested virtualization support](https://tart.run/fa
   - Ordinary start, stop, restart, pause, resume, and Docker connection requests return busy while maintenance is reserved.
   - The holder can stop or cancel the current boot, then start a candidate with no automatic retry. An unfinished candidate is cleaned up before the permit releases its reservation.
   - Cancellation of a waiting reservation and release of a held permit leave ordinary admission usable.
+
+### M3-18 Automate Tart qualification for signed macOS builds
+
+- **Status:** in progress
+- **Depends on:** M3-12, M3-14
+- **Docs:** [12 Signing and clean-Mac handoff](../12-build-release-update.md#signing-and-clean-mac-handoff)
+- **Do:** Run the signed qualification build's network, Gatekeeper and first-launch checks from the host through Tart Guest Agent on a disposable macOS 27 or newer guest.
+- **Deliver:** A host runner, a reusable guest script and the exact prerequisites and commands.
+- **Accept when:**
+  - The test validates guest IPv4, gateway reachability and direct and DNS-based HTTPS without changing host controls.
+  - The guest verifies the ZIP against the host's trusted digest, checks the signature and enabled Gatekeeper with a test quarantine marker, then launches with a clean Marsa home and observes the daemon socket becoming ready.
+  - An agent-enabled macOS 27 guest completes the checks from the host without manual input inside the VM.
