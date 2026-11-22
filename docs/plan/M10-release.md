@@ -135,7 +135,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 
 ### M10-13 Prepare the native Harbor app icon
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [12 App bundle layout](../12-build-release-update.md#app-bundle-layout), [Marsa Brand](https://www.figma.com/design/iXC1vWPKBgY2B6kDQVxI9W/Marsa-Desktop?node-id=2-17384)
 - **Do:** Export the authoritative full, small and tiny Harbor icon artwork. Build the native macOS bundle icon independently of the complete desktop package.

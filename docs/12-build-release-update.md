@@ -74,6 +74,7 @@ Marsa.app/
     │   │   ├── Image
     │   │   ├── rootfs.img
     │   │   └── guest-manifest.json
+    │   ├── Marsa.icns
     │   ├── locales/
     │   ├── fonts/
     │   └── licenses/                  # third-party notices and SBOM
@@ -83,6 +84,8 @@ Marsa.app/
 ```
 
 Use `io.github.nasraldin.marsa` as the app's `CFBundleIdentifier` for the checked-in [LaunchAgent template](../packaging/macos/LaunchAgents/io.github.nasraldin.marsa.marsad.plist). If the bundle identifier changes, update the plist filename and its `Label` together.
+
+Copy the verified [Harbor icon](../assets/icons/README.md) into `Contents/Resources/Marsa.icns` and set `CFBundleIconFile` to `Marsa.icns`.
 
 Copy the verified `bin/` tree from the directory printed by
 [`cargo xtask fetch-upstream`](09-cli-and-docker-compat.md#bundled-upstream-binaries)
