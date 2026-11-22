@@ -11,7 +11,10 @@ use marsa_ui::{
         checkbox::Checkbox,
         input::{Input, InputState},
     },
-    tokens::{scale::Space, typography::Role},
+    tokens::{
+        scale::{Radius, Space},
+        typography::Role,
+    },
 };
 
 use crate::screens::common::ScreenContext;
@@ -251,19 +254,31 @@ impl Form {
         let title = self.kind.title(screen.locale);
         let mut form = div().flex().flex_col().gap(px(Space::S12.pixels()));
         if let Some(target) = self.kind.target() {
-            form = form.child(text(screen, Role::Mono, target.to_owned()));
-        }
-        if !self.kind.users().is_empty() {
-            form = form.child(text(
-                screen,
-                Role::Body,
-                message(screen.locale, gui::GUI_DESKTOP_USED_BY_THESE_CONTAINERS),
-            ));
-            form = form.children(
-                self.kind
-                    .users()
-                    .iter()
-                    .map(|name| text(screen, Role::Mono, name.clone())),
+            let affected = self.kind.users();
+            form = form.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(Space::S8.pixels()))
+                    .p(px(Space::S12.pixels()))
+                    .rounded(px(Radius::R8.pixels()))
+                    .border_1()
+                    .border_color(tone(screen, ColorToken::BorderSubtle))
+                    .bg(tone(screen, ColorToken::BgCode))
+                    .child(text(screen, Role::Mono, target.to_owned()))
+                    .children((!affected.is_empty()).then(|| {
+                        text(
+                            screen,
+                            Role::Small,
+                            message(screen.locale, gui::GUI_DESKTOP_USED_BY_THESE_CONTAINERS),
+                        )
+                        .text_color(tone(screen, ColorToken::TextMuted))
+                    }))
+                    .children(
+                        affected
+                            .iter()
+                            .map(|name| text(screen, Role::Mono, name.clone())),
+                    ),
             );
         }
         if matches!(self.kind, FormKind::RemoveVolume { in_use: true, .. })
@@ -278,7 +293,10 @@ impl Form {
                     Role::Small,
                     message(screen.locale, gui::GUI_DESKTOP_DISCONNECT_OR_REMOVE_THE_CONTAINERS_BEFORE_REMOVING_THIS_RESOU),
                 )
-                .text_color(tone(screen, ColorToken::StatusWarning)),
+                .text_color(tone(screen, ColorToken::StatusWarning))
+                .bg(tone(screen, ColorToken::StatusWarningBg))
+                .rounded(px(Radius::R8.pixels()))
+                .p(px(Space::S12.pixels())),
             );
         }
         if matches!(self.kind, FormKind::RemoveImage { .. }) && !self.kind.users().is_empty() {
@@ -323,6 +341,8 @@ impl Form {
         let locale = screen.locale;
         let request = self.request(cx);
         let submit_button = Button::new("submit-resource-action")
+            .h(px(Space::S36.pixels()))
+            .rounded(px(Radius::R8.pixels()))
             .label(title)
             .disabled(request.is_none() || service.is_none() || view.read(cx).busy.is_some());
         let submit_button = if self.kind.destructive() {
@@ -334,8 +354,14 @@ impl Form {
             logical_row(screen.locale)
                 .justify_end()
                 .gap(px(Space::S8.pixels()))
+                .border_t_1()
+                .border_color(tone(screen, ColorToken::BorderSubtle))
+                .pt(px(Space::S12.pixels()))
                 .child(
                     Button::new("cancel-resource-action")
+                        .outline()
+                        .h(px(Space::S36.pixels()))
+                        .rounded(px(Radius::R8.pixels()))
                         .label(message(screen.locale, gui::GUI_DESKTOP_CANCEL))
                         .on_click(move |_, window, cx| {
                             cancel.update(cx, |view, cx| {

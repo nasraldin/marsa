@@ -1,25 +1,31 @@
-//! Engine controls, startup diagnostics and the workspace overview.
+//! Engine controls, resource preferences and startup diagnostics.
 
-use crate::screens::common::message;
-use marsa_ui::gui_keys as gui;
-use std::path::Path;
+use std::{cell::Cell, path::Path, rc::Rc};
 
-use marsa_client::api::{CollectDiagnosticsRequest, EngineState};
+use marsa_client::api::{CollectDiagnosticsRequest, EngineState, EngineStatus};
 use marsa_ui::{
-    ColorToken, Locale,
+    ColorToken, Locale, Palette, TextKey,
     gpui::{
-        Context, Div, FontWeight, ParentElement, PromptButton, PromptLevel, Styled, Window, div,
+        Context, Div, FontWeight, InteractiveElement, IntoElement, ParentElement,
+        StatefulInteractiveElement, Styled, Window, div, px,
     },
-    gpui_component::{Disableable, button::Button},
+    gpui_component::{
+        Disableable, Icon, IconName, Sizable, WindowExt,
+        button::{Button, ButtonVariants},
+        menu::{DropdownMenu, PopupMenuItem},
+    },
+    gui_keys as gui,
 };
 
 use crate::{
     desktop::status,
-    screens::common::{ScreenContext, color, label, panel, row, technical},
+    screens::common::{ScreenContext, align, color, message, panel, row, technical},
     services::{Command, EngineAction},
 };
 
-use super::{Notice, SystemView, disk::bytes, settings::SettingsTab};
+use super::{Notice, SystemView, disk::bytes};
+
+const GIB: u64 = 1024 * 1024 * 1024;
 
 impl SystemView {
     pub(crate) fn engine(
@@ -29,35 +35,59 @@ impl SystemView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.busy() {
+        if self.busy() || window.has_active_dialog(cx) {
             return;
         }
         if action == EngineAction::Start {
             self.run_engine(action, cx);
             return;
         }
-        let title = match action {
-            EngineAction::Stop => gui::GUI_DESKTOP_STOP_THE_MACHINE.text(locale),
-            _ => gui::GUI_DESKTOP_RESTART_THE_MACHINE.text(locale),
+        let stopping = action == EngineAction::Stop;
+        let title = if stopping {
+            gui::GUI_SYSTEM_MACHINE_CONFIRM_STOP
+        } else {
+            gui::GUI_SYSTEM_MACHINE_CONFIRM_RESTART
         };
-        let answer = window.prompt(
-            PromptLevel::Warning,
-            title,
-            Some(
-                gui::GUI_DESKTOP_RUNNING_WORKLOADS_WILL_BE_INTERRUPTED_SAVE_YOUR_WORK_FIRST
-                    .text(locale),
-            ),
-            &[
-                PromptButton::Ok(gui::GUI_DESKTOP_CONTINUE.text(locale).into()),
-                PromptButton::Cancel(gui::GUI_DESKTOP_CANCEL.text(locale).into()),
-            ],
-            cx,
-        );
-        self.command = Some(cx.spawn(async move |this, cx| {
-            if answer.await == Ok(0) {
-                let _ = this.update(cx, |this, cx| this.run_engine(action, cx));
-            }
-        }));
+        let explanation = if stopping {
+            gui::GUI_SYSTEM_MACHINE_STOP_EXPLANATION
+        } else {
+            gui::GUI_SYSTEM_MACHINE_RESTART_EXPLANATION
+        };
+        let submit = if stopping {
+            gui::GUI_DESKTOP_STOP_MACHINE
+        } else {
+            gui::GUI_DESKTOP_RESTART_MACHINE
+        };
+        let view = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let view = view.clone();
+            dialog
+                .centered()
+                .width(px(570.))
+                .overlay_closable(false)
+                .title(dialog_title(title.text(locale)))
+                .child(
+                    align(div().flex().flex_col().gap_5(), locale)
+                        .child(explanation.text(locale))
+                        .child(gui::GUI_SYSTEM_MACHINE_VOLUMES_STAY.text(locale)),
+                )
+                .footer(
+                    row(locale)
+                        .justify_end()
+                        .gap_2()
+                        .child(cancel_button("cancel-machine-action", locale))
+                        .child(
+                            Button::new("confirm-machine-action")
+                                .danger()
+                                .small()
+                                .label(submit.text(locale))
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    let _ = view.update(cx, |view, cx| view.run_engine(action, cx));
+                                }),
+                        ),
+                )
+        });
     }
 
     fn run_engine(&mut self, action: EngineAction, cx: &mut Context<Self>) {
@@ -73,7 +103,7 @@ impl SystemView {
         }
     }
 
-    fn collect_diagnostics(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn collect_diagnostics(&mut self, cx: &mut Context<Self>) {
         let Some(request_id) = self.mutation_id(cx) else {
             return;
         };
@@ -98,224 +128,554 @@ impl SystemView {
 
     pub(super) fn machine(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
         let locale = screen.locale;
+        let palette = screen.palette;
         let engine = screen.state.engine();
-        let state = engine.map(|engine| engine.state());
-        let controls = match state {
-            Some(EngineState::Stopped | EngineState::Failed) => vec![EngineAction::Start],
+        let state = engine.map(EngineStatus::state);
+        if state == Some(EngineState::Failed) {
+            return self.failed_engine(screen, cx);
+        }
+        let controls: &[EngineAction] = match state {
+            Some(EngineState::Stopped | EngineState::Failed) => &[EngineAction::Start],
             Some(EngineState::Ready | EngineState::Idle | EngineState::Paused) => {
-                vec![EngineAction::Stop, EngineAction::Restart]
+                &[EngineAction::Stop, EngineAction::Restart]
             }
-            _ => Vec::new(),
+            _ => &[],
         };
+        let running = matches!(
+            state,
+            Some(EngineState::Ready | EngineState::Idle | EngineState::Paused)
+        );
+        let backend = engine.map_or("—", |engine| match engine.backend.as_str() {
+            "vz" => "Virtualization.framework",
+            "krun" => "libkrun",
+            name => name,
+        });
         let resources = self.settings.as_ref().map(|(settings, _)| {
-            let memory = settings
-                .vm
-                .memory
-                .map(bytes)
-                .unwrap_or_else(|| gui::GUI_DESKTOP_AUTOMATIC.text(locale).to_owned());
-            let allocation = self
-                .disk
-                .as_ref()
-                .map(|disk| bytes(disk.host_allocated_bytes))
-                .unwrap_or_else(|| gui::GUI_DESKTOP_UNAVAILABLE.text(locale).to_owned());
             row(locale)
-                .gap_3()
-                .child(metric(
+                .gap_4()
+                .child(resource(
                     screen,
-                    "Processors",
-                    "المعالجات",
-                    settings.vm.cpus.to_string(),
+                    "icons/cpu.svg",
+                    gui::GUI_SYSTEM_MACHINE_PROCESSORS,
+                    format!("{} vCPU", settings.vm.cpus),
                 ))
-                .child(metric(screen, "Memory", "الذاكرة", memory))
-                .child(metric(
+                .child(resource(
                     screen,
-                    "Disk allocation",
-                    "مساحة القرص المخصّصة",
-                    allocation,
+                    "icons/memory-stick.svg",
+                    gui::GUI_SYSTEM_MACHINE_MEMORY,
+                    settings
+                        .vm
+                        .memory
+                        .map(bytes)
+                        .unwrap_or_else(|| gui::GUI_DESKTOP_AUTOMATIC.text(locale).to_owned()),
+                ))
+                .child(resource(
+                    screen,
+                    "icons/hard-drive.svg",
+                    gui::GUI_SYSTEM_MACHINE_DISK_ALLOCATION,
+                    self.disk
+                        .as_ref()
+                        .map(|disk| bytes(disk.host_allocated_bytes))
+                        .unwrap_or_else(|| gui::GUI_DESKTOP_UNAVAILABLE.text(locale).to_owned()),
                 ))
         });
-        let boot_message = match state {
-            Some(EngineState::Failed) => message(
-                screen.locale,
-                gui::GUI_DESKTOP_STARTUP_FAILED_REVIEW_THE_STARTUP_DETAILS_AND_COLLECT_DIAGNOST,
-            ),
-            Some(EngineState::Ready | EngineState::Idle) => message(
-                screen.locale,
-                gui::GUI_DESKTOP_LAST_BOOT_COMPLETED_THE_ENGINE_IS_READY,
-            ),
-            _ => message(
-                screen.locale,
-                gui::GUI_DESKTOP_BOOT_INFORMATION_APPEARS_HERE_AS_THE_MACHINE_STARTS,
-            ),
+        let boot = startup_copy(state);
+        let detail = engine.cloned();
+        div().flex().flex_col().gap_4()
+            .child(panel(screen).gap_4().pt_3()
+                .child(row(locale).justify_between().items_start().gap_3()
+                    .child(div().flex().flex_col().gap_4()
+                        .child(row(locale).gap_2()
+                            .child(system_icon(screen.palette, "icons/server.svg"))
+                            .child(title_text(gui::GUI_DESKTOP_LINUX_VIRTUAL_MACHINE.text(locale))))
+                        .child(row(locale).child(status::compact_badge(locale, palette, state))))
+                    .child(row(locale).gap_2().children(controls.iter().copied().map(|action| {
+                        let (id, key) = match action {
+                            EngineAction::Start => ("start-machine", gui::GUI_DESKTOP_START_MACHINE),
+                            EngineAction::Stop => ("stop-machine", gui::GUI_DESKTOP_STOP_MACHINE),
+                            EngineAction::Restart => ("restart-machine", gui::GUI_DESKTOP_RESTART_MACHINE),
+                        };
+                        Button::new(id).outline().h(px(44.)).disabled(self.busy()).label(key.text(locale))
+                            .on_click(cx.listener(move |view, _, window, cx| view.engine(action, locale, window, cx)))
+                    }))))
+                .child(row(locale).gap_4().border_t_1().pt_2()
+                    .border_color(color(palette, ColorToken::BorderSubtle))
+                    .child(machine_fact(screen, gui::GUI_DESKTOP_BACKEND, backend))
+                    .child(machine_fact(screen, gui::GUI_SYSTEM_MACHINE_ARCHITECTURE, host_architecture()))
+                    .child(machine_fact(screen, gui::GUI_DESKTOP_DOCKER_CONTEXT, if engine.is_some() { "marsa" } else { "—" })))
+                .children(running.then(|| muted(palette, gui::GUI_DESKTOP_RUNNING_WORKLOADS_WILL_BE_INTERRUPTED_SAVE_YOUR_WORK_FIRST.text(locale)))),
+            )
+            .child(panel(screen).gap_4().pt_3()
+                .child(div().flex().flex_col().gap_1()
+                    .child(title_text(gui::GUI_DESKTOP_RESOURCES.text(locale)))
+                    .child(muted(palette, gui::GUI_SYSTEM_MACHINE_RESOURCE_NOTICE.text(locale))))
+                .children(resources)
+                .child(if self.restart_required {
+                    div().text_size(px(14.)).text_color(color(palette, ColorToken::AccentDefault))
+                        .child(gui::GUI_DESKTOP_RESOURCE_CHANGES_ARE_PENDING.text(locale))
+                } else {
+                    row(locale).justify_end().child(Button::new("edit-machine-resources").outline().h(px(44.))
+                        .disabled(self.settings.is_none() || self.busy())
+                        .label(gui::GUI_DESKTOP_EDIT_RESOURCES.text(locale))
+                        .on_click(cx.listener(move |view, _, window, cx| view.edit_machine_resources(locale, palette, window, cx))))
+                }),
+            )
+            .child(panel(screen).child(row(locale).justify_between().gap_4()
+                .child(div().flex().flex_col().gap_1()
+                    .child(title_text(gui::GUI_DESKTOP_BOOT_DIAGNOSTICS.text(locale)))
+                    .child(muted(palette, boot.text(locale)))
+                    .children(matches!(state, Some(EngineState::Starting | EngineState::Booting | EngineState::Failed))
+                        .then(|| engine.and_then(|engine| engine.boot_stage.as_deref())).flatten().map(mono)))
+                .child(Button::new("startup-details").outline().h(px(44.))
+                    .label(gui::GUI_DESKTOP_VIEW_STARTUP_DETAILS.text(locale))
+                    .on_click(cx.listener(move |view, _, window, cx| view.startup_details(detail.clone(), locale, palette, window, cx))))),
+            )
+    }
+
+    pub(crate) fn failed_engine(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
+        let locale = screen.locale;
+        let palette = screen.palette;
+        let engine = screen.state.engine();
+        let current = engine.and_then(|engine| engine.boot_stage.as_deref());
+        let actual = match current {
+            Some("prepare" | "create" | "start") => (Some(0), 0),
+            Some("handshake") => (Some(1), 1),
+            Some("data_disk" | "network") => (None, 2),
+            Some("engine" | "running") => (Some(2), 2),
+            _ => (None, 0),
         };
+        let stages = [
+            gui::GUI_SYSTEM_MACHINE_STAGE_VM,
+            gui::GUI_SYSTEM_MACHINE_STAGE_AGENT,
+            gui::GUI_SYSTEM_MACHINE_STAGE_ENGINE,
+        ];
+        let caption = actual.0.map(|index| stages[index].text(locale)).or(current);
+        let reason = engine
+            .and_then(|engine| engine.reason.as_deref())
+            .filter(|reason| !reason.is_empty());
+        let console = engine
+            .and_then(|engine| engine.console_tail.as_deref())
+            .filter(|tail| !tail.is_empty());
         div()
             .flex()
             .flex_col()
             .gap_4()
             .child(
-                panel(screen)
+                row(locale)
+                    .gap_3()
+                    .items_start()
+                    .p_3()
+                    .rounded(px(8.))
+                    .bg(color(palette, ColorToken::StatusErrorBg))
+                    .child(system_icon(palette, "icons/triangle-alert.svg"))
                     .child(
-                        row(locale)
-                            .justify_between()
-                            .gap_3()
-                            .child(title_text(gui::GUI_DESKTOP_LINUX_VIRTUAL_MACHINE.text(screen.locale)))
-                            .child(row(locale).gap_2().children(controls.into_iter().map(
-                                |action| {
-                                    let (id, text) = match action {
-                                        EngineAction::Start => (
-                                            "start-machine",
-                                            message(screen.locale, gui::GUI_DESKTOP_START_MACHINE),
-                                        ),
-                                        EngineAction::Stop => (
-                                            "stop-machine",
-                                            message(screen.locale, gui::GUI_DESKTOP_STOP_MACHINE),
-                                        ),
-                                        EngineAction::Restart => (
-                                            "restart-machine",
-                                            message(screen.locale, gui::GUI_DESKTOP_RESTART_MACHINE),
-                                        ),
-                                    };
-                                    Button::new(id)
-                                        .outline()
-                                        .disabled(self.busy())
-                                        .label(text)
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.engine(action, locale, window, cx)
-                                        }))
-                                },
-                            ))),
-                    )
-                    .child(row(locale).child(status::badge(locale, screen.palette, state)))
-                    .child(
-                        row(locale)
-                            .gap_3()
-                            .child(metric(
-                                screen,
-                                "Backend",
-                                "الواجهة الخلفية",
-                                engine.map_or("—", |engine| engine.backend.as_str()),
-                            ))
-                            .child(metric(
-                                screen,
-                                "Architecture",
-                                "البنية",
-                                std::env::consts::ARCH,
-                            ))
-                            .child(metric(screen, "Docker context", "سياق Docker", "marsa")),
-                    )
-                    .child(message(screen.locale, gui::GUI_DESKTOP_STOPPING_OR_RESTARTING_INTERRUPTS_RUNNING_WORKLOADS)),
-            )
-            .child(
-                panel(screen)
-                    .child(title_text(gui::GUI_DESKTOP_RESOURCES.text(screen.locale)))
-                    .child(message(screen.locale, gui::GUI_DESKTOP_RESOURCE_CHANGES_TAKE_EFFECT_THE_NEXT_TIME_THE_MACHINE_STARTS))
-                    .children(resources)
-                    .children(self.restart_required.then(|| {
-                        message(screen.locale, gui::GUI_DESKTOP_RESOURCE_CHANGES_ARE_PENDING)
-                    }))
-                    .child(
-                        row(locale).justify_end().child(
-                            Button::new("edit-machine-resources")
-                                .outline()
-                                .disabled(self.settings.is_none())
-                                .label(message(screen.locale, gui::GUI_DESKTOP_EDIT_RESOURCES))
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.settings_tab = SettingsTab::Resources;
-                                    this.show_resource_inputs(window, cx);
-                                })),
-                        ),
-                    )
-                    .children(
-                        (self.settings_tab == SettingsTab::Resources && self.resource_inputs.open)
-                            .then(|| self.resource_editor(screen, cx)),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                row(locale)
+                                    .gap_2()
+                                    .text_size(px(14.))
+                                    .text_color(color(palette, ColorToken::StatusError))
+                                    .child(gui::GUI_SYSTEM_MACHINE_FAILED_STAGE.text(locale))
+                                    .children(caption.map(|stage| {
+                                        row(locale).gap_2().child("·").child(stage.to_owned())
+                                    })),
+                            )
+                            .children(reason.map(mono)),
                     ),
             )
             .child(
                 panel(screen)
+                    .rounded(px(8.))
+                    .min_h(px(126.))
+                    .child(title_text(gui::GUI_SYSTEM_MACHINE_BOOT_STAGES.text(locale)))
+                    .child(row(locale).gap_4().py_3().children(
+                        stages.into_iter().enumerate().map(|(index, label)| {
+                            let (icon, tone) = if actual.0 == Some(index) {
+                                ("icons/triangle-alert.svg", ColorToken::StatusError)
+                            } else if index < actual.1 {
+                                ("icons/check.svg", ColorToken::StatusRunning)
+                            } else {
+                                ("icons/clock-3.svg", ColorToken::TextMuted)
+                            };
+                            row(locale)
+                                .flex_1()
+                                .min_w_0()
+                                .gap_2()
+                                .text_size(px(13.))
+                                .text_color(color(palette, tone))
+                                .child(system_icon(palette, icon))
+                                .child(label.text(locale))
+                        }),
+                    )),
+            )
+            .child(
+                panel(screen)
+                    .rounded(px(8.))
+                    .min_h(px(198.))
+                    .bg(color(palette, ColorToken::BgCode))
+                    .child(title_text(
+                        gui::GUI_SYSTEM_MACHINE_RECENT_BOOT_LOGS.text(locale),
+                    ))
                     .child(
-                        row(locale)
-                            .justify_between()
-                            .child(title_text(gui::GUI_DESKTOP_BOOT_DIAGNOSTICS.text(screen.locale)))
-                            .child(
-                                Button::new("startup-details")
-                                    .outline()
-                                    .label(message(screen.locale, gui::GUI_DESKTOP_VIEW_STARTUP_DETAILS))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.diagnostics_open = !this.diagnostics_open;
-                                        cx.notify();
-                                    })),
-                            ),
+                        div()
+                            .id("failed-machine-boot-logs")
+                            .max_h(px(316.))
+                            .overflow_y_scroll()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .py_2()
+                            .children(console.into_iter().flat_map(str::lines).map(mono))
+                            .children(console.is_none().then(|| {
+                                muted(
+                                    palette,
+                                    gui::GUI_SYSTEM_MACHINE_NO_STARTUP_DETAILS.text(locale),
+                                )
+                            })),
+                    ),
+            )
+            .child(
+                row(locale)
+                    .justify_end()
+                    .gap_2()
+                    .pt_2()
+                    .child(
+                        Button::new("failed-machine-diagnostics")
+                            .outline()
+                            .icon(Icon::default().path("icons/download.svg"))
+                            .accessibility_label(gui::GUI_DESKTOP_COLLECT_DIAGNOSTICS.text(locale))
+                            .tooltip(gui::GUI_DESKTOP_COLLECT_DIAGNOSTICS.text(locale))
+                            .disabled(self.busy() || self.services.is_none())
+                            .on_click(cx.listener(|view, _, _, cx| view.collect_diagnostics(cx))),
                     )
-                    .child(boot_message)
-                    .children(
-                        engine
-                            .and_then(|engine| engine.boot_stage.as_deref())
-                            .map(|stage| technical(stage)),
-                    )
-                    .children(
-                        (self.diagnostics_open || state == Some(EngineState::Failed)).then(|| {
+                    .child(
+                        Button::new("retry-failed-machine")
+                            .primary()
+                            .icon(Icon::default().path("icons/refresh-cw.svg"))
+                            .accessibility_label(gui::GUI_DESKTOP_RETRY.text(locale))
+                            .tooltip(gui::GUI_DESKTOP_RETRY.text(locale))
+                            .disabled(self.busy() || self.services.is_none())
+                            .on_click(cx.listener(|view, _, _, cx| {
+                                view.run_engine(EngineAction::Start, cx)
+                            })),
+                    ),
+            )
+    }
+
+    fn edit_machine_resources(
+        &mut self,
+        locale: Locale,
+        palette: Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((settings, _)) = self.settings.as_ref() else {
+            return;
+        };
+        if self.busy() || window.has_active_dialog(cx) {
+            return;
+        }
+        let cpus = Rc::new(Cell::new(settings.vm.cpus));
+        let memory = Rc::new(Cell::new(settings.vm.memory));
+        let mut cpu_choices = vec![1, 2, 4, 6, 8, 12, 16, settings.vm.cpus];
+        cpu_choices.sort_unstable();
+        cpu_choices.dedup();
+        let mut memory_choices = vec![
+            None,
+            Some(2 * GIB),
+            Some(4 * GIB),
+            Some(8 * GIB),
+            Some(12 * GIB),
+            Some(16 * GIB),
+            settings.vm.memory,
+        ];
+        memory_choices.sort_unstable();
+        memory_choices.dedup();
+        let view = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let view = view.clone();
+            let cpu_for_save = cpus.clone();
+            let memory_for_save = memory.clone();
+            let fields = align(div().flex().flex_col().gap_5(), locale)
+                .child(muted(
+                    palette,
+                    gui::GUI_SYSTEM_MACHINE_AFTER_NEXT_RESTART.text(locale),
+                ))
+                .child(
+                    row(locale)
+                        .justify_between()
+                        .gap_4()
+                        .child(gui::GUI_SYSTEM_MACHINE_PROCESSORS.text(locale))
+                        .child(resource_menu(
+                            "machine-cpu-count",
+                            cpus.clone(),
+                            &cpu_choices,
+                            |cpu| format!("{cpu} vCPU"),
+                        )),
+                )
+                .child(
+                    row(locale)
+                        .justify_between()
+                        .gap_4()
+                        .child(gui::GUI_SYSTEM_MACHINE_MEMORY.text(locale))
+                        .child(resource_menu(
+                            "machine-memory-size",
+                            memory.clone(),
+                            &memory_choices,
+                            move |memory| {
+                                memory.map(bytes).unwrap_or_else(|| {
+                                    gui::GUI_DESKTOP_AUTOMATIC.text(locale).to_owned()
+                                })
+                            },
+                        )),
+                );
+            dialog
+                .centered()
+                .width(px(576.))
+                .overlay_closable(false)
+                .title(dialog_title(gui::GUI_DESKTOP_EDIT_RESOURCES.text(locale)))
+                .child(fields)
+                .footer(
+                    row(locale)
+                        .justify_end()
+                        .gap_2()
+                        .child(cancel_button("cancel-machine-resources", locale))
+                        .child(
+                            Button::new("confirm-machine-resources")
+                                .primary()
+                                .small()
+                                .label(gui::GUI_SYSTEM_MACHINE_SAVE_CHANGES.text(locale))
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    let cpu = cpu_for_save.get();
+                                    let memory = memory_for_save.get();
+                                    let _ = view.update(cx, |view, cx| {
+                                        view.save_settings(
+                                            |settings| {
+                                                settings.vm.cpus = cpu;
+                                                settings.vm.memory = memory;
+                                            },
+                                            cx,
+                                        )
+                                    });
+                                }),
+                        ),
+                )
+        });
+    }
+
+    fn startup_details(
+        &self,
+        engine: Option<EngineStatus>,
+        locale: Locale,
+        palette: Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if window.has_active_dialog(cx) {
+            return;
+        }
+        let context = startup_copy(engine.as_ref().map(EngineStatus::state));
+        let enabled = self.services.is_some() && engine.is_some();
+        let view = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let view = view.clone();
+            let details = engine
+                .as_ref()
+                .into_iter()
+                .flat_map(|engine| {
+                    [
+                        engine.boot_stage.as_deref(),
+                        engine.reason.as_deref(),
+                        engine.console_tail.as_deref(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .filter(|line| !line.is_empty())
+                })
+                .collect::<Vec<_>>();
+            dialog
+                .centered()
+                .width(px(660.))
+                .title(dialog_title(gui::GUI_DESKTOP_BOOT_DIAGNOSTICS.text(locale)))
+                .child(
+                    align(div().flex().flex_col().gap_5(), locale)
+                        .child(muted(palette, context.text(locale)))
+                        .child(
                             div()
+                                .id("machine-startup-output")
+                                .overflow_y_scroll()
+                                .min_h(px(128.))
+                                .max_h(px(252.))
+                                .rounded(px(12.))
+                                .border_1()
+                                .border_color(color(palette, ColorToken::BorderSubtle))
+                                .bg(color(palette, ColorToken::BgCode))
+                                .p_4()
                                 .flex()
                                 .flex_col()
-                                .gap_2()
-                                .children(
-                                    engine
-                                        .and_then(|engine| engine.reason.as_deref())
-                                        .map(|reason| technical(reason)),
-                                )
-                                .children(
-                                    engine
-                                        .and_then(|engine| engine.console_tail.as_deref())
-                                        .map(|tail| {
-                                            div()
-                                                .font_family("Menlo")
-                                                .text_sm()
-                                                .p_3()
-                                                .rounded_md()
-                                                .bg(color(screen.palette, ColorToken::BgCode))
-                                                .child(technical(tail))
-                                        }),
-                                )
-                                .child(
-                                    row(locale).child(
-                                        Button::new("collect-diagnostics")
-                                            .outline()
-                                            .disabled(
-                                                self.busy() || screen.state.daemon().is_none(),
-                                            )
-                                            .label(message(screen.locale, gui::GUI_DESKTOP_COLLECT_DIAGNOSTICS))
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.collect_diagnostics(cx)
-                                            })),
-                                    ),
-                                )
-                        }),
-                    ),
-            )
+                                .gap_3()
+                                .children(details.is_empty().then(|| {
+                                    muted(
+                                        palette,
+                                        gui::GUI_SYSTEM_MACHINE_NO_STARTUP_DETAILS.text(locale),
+                                    )
+                                }))
+                                .children(details.into_iter().map(mono)),
+                        ),
+                )
+                .footer(
+                    row(locale)
+                        .justify_end()
+                        .gap_2()
+                        .child(
+                            Button::new("close-startup-details")
+                                .outline()
+                                .small()
+                                .label(gui::GUI_DESKTOP_CLOSE.text(locale))
+                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child(
+                            Button::new("collect-diagnostics")
+                                .outline()
+                                .small()
+                                .icon(Icon::default().path("icons/download.svg"))
+                                .label(message(locale, gui::GUI_DESKTOP_COLLECT_DIAGNOSTICS))
+                                .disabled(!enabled)
+                                .on_click(move |_, _, cx| {
+                                    let _ =
+                                        view.update(cx, |view, cx| view.collect_diagnostics(cx));
+                                }),
+                        ),
+                )
+        });
+    }
+}
+
+fn host_architecture() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        arch => arch,
+    }
+}
+
+fn startup_copy(state: Option<EngineState>) -> TextKey {
+    match state {
+        Some(EngineState::Failed) => {
+            gui::GUI_DESKTOP_STARTUP_FAILED_REVIEW_THE_STARTUP_DETAILS_AND_COLLECT_DIAGNOST
+        }
+        Some(EngineState::Ready | EngineState::Idle) => {
+            gui::GUI_DESKTOP_LAST_BOOT_COMPLETED_THE_ENGINE_IS_READY
+        }
+        Some(EngineState::Stopped) => gui::GUI_SYSTEM_MACHINE_STOPPED_HINT,
+        _ => gui::GUI_DESKTOP_BOOT_INFORMATION_APPEARS_HERE_AS_THE_MACHINE_STARTS,
     }
 }
 
 pub(super) fn title_text(text: &'static str) -> Div {
-    div().font_weight(FontWeight::MEDIUM).child(text)
+    div()
+        .text_size(px(16.))
+        .line_height(px(24.))
+        .font_weight(FontWeight::MEDIUM)
+        .child(text)
 }
 
-pub(super) fn metric(
-    screen: &ScreenContext<'_>,
-    en: &'static str,
-    ar: &'static str,
-    value: impl AsRef<str>,
-) -> Div {
+pub(super) fn dialog_title(text: &'static str) -> Div {
     div()
+        .text_size(px(27.))
+        .line_height(px(36.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(text)
+}
+
+pub(super) fn mono(value: &str) -> Div {
+    div()
+        .min_w_0()
+        .font_family("IBM Plex Mono")
+        .text_size(px(12.))
+        .line_height(px(18.))
+        .child(technical(value))
+}
+
+pub(super) fn muted(palette: Palette, value: &'static str) -> Div {
+    div()
+        .text_size(px(12.))
+        .line_height(px(18.))
+        .text_color(color(palette, ColorToken::TextMuted))
+        .child(value)
+}
+
+pub(super) fn system_icon(palette: Palette, path: &'static str) -> Icon {
+    Icon::default()
+        .path(path)
+        .with_size(px(20.))
+        .text_color(color(palette, ColorToken::TextMuted))
+}
+
+fn machine_fact(screen: &ScreenContext<'_>, key: TextKey, value: &str) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
         .flex_1()
         .min_w_0()
-        .p_2()
-        .rounded_md()
+        .child(muted(screen.palette, key.text(screen.locale)))
+        .child(mono(value))
+}
+
+fn resource(screen: &ScreenContext<'_>, icon: &'static str, key: TextKey, value: String) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .p_3()
+        .gap_3()
+        .rounded(px(8.))
         .bg(color(screen.palette, ColorToken::BgSubtle))
         .child(
-            div()
-                .text_xs()
-                .text_color(color(screen.palette, ColorToken::TextMuted))
-                .child(label(screen, en, ar)),
+            row(screen.locale)
+                .gap_2()
+                .child(system_icon(screen.palette, icon))
+                .child(muted(screen.palette, key.text(screen.locale))),
         )
-        .child(div().text_sm().child(technical(value.as_ref())))
+        .child(mono(&value))
+}
+
+fn cancel_button(id: &'static str, locale: Locale) -> Button {
+    Button::new(id)
+        .outline()
+        .small()
+        .label(gui::GUI_DESKTOP_CANCEL.text(locale))
+        .on_click(|_, window, cx| window.close_dialog(cx))
+}
+
+fn resource_menu<T: Copy + Eq + 'static>(
+    id: &'static str,
+    value: Rc<Cell<T>>,
+    choices: &[T],
+    label: impl Fn(T) -> String + Clone + 'static,
+) -> impl IntoElement {
+    let current = value.get();
+    let choices = choices.to_vec();
+    Button::new(id)
+        .outline()
+        .icon(IconName::ChevronDown)
+        .label(label(current))
+        .dropdown_menu(move |menu, _, _| {
+            choices.iter().fold(menu, |menu, &choice| {
+                let value = value.clone();
+                menu.item(
+                    PopupMenuItem::new(label(choice))
+                        .checked(choice == value.get())
+                        .on_click(move |_, window, _| {
+                            value.set(choice);
+                            window.refresh();
+                        }),
+                )
+            })
+        })
 }

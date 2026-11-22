@@ -13,7 +13,10 @@ use marsa_client::api::UpdateSettingsRequest;
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken, Locale,
-    gpui::{Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window, div},
+    gpui::{
+        Context, Div, ParentElement, PromptButton, PromptLevel, SharedString, Styled, Window, div,
+        px, svg,
+    },
     gpui_component::{
         Disableable, IconName, Selectable,
         button::{Button, ButtonVariants},
@@ -21,9 +24,13 @@ use marsa_ui::{
         switch::Switch,
     },
     preferences::{Language, OperateApproval, Settings, Theme},
+    tokens::{
+        scale::{Radius, Space},
+        typography::Role,
+    },
 };
 
-use crate::screens::common::{ScreenContext, color, copy, label, panel, row};
+use crate::screens::common::{ScreenContext, align, color, copy, panel, row};
 
 use super::{Notice, SystemView, machine::title_text, notifications::Kind};
 
@@ -43,6 +50,19 @@ pub(super) enum SettingsTab {
 }
 
 impl SettingsTab {
+    fn icon(self) -> &'static str {
+        match self {
+            Self::General => "icons/sliders-horizontal.svg",
+            Self::Resources => "icons/cpu.svg",
+            Self::Sharing => "icons/folder-open.svg",
+            Self::Network => "icons/network.svg",
+            Self::Docker => "icons/container.svg",
+            Self::Agents => "icons/shield-check.svg",
+            Self::Updates => "icons/refresh-cw.svg",
+            Self::About => "icons/info.svg",
+        }
+    }
+
     fn title(self, locale: Locale) -> &'static str {
         let (en, ar) = match self {
             Self::General => ("General", "عام"),
@@ -63,7 +83,7 @@ impl SystemView {
         let locale = screen.locale;
         let tabs = row(locale)
             .flex_wrap()
-            .gap_1()
+            .gap(px(Space::S4.pixels()))
             .border_b_1()
             .border_color(color(screen.palette, ColorToken::BorderSubtle))
             .pb_2()
@@ -80,37 +100,65 @@ impl SystemView {
                 ]
                 .into_iter()
                 .map(|tab| {
-                    Button::new(("settings-tab", tab as usize))
+                    let selected = tab == self.settings_tab;
+                    let active = if selected {
+                        ColorToken::AccentDefault
+                    } else {
+                        ColorToken::TextMuted
+                    };
+                    let button = Button::new(("settings-tab", tab as usize))
                         .ghost()
-                        .selected(tab == self.settings_tab)
-                        .label(tab.title(locale))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.settings_tab = tab;
-                            if matches!(tab, SettingsTab::Resources | SettingsTab::Network) {
-                                this.show_resource_inputs(window, cx);
-                            }
-                            if tab == SettingsTab::Updates {
-                                this.load_update_status(cx);
-                            }
-                            if tab == SettingsTab::About {
-                                this.load_version(cx);
-                            }
-                            if tab == SettingsTab::General {
-                                this.load_login(cx);
-                            }
-                            cx.notify();
-                        }))
+                        .selected(selected)
+                        .h(px(Space::S36.pixels()))
+                        .rounded(px(Radius::R8.pixels()))
+                        .px(px(Space::S8.pixels()))
+                        .accessibility_label(tab.title(locale))
+                        .child(
+                            row(locale)
+                                .gap(px(Space::S8.pixels()))
+                                .child(settings_icon(
+                                    screen,
+                                    tab.icon(),
+                                    Space::S16.pixels(),
+                                    ColorToken::TextMuted,
+                                ))
+                                .child(settings_text(
+                                    screen,
+                                    Role::Label,
+                                    tab.title(locale),
+                                    active,
+                                )),
+                        );
+                    let button = if selected {
+                        button.bg(color(screen.palette, ColorToken::AccentSubtle))
+                    } else {
+                        button
+                    };
+                    button.on_click(cx.listener(move |this, _, window, cx| {
+                        this.settings_tab = tab;
+                        if matches!(tab, SettingsTab::Resources | SettingsTab::Network) {
+                            this.show_resource_inputs(window, cx);
+                        }
+                        if tab == SettingsTab::Updates {
+                            this.load_update_status(cx);
+                        }
+                        if tab == SettingsTab::About {
+                            this.load_version(cx);
+                        }
+                        if tab == SettingsTab::General {
+                            this.load_login(cx);
+                        }
+                        cx.notify();
+                    }))
                 }),
             );
         let content = match self.settings_tab {
             SettingsTab::General => self.general(screen, cx),
-            SettingsTab::Resources => panel(screen)
-                .child(title_text(
-                    gui::GUI_DESKTOP_VIRTUAL_MACHINE_RESOURCES.text(screen.locale),
-                ))
-                .child(message(
-                    screen.locale,
-                    gui::GUI_DESKTOP_CHANGES_APPLY_AT_THE_NEXT_START,
+            SettingsTab::Resources => settings_card(screen)
+                .child(settings_heading(
+                    screen,
+                    gui::GUI_DESKTOP_VIRTUAL_MACHINE_RESOURCES.text(locale),
+                    gui::GUI_DESKTOP_CHANGES_APPLY_AT_THE_NEXT_START.text(locale),
                 ))
                 .child(self.resource_editor(screen, cx)),
             SettingsTab::Sharing => self.sharing(screen, cx),
@@ -120,13 +168,17 @@ impl SystemView {
             SettingsTab::Updates => self.updates(screen, cx),
             SettingsTab::About => self.about(screen),
         };
-        div().flex().flex_col().gap_4().child(tabs).child(content)
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(Space::S16.pixels() + Space::S4.pixels()))
+            .child(tabs)
+            .child(content)
     }
 
     fn general(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
         let locale = screen.locale;
         let preferences = self.preferences();
-        let disabled = self.busy() || preferences.is_none();
         let languages = [
             (Language::System, gui::GUI_DESKTOP_SYSTEM.text(locale)),
             (Language::English, "English (US)"),
@@ -137,11 +189,13 @@ impl SystemView {
             (Theme::Light, gui::GUI_DESKTOP_LIGHT.text(locale)),
             (Theme::Dark, gui::GUI_DESKTOP_DARK.text(locale)),
         ];
-        let general = panel(screen)
-            .child(title_text(gui::GUI_DESKTOP_GENERAL.text(screen.locale)))
-            .child(message(
-                screen.locale,
-                gui::GUI_DESKTOP_CHANGES_APPLY_IMMEDIATELY,
+        let general = settings_card(screen)
+            .min_h(px(304.))
+            .pb(px(Space::S24.pixels()))
+            .child(settings_heading(
+                screen,
+                gui::GUI_DESKTOP_GENERAL.text(locale),
+                gui::GUI_DESKTOP_CHANGES_APPLY_IMMEDIATELY.text(locale),
             ))
             .child(setting(
                 screen,
@@ -150,11 +204,14 @@ impl SystemView {
                 "Uses the selected language throughout the app.",
                 "تُستخدم اللغة المحدّدة في جميع أنحاء التطبيق.",
                 setting_picker(
-                    "language-picker",
-                    gui::GUI_DESKTOP_SETTINGS_LANGUAGE.text(locale),
+                    screen,
+                    (
+                        "language-picker",
+                        gui::GUI_DESKTOP_SETTINGS_LANGUAGE.text(locale),
+                    ),
                     languages,
                     preferences.map(|(language, _)| language),
-                    disabled,
+                    self.busy(),
                     |settings, value| settings.ui.language = value,
                     cx,
                 ),
@@ -166,11 +223,14 @@ impl SystemView {
                 "Choose a theme or follow macOS.",
                 "اختر مظهرًا أو اتبع إعداد macOS.",
                 setting_picker(
-                    "appearance-picker",
-                    gui::GUI_DESKTOP_SETTINGS_APPEARANCE.text(locale),
+                    screen,
+                    (
+                        "appearance-picker",
+                        gui::GUI_DESKTOP_SETTINGS_APPEARANCE.text(locale),
+                    ),
                     themes,
                     preferences.map(|(_, theme)| theme),
-                    disabled,
+                    self.busy(),
                     |settings, value| settings.ui.theme = value,
                     cx,
                 ),
@@ -179,7 +239,7 @@ impl SystemView {
         div()
             .flex()
             .flex_col()
-            .gap_4()
+            .gap(px(Space::S16.pixels() + Space::S4.pixels()))
             .child(general)
             .child(self.accent_picker(screen, cx))
             .child(self.notification_settings(screen, cx))
@@ -272,13 +332,11 @@ impl SystemView {
         let preference = agents.map(|settings| settings.operate_approval);
         let advanced = agents.is_some_and(|settings| settings.advanced_access);
         let locale = screen.locale;
-        panel(screen)
-            .child(title_text(
-                gui::GUI_DESKTOP_AGENT_PERMISSIONS.text(screen.locale),
-            ))
-            .child(message(
-                screen.locale,
-                gui::GUI_DESKTOP_MANAGE_GRANTS_AND_REVIEW_REQUESTS_IN_ACTIVITY,
+        settings_card(screen)
+            .child(settings_heading(
+                screen,
+                gui::GUI_DESKTOP_AGENT_PERMISSIONS.text(locale),
+                gui::GUI_DESKTOP_MANAGE_GRANTS_AND_REVIEW_REQUESTS_IN_ACTIVITY.text(locale),
             ))
             .child(
                 row(screen.locale).gap_2().children(
@@ -359,11 +417,11 @@ impl SystemView {
 }
 
 fn setting_picker<T: Copy + Eq + 'static>(
-    id: &'static str,
-    name: &'static str,
+    screen: &ScreenContext<'_>,
+    (id, name): (&'static str, &'static str),
     options: [(T, &'static str); 3],
     selected: Option<T>,
-    disabled: bool,
+    busy: bool,
     edit: fn(&mut Settings, T),
     cx: &Context<SystemView>,
 ) -> Div {
@@ -374,9 +432,12 @@ fn setting_picker<T: Copy + Eq + 'static>(
     div().child(
         Button::new(id)
             .outline()
+            .h(px(38.))
+            .rounded(px(Radius::R8.pixels()))
+            .border_color(color(screen.palette, ColorToken::BorderControl))
             .label(selected_label.unwrap_or(name))
             .accessibility_label(name)
-            .disabled(disabled)
+            .disabled(selected.is_none() || busy)
             .child(IconName::ChevronDown)
             .dropdown_menu(move |menu, _, _| {
                 options.into_iter().fold(menu, |menu, (value, label)| {
@@ -395,6 +456,65 @@ fn setting_picker<T: Copy + Eq + 'static>(
     )
 }
 
+fn settings_card(screen: &ScreenContext<'_>) -> Div {
+    panel(screen)
+        .gap(px(Space::S12.pixels()))
+        .rounded(px(Radius::R8.pixels()))
+        .pt(px(Space::S12.pixels()))
+}
+
+fn settings_icon(
+    screen: &ScreenContext<'_>,
+    path: &'static str,
+    size: f32,
+    role: ColorToken,
+) -> impl marsa_ui::gpui::IntoElement + use<> {
+    svg()
+        .path(path)
+        .size(px(size))
+        .flex_shrink_0()
+        .text_color(color(screen.palette, role))
+}
+
+fn settings_text(
+    screen: &ScreenContext<'_>,
+    role: Role,
+    value: impl Into<SharedString>,
+    token: ColorToken,
+) -> Div {
+    let style = if screen.locale == Locale::Arabic {
+        role.arabic()
+    } else {
+        role.latin()
+    };
+    align(style.apply(div()), screen.locale)
+        .text_color(color(screen.palette, token))
+        .child(value.into())
+}
+
+fn settings_heading(
+    screen: &ScreenContext<'_>,
+    title: &'static str,
+    subtitle: &'static str,
+) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(Space::S4.pixels()))
+        .child(settings_text(
+            screen,
+            Role::Lead,
+            title,
+            ColorToken::TextPrimary,
+        ))
+        .child(settings_text(
+            screen,
+            Role::Small,
+            subtitle,
+            ColorToken::TextMuted,
+        ))
+}
+
 fn setting(
     screen: &ScreenContext<'_>,
     en: &'static str,
@@ -405,20 +525,29 @@ fn setting(
 ) -> Div {
     row(screen.locale)
         .justify_between()
-        .gap_4()
-        .py_3()
+        .gap(px(Space::S16.pixels()))
+        .min_h(px(Space::S72.pixels() - Space::S12.pixels()))
+        .py(px(Space::S8.pixels()))
         .border_t_1()
         .border_color(color(screen.palette, ColorToken::BorderSubtle))
         .child(
             div()
+                .flex()
+                .flex_col()
+                .gap(px(Space::S4.pixels()))
                 .flex_1()
-                .child(title_text(copy(screen.locale, en, ar)))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(color(screen.palette, ColorToken::TextMuted))
-                        .child(label(screen, en_help, ar_help)),
-                ),
+                .child(settings_text(
+                    screen,
+                    Role::Label,
+                    copy(screen.locale, en, ar),
+                    ColorToken::TextPrimary,
+                ))
+                .child(settings_text(
+                    screen,
+                    Role::Small,
+                    copy(screen.locale, en_help, ar_help),
+                    ColorToken::TextMuted,
+                )),
         )
         .child(control)
 }

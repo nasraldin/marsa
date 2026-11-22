@@ -9,7 +9,11 @@ mod overview;
 mod settings;
 
 use marsa_ui::gui_keys as gui;
-use std::{collections::VecDeque, future::Future, sync::Arc};
+use std::{
+    collections::{BTreeSet, VecDeque},
+    future::Future,
+    sync::Arc,
+};
 
 use marsa_client::{
     ClientError,
@@ -53,13 +57,13 @@ pub(crate) struct SystemView {
     vm_stats: Option<VmStatsSample>,
     vm_stats_task: Option<Task<()>>,
     preview: Option<PrunePreviewResponse>,
-    cleanup_categories: [bool; 4],
+    cleanup_selection: BTreeSet<(i32, String)>,
+    disk_engine_ready: bool,
     reclaimed: Option<u64>,
     audit: Option<ListAgentAuditResponse>,
     audit_filter: Option<AuditDecision>,
     audit_cursor: Option<String>,
     notice: Option<Notice>,
-    diagnostics_open: bool,
     command: Option<Task<()>>,
     settings_load: Option<Task<()>>,
     route_load: Option<Task<()>>,
@@ -98,13 +102,13 @@ impl SystemView {
             vm_stats: None,
             vm_stats_task: None,
             preview: None,
-            cleanup_categories: [true, true, false, true],
+            cleanup_selection: BTreeSet::new(),
+            disk_engine_ready: false,
             reclaimed: None,
             audit: None,
             audit_filter: None,
             audit_cursor: None,
             notice: None,
-            diagnostics_open: false,
             command: None,
             settings_load: None,
             route_load: None,
@@ -149,7 +153,11 @@ impl SystemView {
         let ready = snapshot
             .and_then(|snapshot| snapshot.engine.as_ref())
             .is_some_and(|engine| matches!(engine.state(), EngineState::Idle | EngineState::Ready));
+        let disk_became_ready = ready && !self.disk_engine_ready;
+        self.disk_engine_ready = ready;
         if !ready {
+            self.preview = None;
+            self.cleanup_selection.clear();
             self.vm_stats = None;
             self.vm_stats_task = None;
         } else if matches!(self.route, Route::Overview | Route::Machine) {
@@ -162,6 +170,8 @@ impl SystemView {
                 self.fetch_settings(cx);
                 self.enter(self.route, cx);
             }
+        } else if disk_became_ready && self.route == Route::Disk {
+            self.load_disk(cx);
         }
     }
 

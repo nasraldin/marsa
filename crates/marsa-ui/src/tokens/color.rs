@@ -42,6 +42,12 @@ pub enum ColorToken {
     BgPressed,
     /// `bg/code`
     BgCode,
+    /// `glass/rail` in the Figma workspace shell.
+    GlassRail,
+    /// `glass/control` in the Figma workspace shell.
+    GlassControl,
+    /// `glass/edge` in the Figma workspace shell.
+    GlassEdge,
     /// `text/primary`
     TextPrimary,
     /// `text/muted`
@@ -177,6 +183,9 @@ impl Palette {
             ColorToken::BgHover => (0xe7ebf4, 0x282f42),
             ColorToken::BgPressed => (0xe0e6f3, 0x30394b),
             ColorToken::BgCode => (0xedf3fa, 0x111a29),
+            ColorToken::GlassRail => (0xf1f8ff, 0x1c2d45),
+            ColorToken::GlassControl => (0xf6fbff, 0x23364f),
+            ColorToken::GlassEdge => (0xb3cce8, 0x4c6c8e),
             ColorToken::TextPrimary => (0x171c2b, 0xeff2fa),
             ColorToken::TextMuted => (0x4c5870, 0xbac3d6),
             ColorToken::TextOnDanger => (0xffffff, 0x230b12),

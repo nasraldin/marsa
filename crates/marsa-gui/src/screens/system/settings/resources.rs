@@ -15,7 +15,10 @@ use marsa_ui::{
     preferences::{NetworkMode, VmBackend},
 };
 
-use super::super::{Notice, SystemView, machine::title_text};
+use super::{
+    super::{Notice, SystemView},
+    settings_card, settings_heading,
+};
 use crate::screens::common::{ScreenContext, color, label, panel, row, technical};
 
 const MIB: u64 = 1024 * 1024;
@@ -279,13 +282,12 @@ impl SystemView {
             .daemon()
             .and_then(|snapshot| snapshot.network.as_ref());
         let locale = screen.locale;
-        panel(screen)
-            .child(title_text(
-                gui::GUI_DESKTOP_NETWORK_MODE.text(screen.locale),
-            ))
-            .child(message(
-                screen.locale,
-                gui::GUI_DESKTOP_AUTOMATIC_PREFERS_NATIVE_NAT_AND_FALLS_BACK_WHEN_EGRESS_IS_BLO,
+        settings_card(screen)
+            .child(settings_heading(
+                screen,
+                gui::GUI_DESKTOP_NETWORK_MODE.text(locale),
+                gui::GUI_DESKTOP_AUTOMATIC_PREFERS_NATIVE_NAT_AND_FALLS_BACK_WHEN_EGRESS_IS_BLO
+                    .text(locale),
             ))
             .child(
                 row(locale).gap_2().children(

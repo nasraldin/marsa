@@ -7,29 +7,37 @@ use marsa_client::api::{
 };
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
-    Locale,
-    gpui::{Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window},
+    ColorToken, Locale,
+    gpui::{Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window, div, px},
     gpui_component::{Disableable, button::Button},
+    tokens::{scale::Space, typography::Role},
 };
 
-use super::super::{Notice, SystemView, machine::title_text};
-use crate::screens::common::{ScreenContext, panel, row, technical};
+use super::{
+    super::{Notice, SystemView},
+    settings_card, settings_heading, settings_text,
+};
+use crate::screens::common::{ScreenContext, color, row, technical};
 
 impl SystemView {
     pub(super) fn docker(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
         let locale = screen.locale;
-        panel(screen)
-            .child(title_text(
-                gui::GUI_DESKTOP_DOCKER_CONTEXT.text(screen.locale),
+        let context = settings_card(screen)
+            .child(settings_heading(
+                screen,
+                gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale),
+                gui::GUI_DESKTOP_REGISTER_THE_LOCAL_MARSA_CONTEXT_WITH_DOCKER.text(locale),
             ))
-            .child(technical("marsa"))
-            .child(message(
-                screen.locale,
-                gui::GUI_DESKTOP_REGISTER_THE_LOCAL_MARSA_CONTEXT_WITH_DOCKER,
+            .child(settings_text(
+                screen,
+                Role::Mono,
+                technical("marsa"),
+                ColorToken::TextPrimary,
             ))
             .child(
                 row(screen.locale)
                     .gap_2()
+                    .flex_wrap()
                     .child(
                         Button::new("register-docker-context")
                             .outline()
@@ -82,13 +90,12 @@ impl SystemView {
                                 );
                             })),
                     ),
-            )
-            .child(title_text(
-                gui::GUI_DESKTOP_REGISTRY_CREDENTIALS.text(screen.locale),
-            ))
-            .child(message(
-                screen.locale,
-                gui::GUI_DESKTOP_USE_MACOS_KEYCHAIN_FOR_DOCKER_REGISTRY_SIGN_INS,
+            );
+        let registry = settings_card(screen)
+            .child(settings_heading(
+                screen,
+                gui::GUI_DESKTOP_REGISTRY_CREDENTIALS.text(locale),
+                gui::GUI_DESKTOP_USE_MACOS_KEYCHAIN_FOR_DOCKER_REGISTRY_SIGN_INS.text(locale),
             ))
             .child(
                 row(locale).child(
@@ -100,7 +107,13 @@ impl SystemView {
                             this.confirm_keychain(locale, window, cx)
                         })),
                 ),
-            )
+            );
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(Space::S16.pixels() + Space::S4.pixels()))
+            .child(context)
+            .child(registry)
     }
 
     fn confirm_keychain(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
@@ -160,30 +173,57 @@ impl SystemView {
     }
 
     pub(super) fn about(&self, screen: &ScreenContext<'_>) -> Div {
-        let version = self.version.as_ref();
-        panel(screen)
-            .child(title_text(gui::GUI_DESKTOP_MARSA.text(screen.locale)))
-            .child(technical(env!("CARGO_PKG_VERSION")))
-            .children(version.map(|VersionResponse { daemon_version, .. }| {
-                row(screen.locale)
-                    .gap_2()
-                    .child(message(screen.locale, gui::GUI_DESKTOP_DAEMON))
-                    .child(technical(daemon_version))
-            }))
-            .children(
-                version
-                    .into_iter()
-                    .flat_map(|value| &value.components)
-                    .map(|component| {
-                        row(screen.locale)
-                            .justify_between()
-                            .child(technical(&component.name))
-                            .child(technical(&component.version))
-                    }),
-            )
-            .child(message(
-                screen.locale,
-                gui::GUI_DESKTOP_MARSA_IS_RELEASED_UNDER_THE_MIT_LICENSE,
+        let locale = screen.locale;
+        settings_card(screen)
+            .child(settings_heading(
+                screen,
+                gui::GUI_DESKTOP_MARSA.text(locale),
+                gui::GUI_DESKTOP_MARSA_IS_RELEASED_UNDER_THE_MIT_LICENSE.text(locale),
+            ))
+            .child(component_row(
+                screen,
+                gui::GUI_DESKTOP_MARSA.text(locale),
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .children(self.version.as_ref().map(
+                |VersionResponse {
+                     daemon_version,
+                     components,
+                     ..
+                 }| {
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(component_row(
+                            screen,
+                            gui::GUI_DESKTOP_DAEMON.text(locale),
+                            daemon_version,
+                        ))
+                        .children(components.iter().map(|component| {
+                            component_row(screen, &component.name, &component.version)
+                        }))
+                },
             ))
     }
+}
+
+fn component_row(screen: &ScreenContext<'_>, component: &str, version: &str) -> Div {
+    row(screen.locale)
+        .justify_between()
+        .gap(px(Space::S16.pixels()))
+        .py(px(Space::S8.pixels()))
+        .border_t_1()
+        .border_color(color(screen.palette, ColorToken::BorderSubtle))
+        .child(settings_text(
+            screen,
+            Role::Label,
+            component.to_owned(),
+            ColorToken::TextMuted,
+        ))
+        .child(settings_text(
+            screen,
+            Role::Mono,
+            technical(version),
+            ColorToken::TextPrimary,
+        ))
 }

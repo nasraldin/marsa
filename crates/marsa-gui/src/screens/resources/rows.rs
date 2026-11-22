@@ -19,7 +19,7 @@ use marsa_ui::{
 
 use crate::screens::common::{ScreenContext, copy, label};
 
-use super::{ResourceKind, ResourcesView, forms::FormKind, logical_row, text, tone};
+use super::{ResourceKind, ResourcesView, forms::FormKind, logical_row, resource_icon, text, tone};
 
 pub(super) struct Columns(Vec<(SharedString, f32)>);
 
@@ -75,7 +75,15 @@ pub(super) struct ResourceRow {
 
 impl ResourceRow {
     pub(super) fn selected(&self, key: &str) -> bool {
-        self.key == key
+        self.key == key || self.id == key
+    }
+
+    pub(super) fn key(&self) -> &str {
+        &self.key
+    }
+
+    pub(super) fn display_name(&self) -> &str {
+        self.cells.first().map_or(self.id.as_str(), String::as_str)
     }
 
     pub(super) fn matches(&self, query: &str) -> bool {
@@ -144,9 +152,9 @@ pub(super) fn table(
     screen: &ScreenContext<'_>,
     kind: ResourceKind,
     columns: &Columns,
-    rows: &[ResourceRow],
+    rows: &[&ResourceRow],
     view: &Entity<ResourcesView>,
-    selection: Option<&(ResourceKind, String)>,
+    selection: Option<&str>,
 ) -> Div {
     let border = tone(screen, ColorToken::BorderSubtle);
     let header = logical_row(screen.locale)
@@ -193,16 +201,20 @@ pub(super) fn table(
                 .p(px(Space::S16.pixels())),
         );
     }
-    table = table.children(rows.iter().map(|row| {
-        let selected = selection.is_some_and(|(page, key)| *page == kind && key == &row.key);
+    table = table.children(rows.iter().enumerate().map(|(index, row)| {
+        let selected = selection == Some(row.key());
         let id = row.key.clone();
         let entry = logical_row(screen.locale)
             .items_center()
             .min_h(px(Space::S40.pixels() + Space::S4.pixels()))
             .px(px(Space::S16.pixels()))
             .gap(px(Space::S16.pixels()))
-            .border_b_1()
             .border_color(border);
+        let entry = if index + 1 < rows.len() {
+            entry.border_b_1()
+        } else {
+            entry
+        };
         let entry = if selected {
             entry.bg(tone(screen, ColorToken::AccentSubtle))
         } else {
@@ -220,6 +232,12 @@ pub(super) fn table(
             .tab_stop(true)
             .cursor_pointer()
             .hover(|style| style.bg(tone(screen, ColorToken::BgHover)))
+            .focus_visible(|style| {
+                style
+                    .inset_0()
+                    .border_1()
+                    .border_color(tone(screen, ColorToken::AccentFocus))
+            })
             .on_click(move |_, _, cx| {
                 select.update(cx, |view, cx| {
                     view.select(
@@ -242,19 +260,46 @@ pub(super) fn table(
             .children(columns.0.iter().zip(&row.cells).enumerate().map(
                 |(index, ((_, width), value))| {
                     if let Some((foreground, background)) = row.status.filter(|_| index == 4) {
-                        return column(
-                            *width,
-                            text(screen, Role::Small, value.clone())
-                                .rounded(px(Radius::Full.pixels()))
-                                .px(px(Space::S8.pixels()))
-                                .py(px(Space::S4.pixels()))
-                                .text_color(tone(screen, foreground))
-                                .bg(tone(screen, background)),
-                        )
-                        .into_any_element();
+                        let pill = logical_row(screen.locale)
+                            .gap(px(Space::S8.pixels()))
+                            .rounded(px(Radius::Full.pixels()))
+                            .px(px(Space::S8.pixels()))
+                            .py(px(Space::S4.pixels()))
+                            .bg(tone(screen, background))
+                            .child(
+                                div()
+                                    .size(px(Space::S8.pixels()))
+                                    .rounded_full()
+                                    .bg(tone(screen, foreground)),
+                            )
+                            .child(
+                                text(screen, Role::Small, value.clone())
+                                    .text_color(tone(screen, foreground)),
+                            );
+                        return column(*width, logical_row(screen.locale).child(pill))
+                            .into_any_element();
                     }
-                    column(*width, text(screen, Role::Mono, value.clone()).truncate())
-                        .into_any_element()
+                    let cell = if index == 0 {
+                        logical_row(screen.locale)
+                            .gap(px(Space::S8.pixels()))
+                            .child(resource_icon(screen, kind))
+                            .child(
+                                text(screen, Role::Mono, value.clone())
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate(),
+                            )
+                    } else {
+                        let role = match (kind, index) {
+                            (ResourceKind::Images, 1)
+                            | (ResourceKind::Volumes | ResourceKind::Networks, 1 | 3) => Role::Mono,
+                            _ => Role::Small,
+                        };
+                        text(screen, role, value.clone())
+                            .text_color(tone(screen, ColorToken::TextMuted))
+                            .truncate()
+                    };
+                    column(*width, cell).into_any_element()
                 },
             ))
     }));

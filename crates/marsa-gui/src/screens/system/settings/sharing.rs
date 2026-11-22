@@ -1,25 +1,32 @@
 //! Explicit folder sharing and owner responses to pending bind requests.
 
-use crate::screens::common::message;
 use marsa_client::api::{
-    AddShareRequest, BindApprovalDecision, RemoveShareRequest, ResolveBindRequest,
+    AddShareRequest, BindApproval, BindApprovalDecision, RemoveShareRequest, ResolveBindRequest,
 };
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
-    ColorToken, Locale,
+    ColorToken, Locale, Palette,
     gpui::{
         Context, Div, ParentElement, PathPromptOptions, PromptButton, PromptLevel, Styled, Window,
-        div,
+        div, px,
     },
     gpui_component::{
-        Disableable,
+        Disableable, WindowExt,
         button::{Button, ButtonVariants},
+        menu::{DropdownMenu, PopupMenuItem},
+    },
+    tokens::{
+        scale::{Radius, Space},
+        typography::Role,
     },
 };
 
-use crate::screens::common::{ScreenContext, color, panel, row, technical};
+use crate::screens::common::{ScreenContext, color, row, technical};
 
-use super::super::{Notice, SystemView, machine::title_text};
+use super::{
+    super::{Notice, SystemView},
+    settings_card, settings_heading, settings_icon, settings_text,
+};
 
 impl SystemView {
     pub(in crate::screens::system) fn sharing(
@@ -32,48 +39,308 @@ impl SystemView {
         let shares = snapshot.and_then(|snapshot| snapshot.shares.as_ref());
         let binds = snapshot.and_then(|snapshot| snapshot.bind_approvals.as_ref());
         let disabled = self.busy() || snapshot.is_none();
-        div().flex().flex_col().gap_4()
-            .child(panel(screen)
-                .child(row(locale).justify_between()
-                    .child(div().child(title_text(gui::GUI_DESKTOP_SHARED_FOLDERS.text(screen.locale)))
-                        .child(message(screen.locale, gui::GUI_DESKTOP_CONTAINERS_CAN_REQUEST_ACCESS_TO_OTHER_FOLDERS_WHEN_NEEDED)))
-                    .child(Button::new("add-folder").primary().disabled(disabled)
-                        .label(message(screen.locale, gui::GUI_DESKTOP_ADD_FOLDER))
-                        .on_click(cx.listener(move |this, _, window, cx| this.choose_folder(locale, window, cx)))))
-                .children(shares.is_some_and(|shares| shares.shares.is_empty()).then(|| message(screen.locale, gui::GUI_DESKTOP_NO_SHARED_FOLDERS)))
-                .children(shares.into_iter().flat_map(|shares| &shares.shares).map(|share| {
-                    let id = share.id.clone();
-                    let path = share.host_path.clone();
-                    row(locale).justify_between().gap_3().border_t_1().py_2()
-                        .border_color(color(screen.palette, ColorToken::BorderSubtle))
-                        .child(div().flex_1().min_w_0().child(technical(&path)))
-                        .child(if share.read_only { message(screen.locale, gui::GUI_DESKTOP_READ_ONLY) } else { message(screen.locale, gui::GUI_DESKTOP_READ_AND_WRITE) })
-                        .children(share.requires_restart.then(|| message(screen.locale, gui::GUI_DESKTOP_RESTART_REQUIRED)))
-                        .child(Button::new(format!("remove-share-{id}")).outline().disabled(disabled)
-                            .label(message(screen.locale, gui::GUI_DESKTOP_REMOVE))
-                            .on_click(cx.listener(move |this, _, window, cx| this.confirm_unshare(id.clone(), &path, locale, window, cx))))
-                })))
-            .child(panel(screen)
-                .child(title_text(gui::GUI_DESKTOP_PROTECTED_LOCATIONS.text(screen.locale)))
-                .child(message(screen.locale, gui::GUI_DESKTOP_CREDENTIAL_FOLDERS_ARE_ALWAYS_EXCLUDED_EVEN_WHEN_A_PARENT_FOLD))
-                .child(technical("~/.ssh   ·   ~/.aws   ·   ~/.gnupg   ·   ~/.kube   ·   ~/.docker   ·   ~/.marsa")))
-            .children(binds.filter(|binds| !binds.approvals.is_empty()).map(|binds| {
-                panel(screen).child(title_text(gui::GUI_DESKTOP_FOLDER_ACCESS_REQUESTS.text(screen.locale)))
-                    .children(binds.approvals.iter().map(|bind| {
-                        div().flex().flex_col().gap_2().border_t_1().border_color(color(screen.palette, ColorToken::BorderSubtle)).py_2()
-                            .children(bind.directories.iter().map(|path| technical(path)))
-                            .child(message(screen.locale, gui::GUI_DESKTOP_A_STATIC_SHARE_BECOMES_AVAILABLE_AFTER_YOU_RESTART_THE_MACHINE))
-                            .child(row(locale).gap_2().children([
-                                (BindApprovalDecision::Once, message(screen.locale, gui::GUI_DESKTOP_ALLOW_ONCE)),
-                                (BindApprovalDecision::Persist, message(screen.locale, gui::GUI_DESKTOP_ALWAYS_ALLOW)),
-                                (BindApprovalDecision::Deny, message(screen.locale, gui::GUI_DESKTOP_DENY)),
-                            ].into_iter().map(|(decision, text)| {
-                                let id = bind.id.clone();
-                                Button::new(format!("bind-{}-{decision:?}", bind.id)).outline().disabled(disabled).label(text)
-                                    .on_click(cx.listener(move |this, _, _, cx| this.resolve_bind(id.clone(), decision, cx)))
-                            })))
-                    }))
-            }))
+        let title = gui::GUI_DESKTOP_SHARED_FOLDERS.text(locale);
+        let folder_list = settings_card(screen)
+            .min_h(px(280.))
+            .gap(px(Space::S16.pixels()))
+            .child(
+                row(locale)
+                    .justify_between()
+                    .items_start()
+                    .child(settings_heading(
+                        screen,
+                        title,
+                        gui::GUI_DESKTOP_CONTAINERS_CAN_REQUEST_ACCESS_TO_OTHER_FOLDERS_WHEN_NEEDED
+                            .text(locale),
+                    ))
+                    .child(
+                        Button::new("add-folder")
+                            .primary()
+                            .h(px(Space::S36.pixels()))
+                            .rounded(px(Radius::R8.pixels()))
+                            .disabled(disabled)
+                            .label(gui::GUI_DESKTOP_ADD_FOLDER.text(locale))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.choose_folder(locale, window, cx)
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .children(
+                        shares
+                            .is_some_and(|shares| shares.shares.is_empty())
+                            .then(|| {
+                                settings_text(
+                                    screen,
+                                    Role::Small,
+                                    gui::GUI_DESKTOP_NO_SHARED_FOLDERS.text(locale),
+                                    ColorToken::TextMuted,
+                                )
+                            }),
+                    )
+                    .children(
+                        shares
+                            .into_iter()
+                            .flat_map(|shares| &shares.shares)
+                            .map(|share| {
+                                let id = share.id.clone();
+                                let path = share.host_path.clone();
+                                let viewer = cx.weak_entity();
+                                let access = if share.read_only {
+                                    gui::GUI_DESKTOP_READ_ONLY
+                                } else {
+                                    gui::GUI_DESKTOP_READ_AND_WRITE
+                                };
+                                row(locale)
+                                    .gap(px(Space::S16.pixels()))
+                                    .min_h(px(Space::S48.pixels() + Space::S8.pixels()))
+                                    .border_t_1()
+                                    .border_color(color(screen.palette, ColorToken::BorderSubtle))
+                                    .child(settings_icon(
+                                        screen,
+                                        "icons/folder-open.svg",
+                                        20.,
+                                        ColorToken::TextMuted,
+                                    ))
+                                    .child(
+                                        settings_text(
+                                            screen,
+                                            Role::Mono,
+                                            technical(&share.host_path),
+                                            ColorToken::TextPrimary,
+                                        )
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate(),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(172.))
+                                            .flex_shrink_0()
+                                            .child(settings_text(
+                                                screen,
+                                                Role::Label,
+                                                access.text(locale),
+                                                ColorToken::TextMuted,
+                                            ))
+                                            .children(share.requires_restart.then(|| {
+                                                settings_text(
+                                                    screen,
+                                                    Role::Small,
+                                                    gui::GUI_DESKTOP_RESTART_REQUIRED.text(locale),
+                                                    ColorToken::StatusWarning,
+                                                )
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new(format!("share-actions-{id}"))
+                                            .ghost()
+                                            .disabled(disabled)
+                                            .accessibility_label(
+                                                gui::GUI_DESKTOP_SHARED_FOLDER_ACTIONS.text(locale),
+                                            )
+                                            .child(settings_icon(
+                                                screen,
+                                                "icons/ellipsis.svg",
+                                                Space::S16.pixels(),
+                                                ColorToken::TextMuted,
+                                            ))
+                                            .dropdown_menu(move |menu, _, _| {
+                                                let id = id.clone();
+                                                let path = path.clone();
+                                                let viewer = viewer.clone();
+                                                menu.item(
+                                                    PopupMenuItem::new(
+                                                        gui::GUI_DESKTOP_REMOVE.text(locale),
+                                                    )
+                                                    .on_click(move |_, window, cx| {
+                                                        let _ = viewer.update(cx, |this, cx| {
+                                                            this.confirm_unshare(
+                                                                id.clone(),
+                                                                &path,
+                                                                locale,
+                                                                window,
+                                                                cx,
+                                                            );
+                                                        });
+                                                    }),
+                                                )
+                                            }),
+                                    )
+                            }),
+                    ),
+            );
+        let protected = row(locale)
+            .items_start()
+            .gap(px(Space::S8.pixels()))
+            .min_h(px(Space::S72.pixels() + Space::S4.pixels()))
+            .rounded(px(Radius::R8.pixels()))
+            .p(px(Space::S12.pixels()))
+            .bg(color(screen.palette, ColorToken::StatusStartingBg))
+            .child(settings_icon(screen, "icons/info.svg", 20., ColorToken::TextMuted))
+            .child(div().flex().flex_col().gap(px(Space::S4.pixels()))
+                .child(settings_text(screen, Role::Label, gui::GUI_DESKTOP_PROTECTED_LOCATIONS.text(locale), ColorToken::StatusStarting))
+                .child(settings_text(screen, Role::Small,
+                    gui::GUI_DESKTOP_CREDENTIAL_FOLDERS_ARE_ALWAYS_EXCLUDED_EVEN_WHEN_A_PARENT_FOLD.text(locale),
+                    ColorToken::TextPrimary)));
+        let examples = row(Locale::EnglishUs)
+            .min_h(px(Space::S48.pixels() + Space::S8.pixels()))
+            .px(px(Space::S16.pixels()))
+            .rounded(px(Radius::R8.pixels()))
+            .border_1()
+            .border_color(color(screen.palette, ColorToken::BorderSubtle))
+            .bg(color(screen.palette, ColorToken::BgCode))
+            .child(settings_text(screen, Role::Mono,
+                technical("~/.ssh   ·   ~/.aws   ·   ~/.gnupg   ·   ~/.kube   ·   ~/.docker   ·   ~/.marsa"),
+                ColorToken::TextPrimary));
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(Space::S16.pixels()))
+            .child(folder_list)
+            .child(protected)
+            .child(examples)
+            .children(
+                binds
+                    .filter(|binds| !binds.approvals.is_empty())
+                    .map(|binds| {
+                        settings_card(screen)
+                            .child(settings_text(
+                                screen,
+                                Role::Lead,
+                                gui::GUI_DESKTOP_FOLDER_ACCESS_REQUESTS.text(locale),
+                                ColorToken::TextPrimary,
+                            ))
+                            .children(binds.approvals.iter().map(|bind| {
+                                let pending = bind.clone();
+                                let palette = screen.palette;
+                                row(locale)
+                                    .gap(px(Space::S16.pixels()))
+                                    .justify_between()
+                                    .border_t_1()
+                                    .border_color(color(palette, ColorToken::BorderSubtle))
+                                    .py(px(Space::S8.pixels()))
+                                    .child(div().flex().flex_col().flex_1().min_w_0().children(
+                                        bind.directories.iter().map(|path| {
+                                            settings_text(
+                                                screen,
+                                                Role::Mono,
+                                                technical(path),
+                                                ColorToken::TextPrimary,
+                                            )
+                                            .truncate()
+                                        }),
+                                    ))
+                                    .child(
+                                        Button::new(format!("review-bind-{}", bind.id))
+                                            .outline()
+                                            .disabled(disabled)
+                                            .label(gui::GUI_DESKTOP_BIND_REVIEW.text(locale))
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                this.review_bind(
+                                                    pending.clone(),
+                                                    locale,
+                                                    palette,
+                                                    window,
+                                                    cx,
+                                                );
+                                            })),
+                                    )
+                            }))
+                    }),
+            )
+    }
+
+    fn review_bind(
+        &mut self,
+        approval: BindApproval,
+        locale: Locale,
+        palette: Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(service) = self.services.clone().filter(|_| !self.busy()) else {
+            return;
+        };
+        let view = cx.weak_entity();
+        let state = service.store().select(Clone::clone).current().clone();
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let screen = ScreenContext { locale, palette, state: &state, services: Some(&service) };
+            let title = if locale == Locale::Arabic { Role::Title } else { Role::Section };
+            let busy = view.upgrade().is_none_or(|view| view.read(cx).busy());
+            let paths = div().flex().flex_col()
+                .gap(px(Space::S8.pixels()))
+                .p(px(Space::S16.pixels()))
+                .rounded(px(Radius::R8.pixels()))
+                .border_1()
+                .border_color(color(palette, ColorToken::BorderSubtle))
+                .bg(color(palette, ColorToken::BgCode))
+                .children(approval.directories.iter().map(|path| {
+                    row(locale)
+                        .gap(px(Space::S16.pixels()))
+                        .child(settings_text(&screen, Role::Small,
+                            gui::GUI_DESKTOP_BIND_HOST_FOLDER.text(locale), ColorToken::TextMuted)
+                            .w(px(144.)).flex_shrink_0())
+                        .child(settings_text(&screen, Role::Mono, technical(path), ColorToken::TextPrimary)
+                            .flex_1().min_w_0())
+                }));
+            let explanation = row(locale)
+                .items_start()
+                .gap(px(Space::S12.pixels()))
+                .p(px(Space::S16.pixels()))
+                .rounded(px(Radius::R8.pixels()))
+                .bg(color(palette, ColorToken::StatusStartingBg))
+                .child(settings_icon(&screen, "icons/info.svg", 20., ColorToken::TextMuted))
+                .child(div().flex().flex_col().gap(px(Space::S4.pixels()))
+                    .child(settings_text(&screen, Role::Label,
+                        gui::GUI_DESKTOP_BIND_SESSION_OR_FUTURE.text(locale), ColorToken::StatusStarting))
+                    .child(settings_text(&screen, Role::Small,
+                        gui::GUI_DESKTOP_BIND_OPTION_EXPLANATION.text(locale), ColorToken::TextPrimary))
+                    .child(settings_text(&screen, Role::Small,
+                        gui::GUI_DESKTOP_A_STATIC_SHARE_BECOMES_AVAILABLE_AFTER_YOU_RESTART_THE_MACHINE.text(locale),
+                        ColorToken::TextMuted)));
+            let action = |decision, label: &'static str| {
+                let view = view.clone();
+                let id = approval.id.clone();
+                let button = Button::new(format!("review-bind-{decision:?}"))
+                    .label(label)
+                    .h(px(Space::S36.pixels()))
+                    .rounded(px(Radius::R8.pixels()))
+                    .disabled(busy)
+                    .on_click(move |_, window, cx| {
+                        window.close_dialog(cx);
+                        let _ = view.update(cx, |view, cx| view.resolve_bind(id.clone(), decision, cx));
+                    });
+                if decision == BindApprovalDecision::Once { button.primary() } else { button.outline() }
+            };
+            let actions = row(locale)
+                .justify_end()
+                .gap(px(Space::S8.pixels()))
+                .pt(px(Space::S16.pixels()))
+                .border_t_1()
+                .border_color(color(palette, ColorToken::BorderSubtle))
+                .child(action(BindApprovalDecision::Deny, gui::GUI_DESKTOP_DENY.text(locale)))
+                .children((locale == Locale::EnglishUs).then(|| div().flex_1()))
+                .child(action(BindApprovalDecision::Persist, gui::GUI_DESKTOP_BIND_SHARE_ALWAYS.text(locale)))
+                .child(action(BindApprovalDecision::Once, gui::GUI_DESKTOP_BIND_SHARE_ONCE.text(locale)));
+            dialog
+                .width(px(680.))
+                .overlay_closable(false)
+                .title(settings_text(&screen, title, gui::GUI_DESKTOP_SHARE_THIS_FOLDER.text(locale), ColorToken::TextPrimary))
+                .bg(color(palette, ColorToken::GlassRail))
+                .border_color(color(palette, ColorToken::GlassEdge))
+                .rounded(px(Radius::R16.pixels()))
+                .child(div().flex().flex_col().gap(px(Space::S16.pixels()))
+                    .child(settings_text(&screen, Role::Body,
+                        gui::GUI_DESKTOP_BIND_DIALOG_DESCRIPTION.text(locale), ColorToken::TextMuted))
+                    .child(paths)
+                    .child(explanation)
+                    .child(actions))
+        });
     }
 
     fn choose_folder(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {

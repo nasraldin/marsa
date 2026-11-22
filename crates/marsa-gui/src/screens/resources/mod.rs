@@ -15,13 +15,18 @@ use marsa_client::docker::{ImageDetails, VolumeUsage};
 
 use marsa_ui::{
     ColorToken, Locale, Palette,
-    gpui::{App, AppContext, Context, Div, Entity, ParentElement, Styled, Task, Window, div, px},
+    gpui::{
+        App, AppContext, Context, Div, Entity, ParentElement, Styled, Task, Window, div, px, svg,
+    },
     gpui_component::{
-        Disableable, WindowExt,
+        Disableable, IconName, Sizable, WindowExt,
         button::{Button, ButtonVariants},
         input::{Input, InputState},
     },
-    tokens::{scale::Space, typography::Role},
+    tokens::{
+        scale::{Radius, Space},
+        typography::Role,
+    },
 };
 
 use crate::{
@@ -44,6 +49,15 @@ pub(crate) enum ResourceKind {
 }
 
 impl ResourceKind {
+    fn icon(self) -> &'static str {
+        match self {
+            Self::Images => "icons/layers.svg",
+            Self::Volumes => "icons/hard-drive.svg",
+            Self::Networks => "icons/network.svg",
+            Self::Compose => "icons/container.svg",
+        }
+    }
+
     fn main_action(self) -> Option<FormKind> {
         match self {
             Self::Images => Some(FormKind::Pull),
@@ -58,6 +72,7 @@ impl ResourceKind {
 pub(crate) struct ResourcesView {
     filter: Entity<InputState>,
     selection: Option<(ResourceKind, String)>,
+    reveal_selection: bool,
     form: Option<Form>,
     logs: Option<logs::ProjectLogs>,
     inspect: Option<ImageDetails>,
@@ -86,6 +101,7 @@ impl ResourcesView {
         Self {
             filter,
             selection: None,
+            reveal_selection: false,
             form: None,
             logs: None,
             inspect: None,
@@ -103,9 +119,30 @@ impl ResourcesView {
         }
     }
 
+    /// Reveal the resource chosen from global search.
+    ///
+    /// An image content ID selects the first row tagged with that image. A
+    /// full row key selects a particular tag.
+    pub(crate) fn show_resource(
+        &mut self,
+        kind: ResourceKind,
+        key: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.selection = Some((kind, key));
+        self.reveal_selection = true;
+        self.form = None;
+        self.logs = None;
+        self.inspect = None;
+        self.inspection_failed = false;
+        self.inspection_task = None;
+        cx.refresh_windows();
+    }
+
     /// Stop viewing resource details when leaving the route.
     pub(crate) fn leave(&mut self) {
         self.selection = None;
+        self.reveal_selection = false;
         self.form = None;
         self.logs = None;
         self.inspect = None;
@@ -141,7 +178,7 @@ impl ResourcesView {
                 .as_ref()
                 .map(|form| form.render(&screen, &view, cx));
             dialog
-                .width(px(560.))
+                .width(px(612.))
                 .overlay_closable(false)
                 .title(text(&screen, Role::Section, title))
                 .children(body)
@@ -159,11 +196,14 @@ pub(crate) fn render(
     let data = view.read(cx);
     let filter = data.filter.read(cx).value().to_lowercase();
     let mut toolbar = logical_row(screen.locale)
-        .items_center()
         .gap(px(Space::S8.pixels()))
+        .flex_wrap()
         .child(
-            div().w(px(264.)).child(
+            div().w(px(216.)).child(
                 Input::new(&data.filter)
+                    .small()
+                    .cleanable(true)
+                    .prefix(IconName::Search)
                     .aria_label(message(screen.locale, gui::GUI_DESKTOP_FILTER_RESOURCES)),
             ),
         );
@@ -175,6 +215,8 @@ pub(crate) fn render(
         toolbar = toolbar.child(
             Button::new("primary-resource-action")
                 .primary()
+                .h(px(Space::S36.pixels()))
+                .rounded(px(Radius::R8.pixels()))
                 .label(action.title(locale))
                 .disabled(screen.services.is_none())
                 .on_click(move |_, window, cx| {
@@ -214,33 +256,51 @@ pub(crate) fn render(
         );
     }
     let columns = Columns::for_kind(screen, kind);
-    let rows = rows::snapshot_rows(screen, kind, &data.volume_usage)
-        .into_iter()
+    let resources = rows::snapshot_rows(screen, kind, &data.volume_usage);
+    let selected = data
+        .selection
+        .as_ref()
+        .filter(|(page, _)| *page == kind)
+        .and_then(|(_, key)| resources.iter().find(|row| row.selected(key)));
+    let rows = resources
+        .iter()
         .filter(|row| row.matches(&filter))
         .collect::<Vec<_>>();
+    let resource_toolbar = logical_row(screen.locale)
+        .justify_between()
+        .flex_wrap()
+        .min_h(px(Space::S48.pixels()))
+        .px(px(Space::S8.pixels()))
+        .py(px(Space::S4.pixels()))
+        .gap(px(Space::S8.pixels()))
+        .rounded(px(Radius::R12.pixels()))
+        .border_1()
+        .border_color(tone(screen, ColorToken::GlassEdge))
+        .bg(tone(screen, ColorToken::GlassRail))
+        .child(toolbar)
+        .children(
+            (!resources.is_empty() || screen.state.engine().is_some()).then(|| {
+                text(screen, Role::Small, rows.len().to_string())
+                    .text_color(tone(screen, ColorToken::TextMuted))
+            }),
+        );
     let mut content = div()
         .flex()
         .flex_col()
         .w_full()
         .gap(px(Space::S16.pixels()))
-        .child(
-            logical_row(screen.locale)
-                .items_center()
-                .justify_between()
-                .child(toolbar)
-                .child(
-                    text(screen, Role::Small, rows.len().to_string())
-                        .text_color(tone(screen, ColorToken::TextMuted)),
-                ),
-        )
-        .child(table(
-            screen,
-            kind,
-            &columns,
-            &rows,
-            view,
-            data.selection.as_ref(),
-        ));
+        .child(resource_toolbar);
+    if data.reveal_selection {
+        content = content.children(selected.map(|row| details(screen, kind, row, view, data)));
+    }
+    content = content.child(table(
+        screen,
+        kind,
+        &columns,
+        &rows,
+        view,
+        selected.map(|row| row.key()),
+    ));
     if kind == ResourceKind::Images {
         content = content.children(pull::render(
             screen,
@@ -268,14 +328,12 @@ pub(crate) fn render(
     if let Some(notice) = operations::notice(screen, kind, data) {
         content = content.child(notice);
     }
-    if let Some((selected_kind, selected_id)) = &data.selection {
-        if *selected_kind == kind {
-            if let Some(row) = rows.iter().find(|row| row.selected(selected_id)) {
-                content = content.child(details(screen, kind, row, view, data));
-                if kind == ResourceKind::Compose {
-                    content = content.child(logs::render(screen, row, view, data.logs.as_ref()));
-                }
-            }
+    if let Some(row) = selected {
+        if !data.reveal_selection {
+            content = content.child(details(screen, kind, row, view, data));
+        }
+        if kind == ResourceKind::Compose {
+            content = content.child(logs::render(screen, row, view, data.logs.as_ref()));
         }
     }
     content
@@ -316,20 +374,33 @@ fn details(
                 })
         });
     let mut detail = crate::screens::common::panel(screen)
-        .flex()
-        .flex_col()
         .gap(px(Space::S12.pixels()))
-        .child(text(
-            screen,
-            Role::Section,
-            message(screen.locale, gui::GUI_DESKTOP_DETAILS),
-        ))
-        .child(text(screen, Role::Mono, row.id.clone()).truncate())
+        .child(
+            logical_row(locale)
+                .gap(px(Space::S12.pixels()))
+                .child(resource_icon(screen, kind))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(text(screen, Role::Lead, row.display_name().to_owned()).truncate())
+                        .child(
+                            text(screen, Role::MonoSmall, row.id.clone())
+                                .text_color(tone(screen, ColorToken::TextMuted))
+                                .truncate(),
+                        ),
+                ),
+        )
         .children(row.details.iter().cloned().map(|(name, value)| {
             logical_row(locale)
                 .justify_between()
                 .gap(px(Space::S12.pixels()))
-                .child(text(screen, Role::Label, name))
+                .py(px(Space::S8.pixels()))
+                .border_t_1()
+                .border_color(tone(screen, ColorToken::BorderSubtle))
+                .child(
+                    text(screen, Role::Label, name).text_color(tone(screen, ColorToken::TextMuted)),
+                )
                 .child(text(screen, Role::Mono, value).truncate())
         }))
         .child(
@@ -342,6 +413,23 @@ fn details(
         detail = detail.children(operations::image_metadata(screen, row, data));
     }
     detail
+}
+
+fn resource_icon(screen: &ScreenContext<'_>, kind: ResourceKind) -> Div {
+    div()
+        .flex()
+        .size(px(Space::S32.pixels()))
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .rounded(px(Radius::R8.pixels()))
+        .bg(tone(screen, ColorToken::BgSubtle))
+        .child(
+            svg()
+                .path(kind.icon())
+                .size(px(Space::S16.pixels()))
+                .text_color(tone(screen, ColorToken::TextMuted)),
+        )
 }
 
 fn logical_row(locale: Locale) -> Div {

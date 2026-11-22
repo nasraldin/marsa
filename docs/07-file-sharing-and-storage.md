@@ -194,7 +194,10 @@ alone cannot bind a mutable name to the resource reviewed by the owner.
 
 The authenticated preview reports this engine capability explicitly. The
 desktop displays both the candidate name and its identifier when they
-differ, and keeps preview separate from explicit reclaim. Apply remains
+differ, and keeps preview separate from explicit reclaim. Its usage chart
+shows the guest-engine totals from the same complete inventory. Host
+allocation remains the independently measured sparse-file allocation.
+Apply remains
 blocked until the engine supports conditional exact-identity deletion.
 
 ### Resizing

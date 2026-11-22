@@ -3,6 +3,8 @@
 use marsa_core::settings::{AccentColor, Theme};
 
 mod color;
+#[cfg(target_os = "macos")]
+mod components;
 pub mod scale;
 pub mod typography;
 
