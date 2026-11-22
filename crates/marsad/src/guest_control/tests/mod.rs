@@ -364,3 +364,44 @@ async fn paused_stop_reconnects_to_request_shutdown_without_publish_ready() {
     }
     assert!(requested_shutdown);
 }
+
+#[tokio::test]
+async fn idle_observation_decodes_running_paused_and_restarting_workloads() {
+    let count =
+        sample_workloads(br#"[{"State":"running"},{"State":"paused"},{"State":"restarting"}]"#)
+            .await
+            .unwrap();
+    assert_eq!(count, 3);
+    assert_eq!(sample_workloads(b"[]").await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn idle_observation_rejects_unexpected_state_and_oversized_bodies() {
+    assert!(sample_workloads(br#"[{"State":"exited"}]"#).await.is_err());
+    let mut oversized = vec![b' '; 64 * 1024];
+    oversized.extend_from_slice(b"[]");
+    assert!(sample_workloads(&oversized).await.is_err());
+}
+
+async fn sample_workloads(json: &[u8]) -> io::Result<u32> {
+    let mut response = format!(
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n",
+        json.len()
+    )
+    .into_bytes();
+    response.extend_from_slice(json);
+    response.extend_from_slice(b"\r\n0\r\n\r\n");
+    let request = b"GET /v1.57/containers/json?all=1&filters=%7B%22status%22%3A%5B%22running%22%2C%22paused%22%2C%22restarting%22%5D%7D HTTP/1.1\r\n";
+    let scenario = FakeScenario::default().with_agent(
+        DOCKER_API_PORT,
+        vec![
+            AgentStep::Expect(request.to_vec()),
+            AgentStep::Send(response),
+        ],
+    );
+    let vm = vm(scenario).await;
+    GuestControl::default()
+        .active_containers(vm.as_ref())
+        .await
+        .unwrap()
+}
