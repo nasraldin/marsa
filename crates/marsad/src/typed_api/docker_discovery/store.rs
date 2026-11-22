@@ -223,7 +223,7 @@ fn remove_stage(contexts: &File, name: &str, uid: u32) {
     let _ = unlinkat(contexts, name, UnlinkatFlags::RemoveDir);
 }
 
-fn ensure_directory(parent: &File, name: &OsStr, uid: u32) -> Result<File, Error> {
+pub(super) fn ensure_directory(parent: &File, name: &OsStr, uid: u32) -> Result<File, Error> {
     match mkdirat(parent, name, Mode::S_IRWXU) {
         Ok(()) | Err(Errno::EEXIST) => (),
         Err(error) => return Err(classify_path(error.into())),
@@ -231,7 +231,7 @@ fn ensure_directory(parent: &File, name: &OsStr, uid: u32) -> Result<File, Error
     open_directory(parent, name, uid)
 }
 
-fn open_directory(parent: &File, name: &OsStr, uid: u32) -> Result<File, Error> {
+pub(super) fn open_directory(parent: &File, name: &OsStr, uid: u32) -> Result<File, Error> {
     let fd = openat(parent, name, DIRECTORIES | OFlag::O_CLOEXEC, Mode::empty())
         .map_err(|error| classify_path(error.into()))?;
     let directory = File::from(fd);
@@ -239,7 +239,7 @@ fn open_directory(parent: &File, name: &OsStr, uid: u32) -> Result<File, Error> 
     Ok(directory)
 }
 
-fn check_directory(directory: &File, uid: u32) -> Result<(), Error> {
+pub(super) fn check_directory(directory: &File, uid: u32) -> Result<(), Error> {
     let stat = directory.metadata()?;
     if !stat.is_dir() || stat.uid() != uid || stat.mode() & 0o6022 != 0 {
         return Err(Error::Unsafe);

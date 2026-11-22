@@ -7,6 +7,7 @@ mod engine;
 mod events;
 mod meta;
 mod requests;
+mod reset;
 mod settings;
 mod shares;
 mod stats;
@@ -52,6 +53,7 @@ pub struct TypedApi {
     capabilities: Option<Capabilities>,
     components: Arc<[ComponentVersion]>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
+    verify_keychain: Option<docker_discovery::VerifyKeychain>,
 }
 
 struct Shared {
@@ -61,11 +63,13 @@ struct Shared {
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
+    settings_reset: reset::SettingsReset,
     share_policy: SharePolicy,
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
     remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
     docker_context_requests: requests::Cache<(), EnsureDockerContextResponse>,
+    docker_keychain_requests: requests::Cache<(), bool>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
 }
@@ -88,10 +92,12 @@ impl TypedApi {
                 engine_requests: requests::Cache::new(),
                 settings_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
+                settings_reset: reset::SettingsReset::new(),
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
                 docker_context_requests: requests::Cache::new(),
+                docker_keychain_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
                 closing,
             }),
@@ -99,6 +105,7 @@ impl TypedApi {
             capabilities: None,
             components: Arc::default(),
             docker_contexts: None,
+            verify_keychain: None,
         })
     }
 
