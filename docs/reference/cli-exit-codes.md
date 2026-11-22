@@ -34,7 +34,12 @@ the source log and `at_unix_millis` is zero when wall-clock time is unavailable.
 `marsa status --json` returns `resources: null` until the guest provides an
 observation. The CPU field is cumulative VM CPU busy time in nanoseconds.
 
+`marsa config list --json` and `marsa config get KEY --json` show the daemon
+settings revision as a decimal string. `marsa config set KEY VALUE` accepts a
+TOML value or a bare string. A rejected settings or shared-folder mutation
+returns `request_rejected` with exit status 1 and the daemon's explanation.
+
 `marsa diagnose --json` reports the daemon's local archive path in
 `bundle_path`. A successful reset response reports `scope` as `settings`
-or `factory`. While the daemon does not support reset, the CLI reports
+or `factory`. With an older daemon that lacks reset support, the CLI reports
 `not_available` after confirmation and exits with status 1.

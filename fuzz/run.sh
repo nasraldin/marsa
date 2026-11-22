@@ -29,3 +29,5 @@ run_target guest_control 1048581
 run_target settings 262145
 # Enough for both localized notes at their limits even with escaped JSON characters.
 run_target update_manifest 131072
+# One MiB of inspected ContainerCreate JSON and the first rejected length.
+run_target docker_binds 1048577

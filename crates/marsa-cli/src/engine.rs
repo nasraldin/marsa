@@ -75,7 +75,7 @@ pub(super) async fn connect() -> Result<MarsaClient, Failure> {
         .map_err(connection_failure)
 }
 
-fn connection_failure(error: ClientError) -> Failure {
+pub(super) fn connection_failure(error: ClientError) -> Failure {
     match error {
         ClientError::Home => Failure::Home,
         ClientError::Root => Failure::Root,

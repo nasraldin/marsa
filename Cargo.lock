@@ -675,6 +675,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 name = "marsa-agent"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "http",
  "http-body-util",
  "hyper",
@@ -682,6 +683,7 @@ dependencies = [
  "marsa-core",
  "marsa-proto",
  "nix",
+ "percent-encoding",
  "rustls",
  "serde",
  "serde_json",
@@ -702,6 +704,7 @@ dependencies = [
  "marsa-client",
  "serde_json",
  "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -737,10 +740,10 @@ name = "marsa-dockerproxy"
 version = "0.1.0"
 dependencies = [
  "marsa-core",
- "marsa-share",
  "nix",
  "serde_json",
  "tempfile",
+ "thiserror",
  "tokio",
  "tracing",
 ]
