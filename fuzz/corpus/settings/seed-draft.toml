@@ -1,0 +1,3 @@
+# Draft settings predate the explicit schema version.
+[ui]
+theme = "light"
