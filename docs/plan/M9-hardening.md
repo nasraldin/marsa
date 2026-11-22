@@ -18,7 +18,7 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-02 Fuzz targets
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-07, M10-03
 - **Docs:** [11 Process hardening on the host](../11-security.md#process-hardening-on-the-host)
 - **Do:** Add fuzz targets for the guest control-protocol decoder, the settings parser and the update manifest parser. Run them on a schedule in CI with a corpus kept in the repository. M9-15 adds the Docker create-request inspector after M4-06 implements it.
