@@ -83,7 +83,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-19 Qualify host edits in a container development server
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-06, M4-03
 - **Docs:** [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
 - **Do:** Test an upstream development server that relies on file-change events in the signed default Apple virtualization runtime. Use scoped Compose Watch sync to writable container storage. Record limitations for development servers using direct virtiofs binds.
@@ -92,6 +92,19 @@ Q-08 governs where the optional administrator action is offered. Context registr
   - Editing host source triggers hot reload in a running container, including a common editor's atomic save.
   - The test confirms only selected development files reach the container.
   - V-06 is resolved in the docs.
+
+**Qualification.** On macOS 27.2.1 and guest Linux 7.3.5, unmodified Docker Engine 29.10.0 and Compose 5.8.0 copied the initial Hugo content. Hugo sent a browser LiveReload message over WebSocket and served newly rendered HTML after a normal write and an atomic host rename. The container kept the same startup time. It had no mounted directories or published ports. The explicitly ignored file and both out-of-scope files stayed absent.
+
+Tier 2 downloads the test-only, Apache-2.0 Linux ARM64 Hugo 0.170.1 release, verifies its pinned SHA-256 against the artifact, and imports it into the disposable Docker engine. Hugo runs in its native watch mode. The executable reports the upstream release revision `c8b03de9564cf846a3986e879727d638bb96ab33`. The fixture uses guest storage, a private Docker configuration, and a container-local socket. [Hugo release and checksums](https://github.com/gohugoio/hugo/releases/tag/v0.170.1) · [Hugo server](https://gohugo.io/commands/hugo_server/)
+
+Run the test with the [packaged guest and helper](../../crates/marsad/tests/packaged_runtime.rs) configured and the verified [upstream Docker bundle](../09-cli-and-docker-compat.md#bundled-upstream-binaries) on `PATH`. Stage the Hugo archive before starting the signed run.
+
+```sh
+export MARSA_VZ_WATCH_HUGO_ARCHIVE="$(python3 crates/marsad/tests/packaged_runtime/compose_watch.py fetch target/dev-fixtures)"
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+  compose_watch::packaged_compose_watch_reloads_hugo_after_host_saves \
+  -- --exact --ignored --nocapture --test-threads=1
+```
 
 ### M4-07 Data disk management
 
