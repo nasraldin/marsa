@@ -1,5 +1,6 @@
 //! Serve typed host APIs from one state and a composable VM supervisor.
 
+mod disk;
 mod engine;
 mod events;
 mod meta;
@@ -14,8 +15,8 @@ use marsa_core::{
     settings::{NetworkMode, Settings},
 };
 use marsa_proto::host::v1::{
-    engine_server::EngineServer, events_server::EventsServer, meta_server::MetaServer,
-    settings_server::SettingsServer, stats_server::StatsServer,
+    disk_server::DiskServer, engine_server::EngineServer, events_server::EventsServer,
+    meta_server::MetaServer, settings_server::SettingsServer, stats_server::StatsServer,
 };
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec, VsockStream};
 use tokio::{net::UnixListener, sync::watch};
@@ -156,6 +157,7 @@ impl TypedApi {
                     .max_decoding_message_size(CONTROL_LIMIT)
                     .max_encoding_message_size(CONTROL_LIMIT),
             )
+            .add_service(DiskServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(EngineServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(
                 SettingsServer::new(self.clone())

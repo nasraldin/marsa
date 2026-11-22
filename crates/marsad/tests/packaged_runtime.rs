@@ -16,11 +16,11 @@ use std::{
 use hyper_util::rt::TokioIo;
 use marsa_core::{paths::MarsaPaths, settings::Settings};
 use marsa_proto::host::v1::{
-    CapabilitiesRequest, DaemonEvent, EngineActionRequest, EngineHealthState, EngineState,
-    EngineStatusRequest, GetSettingsRequest, NetworkMode, NetworkStatus, SubscribeRequest,
-    UpdateSettingsRequest, VmStatsRequest, daemon_event::Body, engine_client::EngineClient,
-    events_client::EventsClient, meta_client::MetaClient, settings_client::SettingsClient,
-    stats_client::StatsClient,
+    CapabilitiesRequest, DaemonEvent, DiskUsageRequest, EngineActionRequest, EngineHealthState,
+    EngineState, EngineStatusRequest, GetSettingsRequest, NetworkMode, NetworkStatus,
+    SubscribeRequest, UpdateSettingsRequest, VmStatsRequest, daemon_event::Body,
+    disk_client::DiskClient, engine_client::EngineClient, events_client::EventsClient,
+    meta_client::MetaClient, settings_client::SettingsClient, stats_client::StatsClient,
 };
 use nix::{
     errno::Errno,
@@ -33,6 +33,8 @@ use tonic::{
 };
 use tower::service_fn;
 
+#[path = "packaged_runtime/recovery.rs"]
+mod recovery;
 #[path = "packaged_runtime/support.rs"]
 mod support;
 use support::{
@@ -92,6 +94,14 @@ async fn packaged_daemon_boots_and_preserves_its_private_data_disk() {
     );
     let disk = paths.data_disk();
     assert!(!disk.exists());
+    let mut storage = DiskClient::new(channel.clone());
+    let absent_usage = storage
+        .usage(DiskUsageRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(absent_usage.host_capacity_bytes, 0);
+    assert!(!absent_usage.guest_usage_available);
 
     let mut events = EventsClient::new(channel.clone())
         .subscribe(SubscribeRequest {})
@@ -137,6 +147,17 @@ async fn packaged_daemon_boots_and_preserves_its_private_data_disk() {
     assert_eq!(info.mode() & 0o7777, 0o600);
     assert_eq!(info.uid(), nix::unistd::geteuid().as_raw());
     assert!(info.blocks() * 512 < info.len());
+    let usage = storage
+        .usage(DiskUsageRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(usage.host_capacity_bytes, 64 * GIB);
+    assert!(usage.host_allocated_bytes > 0);
+    assert!(usage.host_allocated_bytes < usage.host_capacity_bytes);
+    assert!(usage.guest_usage_available);
+    assert!(usage.guest_capacity_bytes >= usage.guest_used_bytes);
+    assert!(has_backup_exclusion(&disk));
 
     let expect_fallback = env::var_os("MARSA_EXPECT_NATIVE_FALLBACK").is_some();
     if expect_fallback
@@ -165,6 +186,7 @@ async fn packaged_daemon_boots_and_preserves_its_private_data_disk() {
     }
 
     config.vm.memory = Some(1536 * MIB);
+    config.disk.exclude_from_backup = false;
     config.network.mode = marsa_core::settings::NetworkMode::Userspace;
     let changed = replace_settings(&channel, &config, 2).await;
     assert!(changed);
@@ -187,6 +209,7 @@ async fn packaged_daemon_boots_and_preserves_its_private_data_disk() {
             .into_inner()
             .restart_required
     );
+    assert!(!has_backup_exclusion(&disk));
     let updated_memory = memory(&channel).await;
     assert!(updated_memory >= initial_memory + 400 * MIB);
     assert_eq!(disk_identity(&disk), identity);
@@ -199,6 +222,18 @@ async fn packaged_daemon_boots_and_preserves_its_private_data_disk() {
         .into_inner();
     assert_eq!(stopped.state(), EngineState::Stopped);
     assert_eq!(disk_identity(&disk), identity);
+
+    let usage = storage
+        .usage(DiskUsageRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(usage.host_capacity_bytes, 64 * GIB);
+    assert_eq!(
+        usage.host_allocated_bytes,
+        fs::metadata(&disk).unwrap().blocks() * 512
+    );
+    assert!(!usage.guest_usage_available);
 
     // A faulty bundle must not resize the existing disk even with a larger setting.
     config.disk.data_size_limit = 65 * GIB;
@@ -376,4 +411,14 @@ async fn packaged_docker_socket_preserves_cli_streams_and_bounded_memory() {
         .unwrap()
         .unwrap();
     assert_eq!(stopped.into_inner().state(), EngineState::Stopped);
+}
+
+fn has_backup_exclusion(path: &Path) -> bool {
+    // tmutil also reports exclusions inherited from the enclosing temporary directory.
+    let output = Command::new("/usr/bin/xattr").arg(path).output().unwrap();
+    assert!(output.status.success());
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .any(|attribute| attribute == "com.apple.metadata:com_apple_backup_excludeItem")
 }
