@@ -163,7 +163,8 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
 
 ## The `marsa` CLI
 
-A thin client of the typed API. It never talks to the VM directly.
+A thin client of the typed API. It never talks to the VM directly. CLI help,
+messages and prompts are in English under every locale.
 
 ```text
 marsa status                    Engine and VM state, versions, resource use
@@ -192,7 +193,7 @@ CLI rules:
 
 - Management commands support `--json` for scripts with a stable schema. `marsa mcp` reserves standard output for MCP messages and rejects `--json`.
 - [Exit codes and JSON response shapes](reference/cli-exit-codes.md) are stable.
-- Human output is localised (English and Arabic); `--json` output is not.
+- CLI output uses English in human-readable and JSON modes.
 - Destructive commands require an explicit flag or a typed confirmation, and never run destructively when stdin is not a terminal unless `--yes` is given.
 - `marsa` starts `marsad` if it is not running.
 
@@ -225,6 +226,6 @@ explicit non-interactive confirmation. [Factory reset](plan/M9-hardening.md#m9-1
 
 Configure a trusted local MCP client to launch `marsa mcp --client-id ID --project /absolute/project`. The CLI runs the matching `marsa-mcp` installed beside it. The client ID and project path are launch settings. The daemon issues the restricted capability to the bridge at startup and keeps it out of the command arguments.
 
-Run `marsa agents list` to see client registrations, active grants and pending requests. `marsa agents approve REQUEST` displays the queued operation, project, arguments with sensitive values redacted and affected resources. Enter `yes` in an English terminal or `نعم` in an Arabic terminal to approve that request once. The same review applies with `--yes`. A request may expire while the prompt is open.
+Run `marsa agents list` to see client registrations, active grants and pending requests. `marsa agents approve REQUEST` displays the queued operation, project, arguments with sensitive values redacted and affected resources. Enter `yes` to approve that request once. The same review applies with `--yes`. A request may expire while the prompt is open.
 
 Use `marsa agents deny REQUEST` to deny a pending request. `marsa agents revoke GRANT` displays the grant and prompts before revocation. `marsa agents revoke GRANT --yes` is the explicit non-interactive form.

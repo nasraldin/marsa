@@ -13,9 +13,9 @@ use marsa_client::{
 };
 use serde_json::{Value, json};
 
-use crate::{Failure, Outcome, command::Language, engine::request_id};
+use crate::{Failure, Outcome, command, engine::request_id};
 
-pub(super) async fn usage(language: Language) -> Result<Outcome, Failure> {
+pub(super) async fn usage() -> Result<Outcome, Failure> {
     let client = connect().await?;
     let usage = client
         .disk()
@@ -23,11 +23,11 @@ pub(super) async fn usage(language: Language) -> Result<Outcome, Failure> {
         .await
         .map_err(|_| Failure::Operation)?
         .into_inner();
-    let (document, text) = report(&usage, language);
+    let (document, text) = report(&usage);
     Ok(Outcome::Data { document, text })
 }
 
-pub(super) async fn reclaim(language: Language) -> Result<Outcome, Failure> {
+pub(super) async fn reclaim() -> Result<Outcome, Failure> {
     let client = connect().await?;
     let result = client
         .disk()
@@ -38,19 +38,19 @@ pub(super) async fn reclaim(language: Language) -> Result<Outcome, Failure> {
         .map_err(|_| Failure::Reclaim)?
         .into_inner();
     let usage = result.usage.ok_or(Failure::Reclaim)?;
-    let (usage, details) = report(&usage, language);
-    let host = language.message(
+    let (usage, details) = report(&usage);
+    let host = command::message(
         keys::CLI_DISK_RECLAIM_HOST,
         &[(
             "bytes",
-            &language.technical(&result.host_reclaimed_bytes.to_string()),
+            &command::technical(&result.host_reclaimed_bytes.to_string()),
         )],
     );
-    let guest = language.message(
+    let guest = command::message(
         keys::CLI_DISK_RECLAIM_GUEST,
         &[(
             "bytes",
-            &language.technical(&result.guest_trimmed_bytes.to_string()),
+            &command::technical(&result.guest_trimmed_bytes.to_string()),
         )],
     );
     Ok(Outcome::Data {
@@ -65,10 +65,7 @@ pub(super) async fn reclaim(language: Language) -> Result<Outcome, Failure> {
     })
 }
 
-pub(super) async fn preview_cleanup(
-    args: &ArgMatches,
-    language: Language,
-) -> Result<Outcome, Failure> {
+pub(super) async fn preview_cleanup(args: &ArgMatches) -> Result<Outcome, Failure> {
     let categories = if args.get_flag("include-volumes") {
         [
             DiskCategory::Containers,
@@ -92,19 +89,19 @@ pub(super) async fn preview_cleanup(
         .await
         .map_err(|_| Failure::CleanupPreview)?
         .into_inner();
-    Ok(cleanup_report(&preview, language))
+    Ok(cleanup_report(&preview))
 }
 
-fn cleanup_report(preview: &PrunePreviewResponse, language: Language) -> Outcome {
-    let heading = language.label(keys::CLI_DISK_PREVIEW_HEADING);
-    let unavailable = language.label(keys::CLI_DISK_PREVIEW_ESTIMATE_UNAVAILABLE);
+fn cleanup_report(preview: &PrunePreviewResponse) -> Outcome {
+    let heading = command::label(keys::CLI_DISK_PREVIEW_HEADING);
+    let unavailable = command::label(keys::CLI_DISK_PREVIEW_ESTIMATE_UNAVAILABLE);
     let mut text = format!("{heading}\n");
     let mut last = None;
     let mut candidates = Vec::with_capacity(preview.candidates.len());
     for row in &preview.candidates {
         let category = row.category();
         if last != Some(category) {
-            let _ = writeln!(text, "{}", category_name(category, language));
+            let _ = writeln!(text, "{}", category_name(category));
             last = Some(category);
         }
         let name = if row.name == row.id {
@@ -115,16 +112,16 @@ fn cleanup_report(preview: &PrunePreviewResponse, language: Language) -> Outcome
         let estimate = row.size_bytes.map_or_else(
             || unavailable.to_owned(),
             |size| {
-                language.message(
+                command::message(
                     keys::CLI_DISK_PREVIEW_BYTES,
-                    &[("size", &language.technical(&size.to_string()))],
+                    &[("size", &command::technical(&size.to_string()))],
                 )
             },
         );
-        let item = language.message(
+        let item = command::message(
             keys::CLI_DISK_PREVIEW_ITEM,
             &[
-                ("name", &language.technical(&name)),
+                ("name", &command::technical(&name)),
                 ("estimate", &estimate),
             ],
         );
@@ -141,9 +138,9 @@ fn cleanup_report(preview: &PrunePreviewResponse, language: Language) -> Outcome
         .iter()
         .filter_map(|value| DiskCategory::try_from(*value).ok())
         .map(|category| {
-            let row = language.message(
+            let row = command::message(
                 keys::CLI_DISK_PREVIEW_MISSING_INVENTORY,
-                &[("category", category_name(category, language))],
+                &[("category", category_name(category))],
             );
             let _ = writeln!(text, "{row}");
             category_key(category)
@@ -151,9 +148,9 @@ fn cleanup_report(preview: &PrunePreviewResponse, language: Language) -> Outcome
         .collect();
     let estimate = preview.estimated_reclaimable_bytes.map_or_else(
         || unavailable.to_owned(),
-        |size| language.technical(&size.to_string()),
+        |size| command::technical(&size.to_string()),
     );
-    let total = language.message(keys::CLI_DISK_PREVIEW_TOTAL, &[("estimate", &estimate)]);
+    let total = command::message(keys::CLI_DISK_PREVIEW_TOTAL, &[("estimate", &estimate)]);
     let _ = writeln!(text, "{total}");
     Outcome::Data {
         text,
@@ -187,9 +184,9 @@ fn connection_failure(error: ClientError) -> Failure {
     }
 }
 
-fn report(usage: &DiskUsageResponse, language: Language) -> (Value, String) {
+fn report(usage: &DiskUsageResponse) -> (Value, String) {
     let row = |key, bytes: u64| {
-        language.message(key, &[("bytes", &language.technical(&bytes.to_string()))])
+        command::message(key, &[("bytes", &command::technical(&bytes.to_string()))])
     };
     let mut text = format!(
         "{}\n{}\n",
@@ -208,7 +205,7 @@ fn report(usage: &DiskUsageResponse, language: Language) -> (Value, String) {
             "capacity_bytes": usage.guest_capacity_bytes,
         }))
     } else {
-        let unavailable = language.label(keys::CLI_DISK_GUEST_UNAVAILABLE);
+        let unavailable = command::label(keys::CLI_DISK_GUEST_UNAVAILABLE);
         let _ = writeln!(text, "{unavailable}");
         None
     };
@@ -217,14 +214,14 @@ fn report(usage: &DiskUsageResponse, language: Language) -> (Value, String) {
         .iter()
         .map(|item| {
             let category = item.category();
-            let message = language.message(
+            let message = command::message(
                 keys::CLI_DISK_CATEGORY_USAGE,
                 &[
-                    ("category", category_name(category, language)),
-                    ("used", &language.technical(&item.used_bytes.to_string())),
+                    ("category", category_name(category)),
+                    ("used", &command::technical(&item.used_bytes.to_string())),
                     (
                         "reclaimable",
-                        &language.technical(&item.reclaimable_bytes.to_string()),
+                        &command::technical(&item.reclaimable_bytes.to_string()),
                     ),
                 ],
             );
@@ -258,14 +255,14 @@ fn category_key(category: DiskCategory) -> String {
         .to_ascii_lowercase()
 }
 
-fn category_name(category: DiskCategory, language: Language) -> &'static str {
+fn category_name(category: DiskCategory) -> &'static str {
     match category {
-        DiskCategory::Containers => language.label(keys::CLI_DISK_CONTAINERS),
-        DiskCategory::Images => language.label(keys::CLI_DISK_IMAGES),
-        DiskCategory::Volumes => language.label(keys::CLI_DISK_VOLUMES),
-        DiskCategory::Networks => language.label(keys::CLI_DISK_NETWORKS),
-        DiskCategory::BuildCache => language.label(keys::CLI_DISK_BUILD_CACHE),
-        DiskCategory::Unspecified => language.label(keys::CLI_DISK_OTHER),
+        DiskCategory::Containers => command::label(keys::CLI_DISK_CONTAINERS),
+        DiskCategory::Images => command::label(keys::CLI_DISK_IMAGES),
+        DiskCategory::Volumes => command::label(keys::CLI_DISK_VOLUMES),
+        DiskCategory::Networks => command::label(keys::CLI_DISK_NETWORKS),
+        DiskCategory::BuildCache => command::label(keys::CLI_DISK_BUILD_CACHE),
+        DiskCategory::Unspecified => command::label(keys::CLI_DISK_OTHER),
     }
 }
 
@@ -286,7 +283,7 @@ mod tests {
             estimated_reclaimable_bytes: None,
             unavailable_categories: vec![DiskCategory::BuildCache as i32],
         };
-        let Outcome::Data { document, text } = cleanup_report(&preview, Language::English) else {
+        let Outcome::Data { document, text } = cleanup_report(&preview) else {
             panic!("expected a read-only result");
         };
         assert_eq!(document["kind"], "disk_cleanup_preview");
@@ -300,14 +297,11 @@ mod tests {
 
     #[test]
     fn reports_sparse_allocation_and_leaves_missing_guest_usage_null() {
-        let (document, text) = report(
-            &DiskUsageResponse {
-                host_capacity_bytes: 1 << 30,
-                host_allocated_bytes: 4096,
-                ..Default::default()
-            },
-            Language::English,
-        );
+        let (document, text) = report(&DiskUsageResponse {
+            host_capacity_bytes: 1 << 30,
+            host_allocated_bytes: 4096,
+            ..Default::default()
+        });
         assert_eq!(document["kind"], "disk_usage");
         assert_eq!(document["host"]["capacity_bytes"], 1 << 30);
         assert_eq!(document["host"]["allocated_bytes"], 4096);
@@ -318,19 +312,16 @@ mod tests {
 
     #[test]
     fn preserves_a_zero_use_guest_sample_and_category_bytes() {
-        let (document, text) = report(
-            &DiskUsageResponse {
-                guest_usage_available: true,
-                guest_capacity_bytes: 1024,
-                categories: vec![DiskCategoryUsage {
-                    category: DiskCategory::Images.into(),
-                    used_bytes: 4,
-                    reclaimable_bytes: 2,
-                }],
-                ..Default::default()
-            },
-            Language::Arabic,
-        );
+        let (document, text) = report(&DiskUsageResponse {
+            guest_usage_available: true,
+            guest_capacity_bytes: 1024,
+            categories: vec![DiskCategoryUsage {
+                category: DiskCategory::Images.into(),
+                used_bytes: 4,
+                reclaimable_bytes: 2,
+            }],
+            ..Default::default()
+        });
         assert_eq!(
             document["guest"],
             json!({"used_bytes": 0, "capacity_bytes": 1024})
@@ -339,7 +330,7 @@ mod tests {
             document["categories"],
             json!([{"category": "images", "used_bytes": 4, "reclaimable_bytes": 2}])
         );
-        assert!(text.contains("المساحة المستخدمة في نظام ملفات الضيف"));
-        assert!(text.contains("الصور"));
+        assert!(text.contains("Guest filesystem used (bytes)"));
+        assert!(text.contains("Images"));
     }
 }

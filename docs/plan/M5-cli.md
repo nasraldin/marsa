@@ -80,7 +80,7 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 
 ### M5-07 English command-line output
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M5-03, M6-12
 - **Docs:** [CLI output](../reference/cli-exit-codes.md), [08 Internationalisation](../08-gui.md#internationalisation)
 - **Do:** Keep Marsa's CLI help, messages, confirmation prompts and completion descriptions in English regardless of the environment. The owner clarified that English and Arabic language selection applies to the desktop GUI.
@@ -88,6 +88,7 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 - **Accept when:**
   - Arabic locale settings and legacy environment overrides leave CLI output in English. Remove the command-line language option.
   - Preserve JSON contracts, exact confirmation phrases, control escaping for terminal display and raw redirected data.
+- **Evidence:** CLI regression tests compare English and Arabic shell environments for root and nested help, JSON help, completion output and errors. Private-home executable fixtures verified English MCP startup diagnostics and tool descriptions, reserved protocol stdout, and exact terminal approval with `yes`. The shared Fluent suite still tests Arabic plural forms.
 
 ### M5-08 Preview unused guest storage
 

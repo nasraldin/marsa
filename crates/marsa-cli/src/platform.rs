@@ -10,6 +10,8 @@ pub(super) fn launch_mcp(client_id: &str, project: &str) -> Failure {
     };
     let _error = Command::new(cli.with_file_name("marsa-mcp"))
         .args(["--client-id", client_id, "--project", project])
+        // Keep the bridge's diagnostics and tool descriptions in English when launched by Marsa CLI.
+        .env("MARSA_MCP_LANGUAGE", "en-US")
         .exec();
     Failure::McpUnavailable
 }

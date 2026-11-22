@@ -1,7 +1,5 @@
 //! Define the command tree once for argument parsing, help and completion scripts.
 
-use std::ffi::OsString;
-
 use clap::{Arg, ArgAction, Command, builder::PossibleValuesParser};
 #[cfg(unix)]
 use marsa_client::l10n::{Arguments, Catalog, MessageKey};
@@ -10,112 +8,30 @@ use marsa_client::l10n::{Locale, TextKey, keys};
 #[cfg(unix)]
 thread_local! {
     static ENGLISH_CATALOG: Option<Catalog> = Catalog::new(Locale::EnglishUs).ok().map(Catalog::with_explicit_isolates);
-    static ARABIC_CATALOG: Option<Catalog> = Catalog::new(Locale::Arabic).ok().map(Catalog::with_explicit_isolates);
 }
 
-#[derive(Clone, Copy)]
-pub(super) enum Language {
-    English,
-    Arabic,
+pub(super) fn label(key: TextKey) -> &'static str {
+    key.text(Locale::EnglishUs)
 }
 
-impl Language {
-    pub(super) fn current() -> Self {
-        std::env::var("MARSA_LANG")
-            .ok()
-            .as_deref()
-            .and_then(Self::parse)
-            .unwrap_or_else(Self::system)
+#[cfg(unix)]
+pub(super) fn message(key: MessageKey, values: &[(&str, &str)]) -> String {
+    let mut args = Arguments::with_capacity(values.len());
+    for (name, value) in values {
+        args.set(*name, *value);
     }
-
-    fn parse(value: &str) -> Option<Self> {
-        match value {
-            "en-US" => Some(Self::English),
-            "ar" => Some(Self::Arabic),
-            _ => None,
-        }
-    }
-
-    fn system() -> Self {
-        let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
-            .into_iter()
-            .filter_map(|name| std::env::var(name).ok())
-            .find(|value| !value.is_empty());
-        if locale
+    ENGLISH_CATALOG.with(|catalog| {
+        catalog
             .as_ref()
-            .is_some_and(|locale| locale.split(['_', '-', '.', '@']).next() == Some("ar"))
-        {
-            Self::Arabic
-        } else {
-            Self::English
-        }
-    }
-
-    fn locale(self) -> Locale {
-        match self {
-            Self::English => Locale::EnglishUs,
-            Self::Arabic => Locale::Arabic,
-        }
-    }
-
-    pub(super) fn label(self, key: TextKey) -> &'static str {
-        key.text(self.locale())
-    }
-
-    #[cfg(unix)]
-    pub(super) fn message(self, key: MessageKey, values: &[(&str, &str)]) -> String {
-        let mut args = Arguments::with_capacity(values.len());
-        for (name, value) in values {
-            args.set(*name, *value);
-        }
-        let catalog = match self {
-            Self::English => &ENGLISH_CATALOG,
-            Self::Arabic => &ARABIC_CATALOG,
-        };
-        catalog.with(|catalog| {
-            catalog
-                .as_ref()
-                .and_then(|catalog| catalog.format(key, Some(&args)).ok())
-                .unwrap_or_else(|| self.label(keys::CLI_OPERATION_FAILED).to_owned())
-        })
-    }
-
-    #[cfg(unix)]
-    pub(super) fn technical(self, value: &str) -> String {
-        self.isolate(value.escape_debug().to_string())
-    }
-
-    /// Give an already escaped display value an explicit LTR boundary.
-    #[cfg(unix)]
-    pub(super) fn isolate(self, value: String) -> String {
-        match self {
-            Self::English => value,
-            Self::Arabic => format!("\u{2066}{value}\u{2069}"),
-        }
-    }
+            .and_then(|catalog| catalog.format(key, Some(&args)).ok())
+            .unwrap_or_else(|| label(keys::CLI_OPERATION_FAILED).to_owned())
+    })
 }
 
-pub(super) fn explicit_language(args: &[OsString]) -> Result<Option<Language>, ()> {
-    // Validate globally before clap can short-circuit on help. A language
-    // option after a literal terminator belongs to the command.
-    let mut selected = None;
-    let mut args = args.iter().skip(1);
-    while let Some(arg) = args.next() {
-        let value = match arg.to_str() {
-            Some("--") => break,
-            Some("--language") => args.next().and_then(|value| value.to_str()),
-            Some(arg) if arg.starts_with("--language=") => arg.strip_prefix("--language="),
-            _ => continue,
-        };
-        if selected.is_some() {
-            return Err(());
-        }
-        selected = Some(value.and_then(Language::parse).ok_or(())?);
-    }
-    Ok(selected)
+#[cfg(unix)]
+pub(super) fn technical(value: &str) -> String {
+    value.escape_debug().to_string()
 }
-
-const LOCALES: [&str; 2] = ["en-US", "ar"];
 
 struct Spec {
     name: &'static str,
@@ -414,25 +330,17 @@ static ROOT: Spec = command(
     ],
 );
 
-pub(super) fn build(language: Language) -> Command {
-    ROOT.build("marsa", language)
+pub(super) fn build() -> Command {
+    ROOT.build("marsa")
         .subcommand_required(false)
-        .arg(JSON.clap(language).global(true))
-        .arg(YES.clap(language).global(true))
-        .arg(
-            Arg::new("language")
-                .long("language")
-                .value_name("LANGUAGE")
-                .value_parser(PossibleValuesParser::new(LOCALES))
-                .help(language.label(keys::CLI_HELP_DISPLAY_LANGUAGE))
-                .global(true),
-        )
+        .arg(JSON.clap().global(true))
+        .arg(YES.clap().global(true))
 }
 
 impl Spec {
-    fn build(&self, path: &str, language: Language) -> Command {
+    fn build(&self, path: &str) -> Command {
         Command::new(self.name)
-            .about(language.label(self.about))
+            .about(label(self.about))
             .disable_help_subcommand(true)
             .disable_help_flag(true)
             .arg(
@@ -440,26 +348,26 @@ impl Spec {
                     .short('h')
                     .long("help")
                     .action(ArgAction::Help)
-                    .help(language.label(HELP)),
+                    .help(label(HELP)),
             )
-            .args(self.arguments.iter().map(|arg| arg.clap(language)))
+            .args(self.arguments.iter().map(|arg| arg.clap()))
             .subcommands(
                 self.commands
                     .iter()
-                    .map(|child| child.build(&format!("{path} {}", child.name), language)),
+                    .map(|child| child.build(&format!("{path} {}", child.name))),
             )
-            .override_help(self.help(path, language))
+            .override_help(self.help(path))
             .subcommand_required(!self.commands.is_empty())
     }
 
-    fn help(&self, path: &str, language: Language) -> String {
-        let usage = language.label(keys::CLI_HELP_USAGE);
-        let options = language.label(keys::CLI_HELP_OPTIONS);
-        let commands = language.label(keys::CLI_HELP_COMMANDS);
-        let arguments = language.label(keys::CLI_HELP_ARGUMENTS);
-        let options_label = language.label(keys::CLI_HELP_OPTIONS_PLACEHOLDER);
-        let command_label = language.label(keys::CLI_HELP_COMMAND_PLACEHOLDER);
-        let about = language.label(self.about);
+    fn help(&self, path: &str) -> String {
+        let usage = label(keys::CLI_HELP_USAGE);
+        let options = label(keys::CLI_HELP_OPTIONS);
+        let commands = label(keys::CLI_HELP_COMMANDS);
+        let arguments = label(keys::CLI_HELP_ARGUMENTS);
+        let options_label = label(keys::CLI_HELP_OPTIONS_PLACEHOLDER);
+        let command_label = label(keys::CLI_HELP_COMMAND_PLACEHOLDER);
+        let about = label(self.about);
         let mut help = format!("{about}\n\n{usage}\n  {path} [{options_label}]");
         if !self.commands.is_empty() {
             help.push_str(&format!(" <{command_label}>"));
@@ -484,7 +392,7 @@ impl Spec {
         if !self.commands.is_empty() {
             help.push_str(&format!("\n{commands}\n"));
             for command in self.commands {
-                let about = language.label(command.about);
+                let about = label(command.about);
                 help.push_str(&format!("  {:<14} {about}\n", command.name));
             }
         }
@@ -495,9 +403,14 @@ impl Spec {
         {
             help.push_str(&format!("\n{arguments}\n"));
             for arg in self.arguments {
-                if let Form::Positional { label, values, .. } = arg.form {
-                    let about = language.label(arg.about);
-                    help.push_str(&format!("  {label:<14} {about}"));
+                if let Form::Positional {
+                    label: argument_label,
+                    values,
+                    ..
+                } = arg.form
+                {
+                    let about = label(arg.about);
+                    help.push_str(&format!("  {argument_label:<14} {about}"));
                     if !values.is_empty() {
                         help.push_str(&format!(" ({})", values.join(", ")));
                     }
@@ -505,30 +418,23 @@ impl Spec {
                 }
             }
         }
-        help.push_str(&format!(
-            "\n{options}\n  -h, --help     {}\n",
-            language.label(HELP)
-        ));
+        help.push_str(&format!("\n{options}\n  -h, --help     {}\n", label(HELP)));
         for arg in [JSON, YES].iter().chain(self.arguments) {
             let option = match arg.form {
                 Form::Flag => format!("--{}", arg.id),
                 Form::Option { label } => format!("--{} <{label}>", arg.id),
                 Form::Positional { .. } => continue,
             };
-            let about = language.label(arg.about);
+            let about = label(arg.about);
             help.push_str(&format!("  {option:<18} {about}\n"));
         }
-        help.push_str(&format!(
-            "  --language <LANGUAGE> {}\n",
-            language.label(keys::CLI_HELP_DISPLAY_LANGUAGE)
-        ));
         help
     }
 }
 
 impl Argument {
-    fn clap(&self, language: Language) -> Arg {
-        let arg = Arg::new(self.id).help(language.label(self.about));
+    fn clap(&self) -> Arg {
+        let arg = Arg::new(self.id).help(label(self.about));
         match self.form {
             Form::Flag => arg.long(self.id).action(ArgAction::SetTrue),
             Form::Option { label } => arg.long(self.id).value_name(label).required(true),
@@ -577,13 +483,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn arabic_technical_values_are_ltr_and_escape_input_controls() {
+    fn technical_values_preserve_unicode_and_escape_input_controls() {
         let value = "/tmp/حاوية.web [1]\u{202e}\u{2069}\n\x1b";
         let expected = r"/tmp/حاوية.web [1]\u{202e}\u{2069}\n\u{1b}";
-        assert_eq!(Language::English.technical(value), expected);
-        assert_eq!(
-            Language::Arabic.technical(value),
-            format!("\u{2066}{expected}\u{2069}")
-        );
+        assert_eq!(technical(value), expected);
     }
 }

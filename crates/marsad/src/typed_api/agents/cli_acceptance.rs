@@ -80,7 +80,8 @@ impl Fixture {
     fn command(&self, mut command: Command) -> Command {
         command
             .env("HOME", self.home.path())
-            .env("LC_ALL", "en_US.UTF-8")
+            .env("LC_ALL", "ar_AE.UTF-8")
+            .env_remove("MARSA_MCP_LANGUAGE")
             .kill_on_drop(true);
         command
     }
@@ -194,7 +195,16 @@ async fn cli_mcp_read_and_revoke_from_a_private_home() -> io::Result<()> {
     let response = rpc_next(&mut lines).await;
     let tools = response["result"]["tools"].as_array().unwrap();
     assert_eq!(response["id"], 2);
-    assert!(tools.iter().any(|tool| tool["name"] == "engine_status"));
+    let engine_status = tools
+        .iter()
+        .find(|tool| tool["name"] == "engine_status")
+        .unwrap();
+    assert!(
+        engine_status["description"]
+            .as_str()
+            .unwrap()
+            .starts_with("Read the local Marsa engine state.")
+    );
     assert!(
         tools
             .iter()
@@ -246,7 +256,7 @@ async fn cli_approval_review_answers_an_in_process_typed_fixture() {
         TARGET
     );
 
-    for answer in ["no", "yes"] {
+    for answer in ["no", "نعم", "yes"] {
         let command = fixture
             .command(Command::new("python3"))
             .args(["-c", include_str!("cli_terminal.py")])
@@ -262,7 +272,7 @@ async fn cli_approval_review_answers_an_in_process_typed_fixture() {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        if answer == "no" {
+        if answer != "yes" {
             assert!(matches!(
                 decision.try_recv(),
                 Err(oneshot::error::TryRecvError::Empty)

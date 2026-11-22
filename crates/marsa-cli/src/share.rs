@@ -11,19 +11,18 @@ use marsa_client::{
 use serde_json::{Value, json};
 
 use crate::{
-    Failure, Outcome,
-    command::Language,
+    Failure, Outcome, command,
     engine::{connection_failure, request_id},
 };
 
-pub(super) async fn run(args: &ArgMatches, language: Language) -> Option<Outcome> {
+pub(super) async fn run(args: &ArgMatches) -> Option<Outcome> {
     let command = match args.subcommand()? {
         ("approvals", _) => Ok(Command::List),
         ("resolve", args) => resolution(args),
         _ => return None,
     };
     Some(match command {
-        Ok(command) => command.run(language).await.unwrap_or_else(Outcome::Failure),
+        Ok(command) => command.run().await.unwrap_or_else(Outcome::Failure),
         Err(error) => Outcome::Failure(error),
     })
 }
@@ -64,14 +63,14 @@ fn resolution(args: &ArgMatches) -> Result<Command<'_>, Failure> {
 }
 
 impl Command<'_> {
-    async fn run(self, language: Language) -> Result<Outcome, Failure> {
+    async fn run(self) -> Result<Outcome, Failure> {
         let client = DaemonEndpoint::discover()
             .map_err(connection_failure)?
             .connect()
             .await
             .map_err(connection_failure)?;
         match self {
-            Self::List => list(&client, language).await,
+            Self::List => list(&client).await,
             Self::Resolve {
                 id,
                 decision_name,
@@ -88,9 +87,9 @@ impl Command<'_> {
                     .map_err(|_| Failure::BindResolution)?
                     .into_inner();
                 let status = if result.requires_restart {
-                    language.label(keys::CLI_SHARE_BIND_APPROVED)
+                    command::label(keys::CLI_SHARE_BIND_APPROVED)
                 } else {
-                    language.label(keys::CLI_SHARE_BIND_DENIED)
+                    command::label(keys::CLI_SHARE_BIND_DENIED)
                 };
                 Ok(Outcome::Data {
                     document: json!({
@@ -107,7 +106,7 @@ impl Command<'_> {
     }
 }
 
-async fn list(client: &MarsaClient, language: Language) -> Result<Outcome, Failure> {
+async fn list(client: &MarsaClient) -> Result<Outcome, Failure> {
     let mut subscription = client.subscribe_events();
     let event = subscription.next().await.map_err(connection_failure)?;
     let Some(Body::Snapshot(snapshot)) = event.body else {
@@ -119,14 +118,14 @@ async fn list(client: &MarsaClient, language: Language) -> Result<Outcome, Failu
         .approvals;
     let mut text = String::new();
     if approvals.is_empty() {
-        let _ = writeln!(text, "{}", language.label(keys::CLI_SHARE_NO_APPROVALS),);
+        let _ = writeln!(text, "{}", command::label(keys::CLI_SHARE_NO_APPROVALS),);
     }
     let mut records = Vec::<Value>::with_capacity(approvals.len());
     for approval in approvals {
-        let _ = writeln!(text, "{}", language.technical(&approval.id));
+        let _ = writeln!(text, "{}", command::technical(&approval.id));
         for directory in &approval.directories {
             // Escape bidi override and terminal controls in user-supplied file names.
-            let _ = writeln!(text, "  {}", language.technical(directory));
+            let _ = writeln!(text, "  {}", command::technical(directory));
         }
         records.push(json!({
             "id": approval.id,

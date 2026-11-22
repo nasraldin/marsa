@@ -36,7 +36,7 @@ use marsa_client::l10n::keys;
 use serde_json::Value;
 use serde_json::json;
 
-use command::{Language, build, explicit_language};
+use command::build;
 
 #[derive(Clone, Copy)]
 enum Failure {
@@ -126,36 +126,36 @@ impl Failure {
         }
     }
 
-    fn message(self, language: Language) -> &'static str {
+    fn message(self) -> &'static str {
         match self {
-            Self::Unavailable => language.label(keys::CLI_NOT_AVAILABLE),
-            Self::Usage => language.label(keys::CLI_INVALID_INVOCATION),
-            Self::Confirmation => language.label(keys::CLI_CONFIRMATION_REQUIRED),
+            Self::Unavailable => command::label(keys::CLI_NOT_AVAILABLE),
+            Self::Usage => command::label(keys::CLI_INVALID_INVOCATION),
+            Self::Confirmation => command::label(keys::CLI_CONFIRMATION_REQUIRED),
             #[cfg(unix)]
-            Self::ConfirmationDeclined => language.label(keys::CLI_CONFIRMATION_DECLINED),
-            Self::Connection => language.label(keys::CLI_CONNECTION_FAILED),
-            Self::Home => language.label(keys::CLI_HOME_UNAVAILABLE),
-            Self::Root => language.label(keys::CLI_UNPRIVILEGED_USER_REQUIRED),
-            Self::Incompatible => language.label(keys::CLI_INCOMPATIBLE_DAEMON),
-            Self::Operation => language.label(keys::CLI_OPERATION_FAILED),
-            Self::BindResolution => language.label(keys::CLI_BIND_RESOLUTION_FAILED),
-            Self::CleanupApplyUnavailable => language.label(keys::CLI_CLEANUP_APPLY_UNAVAILABLE),
-            Self::CleanupPreview => language.label(keys::CLI_CLEANUP_PREVIEW),
-            Self::Reclaim => language.label(keys::CLI_RECLAIM),
+            Self::ConfirmationDeclined => command::label(keys::CLI_CONFIRMATION_DECLINED),
+            Self::Connection => command::label(keys::CLI_CONNECTION_FAILED),
+            Self::Home => command::label(keys::CLI_HOME_UNAVAILABLE),
+            Self::Root => command::label(keys::CLI_UNPRIVILEGED_USER_REQUIRED),
+            Self::Incompatible => command::label(keys::CLI_INCOMPATIBLE_DAEMON),
+            Self::Operation => command::label(keys::CLI_OPERATION_FAILED),
+            Self::BindResolution => command::label(keys::CLI_BIND_RESOLUTION_FAILED),
+            Self::CleanupApplyUnavailable => command::label(keys::CLI_CLEANUP_APPLY_UNAVAILABLE),
+            Self::CleanupPreview => command::label(keys::CLI_CLEANUP_PREVIEW),
+            Self::Reclaim => command::label(keys::CLI_RECLAIM),
             #[cfg(unix)]
-            Self::DaemonUnavailable => language.label(keys::CLI_DAEMON_UNAVAILABLE),
+            Self::DaemonUnavailable => command::label(keys::CLI_DAEMON_UNAVAILABLE),
             #[cfg(unix)]
-            Self::AgentRequestFailed => language.label(keys::CLI_AGENT_REQUEST_FAILED),
+            Self::AgentRequestFailed => command::label(keys::CLI_AGENT_REQUEST_FAILED),
             #[cfg(unix)]
-            Self::AgentApprovalMissing => language.label(keys::CLI_AGENT_APPROVAL_MISSING),
+            Self::AgentApprovalMissing => command::label(keys::CLI_AGENT_APPROVAL_MISSING),
             #[cfg(unix)]
-            Self::AgentGrantMissing => language.label(keys::CLI_AGENT_GRANT_MISSING),
+            Self::AgentGrantMissing => command::label(keys::CLI_AGENT_GRANT_MISSING),
             #[cfg(unix)]
-            Self::AgentReviewRequired => language.label(keys::CLI_AGENT_REVIEW_REQUIRED),
+            Self::AgentReviewRequired => command::label(keys::CLI_AGENT_REVIEW_REQUIRED),
             #[cfg(unix)]
-            Self::AgentReviewDeclined => language.label(keys::CLI_AGENT_REVIEW_DECLINED),
+            Self::AgentReviewDeclined => command::label(keys::CLI_AGENT_REVIEW_DECLINED),
             #[cfg(unix)]
-            Self::McpUnavailable => language.label(keys::CLI_MCP_UNAVAILABLE),
+            Self::McpUnavailable => command::label(keys::CLI_MCP_UNAVAILABLE),
         }
     }
 }
@@ -192,19 +192,13 @@ async fn main() -> ExitCode {
         .skip(1)
         .take_while(|arg| *arg != "--")
         .any(|arg| arg == "--json");
-    let explicit = explicit_language(&args);
-    let language = explicit.ok().flatten().unwrap_or_else(Language::current);
     let interactive = io::stdin().is_terminal() && !json;
-    let outcome = if explicit.is_err() {
-        Outcome::Failure(Failure::Usage)
-    } else {
-        execute(args, language, interactive, json).await
-    };
-    match render(outcome, language, json) {
+    let outcome = execute(args, interactive, json).await;
+    match render(outcome, json) {
         Ok(code) => ExitCode::from(code),
         Err(_) => {
             if !json {
-                let message = language.label(keys::CLI_WRITE_RESPONSE_FAILED);
+                let message = command::label(keys::CLI_WRITE_RESPONSE_FAILED);
                 let _ = writeln!(io::stderr().lock(), "{message}");
             }
             ExitCode::FAILURE
@@ -212,19 +206,9 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn execute(
-    args: Vec<OsString>,
-    display_language: Language,
-    interactive: bool,
-    json: bool,
-) -> Outcome {
-    let language = if json {
-        Language::English
-    } else {
-        display_language
-    };
+async fn execute(args: Vec<OsString>, interactive: bool, json: bool) -> Outcome {
     let root_help = args.last().is_none_or(|arg| arg != "--");
-    let matches = match build(language).try_get_matches_from(args) {
+    let matches = match build().try_get_matches_from(args) {
         Ok(matches) => matches,
         Err(error) if error.kind() == ErrorKind::DisplayHelp => {
             return Outcome::Help(error.to_string());
@@ -236,7 +220,7 @@ async fn execute(
         return if yes || !root_help {
             Outcome::Failure(Failure::Usage)
         } else {
-            Outcome::Help(build(language).render_help().to_string())
+            Outcome::Help(build().render_help().to_string())
         };
     };
     if name == "reset" && !interactive && !yes {
@@ -254,10 +238,10 @@ async fn execute(
     #[cfg(unix)]
     if name == "network" {
         let result = match args.subcommand() {
-            Some(("status", _)) => network::status(language).await,
+            Some(("status", _)) => network::status().await,
             Some(("mode", mode)) => {
                 let requested = mode.get_one::<String>("mode").map(String::as_str);
-                network::mode(requested, language).await
+                network::mode(requested).await
             }
             _ => Err(Failure::Usage),
         };
@@ -265,42 +249,42 @@ async fn execute(
     }
     #[cfg(unix)]
     if name == "config" {
-        return settings::run(args, language, !json && io::stdout().is_terminal()).await;
+        return settings::run(args, !json && io::stdout().is_terminal()).await;
     }
     #[cfg(unix)]
     if name == "share"
-        && let Some(outcome) = share::run(args, language).await
+        && let Some(outcome) = share::run(args).await
     {
         return outcome;
     }
     #[cfg(unix)]
     if name == "share"
-        && let Some(outcome) = share_folders::run(args, language).await
+        && let Some(outcome) = share_folders::run(args).await
     {
         return outcome;
     }
     #[cfg(unix)]
     if name == "disk" {
         let result = match args.subcommand() {
-            Some(("usage", _)) => disk::usage(language).await,
-            Some(("reclaim", _)) => disk::reclaim(language).await,
-            Some(("cleanup", cleanup)) => disk::preview_cleanup(cleanup, language).await,
+            Some(("usage", _)) => disk::usage().await,
+            Some(("reclaim", _)) => disk::reclaim().await,
+            Some(("cleanup", cleanup)) => disk::preview_cleanup(cleanup).await,
             _ => Err(Failure::Unavailable),
         };
         return result.unwrap_or_else(Outcome::Failure);
     }
     #[cfg(unix)]
-    if let Some(outcome) = maintenance::run(name, args, language, yes).await {
+    if let Some(outcome) = maintenance::run(name, args, yes).await {
         return outcome;
     }
     #[cfg(unix)]
     match name {
-        "agents" => return agents::run(args, display_language, yes).await,
+        "agents" => return agents::run(args, yes).await,
         "mcp" => return Outcome::Failure(agents::mcp(args, json)),
         _ => {}
     }
     #[cfg(unix)]
-    if let Some(outcome) = engine::run(name, args, language, json).await {
+    if let Some(outcome) = engine::run(name, args, json).await {
         return outcome;
     }
     Outcome::Failure(Failure::Unavailable)
@@ -314,14 +298,14 @@ fn completions(args: &ArgMatches) -> Outcome {
         _ => return Outcome::Failure(Failure::Usage),
     };
     let mut script = Vec::new();
-    clap_complete::generate(shell, &mut build(Language::English), "marsa", &mut script);
+    clap_complete::generate(shell, &mut build(), "marsa", &mut script);
     match String::from_utf8(script) {
         Ok(script) => Outcome::Completion { shell, script },
         Err(_) => Outcome::Failure(Failure::Unavailable),
     }
 }
 
-fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result<u8> {
+fn render(outcome: Outcome, json_output: bool) -> io::Result<u8> {
     let code = match outcome {
         Outcome::Failure(failure) => failure.code(),
         Outcome::Rejected { .. } => 1,
@@ -352,7 +336,7 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
                 "schema_version": 1,
                 "kind": "error",
                 "code": failure.key(),
-                "message": failure.message(Language::English),
+                "message": failure.message(),
             }),
         };
         writeln!(io::stdout().lock(), "{body}")?;
@@ -366,9 +350,7 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
             Outcome::Completion { script, .. } => write!(io::stdout().lock(), "{script}")?,
             #[cfg(unix)]
             Outcome::Success { text, .. } => write!(io::stdout().lock(), "{text}")?,
-            Outcome::Failure(failure) => {
-                writeln!(io::stderr().lock(), "{}", failure.message(language))?
-            }
+            Outcome::Failure(failure) => writeln!(io::stderr().lock(), "{}", failure.message())?,
         }
     }
     Ok(code)

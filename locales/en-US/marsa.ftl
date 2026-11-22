@@ -59,7 +59,6 @@ cli-help-commands = Commands
 cli-help-arguments = Arguments
 cli-help-options-placeholder = OPTIONS
 cli-help-command-placeholder = COMMAND
-cli-help-display-language = Display language (en-US or ar)
 cli-invalid-invocation = Invalid invocation. Run marsa --help for usage.
 cli-confirmation-required = This operation requires --yes when run non-interactively.
 cli-confirmation-declined = Reset canceled. The confirmation did not match.

@@ -10,16 +10,15 @@ use marsa_client::{
 use serde_json::json;
 
 use crate::{
-    Failure, Outcome,
-    command::Language,
+    Failure, Outcome, command,
     engine::{connection_failure, request_id},
 };
 
-pub(super) async fn status(language: Language) -> Result<Outcome, Failure> {
-    Ok(report(&read(&connect().await?).await?, language))
+pub(super) async fn status() -> Result<Outcome, Failure> {
+    Ok(report(&read(&connect().await?).await?))
 }
 
-pub(super) async fn mode(requested: Option<&str>, language: Language) -> Result<Outcome, Failure> {
+pub(super) async fn mode(requested: Option<&str>) -> Result<Outcome, Failure> {
     let requested = requested.map(parse_mode).transpose()?;
     let client = connect().await?;
     let status = match requested {
@@ -34,7 +33,7 @@ pub(super) async fn mode(requested: Option<&str>, language: Language) -> Result<
             .into_inner(),
         None => read(&client).await?,
     };
-    Ok(report_mode(&status, language))
+    Ok(report_mode(&status))
 }
 
 async fn connect() -> Result<MarsaClient, Failure> {
@@ -63,12 +62,12 @@ fn parse_mode(value: &str) -> Result<NetworkMode, Failure> {
     }
 }
 
-fn report_mode(status: &NetworkStatus, language: Language) -> Outcome {
-    let mut text = mode_lines(status, language);
+fn report_mode(status: &NetworkStatus) -> Outcome {
+    let mut text = mode_lines(status);
     let pending = match status.restart_pending {
-        Some(true) => language.label(keys::CLI_NETWORK_RESTART_PENDING),
-        Some(false) => language.label(keys::CLI_NETWORK_RESTART_CURRENT),
-        None => language.label(keys::CLI_NETWORK_RESTART_UNKNOWN),
+        Some(true) => command::label(keys::CLI_NETWORK_RESTART_PENDING),
+        Some(false) => command::label(keys::CLI_NETWORK_RESTART_CURRENT),
+        None => command::label(keys::CLI_NETWORK_RESTART_UNKNOWN),
     };
     let _ = writeln!(text, "{pending}");
     Outcome::Data {
@@ -83,10 +82,10 @@ fn report_mode(status: &NetworkStatus, language: Language) -> Outcome {
     }
 }
 
-fn report(status: &NetworkStatus, language: Language) -> Outcome {
+fn report(status: &NetworkStatus) -> Outcome {
     let configured = status.configured_mode();
     let active = status.active_mode();
-    let mut text = mode_lines(status, language);
+    let mut text = mode_lines(status);
     let reason = status.reason.as_deref();
     let (guest, gateway) = match active {
         NetworkMode::Nat | NetworkMode::Userspace => (
@@ -99,9 +98,9 @@ fn report(status: &NetworkStatus, language: Language) -> Outcome {
         let _ = writeln!(
             text,
             "{}",
-            language.message(
+            command::message(
                 keys::CLI_NETWORK_CONNECTIVITY,
-                &[("value", &language.technical(reason))]
+                &[("value", &command::technical(reason))]
             )
         );
     }
@@ -109,9 +108,9 @@ fn report(status: &NetworkStatus, language: Language) -> Outcome {
         let _ = writeln!(
             text,
             "{}",
-            language.message(
+            command::message(
                 keys::CLI_NETWORK_GUEST_ADDRESS,
-                &[("value", &language.technical(&guest.to_string()))]
+                &[("value", &command::technical(&guest.to_string()))]
             )
         );
     }
@@ -119,9 +118,9 @@ fn report(status: &NetworkStatus, language: Language) -> Outcome {
         let _ = writeln!(
             text,
             "{}",
-            language.message(
+            command::message(
                 keys::CLI_NETWORK_GATEWAY_ADDRESS,
-                &[("value", &language.technical(&gateway.to_string()))]
+                &[("value", &command::technical(&gateway.to_string()))]
             )
         );
     }
@@ -139,16 +138,16 @@ fn report(status: &NetworkStatus, language: Language) -> Outcome {
     }
 }
 
-fn mode_lines(status: &NetworkStatus, language: Language) -> String {
+fn mode_lines(status: &NetworkStatus) -> String {
     format!(
         "{}\n{}\n",
-        language.message(
+        command::message(
             keys::CLI_NETWORK_CONFIGURED_MODE,
-            &[("mode", mode_text(status.configured_mode(), language))]
+            &[("mode", mode_text(status.configured_mode()))]
         ),
-        language.message(
+        command::message(
             keys::CLI_NETWORK_ACTIVE_MODE,
-            &[("mode", mode_text(status.active_mode(), language))]
+            &[("mode", mode_text(status.active_mode()))]
         ),
     )
 }
@@ -166,12 +165,12 @@ fn mode_id(mode: NetworkMode) -> Option<&'static str> {
     }
 }
 
-fn mode_text(mode: NetworkMode, language: Language) -> &'static str {
+fn mode_text(mode: NetworkMode) -> &'static str {
     match mode {
-        NetworkMode::Auto => language.label(keys::CLI_NETWORK_AUTOMATIC),
-        NetworkMode::Nat => language.label(keys::CLI_NETWORK_NAT),
-        NetworkMode::Userspace => language.label(keys::CLI_NETWORK_USERSPACE),
-        NetworkMode::Unspecified => language.label(keys::CLI_NETWORK_UNAVAILABLE),
+        NetworkMode::Auto => command::label(keys::CLI_NETWORK_AUTOMATIC),
+        NetworkMode::Nat => command::label(keys::CLI_NETWORK_NAT),
+        NetworkMode::Userspace => command::label(keys::CLI_NETWORK_USERSPACE),
+        NetworkMode::Unspecified => command::label(keys::CLI_NETWORK_UNAVAILABLE),
     }
 }
 
@@ -187,7 +186,7 @@ mod tests {
             restart_pending: Some(true),
             ..Default::default()
         };
-        let Outcome::Data { document, text } = report_mode(&status, Language::English) else {
+        let Outcome::Data { document, text } = report_mode(&status) else {
             panic!("expected a network mode response");
         };
         assert_eq!(document["kind"], "network_mode");
@@ -195,10 +194,6 @@ mod tests {
         assert_eq!(document["active_mode"], "userspace");
         assert_eq!(document["restart_pending"], true);
         assert!(text.contains("Restart pending."));
-        let Outcome::Data { text, .. } = report_mode(&status, Language::Arabic) else {
-            panic!("expected a network mode response");
-        };
-        assert!(text.contains("إعادة التشغيل معلّقة"));
     }
 
     #[test]
@@ -210,7 +205,7 @@ mod tests {
                 restart_pending: pending,
                 ..Default::default()
             };
-            let Outcome::Data { document, .. } = report_mode(&status, Language::English) else {
+            let Outcome::Data { document, .. } = report_mode(&status) else {
                 panic!("expected a network mode response");
             };
             assert_eq!(document["configured_mode"], "auto");
@@ -226,7 +221,7 @@ mod tests {
             guest_address: Some("192.168.127.2".into()),
             ..Default::default()
         };
-        let Outcome::Data { document, .. } = report(&status, Language::English) else {
+        let Outcome::Data { document, .. } = report(&status) else {
             panic!("expected network data");
         };
         assert_eq!(document["configured_mode"], "auto");

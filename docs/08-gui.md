@@ -183,9 +183,10 @@ Rules, enforced by lint and review:
 | Review | Arabic strings are reviewed by a fluent speaker for terminology consistency; a glossary of technical terms lives in `locales/GLOSSARY.md` | Proposed |
 
 `marsa-l10n` validates the application catalogs and provides typed message
-keys and locale-specific Fluent bundles through `marsa-client`. The CLI
-uses a generated key for its unavailable-command message. GUI integration
-and locale formatting remain part of M6-04.
+keys and locale-specific Fluent bundles through `marsa-client`. The GUI supports
+English and Arabic. The CLI reads generated messages in English as specified in
+[D-033](15-decisions.md#d-033-keep-the-command-line-interface-in-english). GUI
+integration and locale formatting remain part of M6-04.
 
 Technical terms policy (**Proposed**): keep established English terms that developers actually use (Docker, container image names, Compose, volume names as typed) in Latin script where an Arabic term would confuse, and translate interface language (actions, labels, messages) fully.
 
