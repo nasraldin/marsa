@@ -209,5 +209,4 @@ works with the engine stopped. Review the archive before sharing it.
 
 At a terminal, `marsa reset` asks for `RESET SETTINGS` and
 `marsa reset --factory` asks for `FACTORY RESET`. Use `--yes` for an
-explicit non-interactive confirmation. The daemon reset operation is
-pending [M9-08](plan/M9-hardening.md#m9-08-factory-reset-and-clean-uninstall).
+explicit non-interactive confirmation. [Factory reset](plan/M9-hardening.md#m9-18-recover-private-storage-with-confirmed-factory-reset) stops the guest, restores the default settings, clears grants and creates a fresh private data disk.
