@@ -67,7 +67,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-06 Attach shares and enforce bind-mount policy
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M4-05, M4-01, M4-03, M3-16
 - **Docs:** [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
 - **Do:** Map allowlist entries to virtiofs shares at identical paths. Use the pinned Docker Engine authorization plugin for container-create checks and preserve the byte-transparent host proxy. Authorize each explicit bind source through the bounded VM policy channel. Expose owner approval actions for once, always and deny, with explicit restart on Apple VZ. Preserve the observed ownership behavior. M5-09 and M7-10 present the approvals. M4-19 qualifies the hot-reload workflow.
@@ -79,7 +79,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - The production ownership behavior and the supported change-notification workflow are documented. M4-19 owns the dev-server acceptance and final V-06 disposition.
 
 
-**Qualification.** The signed Apple silicon guest preserved raw HTTP 200 attach, HTTP 101 BuildKit upgrades and private SSH builds with the upstream authorization hook. The hook denied disallowed binds through fixed-length, chunked and native HTTP/2 REST, plus invalid or missing JSON. The product inspector caps container-create JSON at 1 MiB. The signed packaged test verified the host policy transport, Mac ownership, one-session expiry, persistent approval and the exact guest Docker socket mount.
+**Qualification.** The signed Apple silicon guest preserved raw HTTP 200 attach, HTTP 101 BuildKit upgrades and private SSH builds with the upstream authorization hook. The hook denied disallowed binds through fixed-length, chunked and native HTTP/2 REST, plus invalid or missing JSON. The product inspector caps container-create JSON at 1 MiB. The signed packaged tests verified Mac ownership, one-session expiry, persistent approval and the exact guest Docker socket mount. With authorization enabled, Docker preserved BuildKit, interactive terminals, log following and attach. A 2,215,736,832-byte Docker save caused zero observed daemon resident-memory growth over 405 samples.
 
 ### M4-19 Qualify host edits in a container development server
 

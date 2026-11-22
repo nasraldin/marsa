@@ -74,6 +74,13 @@ reading the body. Read exactly that many bytes, then call `decode_host` or
 `decode_guest` for the expected direction. The global payload limit is 1 MiB.
 The separate Docker API bridge uses the Docker byte stream directly.
 
+The guest bind-authorization channel uses a separate host-initiated vsock
+stream on port 5003. Each length-prefixed protobuf payload is at most 64 KiB.
+Queries carry only the explicit absolute bind sources and a request ID.
+Version 1.0 requires matching sequential IDs and a valid allow or deny response.
+The guest denies these binds if the policy channel cannot answer. Boot-mounted
+virtiofs roots remain the host isolation boundary.
+
 1. After connecting, the guest sends `Hello` with request ID zero. The image
    version, component versions and boot timings describe the running image.
 2. The host requires the same major and selects the smaller minor with
