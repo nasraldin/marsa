@@ -1,8 +1,7 @@
 //! Forward Docker connections without interpreting HTTP framing or upgraded streams.
 
-// Keep the architecture's dependency edges for the subsequent request policy.
-use marsa_core as _;
-use marsa_share as _;
+/// Bounded parsing of Docker container bind sources shared with the guest authorization policy.
+pub mod bind_mounts;
 
 #[cfg(unix)]
 mod platform;

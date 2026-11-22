@@ -117,7 +117,13 @@ async fn docker_unavailability_includes_a_localized_error() {
         let home = TempDir::new_in("/tmp").unwrap();
         let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
         let mut daemon = Daemon(start(home.path()).env("LC_ALL", locale).spawn().unwrap());
-        wait_for_meta(&mut daemon, paths.daemon_socket()).await;
+        // A successful RPC, rather than the transport handshake, observes the
+        // daemon after both local endpoints have been published.
+        wait_for_meta(&mut daemon, paths.daemon_socket())
+            .await
+            .version(VersionRequest {})
+            .await
+            .unwrap();
         let mut docker = UnixStream::connect(paths.docker_socket()).await.unwrap();
         docker
             .write_all(b"GET /_ping HTTP/1.1\r\nHost: docker\r\n\r\n")

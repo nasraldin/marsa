@@ -86,6 +86,16 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
   - Every CLI message has both translations (build fails otherwise).
   - Arabic output with embedded container names and paths reads correctly in a terminal that supports bidirectional text, and remains unambiguous in one that does not.
 
+### M5-09 Review and answer bind approvals from the CLI
+
+- **Status:** todo
+- **Depends on:** M5-02, M4-06
+- **Docs:** [07 The allowlist](../07-file-sharing-and-storage.md#the-allowlist), [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
+- **Do:** List current typed bind-approval events, show the exact requested directories, and submit once, always or deny by approval ID. Explain when a VM restart is needed. Provide English and Arabic display strings and stable JSON.
+- **Deliver:** CLI commands and a signed integration test covering authorization from the real Docker CLI.
+- **Accept when:**
+  - A request from `docker run -v` can be reviewed and granted from a separate terminal, and the mount works after explicit application.
+  - An expired or mismatched approval has no effect on the configured shares.
 
 ### M5-10 Settings and shared-folder CLI commands
 

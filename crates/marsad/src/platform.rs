@@ -112,7 +112,7 @@ async fn configure_packaged_runtime(
             package.capabilities(),
             GuestControl::default().with_agent_connect_timeout(Duration::from_secs(50)),
             config,
-            move |desired| package.prepare(&paths, uid, desired),
+            move |desired, policy| package.prepare(&paths, uid, desired, policy),
         )
         .await
 }
