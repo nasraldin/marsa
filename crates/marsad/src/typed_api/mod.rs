@@ -6,6 +6,7 @@ mod engine;
 mod events;
 mod meta;
 mod network;
+mod proxy_activation;
 mod proxy_policy;
 mod requests;
 mod settings;
@@ -50,6 +51,7 @@ pub struct TypedApi {
     inner: Arc<Shared>,
     supervisor: Option<Supervisor>,
     capabilities: Option<Capabilities>,
+    proxy: Option<Arc<proxy_policy::RuntimeProxy>>,
 }
 
 struct Shared {
@@ -57,6 +59,11 @@ struct Shared {
     uid: u32,
     events: events::Bus,
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
+    proxy_requests: requests::Cache<
+        marsa_proto::host::v1::ActivateProxyRequest,
+        marsa_proto::host::v1::ProxyActivationResult,
+    >,
+    proxy_approval: std::sync::Mutex<Option<proxy_activation::Approval>>,
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
     share_policy: SharePolicy,
@@ -83,6 +90,8 @@ impl TypedApi {
                 uid,
                 events: events::Bus::new(settings)?,
                 engine_requests: requests::Cache::new(),
+                proxy_requests: requests::Cache::new(),
+                proxy_approval: std::sync::Mutex::new(None),
                 settings_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
                 share_policy,
@@ -93,6 +102,7 @@ impl TypedApi {
             }),
             supervisor: None,
             capabilities: None,
+            proxy: None,
         })
     }
 
@@ -130,9 +140,26 @@ impl TypedApi {
     /// The factory runs on a blocking worker at every cold activation. It sees
     /// one settings snapshot for the whole attempt, including network fallback.
     pub async fn with_packaged_runtime(
-        mut self,
+        self,
         capabilities: Capabilities,
         control: GuestControl,
+        config: SupervisorConfig,
+        prepare: impl Fn(&Settings) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> + Send + Sync + 'static,
+    ) -> io::Result<Self> {
+        let observations = self.inner.events.clone();
+        let control = Arc::new(control.observe_active(move |event| match event {
+            GuestEvent::Health(health) => engine::publish_health(&observations, health),
+            GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
+            GuestEvent::Port(_) => (),
+        }));
+        self.with_packaged_probe(capabilities, control, config, prepare)
+            .await
+    }
+
+    async fn with_packaged_probe(
+        mut self,
+        capabilities: Capabilities,
+        control: Arc<dyn GuestProbe>,
         config: SupervisorConfig,
         prepare: impl Fn(&Settings) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> + Send + Sync + 'static,
     ) -> io::Result<Self> {
@@ -146,27 +173,27 @@ impl TypedApi {
         self.capabilities = Some(capabilities);
         let (desired, _) = events.settings();
         events.runtime_applied(&proxy.effective(desired));
+        let proxy = Arc::new(proxy_policy::RuntimeProxy::new(proxy));
+        self.proxy = Some(proxy.clone());
         let settings = events.clone();
         let preparation = Arc::new(move || {
             let (desired, _) = settings.settings();
-            let effective = proxy.effective(desired);
+            let (effective, reserved) = proxy.launch_settings(desired);
             let (backend, mut spec) = prepare(&effective)?;
             let automatic = select_network(&effective, &mut spec, backend.capabilities());
+            let network_policy = proxy_policy::BootProxy::from_draft(&effective.network.proxy)?
+                .guest_configuration();
             let bus = settings.clone();
+            let applied: Option<crate::supervisor::launch::Applied> =
+                (!reserved).then(|| Arc::new(move || bus.runtime_applied(&effective)) as _);
             Ok(Launch {
                 backend,
                 spec,
                 selection: Selection::new(automatic),
-                network_policy: proxy.guest_configuration(),
-                applied: Some(Arc::new(move || bus.runtime_applied(&effective))),
+                network_policy,
+                applied,
             })
         });
-        let observations = self.inner.events.clone();
-        let control = Arc::new(control.observe_active(move |event| match event {
-            GuestEvent::Health(health) => engine::publish_health(&observations, health),
-            GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
-            GuestEvent::Port(_) => (),
-        }));
         let supervisor = Supervisor::spawn_packaged(
             preparation,
             self.inner.paths.console_log(),

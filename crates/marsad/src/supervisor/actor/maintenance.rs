@@ -9,6 +9,7 @@ pub(super) struct Reservation {
     id: u64,
     release: oneshot::Receiver<()>,
     starting: bool,
+    discard_on_release: bool,
 }
 
 impl Actor {
@@ -40,6 +41,7 @@ impl Actor {
             id,
             release,
             starting: false,
+            discard_on_release: false,
         });
         self.bump_revision();
         // Publish the revision before handing out the permit. If the caller
@@ -64,7 +66,7 @@ impl Actor {
             .is_some_and(|owner| owner.id == id)
     }
 
-    pub(super) fn maintenance_start(&mut self, id: u64, reply: Reply) {
+    pub(super) fn maintenance_start(&mut self, id: u64, discard: bool, reply: Reply) {
         if reply.is_closed() {
             return;
         }
@@ -81,9 +83,21 @@ impl Actor {
         }
         if let Some(owner) = &mut self.maintenance {
             owner.starting = true;
+            owner.discard_on_release = discard;
         }
         self.waiters.push(reply);
         self.begin();
+    }
+
+    pub(super) fn maintenance_keep(&mut self, id: u64) -> Result<(), SupervisorError> {
+        let Some(owner) = self.maintenance.as_mut().filter(|owner| owner.id == id) else {
+            return Err(SupervisorError::Busy);
+        };
+        if owner.starting || !owner.discard_on_release {
+            return Err(SupervisorError::Busy);
+        }
+        owner.discard_on_release = false;
+        Ok(())
     }
 
     pub(super) fn maintenance_boot_finished(&mut self) {
@@ -102,12 +116,9 @@ impl Actor {
     }
 
     pub(super) async fn release_maintenance(&mut self) {
-        if self
-            .maintenance
-            .as_ref()
-            .is_some_and(|owner| owner.starting)
-            && self.boot.is_some()
-        {
+        if self.maintenance.as_ref().is_some_and(|owner| {
+            owner.discard_on_release || (owner.starting && self.boot.is_some())
+        }) {
             // Keep ordinary requests excluded until the partially started VM
             // has stopped or the actor holds it for a further cleanup attempt.
             let _ = self.stop().await;

@@ -4,7 +4,7 @@
 pub const API_MAJOR: u32 = 1;
 
 /// The latest additive revision of the host API.
-pub const API_MINOR: u32 = 1;
+pub const API_MINOR: u32 = 2;
 
 /// Requests, responses, clients and servers for the `marsa.v1` package.
 #[allow(missing_docs)]

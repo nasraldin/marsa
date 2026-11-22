@@ -29,10 +29,11 @@ impl Actor {
                 self.reserve_maintenance(expected, release, reply);
                 return;
             }
-            Command::MaintenanceStart(id, reply) => {
-                self.maintenance_start(id, reply);
+            Command::MaintenanceStart(id, discard, reply) => {
+                self.maintenance_start(id, discard, reply);
                 return;
             }
+            Command::MaintenanceKeep(id, reply) => (reply, self.maintenance_keep(id)),
             Command::MaintenanceStop(id, reply) => {
                 let result = if self.maintenance_owns(id) && !reply.is_closed() {
                     self.stop().await

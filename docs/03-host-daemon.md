@@ -384,7 +384,7 @@ The fixture uses an ad-hoc signature, a unique label and a temporary home. On ma
 |---|---|
 | Host will sleep | Pause the VM if the backend supports it |
 | Host woke | Resume the VM, send the current time to the agent, re-check network mode, refresh port forwards |
-| Network changed | Re-evaluate `auto` network mode, refresh DNS and proxy settings in the guest |
+| Network changed | Re-evaluate `auto` network mode and refresh DNS. Keep the current approved proxy |
 
 ## Observability
 
