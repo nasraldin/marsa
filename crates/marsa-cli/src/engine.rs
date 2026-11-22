@@ -57,11 +57,7 @@ enum Command {
 
 impl Command {
     async fn run(self, language: Language, machine: bool) -> Result<Outcome, Failure> {
-        let client = DaemonEndpoint::discover()
-            .map_err(connection_failure)?
-            .connect()
-            .await
-            .map_err(connection_failure)?;
+        let client = connect().await?;
         match self {
             Self::Status => status(&client, language).await,
             Self::Version => Ok(version(&client, language)),
@@ -69,6 +65,14 @@ impl Command {
             Self::Logs { follow } => logs(&client, follow, machine).await,
         }
     }
+}
+
+pub(super) async fn connect() -> Result<MarsaClient, Failure> {
+    DaemonEndpoint::discover()
+        .map_err(connection_failure)?
+        .connect()
+        .await
+        .map_err(connection_failure)
 }
 
 fn connection_failure(error: ClientError) -> Failure {
@@ -298,7 +302,7 @@ async fn lifecycle(
     })
 }
 
-fn request_id() -> Result<String, Failure> {
+pub(super) fn request_id() -> Result<String, Failure> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| Failure::Operation)?;
     bytes[6] = bytes[6] & 0x0f | 0x40;

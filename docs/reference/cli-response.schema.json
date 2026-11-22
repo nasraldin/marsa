@@ -10,7 +10,9 @@
     { "$ref": "#/$defs/version" },
     { "$ref": "#/$defs/lifecycle" },
     { "$ref": "#/$defs/logs" },
-    { "$ref": "#/$defs/log" }
+    { "$ref": "#/$defs/log" },
+    { "$ref": "#/$defs/diagnose" },
+    { "$ref": "#/$defs/reset" }
   ],
   "$defs": {
     "env": {
@@ -165,6 +167,26 @@
         "kind": { "const": "completion" },
         "shell": { "enum": ["bash", "fish", "zsh"] },
         "script": { "type": "string", "minLength": 1 }
+      }
+    },
+    "diagnose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "bundle_path"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "diagnose" },
+        "bundle_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "reset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "scope"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "reset" },
+        "scope": { "enum": ["settings", "factory"] }
       }
     },
     "error": {

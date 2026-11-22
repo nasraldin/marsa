@@ -5,7 +5,7 @@
 | 0 | | The command succeeded. Help and shell completion generation also return this status. |
 | 1 | `not_available`, `operation_failed` | A command is awaiting implementation, its operation failed, or a response could not be written. |
 | 2 | `invalid_invocation` | The command, its options or its arguments are invalid. |
-| 3 | `confirmation_required` | A destructive command needs the explicit `--yes` flag in a non-interactive invocation. |
+| 3 | `confirmation_required` | A destructive command needs explicit confirmation. Non-interactive invocations require `--yes`. |
 | 4 | `connection_failed`, `home_unavailable`, `unprivileged_user_required` | The CLI could not establish an authenticated daemon connection or resolve the per-user socket. |
 | 5 | `incompatible_daemon` | The daemon and CLI have incompatible API versions. |
 
@@ -33,3 +33,8 @@ per log record. In the record, `message` contains a safe classification of
 the source log and `at_unix_millis` is zero when wall-clock time is unavailable.
 `marsa status --json` returns `resources: null` until the guest provides an
 observation. The CPU field is cumulative VM CPU busy time in nanoseconds.
+
+`marsa diagnose --json` reports the daemon's local archive path in
+`bundle_path`. A successful reset response reports `scope` as `settings`
+or `factory`. While the daemon does not support reset, the CLI reports
+`not_available` after confirmation and exits with status 1.

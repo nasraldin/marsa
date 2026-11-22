@@ -78,6 +78,13 @@ pub enum ClientError {
     EventProtocol(&'static str),
 }
 
+impl ClientError {
+    /// Whether the daemon does not currently implement the requested RPC.
+    pub fn is_unimplemented(&self) -> bool {
+        matches!(self, Self::Rpc(status) if status.code() == Code::Unimplemented)
+    }
+}
+
 impl From<Status> for ClientError {
     fn from(status: Status) -> Self {
         Self::Rpc(Box::new(status))

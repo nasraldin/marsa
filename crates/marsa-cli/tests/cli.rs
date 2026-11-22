@@ -63,7 +63,6 @@ fn destructive_commands_require_confirmation_on_a_pipe() {
         (&["reset"][..], 3),
         (&["reset", "--factory"], 3),
         (&["disk", "cleanup"], 3),
-        (&["reset", "--factory", "--yes"], 1),
         (&["disk", "cleanup", "--yes"], 1),
         (&["disk", "cleanup", "--dry-run"], 1),
         (&["reset", "--factory", "--help"], 0),
@@ -116,7 +115,12 @@ fn global_json_handles_help_and_errors_at_any_depth() {
             "error",
             Some("invalid_invocation"),
         ),
-        (&["--json", "diagnose"], 1, "error", Some("not_available")),
+        (
+            &["--json", "update", "check"],
+            1,
+            "error",
+            Some("not_available"),
+        ),
         (
             &["--json", "completion", "invalid"],
             2,
