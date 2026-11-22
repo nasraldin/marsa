@@ -51,6 +51,7 @@ pub struct TypedApi {
     supervisor: Option<Supervisor>,
     capabilities: Option<Capabilities>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
+    verify_keychain: Option<docker_discovery::VerifyKeychain>,
 }
 
 struct Shared {
@@ -66,6 +67,7 @@ struct Shared {
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
     remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
     docker_context_requests: requests::Cache<(), EnsureDockerContextResponse>,
+    docker_keychain_requests: requests::Cache<(), bool>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
 }
@@ -93,12 +95,14 @@ impl TypedApi {
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
                 docker_context_requests: requests::Cache::new(),
+                docker_keychain_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
                 closing,
             }),
             supervisor: None,
             capabilities: None,
             docker_contexts: None,
+            verify_keychain: None,
         })
     }
 
