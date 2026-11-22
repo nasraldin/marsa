@@ -67,7 +67,7 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 
 ### M5-06 Diagnostics and reset commands
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M5-02, M9-13
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
 - **Do:** Implement `diagnose` and `reset` (settings only, and `--factory` with typed confirmation) as clients of the daemon calls delivered in M9-13 and M9-08. Until the reset service is available, report that status with a non-zero exit code.
