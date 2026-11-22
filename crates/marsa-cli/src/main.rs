@@ -1,6 +1,8 @@
 //! Marsa command-line interface and stable response handling.
 
 mod command;
+#[cfg(unix)]
+mod engine;
 
 use std::{
     env,
@@ -15,22 +17,26 @@ use serde_json::json;
 
 use command::{Language, build};
 
-// Operations are wired to this library by the subsequent CLI tasks.
-use marsa_client as _;
-
 #[derive(Clone, Copy)]
 enum Failure {
     Unavailable,
     Usage,
     Confirmation,
+    Connection,
+    Home,
+    Root,
+    Incompatible,
+    Operation,
 }
 
 impl Failure {
     fn code(self) -> u8 {
         match self {
-            Self::Unavailable => 1,
+            Self::Unavailable | Self::Operation => 1,
             Self::Usage => 2,
             Self::Confirmation => 3,
+            Self::Connection | Self::Home | Self::Root => 4,
+            Self::Incompatible => 5,
         }
     }
 
@@ -39,6 +45,11 @@ impl Failure {
             Self::Unavailable => "not_available",
             Self::Usage => "invalid_invocation",
             Self::Confirmation => "confirmation_required",
+            Self::Connection => "connection_failed",
+            Self::Home => "home_unavailable",
+            Self::Root => "unprivileged_user_required",
+            Self::Incompatible => "incompatible_daemon",
+            Self::Operation => "operation_failed",
         }
     }
 
@@ -56,17 +67,46 @@ impl Failure {
                 "This operation requires --yes when run non-interactively.",
                 "تتطلب هذه العملية الخيار --yes عند تشغيلها دون تفاعل.",
             ),
+            Self::Connection => language.text(
+                "Could not connect to the Marsa daemon. Open Marsa and try again.",
+                "تعذّر الاتصال بخادم مرسى. افتح التطبيق ثم أعد المحاولة.",
+            ),
+            Self::Home => language.text(
+                "Could not resolve the socket under the current user's home directory.",
+                "تعذّر تحديد موقع المقبس في المجلد الرئيسي للمستخدم الحالي.",
+            ),
+            Self::Root => language.text(
+                "Run Marsa as an unprivileged user.",
+                "شغّل مرسى بحساب مستخدم عادي.",
+            ),
+            Self::Incompatible => language.text(
+                "The daemon API is incompatible with this version of the Marsa CLI.",
+                "واجهة الخادم غير متوافقة مع إصدار سطر أوامر مرسى الحالي.",
+            ),
+            Self::Operation => language.text(
+                "The Marsa operation failed. Run marsa status or check marsa logs for details.",
+                "فشلت عملية مرسى. شغّل marsa status أو اطّلع على marsa logs لمعرفة التفاصيل.",
+            ),
         }
     }
 }
 
 enum Outcome {
     Help(String),
-    Completion { shell: Shell, script: String },
+    Completion {
+        shell: Shell,
+        script: String,
+    },
+    Data {
+        document: serde_json::Value,
+        text: String,
+    },
+    Streamed,
     Failure(Failure),
 }
 
-fn main() -> ExitCode {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> ExitCode {
     let args: Vec<_> = env::args_os().collect();
     let json = args
         .iter()
@@ -79,7 +119,7 @@ fn main() -> ExitCode {
         Language::current()
     };
     let interactive = io::stdin().is_terminal() && !json;
-    let outcome = execute(args, language, interactive);
+    let outcome = execute(args, language, interactive, json).await;
     match render(outcome, language, json) {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
@@ -92,7 +132,12 @@ fn main() -> ExitCode {
     }
 }
 
-fn execute(args: Vec<OsString>, language: Language, interactive: bool) -> Outcome {
+async fn execute(
+    args: Vec<OsString>,
+    language: Language,
+    interactive: bool,
+    json: bool,
+) -> Outcome {
     let mut cli = build(language);
     if args.len() == 1 || args.len() == 2 && args[1] == "--json" {
         return Outcome::Help(cli.render_help().to_string());
@@ -112,6 +157,10 @@ fn execute(args: Vec<OsString>, language: Language, interactive: bool) -> Outcom
     }
     if name == "completion" {
         return completions(args);
+    }
+    #[cfg(unix)]
+    if let Some(outcome) = engine::run(name, args, language, json).await {
+        return outcome;
     }
     Outcome::Failure(Failure::Unavailable)
 }
@@ -150,6 +199,8 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
             Outcome::Completion { shell, script } => {
                 json!({"schema_version": 1, "kind": "completion", "shell": shell.to_string(), "script": script})
             }
+            Outcome::Streamed => return Ok(code),
+            Outcome::Data { document, .. } => document,
             Outcome::Failure(failure) => json!({
                 "schema_version": 1,
                 "kind": "error",
@@ -160,7 +211,10 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
         writeln!(io::stdout().lock(), "{body}")?;
     } else {
         match outcome {
-            Outcome::Help(text) => write!(io::stdout().lock(), "{text}")?,
+            Outcome::Streamed => (),
+            Outcome::Help(text) | Outcome::Data { text, .. } => {
+                write!(io::stdout().lock(), "{text}")?
+            }
             Outcome::Completion { script, .. } => write!(io::stdout().lock(), "{script}")?,
             Outcome::Failure(failure) => {
                 writeln!(io::stderr().lock(), "{}", failure.message(language))?

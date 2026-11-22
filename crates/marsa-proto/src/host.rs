@@ -18,3 +18,10 @@ pub fn socket_path(
 ) -> Result<std::path::PathBuf, marsa_core::error::PathError> {
     Ok(marsa_core::paths::MarsaPaths::from_home(home)?.daemon_socket())
 }
+
+/// Resolve Docker's Unix socket in the same per-user layout as the typed API.
+pub fn docker_socket_path(
+    home: impl AsRef<std::path::Path>,
+) -> Result<std::path::PathBuf, marsa_core::error::PathError> {
+    Ok(marsa_core::paths::MarsaPaths::from_home(home)?.docker_socket())
+}

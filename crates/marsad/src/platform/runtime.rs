@@ -14,6 +14,7 @@ use marsa_core::{
     paths::MarsaPaths,
     settings::{NetworkMode, ProxySettings, Settings, VmBackend},
 };
+use marsa_proto::host::v1::ComponentVersion;
 use marsa_vm::{Capabilities, DiskSpec, Hypervisor, NetworkSpec, VmSpec};
 use marsa_vm_vz::VzHypervisor;
 use nix::libc;
@@ -54,6 +55,42 @@ impl Packaged {
             .then(|| Self {
                 bundle: bundle.to_owned(),
             })
+    }
+
+    pub(super) fn component_versions(&self) -> io::Result<Vec<ComponentVersion>> {
+        let path = self
+            .bundle
+            .join("Contents/Resources/guest/guest-manifest.json");
+        let manifest = Artifact::open(path)?;
+        let description = GuestManifest::read(&manifest.file).map_err(io::Error::other)?;
+        manifest.check_unchanged()?;
+        let components = description.components();
+        let mut names = vec![
+            ("guest-image", description.image_version()),
+            ("linux", components.linux.as_str()),
+            ("alpine", components.alpine.as_str()),
+            ("docker-engine", components.docker.as_str()),
+            ("buildkit", components.buildkit.as_str()),
+            ("containerd", components.containerd.as_str()),
+            ("runc", components.runc.as_str()),
+            ("docker-init", components.docker_init.as_str()),
+            ("erofs-utils", components.erofs_utils.as_str()),
+        ];
+        for (name, version) in [
+            ("marsa-init", components.marsa_init.as_deref()),
+            ("marsa-agent", components.marsa_agent.as_deref()),
+        ] {
+            if let Some(version) = version {
+                names.push((name, version));
+            }
+        }
+        Ok(names
+            .into_iter()
+            .map(|(name, version)| ComponentVersion {
+                name: name.into(),
+                version: version.into(),
+            })
+            .collect())
     }
 
     /// Report the backend supported by the packaged daemon.
