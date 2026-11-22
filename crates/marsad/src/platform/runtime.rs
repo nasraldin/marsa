@@ -14,6 +14,7 @@ use marsa_core::{
     paths::MarsaPaths,
     settings::{NetworkMode, ProxySettings, Settings, VmBackend},
 };
+use marsa_share::SharePolicy;
 use marsa_vm::{Capabilities, DiskSpec, Hypervisor, NetworkSpec, VmSpec};
 use marsa_vm_vz::VzHypervisor;
 use nix::libc;
@@ -21,6 +22,7 @@ use nix::libc;
 use crate::diagnostics::localized;
 
 mod disk;
+mod shares;
 use disk::ensure_disk;
 
 const SECTOR_BYTES: u64 = 512;
@@ -67,6 +69,7 @@ impl Packaged {
         paths: &MarsaPaths,
         uid: u32,
         settings: &Settings,
+        policy: &SharePolicy,
     ) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> {
         settings
             .validate()
@@ -81,16 +84,6 @@ impl Packaged {
             ));
         }
 
-        // A boot-time virtiofs attachment would bypass the future protected-path allowlist.
-        if !settings.shares.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                localized(
-                    "folder sharing requires the protected-path allowlist",
-                    "تتطلب مشاركة المجلدات قائمة سماح تحمي المسارات الخاصة",
-                ),
-            ));
-        }
         if !settings.network.dns.is_empty() || settings.network.proxy != ProxySettings::default() {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -100,6 +93,7 @@ impl Packaged {
                 ),
             ));
         }
+        let shares = shares::configured(policy, &settings.shares)?;
         let (kernel, root_disk) = self.verify_guest()?;
         self.verify_helper()?;
         // The application seal detects replacement of both the manifest and its hashed files.
@@ -136,7 +130,7 @@ impl Packaged {
                 path: paths.data_disk(),
                 read_only: false,
             },
-            shares: Vec::new(),
+            shares,
             network: match settings.network.mode {
                 NetworkMode::Auto | NetworkMode::Nat => NetworkSpec::Nat,
                 NetworkMode::Userspace => NetworkSpec::Userspace,

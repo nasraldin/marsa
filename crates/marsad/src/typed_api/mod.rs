@@ -124,15 +124,19 @@ impl TypedApi {
         capabilities: Capabilities,
         control: GuestControl,
         config: SupervisorConfig,
-        prepare: impl Fn(&Settings) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> + Send + Sync + 'static,
+        prepare: impl Fn(&Settings, &SharePolicy) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         let events = self.inner.events.clone();
         events.backend(capabilities.name);
         self.capabilities = Some(capabilities);
         let settings = events.clone();
+        let share_policy = self.inner.share_policy.clone();
         let preparation = Arc::new(move || {
             let (desired, _) = settings.settings();
-            let (backend, mut spec) = prepare(&desired)?;
+            let (backend, mut spec) = prepare(&desired, &share_policy)?;
             let automatic = select_network(&desired, &mut spec, backend.capabilities());
             let bus = settings.clone();
             Ok(Launch {
