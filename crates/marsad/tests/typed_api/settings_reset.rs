@@ -6,8 +6,8 @@ use std::{
 };
 
 use marsa_proto::host::v1::{
-    ConfirmFactoryReset, PrepareFactoryReset, PrepareSettingsReset, ResetRequest, ResetSettings,
-    engine_server::Engine, reset_request::Action, reset_response::Result as ResetResult,
+    ConfirmFactoryReset, PrepareSettingsReset, ResetRequest, ResetSettings, engine_server::Engine,
+    reset_request::Action, reset_response::Result as ResetResult,
 };
 
 use super::*;
@@ -168,7 +168,7 @@ async fn reset_rejects_stale_revisions_and_replaced_members() {
 }
 
 #[tokio::test]
-async fn settings_challenges_require_the_owner_and_factory_stays_unavailable() {
+async fn settings_challenges_require_the_owner_and_cannot_confirm_factory_reset() {
     let fixture = Fixture::new(vec![]).await;
     let paths = MarsaPaths::from_home(fixture.home.path()).unwrap();
     fs::set_permissions(paths.root(), fs::Permissions::from_mode(0o700)).unwrap();
@@ -192,15 +192,6 @@ async fn settings_challenges_require_the_owner_and_factory_stays_unavailable() {
         Code::FailedPrecondition
     );
 
-    let factory = engine
-        .reset(ResetRequest {
-            request_id: action(86).request_id,
-            action: Some(Action::PrepareFactory(PrepareFactoryReset {})),
-        })
-        .await
-        .unwrap_err();
-    assert_eq!(factory.code(), Code::Unimplemented);
-
     let Some(Action::Settings(settings)) = confirmation.action.clone() else {
         panic!("settings challenge must use the settings action");
     };
@@ -213,7 +204,7 @@ async fn settings_challenges_require_the_owner_and_factory_stays_unavailable() {
         })
         .await
         .unwrap_err();
-    assert_eq!(factory.code(), Code::Unimplemented);
+    assert_eq!(factory.code(), Code::FailedPrecondition);
     assert!(!paths.config_file().exists());
 
     assert!(matches!(

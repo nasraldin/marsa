@@ -127,7 +127,7 @@ the complete defaults.
 ### M9-18 Recover private storage with confirmed factory reset
 
 - **Status:** in progress
-- **Depends on:** M9-17, M4-07, M8-01
+- **Depends on:** M9-17, M4-07, M8-01, M3-17
 - **Docs:** [07 Integrity](../07-file-sharing-and-storage.md#integrity), [12 Uninstall](../12-build-release-update.md#uninstall)
 - **Do:** Implement factory preparation and confirmation in `Engine.Reset`. Quiesce activation and permission writes, recreate the data disk, clear grants and reset settings. Recover any interrupted transaction on daemon restart.
 - **Deliver:** factory reset, recovery logic and private storage fault-injection tests.
@@ -143,6 +143,12 @@ the expected member inodes before renaming any live member. Keep originals
 until a durable commit record exists. Recover before reading settings or
 binding sockets and refuse any unrecognized member. Exercise every rename
 and journal boundary with disposable storage.
+
+**Verification.** Disposable APFS fixtures recovered from 92 interruptions
+during staging, replacement and cleanup, plus 36 interruptions during
+rollback itself. Owner-authenticated fake and signed packaged-daemon tests
+confirmed factory reset with a failed boot. The signed fixture did not start
+a VM.
 
 ### M9-09 Data-disk versioning and upgrade path
 
