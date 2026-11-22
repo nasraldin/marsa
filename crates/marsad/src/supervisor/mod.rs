@@ -160,6 +160,18 @@ pub trait GuestProbe: Send + Sync {
 
     /// Establish the versioned guest session.
     async fn handshake(&self, vm: &dyn Vm) -> io::Result<Box<dyn GuestSession>>;
+
+    /// Establish a cold-boot session, provisioning approved policy before releasing Docker.
+    async fn handshake_for_boot(
+        &self,
+        vm: &dyn Vm,
+        policy: Option<&marsa_proto::guest::v1::ConfigureNetwork>,
+    ) -> io::Result<Box<dyn GuestSession>> {
+        if policy.is_some() {
+            return Err(io::ErrorKind::Unsupported.into());
+        }
+        self.handshake(vm).await
+    }
 }
 
 /// Protocol session retained as long as the ready guest is running.
@@ -249,6 +261,7 @@ impl Supervisor {
             backend,
             spec,
             selection,
+            network_policy: None,
             applied: None,
         };
         Self::spawn_runtime(

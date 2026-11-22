@@ -445,6 +445,8 @@ fn has_backup_exclusion(path: &Path) -> bool {
 #[path = "packaged_runtime/on_demand.rs"]
 mod on_demand;
 
+#[path = "packaged_runtime/daemon_proxy.rs"]
+mod daemon_proxy;
 #[path = "packaged_runtime/fallback_dns.rs"]
 mod fallback_dns;
 #[path = "packaged_runtime/ssh_build.rs"]

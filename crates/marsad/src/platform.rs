@@ -53,7 +53,7 @@ pub(super) fn run() -> Result<(), DaemonError> {
         let socket = tokio::net::UnixListener::from_std(socket)?;
         let docker = tokio::net::UnixListener::from_std(docker)?;
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        let api = configure_packaged_runtime(api, paths, uid, vm_settings)?;
+        let api = configure_packaged_runtime(api, paths, uid, vm_settings).await?;
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
         serve(socket, docker, api, uid, signals).await
     });
@@ -65,7 +65,7 @@ pub(super) fn run() -> Result<(), DaemonError> {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-fn configure_packaged_runtime(
+async fn configure_packaged_runtime(
     api: TypedApi,
     paths: MarsaPaths,
     uid: u32,
@@ -87,12 +87,13 @@ fn configure_packaged_runtime(
         initial_backoff: Duration::from_secs(1),
         maximum_backoff: Duration::from_secs(4),
     };
-    Ok(api.with_packaged_runtime(
+    api.with_packaged_runtime(
         package.capabilities(),
         GuestControl::default().with_agent_connect_timeout(Duration::from_secs(50)),
         config,
         move |desired| package.prepare(&paths, uid, desired),
-    ))
+    )
+    .await
 }
 
 fn require_unprivileged() -> io::Result<Uid> {
