@@ -100,8 +100,8 @@ impl Engine for TypedApi {
         &self,
         request: Request<ResetRequest>,
     ) -> Result<Response<ResetResponse>, Status> {
-        self.authorize(request)?;
-        Err(Status::unimplemented("engine reset is not available"))
+        let request = self.authorize(request)?;
+        self.engine_reset(request).await.map(Response::new)
     }
 }
 

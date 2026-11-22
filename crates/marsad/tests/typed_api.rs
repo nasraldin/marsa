@@ -757,3 +757,5 @@ async fn next_log(
         .unwrap()
         .unwrap()
 }
+#[path = "typed_api/settings_reset.rs"]
+mod settings_reset;

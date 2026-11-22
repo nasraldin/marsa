@@ -7,6 +7,7 @@ mod engine;
 mod events;
 mod meta;
 mod requests;
+mod reset;
 mod settings;
 mod shares;
 mod stats;
@@ -61,6 +62,7 @@ struct Shared {
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
+    settings_reset: reset::SettingsReset,
     share_policy: SharePolicy,
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
@@ -88,6 +90,7 @@ impl TypedApi {
                 engine_requests: requests::Cache::new(),
                 settings_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
+                settings_reset: reset::SettingsReset::new(),
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),

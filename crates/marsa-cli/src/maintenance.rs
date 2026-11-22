@@ -6,8 +6,8 @@ use clap::ArgMatches;
 use marsa_client::{
     ClientError, MarsaClient,
     api::{
-        CollectDiagnosticsRequest, ConfirmFactoryReset, PrepareFactoryReset, ResetRequest,
-        ResetSettings, reset_request::Action, reset_response::Result as ResetResult,
+        CollectDiagnosticsRequest, ConfirmFactoryReset, PrepareFactoryReset, PrepareSettingsReset,
+        ResetRequest, ResetSettings, reset_request::Action, reset_response::Result as ResetResult,
     },
 };
 use serde_json::json;
@@ -60,24 +60,26 @@ async fn reset(factory: bool, language: Language, yes: bool) -> Result<Outcome, 
         .map_err(|_| Failure::Operation)??;
     }
     let client = engine::connect().await?;
-    if factory {
-        let response = reset_call(&client, Action::PrepareFactory(PrepareFactoryReset {})).await?;
-        let ResetResult::Challenge(challenge) = response else {
-            return Err(Failure::Operation);
-        };
-        if challenge.confirmation_token.is_empty() {
-            return Err(Failure::Operation);
-        }
-        complete(
-            &client,
-            Action::ConfirmFactory(ConfirmFactoryReset {
-                confirmation_token: challenge.confirmation_token,
-            }),
-        )
-        .await?;
+    let prepare = if factory {
+        Action::PrepareFactory(PrepareFactoryReset {})
     } else {
-        complete(&client, Action::Settings(ResetSettings {})).await?;
+        Action::PrepareSettings(PrepareSettingsReset {})
+    };
+    let response = reset_call(&client, prepare).await?;
+    let confirmation_token = match (factory, response) {
+        (true, ResetResult::Challenge(challenge)) => challenge.confirmation_token,
+        (false, ResetResult::SettingsChallenge(challenge)) => challenge.confirmation_token,
+        _ => return Err(Failure::Operation),
+    };
+    if confirmation_token.is_empty() {
+        return Err(Failure::Operation);
     }
+    let action = if factory {
+        Action::ConfirmFactory(ConfirmFactoryReset { confirmation_token })
+    } else {
+        Action::Settings(ResetSettings { confirmation_token })
+    };
+    complete(&client, action).await?;
     let (scope, message) = if factory {
         (
             "factory",
@@ -98,7 +100,7 @@ async fn reset(factory: bool, language: Language, yes: bool) -> Result<Outcome, 
 async fn complete(client: &MarsaClient, action: Action) -> Result<(), Failure> {
     match reset_call(client, action).await? {
         ResetResult::Completed(_) => Ok(()),
-        ResetResult::Challenge(_) => Err(Failure::Operation),
+        ResetResult::Challenge(_) | ResetResult::SettingsChallenge(_) => Err(Failure::Operation),
     }
 }
 
