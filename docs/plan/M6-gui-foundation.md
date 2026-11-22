@@ -11,7 +11,7 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 ### M6-01 GUI application skeleton
 
 - **Status:** blocked (validated GPUI suite fails production dependency policy)
-- **Depends on:** M1-05, M0-01
+- **Depends on:** M1-05, M0-01, M6-14
 - **Docs:** [08 Architecture](../08-gui.md#architecture), [08 Framework version policy](../08-gui.md#framework-version-policy)
 - **Do:** Create `marsa-gui` and `marsa-ui`. Pin GPUI and gpui-component to the revisions validated in M1-01 and document the upgrade procedure. Open a window, handle app lifecycle, and exit the process when the window closes.
 - **Deliver:** both crates, `docs/reference/gpui-upgrade.md`.
@@ -178,3 +178,14 @@ The tray stays in the daemon and runs with the GUI closed.
   - A missing key, mismatched argument or invalid catalog fails build validation.
   - All six Arabic plural categories are exercised in a Fluent fixture.
   - The migrated CLI message preserves its English output and JSON behavior. Desktop messages retain both locales.
+
+### M6-14 Qualify replacements for blocked GPUI dependencies
+
+- **Status:** in progress
+- **Depends on:** M1-05, M0-07
+- **Docs:** [08 Framework version policy](../08-gui.md#framework-version-policy)
+- **Do:** Replace advisory and license blockers in an isolated GPUI graph. Test Apple rendering against the patched graph and run the original strict workspace and Apple target checks. Keep the production workspace unchanged until the graph is compliant.
+- **Deliver:** Exact upstream versions, replacement evidence, residual dependency chains, and the next integration requirements.
+- **Accept when:**
+  - The replacement graph builds using native Apple text and Metal and the evidence states which interactive tests remain.
+  - The same unmodified policy reports the exact blockers for the complete workspace and Apple target before and after the experiment.
