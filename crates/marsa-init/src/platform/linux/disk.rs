@@ -5,6 +5,7 @@ use std::io;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::Path;
 
+use marsa_core::disk_schema::TooNew;
 use nix::mount::{self, MsFlags};
 use nix::unistd::syncfs;
 
@@ -26,7 +27,7 @@ pub(super) fn prepare() -> io::Result<()> {
     for target in MOUNT_TARGETS {
         checked_directory(Path::new(target))?;
     }
-    let grow = device::prepare()?;
+    let grow = device::prepare(verify_disk_read_only)?;
 
     mount_data()?;
     let mut mounted = vec![DATA_DIR];
@@ -37,6 +38,27 @@ pub(super) fn prepare() -> io::Result<()> {
         eprintln!("marsa-init: data disk rollback: {error}");
     }
     result
+}
+
+fn verify_disk_read_only() -> io::Result<()> {
+    // ext4 can replay the journal even with MS_RDONLY. noload prevents this.
+    mount::mount(
+        Some(device::DEVICE_PATH),
+        DATA_DIR,
+        Some("ext4"),
+        MsFlags::MS_RDONLY | MsFlags::MS_NODEV | MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
+        Some("noload"),
+    )?;
+    let result = schema::verify_existing(Path::new(DATA_DIR));
+    if let Err(error) = &result
+        && let Some(version) = error
+            .get_ref()
+            .and_then(|detail| detail.downcast_ref::<TooNew>())
+    {
+        eprintln!("{}", version.console_line());
+    }
+    let unmount = mount::umount(DATA_DIR).map_err(io::Error::from);
+    result.and(unmount)
 }
 
 fn mount_data() -> io::Result<()> {

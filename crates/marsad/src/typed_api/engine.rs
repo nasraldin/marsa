@@ -144,6 +144,7 @@ pub(super) fn stage_name(stage: BootStage) -> &'static str {
         BootStage::Create => "create",
         BootStage::Start => "start",
         BootStage::Handshake => "handshake",
+        BootStage::DataDisk => "data_disk",
         BootStage::Network => "network",
         BootStage::Engine => "engine",
         BootStage::Running => "running",
