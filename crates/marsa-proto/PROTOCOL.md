@@ -37,6 +37,20 @@ process-local history, evicting completed requests before admitting new ones.
 Retry an interrupted request with the same UUID and payload. Reusing a cached
 UUID with a different operation or payload fails with `ALREADY_EXISTS`.
 
+Host API minor 3 adds settings reset. Send `PrepareSettingsReset`, obtain user
+confirmation, then send `ResetSettings` with that token and a separate request
+UUID. The token is scoped to the current configuration state.
+The same minor adds the explicit `DockerDiscovery.EnableRegistryKeychain`
+mutation. The RPC accepts no credentials and returns only whether it added
+the setting.
+
+Host API minor 4 adds factory reset. Use the separate `PrepareFactoryReset`
+and `ConfirmFactoryReset` messages. The confirmation binds to private storage
+identities and expires after 60 seconds. A committed factory reset stops the
+guest, restores settings defaults, clears grants and installs a fresh sparse
+data disk. An interrupted transaction is resolved before the daemon serves
+either socket.
+
 `Events.Subscribe` emits a snapshot before live updates on each connection.
 The daemon takes that snapshot at an event cursor and then emits events after
 that cursor in order. Sequence numbers are scoped to the stream ID of the
@@ -164,7 +178,6 @@ record before retaining the facts, and abandons a connection that does
 not respond within its deadline. The guest reads the configured upstream
 interface and its default route from the kernel. The record describes
 guest state and is independent of the guest control session.
-
 
 ## Bind authorization
 

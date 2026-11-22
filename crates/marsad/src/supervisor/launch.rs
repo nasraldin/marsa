@@ -2,6 +2,7 @@
 
 use std::{io, path::PathBuf, sync::Arc};
 
+use marsa_proto::guest::v1::ConfigureNetwork;
 use marsa_vm::{Hypervisor, VmSpec};
 
 use super::network::Selection;
@@ -14,6 +15,7 @@ pub(crate) struct Launch {
     pub(crate) backend: Arc<dyn Hypervisor>,
     pub(crate) spec: VmSpec,
     pub(crate) selection: Selection,
+    pub(crate) network_policy: Option<ConfigureNetwork>,
     pub(crate) applied: Option<Applied>,
 }
 

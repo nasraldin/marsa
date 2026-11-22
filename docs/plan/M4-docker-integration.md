@@ -68,7 +68,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-06 Attach shares and enforce bind-mount policy
 
 - **Status:** done
-- **Depends on:** M4-05, M4-01, M4-03, M3-16
+- **Depends on:** M4-05, M4-01, M4-03, M3-16, M9-18
 - **Docs:** [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
 - **Do:** Map allowlist entries to virtiofs shares at identical paths. Use the pinned Docker Engine authorization plugin for container-create checks and preserve the byte-transparent host proxy. Authorize each explicit bind source through the bounded VM policy channel. Expose owner approval actions for once, always and deny, with explicit restart on Apple VZ. Preserve the observed ownership behavior. M5-09 and M7-10 present the approvals. M4-19 qualifies the hot-reload workflow.
 - **Deliver:** share attachment, Docker authorization, typed approval events and decisions, and signed file-sharing tests.
@@ -151,9 +151,9 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-11 Proxy settings and CA certificate import
 
 - **Status:** todo
-- **Depends on:** M4-08
+- **Depends on:** M4-08, M4-21
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates)
-- **Do:** Read system proxy settings and manual overrides and push them to the guest. Export the certificates the user trusts from the macOS keychain and push them before the engine starts and on change. Add settings for registry mirrors and insecure registries.
+- **Do:** Read system proxy settings and manual overrides and use the approved activation from M4-21. Export the certificates the user trusts from the macOS keychain and push them before the engine starts and on change. Add settings for registry mirrors and insecure registries.
 - **Deliver:** proxy and certificate handling on the host side.
 - **Accept when:**
   - Behind a test proxy with TLS interception, `docker pull` succeeds after the proxy's CA is trusted in the keychain.
@@ -161,7 +161,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-12 Registry credentials
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-03, M4-16
 - **Docs:** [11 Registry credentials](../11-security.md#registry-credentials)
 - **Do:** Offer to set the keychain credential helper as the Docker CLI credential store, never overwriting an existing store. Confirm that no credential is written to disk in plain text or stored in the guest.
@@ -169,6 +169,8 @@ Q-08 governs where the optional administrator action is offered. Context registr
 - **Accept when:**
   - `docker login` stores the credential in the keychain.
   - An existing `credsStore` or `credHelpers` entry is left untouched.
+
+**Verification.** A signed daemon fixture in a private Docker configuration applied the opt-in, preserved the selected context and refused to change a configured store. The pinned macOS Docker CLI and Keychain helper stored and retrieved one generated credential using a local Engine API fixture. The client configuration had no credential field, and the disposable Keychain item was removed and verified absent.
 
 ### M4-13 SSH agent forwarding for builds
 
@@ -197,9 +199,9 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-15 Apply staged Docker engine configuration
 
 - **Status:** todo
-- **Depends on:** M2-07, M3-06, M4-08
+- **Depends on:** M2-07, M3-06, M4-08, M4-11, M4-21
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
-- **Do:** Connect staged proxy, trust and gateway changes to a controlled engine restart. Validate the requested config, coordinate admission of new engine requests and preserve active workloads where Docker supports it. Require explicit user approval when the action can stop running workloads.
+- **Do:** Extend controlled engine restart from M4-21 to the full proxy, trust and gateway policy, including M4-08 native networking and automatic Docker aliases. Validate the requested config, coordinate admission of new engine requests and preserve active workloads where Docker supports it. Require explicit user approval when the action can stop running workloads.
 - **Deliver:** daemon and guest restart coordination with end-to-end tests.
 - **Accept when:**
   - Valid staged proxy settings take effect for registry and BuildKit requests after the coordinated restart.
@@ -252,3 +254,38 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   fallback_dns::scoped_dns_updates_reach_existing_containers_without_restart \
   -- --exact --ignored --nocapture --test-threads=1
 ```
+
+### M4-20 Provision approved manual daemon proxy at guest startup
+
+- **Status:** done
+- **Depends on:** M2-07, M3-06, M3-12, M4-18
+- **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
+- **Do:** Prepare a credential-free HTTP/HTTPS daemon proxy policy from private last-known-good state on the explicitly selected user-space attachment. Hand it to the negotiated control session before releasing Docker on a cold boot. A Settings.Update only edits the draft. The runtime preserves absent/default policy behavior and fails closed for an incompatible guest or attachment.
+- **Deliver:** Packaged daemon boot provisioning and regression tests. M4-21 owns the approved activation action and writes its successful policy to the private state.
+- **Accept when:**
+  - Default startup and reconnect still work. A draft edit is durable and leaves both the live and next ordinary boot policy unchanged.
+  - A packaged guest receives the validated policy before StartEngine. Rejected policy or unsupported startup deferral prevents the engine from being released.
+  - A signed packaged-runtime fixture reads back the approved daemon proxy, including on a subsequent cold boot. This check uses no external service and makes no registry or BuildKit routing claim. M4-21 owns signed destination evidence.
+
+- **Evidence:** On macOS 27.2.1, the signed packaged fixture passed in 51.20 seconds with Docker Engine 29.10.0. The running engine returned both approved settings from [its info endpoint](https://github.com/moby/moby/blob/docker-v29.10.0/api/types/system/info.go). A draft saved through the settings RPC left the running engine and its next cold boot on the same approved settings and data disk. The draft remained pending, and neither endpoint appeared in daemon or guest console logs. Protocol tests also cover rejected configuration and a guest without startup deferral.
+
+With built guest and network-helper paths set for the [packaged runtime tests](../../crates/marsad/tests/packaged_runtime.rs), run:
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+  daemon_proxy::approved_proxy_survives_cold_boots_and_draft_edits \
+  -- --exact --ignored --nocapture --test-threads=1
+```
+
+### M4-21 Activate staged manual daemon proxy with approval and rollback
+
+- **Status:** todo
+- **Depends on:** M4-20
+- **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
+- **Do:** Expose an authenticated preview and explicit revision-bound activation for manual daemon proxy on the pinned user-space attachment. Coordinate engine admission and any approved workload interruption. Retain the previous working policy until the candidate succeeds, and restore it after a failed candidate. Persist successful activation separately from the desired draft.
+- **Deliver:** Controlled activation, durable last-known-good state, and signed end-to-end tests using a controlled reachable proxy destination.
+- **Accept when:**
+  - A valid approved proxy carries actual registry and default Docker-driver BuildKit requests. The signed test confirms routing through the approved proxy.
+  - Draft edits persist without interrupting workloads, and ordinary boot/retry never activates an unapproved draft.
+  - The user sees the potential impact before granting approval. Stale approvals and racing starts or connects cannot apply or use a candidate out of order.
+  - A failed candidate leaves the draft pending, reports failure, and restores the last working configuration on the same data disk. Cancellation and daemon recovery preserve the last working policy.

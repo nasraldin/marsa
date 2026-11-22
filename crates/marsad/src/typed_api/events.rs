@@ -179,6 +179,15 @@ impl Bus {
         }
     }
 
+    pub(super) fn reset_bind_approvals(&self) {
+        let mut state = self.lock();
+        state.once_staged.clear();
+        state.once_active.clear();
+        state.mounted_binds = None;
+        state.bind_prompts = bind_prompts::Pending::default();
+        state.publish(Body::BindApprovals(Default::default()));
+    }
+
     pub(super) fn activate_binds(&self, mounted: Arc<marsa_share::Allowlist>, paths: &[PathBuf]) {
         let mut state = self.lock();
         state.mounted_binds = Some(mounted);
@@ -430,6 +439,7 @@ impl Events for TypedApi {
         request: Request<SubscribeRequest>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         Ok(Response::new(
             self.inner.events.subscribe(self.inner.closing.subscribe()),
         ))

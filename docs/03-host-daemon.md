@@ -169,6 +169,12 @@ Rules:
 - **Idle behaviour is a setting.** An active or waiting Docker connection keeps the engine available. Once the last connection closes, the supervisor checks the guest for running, paused, and restarting containers. The idle countdown starts after a successful empty snapshot, with a fresh successful check required at expiry. A failed or oversized snapshot keeps the VM running.
 - **Failures are visible.** Every transition is published, and `Failed` carries the failed stage and a bounded console tail. Retries use a bounded backoff and share a budget across one explicit activation. If VM cleanup fails, the supervisor retains it for another stop attempt before starting a replacement.
 
+### Exclusive maintenance
+
+The supervisor actor can reserve the lifecycle for a single daemon worker. The worker may supply the lifecycle revision from a preview. The actor checks the revision before granting the permit and changes it on grants, releases, and lifecycle transitions. Ordinary start, stop, restart, pause, resume, and new Docker connections report busy while the permit is held. Existing streams stay attached to their original VM until the worker stops it.
+
+The worker must wait for its permit's stop to complete before editing offline VM storage. The permit can also start a candidate from the stopped state without an automatic supervisor retry. Keep the permit through the entire maintenance operation. If the worker drops it before candidate readiness, the actor cancels and cleans up that start before reopening admission. Idle checks resume after release.
+
 ### Guest control
 
 `marsad::guest_control::GuestControl` implements the supervisor's guest probe. It applies the [shared protocol limits](../crates/marsa-proto/PROTOCOL.md#guest-message-limits) before allocating for a frame and before accepting a decoded message. One command is in flight at a time. Up to eight commands can wait, and the request deadline includes that queue time. A stalled or out-of-sequence reply closes the session to prevent late replies from matching future requests.
@@ -181,7 +187,7 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 
 | Service | Methods (summary) |
 |---|---|
-| `Engine` | `Status`, `Start`, `Stop`, `Restart`, `Reset` (factory reset with confirmation token) |
+| `Engine` | `Status`, `Start`, `Stop`, `Restart`, `Reset` (settings and factory modes with distinct confirmation types) |
 | `Settings` | `Get`, `Update`, `Watch` |
 | `Shares` | `List`, `Add`, `Remove` |
 | `DockerDiscovery` | `GetEndpoint` and explicit `EnsureContext` |
@@ -204,6 +210,23 @@ API rules:
 - `Events.Subscribe` takes a snapshot and its cursor together, then sends subsequent events in sequence order. A slow client whose buffer has filled reconnects for a new snapshot.
 - Engine lifecycle and settings update RPCs deduplicate retries by UUID for a bounded period within the daemon process. Stop can cancel a pending start. A restart with the same UUID joins or replays its earlier result.
 - The daemon accepts engine lifecycle commands when a VM runtime is attached. Stats and guest health reflect observations from the current guest session.
+
+For a settings reset, send `PrepareSettingsReset` with a fresh request UUID.
+After the user confirms, send `ResetSettings` with the returned token and a
+separate request UUID. The owner-only API allows one outstanding settings
+challenge, which expires after 60 seconds and is invalidated by a settings
+revision or configuration member change. Retrying the original confirmation
+UUID and payload replays its result without applying the reset again. The
+daemon persists the defaults atomically, then publishes the new settings
+revision. Settings reset leaves the VM disk and grants intact.
+
+Factory reset has separate preparation and confirmation messages. On
+confirmation the daemon reserves the supervisor, stops any guest and blocks
+new storage mutations and reads during replacement. It records the prior
+settings, raw disk and grants in a private journal before installing defaults.
+If interrupted before commit, it restores the original generation before
+serving either socket. After commit it completes backup cleanup. The next
+guest boot formats the fresh sparse disk.
 
 Clients use `marsa_client::DaemonEndpoint::discover()` to locate the current
 user's socket. The client checks the private socket and its kernel-reported

@@ -7,9 +7,12 @@ mod disk;
 mod docker_discovery;
 mod engine;
 mod events;
+mod factory_reset;
 mod meta;
 mod network;
+mod proxy_policy;
 mod requests;
+mod reset;
 mod settings;
 mod shares;
 mod stats;
@@ -38,6 +41,7 @@ use tonic::{
 };
 
 use crate::{
+    agent_policy::GrantStore,
     guest_control::{GuestControl, GuestEvent},
     supervisor::{
         DockerStream, GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection,
@@ -54,6 +58,7 @@ pub struct TypedApi {
     supervisor: Option<Supervisor>,
     capabilities: Option<Capabilities>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
+    verify_keychain: Option<docker_discovery::VerifyKeychain>,
 }
 
 struct Shared {
@@ -63,6 +68,9 @@ struct Shared {
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
+    settings_reset: reset::SettingsReset,
+    factory_reset: factory_reset::FactoryReset,
+    grants: GrantStore,
     share_policy: SharePolicy,
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
@@ -70,6 +78,7 @@ struct Shared {
     bind_resolutions: requests::Cache<(String, i32), marsa_proto::host::v1::ResolveBindResponse>,
     bind_edit: tokio::sync::Mutex<()>,
     docker_context_requests: requests::Cache<(), EnsureDockerContextResponse>,
+    docker_keychain_requests: requests::Cache<(), bool>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
 }
@@ -86,24 +95,29 @@ impl TypedApi {
         let (closing, _) = watch::channel(false);
         Ok(Self {
             inner: Arc::new(Shared {
+                grants: GrantStore::new(paths.clone(), uid),
                 paths,
                 uid,
                 events: events::Bus::new(settings)?,
                 engine_requests: requests::Cache::new(),
                 settings_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
+                settings_reset: reset::SettingsReset::new(),
+                factory_reset: factory_reset::FactoryReset::new(),
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
                 bind_resolutions: requests::Cache::new(),
                 bind_edit: tokio::sync::Mutex::new(()),
                 docker_context_requests: requests::Cache::new(),
+                docker_keychain_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
                 closing,
             }),
             supervisor: None,
             capabilities: None,
             docker_contexts: None,
+            verify_keychain: None,
         })
     }
 
@@ -140,7 +154,7 @@ impl TypedApi {
     ///
     /// The factory runs on a blocking worker at every cold activation. It sees
     /// one settings snapshot for the whole attempt, including network fallback.
-    pub fn with_packaged_runtime(
+    pub async fn with_packaged_runtime(
         mut self,
         capabilities: Capabilities,
         control: GuestControl,
@@ -149,15 +163,23 @@ impl TypedApi {
         + Send
         + Sync
         + 'static,
-    ) -> Self {
+    ) -> io::Result<Self> {
+        let paths = self.inner.paths.clone();
+        let uid = self.inner.uid;
+        let proxy = tokio::task::spawn_blocking(move || proxy_policy::BootProxy::read(&paths, uid))
+            .await
+            .map_err(io::Error::other)??;
         let events = self.inner.events.clone();
         events.backend(capabilities.name);
         self.capabilities = Some(capabilities);
+        let (desired, _) = events.settings();
+        events.runtime_applied(&proxy.effective(desired));
         let settings = events.clone();
         let share_policy = self.inner.share_policy.clone();
         let preparation = Arc::new(move || {
             let (desired, once) = settings.boot_configuration();
-            let mut startup = desired.clone();
+            let effective = proxy.effective(desired);
+            let mut startup = effective.clone();
             startup.shares.extend(once.iter().cloned());
             let (backend, mut spec) = prepare(&startup, &share_policy)?;
             let mounted = Arc::new(
@@ -167,14 +189,15 @@ impl TypedApi {
                 )
                 .map_err(io::Error::other)?,
             );
-            let automatic = select_network(&desired, &mut spec, backend.capabilities());
+            let automatic = select_network(&effective, &mut spec, backend.capabilities());
             let bus = settings.clone();
             Ok(Launch {
                 backend,
                 spec,
                 selection: Selection::new(automatic),
+                network_policy: proxy.guest_configuration(),
                 applied: Some(Arc::new(move || {
-                    bus.runtime_applied(&desired);
+                    bus.runtime_applied(&effective);
                     bus.activate_binds(mounted.clone(), &once);
                 })),
             })
@@ -200,7 +223,7 @@ impl TypedApi {
             Arc::new(move |transition| events.engine(transition)),
         );
         self.supervisor = Some(supervisor);
-        self
+        Ok(self)
     }
 
     /// Serve the Unix RPCs until the caller requests shutdown.
@@ -244,6 +267,7 @@ impl TypedApi {
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 stop.await;
                 self.inner.closing.send_replace(true);
+                let _factory = self.inner.factory_reset.close().await;
                 if let Some(supervisor) = &self.supervisor
                     && let Err(error) = supervisor.stop().await
                 {
@@ -255,6 +279,10 @@ impl TypedApi {
 
     /// Activate the guest on demand and open a Docker engine stream.
     pub async fn connect_docker(&self) -> io::Result<DockerStream> {
+        self.inner
+            .factory_reset
+            .read()
+            .map_err(|_| io::ErrorKind::WouldBlock)?;
         let supervisor = self
             .supervisor
             .as_ref()
@@ -290,3 +318,7 @@ fn select_network(settings: &Settings, spec: &mut VmSpec, capabilities: Capabili
         && settings.network.proxy.http.is_none()
         && settings.network.proxy.https.is_none()
 }
+
+#[cfg(test)]
+#[path = "tests/proxy_policy.rs"]
+mod proxy_policy_tests;

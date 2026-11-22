@@ -85,7 +85,7 @@ See [07](07-file-sharing-and-storage.md#the-allowlist). Security-relevant points
 
 ## Registry credentials
 
-- `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS keychain. Marsa sets `credsStore` in the Docker CLI configuration only with the user's consent and never overwrites an existing store.
+- `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS Keychain when that helper is on the Docker CLI's `PATH`. The authenticated opt-in adds `credsStore = osxkeychain` to the configured Docker client file only after the caller obtains consent. Existing `credsStore` and `credHelpers` entries remain untouched. If Docker already holds credentials in the file, log out before enabling Keychain and log in again afterwards. [Docker login](https://docs.docker.com/reference/cli/docker/login/), [pinned helper source](https://github.com/docker/docker-credential-helpers/blob/v0.9.13/osxkeychain/osxkeychain.go).
 - The engine in the guest receives credentials per pull or push from the CLI, as in standard Docker. Nothing is persisted in the guest.
 
 ## SSH agent access
