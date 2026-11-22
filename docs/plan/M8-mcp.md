@@ -47,15 +47,17 @@ M8-10 owns bind preparation and active host share policy checks. Operate tools r
 
 ### M8-04 MCP server and read tools
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M8-02, M5-01
 - **Docs:** [10 Tools](../10-mcp-server.md#tools), [10 Architecture](../10-mcp-server.md#architecture)
-- **Do:** Implement `marsa-mcp` on stdio using `marsa-client` only. Identify the client at connection. Implement all read-tier tools with JSON Schema arguments, bounded outputs with paging, and structured errors.
+- **Do:** Implement `marsa-mcp` on stdio using `marsa-client` only. Identify the client at connection. Implement engine status and the direct Docker container, image, network and volume read tools with JSON Schema arguments, bounded outputs with paging, and structured errors. M8-11 owns Compose and disk-specific queries.
 - **Deliver:** `crates/marsa-mcp` with protocol-level tests.
 - **Accept when:**
-  - A standard MCP client can list tools and call every read tool.
+  - A standard MCP client can list and call every advertised read tool against an authenticated local agent session.
   - Log and stats outputs are capped and say when they are truncated.
   - The crate has no dependency on the Docker socket or VM crates.
+
+The official `rmcp` 3.11.0 server and stdio build failed the workspace dependency policy because its required `chrono` dependency is unmaintained. The bounded stdio transport uses the existing Tokio and Serde dependencies. [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html)
 
 ### M8-05 Operate tools
 
@@ -126,3 +128,15 @@ M8-10 owns bind preparation and active host share policy checks. Operate tools r
   - A signed packaged test observes a permitted host bind, and a fake engine test proves it received no request for a rejected bind.
 
 - **Blocker:** The pinned engine can prepare a create request using a local immutable image digest and an explicit platform. Containerd image indexes also require verifying the resolved platform manifest. Docker starts the resulting container in a separate operation. Its start lookup can fall back to a name or prefix after attempting the full ID, so the create response does not guarantee the start target. Host-side authorization also needs to bind the approved mount to the same live VM activation through execution. A signed running-bind acceptance requires both guarantees. Delegated writes remain refused while they are missing. [Pinned image resolver](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/containerd/image.go#L132-L170) · [Pinned start handler](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/start.go#L48-L75) · [Pinned container lookup](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/container.go#L37-L66)
+
+### M8-11 Compose and disk read tools
+
+- **Status:** todo
+- **Depends on:** M8-04, M7-08, M5-05
+- **Docs:** [10 Tools](../10-mcp-server.md#tools), [07 Disk cleanup](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
+- **Do:** Add bounded Compose project, service and aggregate log queries and the disk usage and cleanup preview tools after their daemon providers are available. Use the existing read policy and keep output separate from tool metadata.
+- **Deliver:** five read tool handlers and protocol tests.
+- **Accept when:**
+  - A standard MCP client can list and call `compose_list`, `compose_ps`, `compose_logs`, `disk_usage` and `cleanup_preview`.
+  - Results agree with the corresponding daemon providers, and logs report truncation with a bounded way to page.
+  - None of the operations modifies a workload, disk or host settings.
