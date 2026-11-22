@@ -20,7 +20,7 @@ Design: [13 Benchmarks](../13-testing-and-benchmarks.md#benchmarks), [04 Choosin
 
 ### M11-02 libkrun spike
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M3-01, M2-10
 - **Docs:** [04 The krun backend](../04-virtualization-macos.md#the-krun-backend), V-09
 - **Do:** Verify the current libkrun release, licence, macOS requirements, API and kernel requirements (whether it needs its own bundled kernel). Boot the Marsa guest image with it, or document exactly what must change in the guest for it to boot. Check virtiofs, vsock, block and network device support against `VmSpec`.
