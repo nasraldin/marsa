@@ -62,7 +62,8 @@ Marsa.app/
     ├── MacOS/
     │   ├── marsa-gui                  # main executable
     │   ├── marsad
-    │   └── marsa
+    │   ├── marsa
+    │   └── marsa-mcp                 # launched by marsa mcp
     ├── Helpers/
     │   └── marsa-net-helper           # signed native ARM64 helper
     ├── Resources/
