@@ -172,7 +172,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 
 ### M10-15 Require secure timestamps in release signature verification
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M10-14
 - **Docs:** [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization)
 - **Do:** Extend the offline release signature verifier to require Apple's certified signing timestamp for every native executable. The check is independent of signing and notarizing Marsa.
@@ -180,3 +180,4 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 - **Accept when:**
   - The verifier reads the typed timestamp through Security.framework after strict Developer ID verification and preserves the current entitlement and bundle checks.
   - A hardened ad-hoc Mach-O without a secure timestamp fails the timestamp policy. A Developer ID-signed reference executable with a secure timestamp passes the isolated timestamp check.
+- **Evidence:** The native hardened ad-hoc fixture failed the new timestamp gate while preserving its existing structural checks. The same helper accepted a strictly verified Developer ID-signed reference executable on macOS 27.2.1. Workspace formatting, Clippy, and dependency policy passed.
