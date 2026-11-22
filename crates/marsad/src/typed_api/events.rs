@@ -1,6 +1,7 @@
 //! Capture state and subscribe at one cursor under the same lock as publishers.
 
 use std::{
+    collections::VecDeque,
     io,
     pin::Pin,
     sync::{Arc, Mutex, MutexGuard},
@@ -21,7 +22,7 @@ use tonic::{Request, Response, Status};
 
 use crate::supervisor::{AlternateFailure, BootNetwork, NetworkResult, State, Transition};
 
-use super::{TypedApi, engine};
+use super::{TypedApi, diagnostics, engine};
 
 const CAPACITY: usize = 128;
 pub(super) type Output<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send>>;
@@ -38,6 +39,7 @@ struct StateAtCursor {
     settings: Settings,
     settings_snapshot: SettingsSnapshot,
     stats: Option<VmStatsSample>,
+    engine_history: VecDeque<diagnostics::EngineSample>,
     events: broadcast::Sender<DaemonEvent>,
     settings_events: broadcast::Sender<SettingsSnapshot>,
     stats_events: broadcast::Sender<VmStatsSample>,
@@ -68,6 +70,7 @@ impl Bus {
                 restart_required: false,
             },
             stats: None,
+            engine_history: VecDeque::new(),
             events: broadcast::channel(CAPACITY).0,
             settings_events: broadcast::channel(8).0,
             stats_events: broadcast::channel(CAPACITY).0,
@@ -181,6 +184,17 @@ impl Bus {
         }
     }
 
+    pub(super) fn diagnostic_snapshot(&self) -> diagnostics::Snapshot {
+        let state = self.lock();
+        diagnostics::Snapshot::new(
+            &state.settings,
+            &state.engine,
+            &state.engine_history,
+            state.network.as_ref(),
+            state.settings_snapshot.restart_required,
+        )
+    }
+
     pub(super) fn watch_settings(&self, stop: watch::Receiver<bool>) -> Output<SettingsSnapshot> {
         let state = self.lock();
         stream_from(
@@ -222,7 +236,19 @@ impl StateAtCursor {
 
     fn publish(&mut self, body: Body) {
         self.sequence += 1;
-        let _ = self.events.send(self.envelope(body));
+        let event = self.envelope(body);
+        if let Some(Body::Engine(status)) = &event.body {
+            if self.engine_history.len() == CAPACITY {
+                self.engine_history.pop_front();
+            }
+            self.engine_history
+                .push_back(diagnostics::EngineSample::new(
+                    status,
+                    event.sequence,
+                    event.observed_at_unix_millis,
+                ));
+        }
+        let _ = self.events.send(event);
     }
 
     fn envelope(&self, body: Body) -> DaemonEvent {

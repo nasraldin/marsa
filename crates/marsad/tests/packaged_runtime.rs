@@ -6,7 +6,7 @@
 
 use std::{
     env, fs,
-    io::Write,
+    io::{Read, Write},
     os::unix::fs::{FileExt, MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     process::{Child, Command},
@@ -16,11 +16,12 @@ use std::{
 use hyper_util::rt::TokioIo;
 use marsa_core::{paths::MarsaPaths, settings::Settings};
 use marsa_proto::host::v1::{
-    CapabilitiesRequest, DaemonEvent, DiskUsageRequest, EngineActionRequest, EngineHealthState,
-    EngineState, EngineStatusRequest, GetSettingsRequest, NetworkMode, NetworkStatus,
-    SubscribeRequest, UpdateSettingsRequest, VmStatsRequest, daemon_event::Body,
-    disk_client::DiskClient, engine_client::EngineClient, events_client::EventsClient,
-    meta_client::MetaClient, settings_client::SettingsClient, stats_client::StatsClient,
+    CapabilitiesRequest, CollectDiagnosticsRequest, DaemonEvent, DiskUsageRequest,
+    EngineActionRequest, EngineHealthState, EngineState, EngineStatusRequest, GetSettingsRequest,
+    NetworkMode, NetworkStatus, SubscribeRequest, UpdateSettingsRequest, VmStatsRequest,
+    daemon_event::Body, diagnostics_client::DiagnosticsClient, disk_client::DiskClient,
+    engine_client::EngineClient, events_client::EventsClient, meta_client::MetaClient,
+    settings_client::SettingsClient, stats_client::StatsClient,
 };
 use nix::{
     errno::Errno,
@@ -128,6 +129,25 @@ async fn packaged_daemon_boots_and_preserves_its_private_data_disk() {
         console()
     );
     assert_eq!(ready.guest_health(), EngineHealthState::Ready);
+    let bundle = DiagnosticsClient::new(channel.clone())
+        .collect(CollectDiagnosticsRequest {
+            request_id: "80000000-0000-4000-8000-000000000001".into(),
+            include_agent_audit: false,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let file = fs::File::open(bundle.bundle_path).unwrap();
+    let mut archive = tar::Archive::new(file);
+    let mut engine_log = String::new();
+    for entry in archive.entries().unwrap() {
+        let mut entry = entry.unwrap();
+        if entry.path().unwrap() == Path::new("engine-log.json") {
+            entry.read_to_string(&mut engine_log).unwrap();
+        }
+    }
+    assert!(engine_log.contains("docker_initialized"), "{engine_log}");
+
     let mut automatic_network = active_network(&mut events).await;
     assert_eq!(automatic_network.configured_mode(), NetworkMode::Auto);
     assert!(matches!(

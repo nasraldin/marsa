@@ -8,7 +8,7 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 
 ### M5-01 Typed API client library
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-08
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api)
 - **Do:** Implement `marsa-client`: connect to `marsad.sock`, start `marsad` if it is not running, typed wrappers for every service, an event subscription helper that delivers snapshot-then-stream, reconnection, and version checking against the daemon.
@@ -20,7 +20,7 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 
 ### M5-02 CLI skeleton
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M5-01
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
 - **Do:** Create the `marsa` binary with the full command tree, global `--json`, documented stable exit codes, `--help` for every command, shell completion generation, and the rule that destructive commands refuse to run non-interactively without `--yes`.
@@ -68,13 +68,13 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 ### M5-06 Diagnostics and reset commands
 
 - **Status:** todo
-- **Depends on:** M5-02
+- **Depends on:** M5-02, M9-13
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
-- **Do:** Implement `diagnose` and `reset` (settings only, and `--factory` with typed confirmation) as clients of the daemon calls delivered in M9-07 and M9-08; until those exist the commands report "not available yet" with a non-zero exit code.
+- **Do:** Implement `diagnose` and `reset` (settings only, and `--factory` with typed confirmation) as clients of the daemon calls delivered in M9-13 and M9-08. Until the reset service is available, report that status with a non-zero exit code.
 - **Deliver:** command implementations.
 - **Accept when:**
   - `reset --factory` cannot proceed without the typed confirmation or `--yes`.
-  - Both commands work end to end once M9-07 and M9-08 are done (re-verified there).
+  - `marsa diagnose` reports the path returned by M9-13. Verify diagnostic actions end to end in M9-07 and reset end to end in M9-08.
 
 ### M5-07 CLI localisation
 
