@@ -302,3 +302,150 @@ pub(super) async fn docker(socket: &Path, args: &[&str]) -> String {
     );
     String::from_utf8(output.stdout).unwrap()
 }
+
+// Run this separately on the Tier 2 host. The data image, container, and
+// archive all belong to the fixture and are removed with its temporary home.
+#[tokio::test]
+#[ignore = "requires Apple silicon virtualization, built guest artifacts, and the Docker CLI"]
+async fn packaged_daemon_reclaims_disposable_data_from_the_sparse_image() {
+    use marsa_proto::host::v1::DiskReclaimRequest;
+
+    let scratch = tempfile::tempdir_in("/tmp").unwrap();
+    let home = scratch.path().join("home");
+    fs::create_dir(&home).unwrap();
+    let paths = MarsaPaths::from_home(&home).unwrap();
+    let (daemon, _) = stage_bundle(scratch.path());
+    let logs = scratch.path().join("reclaim.log");
+    let mut process = spawn(&daemon, &home, &logs);
+    let channel = connect(&mut process.0, &paths.daemon_socket(), &logs).await;
+    let mut disk = DiskClient::new(channel.clone());
+    let stopped = DiskReclaimRequest {
+        request_id: action(1).request_id,
+    };
+    assert_eq!(
+        disk.reclaim(stopped).await.unwrap_err().code(),
+        Code::FailedPrecondition
+    );
+    assert!(!paths.data_disk().exists(), "reclaim booted a stopped VM");
+
+    let mut config = Settings::default();
+    config.disk.data_size_limit = 8 * GIB;
+    config.vm.memory = Some(1024 * MIB);
+    config.vm.idle_stop = false;
+    config.network.mode = marsa_core::settings::NetworkMode::Userspace;
+    replace_settings(&channel, &config, 2).await;
+    start(&channel, &paths, 3).await;
+    let baseline = usage(&channel).await;
+    let identity = disk_identity(&paths.data_disk());
+
+    const SCRATCH_CONTAINER: &str = "marsa-reclaim-fixture";
+    let socket = paths.docker_socket();
+    let fixture = offline_image(scratch.path());
+    docker(
+        &socket,
+        &[
+            "import",
+            "--platform",
+            "linux/arm64",
+            fixture.to_str().unwrap(),
+            IMAGE,
+        ],
+    )
+    .await;
+    docker(
+        &socket,
+        &[
+            "run",
+            "--name",
+            SCRATCH_CONTAINER,
+            "--pull=never",
+            "--network=none",
+            IMAGE,
+            BUSYBOX,
+            "sh",
+            "-c",
+            "/bin/busybox dd if=/dev/urandom of=/payload bs=1M count=3072 && /bin/busybox sync",
+        ],
+    )
+    .await;
+    let filled = wait_disk_usage(&channel, |sample| {
+        sample.guest_used_bytes > baseline.guest_used_bytes + 2 * GIB
+    })
+    .await;
+    docker(&socket, &["rm", SCRATCH_CONTAINER]).await;
+    let before = wait_disk_usage(&channel, |sample| {
+        filled.guest_used_bytes > sample.guest_used_bytes + 2 * GIB
+    })
+    .await;
+    let freed = filled.guest_used_bytes - before.guest_used_bytes;
+    let trim = DiskReclaimRequest {
+        request_id: action(4).request_id,
+    };
+    let reclaimed = disk.reclaim(trim.clone()).await.unwrap().into_inner();
+    assert_eq!(reclaimed, disk.reclaim(trim).await.unwrap().into_inner());
+    let after = reclaimed.usage.unwrap();
+    assert_eq!(disk_identity(&paths.data_disk()), identity);
+    assert_eq!(after.host_capacity_bytes, 8 * GIB);
+    assert!(
+        reclaimed.host_reclaimed_bytes >= freed * 9 / 10,
+        "discarded {} bytes, guest freed {freed} bytes, host reclaimed {} bytes",
+        reclaimed.guest_trimmed_bytes,
+        reclaimed.host_reclaimed_bytes,
+    );
+    assert!(
+        before
+            .host_allocated_bytes
+            .saturating_sub(after.host_allocated_bytes)
+            >= freed * 9 / 10,
+        "host sparse allocation did not fall by 90%"
+    );
+    eprintln!(
+        "Guest freed {freed} bytes, explicit trim released {} host bytes.",
+        reclaimed.host_reclaimed_bytes
+    );
+    if let Some(cli) = env::var_os("MARSA_TEST_MARSA") {
+        let output = timeout(
+            BOOT,
+            tokio::process::Command::new(cli)
+                .env("HOME", &home)
+                .args(["disk", "reclaim", "--json"])
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(json["kind"], "disk_reclaim");
+        assert_eq!(json["usage"]["host"]["capacity_bytes"], 8 * GIB);
+        assert!(json["host_reclaimed_bytes"].is_u64());
+        assert!(json["guest_trimmed_bytes"].is_u64());
+        eprintln!("Signed VM CLI reclaim response {json}");
+    }
+    drop(disk);
+    drop(channel);
+    signal_running_daemon(&mut process).await;
+    assert_clean_filesystem(&paths.data_disk());
+}
+
+async fn wait_disk_usage(
+    channel: &Channel,
+    condition: impl Fn(&marsa_proto::host::v1::DiskUsageResponse) -> bool,
+) -> marsa_proto::host::v1::DiskUsageResponse {
+    timeout(WAIT, async {
+        loop {
+            let sample = usage(channel).await;
+            if condition(&sample) {
+                return sample;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    })
+    .await
+    .unwrap()
+}

@@ -63,3 +63,7 @@ resolved returns `bind_resolution_failed` with exit status 1.
 `bundle_path`. A successful reset response reports `scope` as `settings`
 or `factory`. With an older daemon that lacks reset support, the CLI reports
 `not_available` after confirmation and exits with status 1.
+
+`marsa disk reclaim --json` returns bytes the guest submitted for discard,
+the observed decrease in allocated host bytes, and the disk usage after
+the request. A stopped VM causes an operation error without booting it.

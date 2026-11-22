@@ -8,6 +8,7 @@
     { "$ref": "#/$defs/bind_approvals" },
     { "$ref": "#/$defs/bind_resolution" },
     { "$ref": "#/$defs/disk_usage" },
+    { "$ref": "#/$defs/disk_reclaim" },
     { "$ref": "#/$defs/network_status" },
     { "$ref": "#/$defs/network_mode" },
     { "$ref": "#/$defs/settings" },
@@ -61,6 +62,18 @@
         "id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
         "decision": { "enum": ["once", "always", "deny"] },
         "requires_restart": { "type": "boolean" }
+      }
+    },
+    "disk_reclaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "guest_trimmed_bytes", "host_reclaimed_bytes", "usage"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "disk_reclaim" },
+        "guest_trimmed_bytes": { "type": "integer", "minimum": 0 },
+        "host_reclaimed_bytes": { "type": "integer", "minimum": 0 },
+        "usage": { "$ref": "#/$defs/disk_usage" }
       }
     },
     "disk_usage": {

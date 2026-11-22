@@ -130,13 +130,13 @@ distinction through the [CLI response schema](reference/cli-response.schema.json
 
 ```mermaid
 sequenceDiagram
-    participant U as User or schedule
+    participant U as User
     participant D as marsad
     participant A as marsa-agent
     participant FS as ext4 on data disk
     participant H as data.img on APFS
 
-    U->>D: Prune images, or scheduled reclaim
+    U->>D: Request disk reclaim
     D->>A: RunTrim
     A->>FS: fstrim /var/lib/marsa
     FS->>H: Discard freed blocks through virtio-blk
@@ -146,9 +146,28 @@ sequenceDiagram
     D-->>U: Report observed space reclaimed
 ```
 
-On the VZ backend, `fstrim` on the mounted ext4 data filesystem returned approximately 4 GiB of physical allocation to APFS after deleting 4 GiB of files from a sparse RAW image. Use automatic caching with full synchronization and request explicit trim after cleanup and when idle. Calculate the recovered bytes using the change in the image file's allocated size on the host. The guest's trim result counts bytes submitted for potential discard. [Measured results](spikes/M1-03-disk-reclaim.md)
+On the VZ backend, `fstrim` on the mounted ext4 data filesystem returned
+approximately 4 GiB of physical allocation to APFS after deleting 4 GiB
+of files from a sparse RAW image. The backend uses automatic caching with
+full synchronization. [Measured results](spikes/M1-03-disk-reclaim.md)
 
-M9-03 tests the same path after deleting Docker images. A backend that cannot pass discard through will require offline compaction while the VM is stopped.
+Run `marsa disk reclaim` with the VM running to discard unused ext4 blocks.
+The guest synchronizes the data filesystem first so ext4 can make newly
+freed blocks available to discard after its journal commits.
+[Linux 7.3.5 ext4 allocator](https://github.com/gregkh/linux/blob/v7.3.5/fs/ext4/mballoc.c#L3782-L3796)
+
+The command measures the decrease in physical allocation of the same sparse
+image. The guest separately reports bytes submitted for potential discard.
+The command affects free filesystem blocks and leaves Docker resources in
+place. Reclaim holds lifecycle admission for the bounded request, so it
+cannot overlap a factory reset or private proxy activation. Existing
+container workloads keep running. New Docker connections can return busy
+until reclaim completes.
+
+M9-03 verifies this byte delta after removing disposable data from a signed
+test VM. M9-14 owns automatic reclaim after confirmed cleanup, idle
+scheduling and the remaining image-based test. An offline compaction fallback
+is required only for backends that cannot pass discard through.
 
 ### Disk cleanup with a preview
 

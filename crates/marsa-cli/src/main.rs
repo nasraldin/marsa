@@ -42,12 +42,13 @@ enum Failure {
     Incompatible,
     Operation,
     BindResolution,
+    Reclaim,
 }
 
 impl Failure {
     fn code(self) -> u8 {
         match self {
-            Self::Unavailable | Self::Operation | Self::BindResolution => 1,
+            Self::Unavailable | Self::Operation | Self::BindResolution | Self::Reclaim => 1,
             Self::Usage => 2,
             Self::Confirmation => 3,
             #[cfg(unix)]
@@ -68,7 +69,7 @@ impl Failure {
             Self::Home => "home_unavailable",
             Self::Root => "unprivileged_user_required",
             Self::Incompatible => "incompatible_daemon",
-            Self::Operation => "operation_failed",
+            Self::Operation | Self::Reclaim => "operation_failed",
             Self::BindResolution => "bind_resolution_failed",
         }
     }
@@ -114,6 +115,10 @@ impl Failure {
             Self::BindResolution => language.text(
                 "Could not answer the bind request. Run marsa share approvals to check whether it is still pending.",
                 "تعذّر الرد على طلب الوصل. شغّل marsa share approvals للتحقق من أن الطلب ما زال معلّقًا.",
+            ),
+            Self::Reclaim => language.text(
+                "Could not reclaim disk space. Reclaim requires a running VM.",
+                "تعذّر استرداد مساحة القرص. تتطلب العملية تشغيل الآلة الافتراضية.",
             ),
         }
     }
@@ -217,8 +222,13 @@ async fn execute(
         return outcome;
     }
     #[cfg(unix)]
-    if name == "disk" && args.subcommand_matches("usage").is_some() {
-        return disk::usage(language).await.unwrap_or_else(Outcome::Failure);
+    if name == "disk" {
+        let result = match args.subcommand_name() {
+            Some("usage") => disk::usage(language).await,
+            Some("reclaim") => disk::reclaim(language).await,
+            _ => Err(Failure::Unavailable),
+        };
+        return result.unwrap_or_else(Outcome::Failure);
     }
     #[cfg(unix)]
     if let Some(outcome) = maintenance::run(name, args, language, yes).await {
