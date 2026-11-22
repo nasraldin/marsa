@@ -2,18 +2,19 @@
 
 use std::{
     io,
+    path::PathBuf,
     pin::Pin,
     sync::{Arc, Mutex, MutexGuard},
-    time::SystemTime,
+    time::{Instant, SystemTime},
 };
 
 use futures_util::{Stream, stream};
 use marsa_core::settings::{NetworkMode, Settings, VmBackend};
 use marsa_proto::guest::v1::EgressStage;
 use marsa_proto::host::v1::{
-    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, NetworkMode as WireMode,
-    NetworkStatus, SettingsChanged, SettingsSnapshot, SubscribeRequest, VmStatsSample,
-    daemon_event::Body, events_server::Events,
+    BindApproval, DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus,
+    NetworkMode as WireMode, NetworkStatus, SettingsChanged, SettingsSnapshot, SubscribeRequest,
+    VmStatsSample, daemon_event::Body, events_server::Events,
 };
 use marsa_vm::NetworkSpec;
 use tokio::sync::{broadcast, watch};
@@ -21,7 +22,7 @@ use tonic::{Request, Response, Status};
 
 use crate::supervisor::{AlternateFailure, BootNetwork, NetworkResult, State, Transition};
 
-use super::{TypedApi, engine};
+use super::{TypedApi, bind_prompts, engine};
 
 const CAPACITY: usize = 128;
 pub(super) type Output<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send>>;
@@ -35,6 +36,9 @@ struct StateAtCursor {
     engine: EngineStatus,
     network: Option<NetworkStatus>,
     startup: Settings,
+    bind_prompts: bind_prompts::Pending,
+    once_staged: Vec<PathBuf>,
+    once_active: Vec<PathBuf>,
     settings: Settings,
     settings_snapshot: SettingsSnapshot,
     stats: Option<VmStatsSample>,
@@ -61,6 +65,9 @@ impl Bus {
             },
             network: None,
             startup: settings.clone(),
+            bind_prompts: bind_prompts::Pending::default(),
+            once_staged: Vec::new(),
+            once_active: Vec::new(),
             settings,
             settings_snapshot: SettingsSnapshot {
                 settings_toml: initial_toml,
@@ -132,6 +139,55 @@ impl Bus {
         (state.settings.clone(), state.settings_snapshot.clone())
     }
 
+    pub(super) fn boot_configuration(&self) -> (Settings, Vec<PathBuf>) {
+        let state = self.lock();
+        (state.settings.clone(), state.once_staged.clone())
+    }
+
+    pub(super) fn stage_once(&self, paths: Vec<PathBuf>) {
+        let mut state = self.lock();
+        for path in paths {
+            if !state.once_staged.contains(&path) {
+                state.once_staged.push(path);
+            }
+        }
+    }
+
+    pub(super) fn activate_once(&self, paths: &[PathBuf]) {
+        let mut state = self.lock();
+        state.once_active = paths.to_vec();
+        state.once_staged.retain(|staged| !paths.contains(staged));
+    }
+
+    pub(super) fn bind_prompt(&self, paths: Vec<PathBuf>) -> io::Result<Option<String>> {
+        let mut state = self.lock();
+        let current = Instant::now();
+        let id = state.bind_prompts.enqueue(paths, current, now())?;
+        if id.is_some() {
+            let approvals = state.bind_prompts.list(current);
+            state.publish(Body::BindApprovals(approvals));
+        }
+        Ok(id)
+    }
+
+    pub(super) fn expire_bind_prompt(&self, id: &str) {
+        let mut state = self.lock();
+        let current = Instant::now();
+        if state.bind_prompts.expire(id, current) {
+            let approvals = state.bind_prompts.list(current);
+            state.publish(Body::BindApprovals(approvals));
+        }
+    }
+
+    pub(super) fn resolve_bind_prompt(&self, id: &str) -> Option<BindApproval> {
+        let mut state = self.lock();
+        let current = Instant::now();
+        let approval = state.bind_prompts.take(id, current)?;
+        let remaining = state.bind_prompts.list(current);
+        state.publish(Body::BindApprovals(remaining));
+        Some(approval)
+    }
+
     pub(super) fn settings_snapshot(&self) -> SettingsSnapshot {
         self.lock().settings_snapshot.clone()
     }
@@ -190,6 +246,7 @@ impl Bus {
         let first = state.envelope(Body::Snapshot(DaemonSnapshot {
             engine: Some(state.engine.clone()),
             settings_revision: state.settings_snapshot.revision,
+            bind_approvals: Some(state.bind_prompts.list(Instant::now())),
             network: state.network.clone(),
             ..Default::default()
         }));

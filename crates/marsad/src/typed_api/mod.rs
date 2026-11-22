@@ -1,5 +1,6 @@
 //! Serve typed host APIs from one state and a composable VM supervisor.
 
+mod bind_prompts;
 mod engine;
 mod events;
 mod meta;
@@ -54,6 +55,7 @@ struct Shared {
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
     remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
+    bind_resolutions: requests::Cache<(String, i32), marsa_proto::host::v1::ResolveBindResponse>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
 }
@@ -78,6 +80,7 @@ impl TypedApi {
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
+                bind_resolutions: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
                 closing,
             }),
@@ -135,15 +138,20 @@ impl TypedApi {
         let settings = events.clone();
         let share_policy = self.inner.share_policy.clone();
         let preparation = Arc::new(move || {
-            let (desired, _) = settings.settings();
-            let (backend, mut spec) = prepare(&desired, &share_policy)?;
+            let (desired, once) = settings.boot_configuration();
+            let mut startup = desired.clone();
+            startup.shares.extend(once.iter().cloned());
+            let (backend, mut spec) = prepare(&startup, &share_policy)?;
             let automatic = select_network(&desired, &mut spec, backend.capabilities());
             let bus = settings.clone();
             Ok(Launch {
                 backend,
                 spec,
                 selection: Selection::new(automatic),
-                applied: Some(Arc::new(move || bus.runtime_applied(&desired))),
+                applied: Some(Arc::new(move || {
+                    bus.runtime_applied(&desired);
+                    bus.activate_once(&once);
+                })),
             })
         });
         let observations = self.inner.events.clone();

@@ -1,10 +1,11 @@
 //! Manage explicitly configured shares through the same atomic settings revision.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use marsa_proto::host::v1::{
-    AddShareRequest, ListSharesRequest, ListSharesResponse, RemoveShareRequest,
-    RemoveShareResponse, Share, shares_server::Shares,
+    AddShareRequest, BindApprovalDecision, ListSharesRequest, ListSharesResponse,
+    RemoveShareRequest, RemoveShareResponse, ResolveBindRequest, ResolveBindResponse, Share,
+    shares_server::Shares,
 };
 use marsa_share::{Allowlist, ShareError};
 use tonic::{Request, Response, Status};
@@ -96,6 +97,69 @@ impl Shares for TypedApi {
             )
             .await?;
         Ok(Response::new(result))
+    }
+
+    async fn resolve_bind(
+        &self,
+        request: Request<ResolveBindRequest>,
+    ) -> Result<Response<ResolveBindResponse>, Status> {
+        let request = self.authorize(request)?;
+        let decision = request.decision();
+        if decision == BindApprovalDecision::Unspecified {
+            return Err(Status::invalid_argument("choose a bind approval action"));
+        }
+        let api = self.clone();
+        let response = self
+            .inner
+            .bind_resolutions
+            .run(
+                &request.request_id,
+                (request.approval_id.clone(), request.decision),
+                || async move {
+                    let approval = api
+                        .inner
+                        .events
+                        .resolve_bind_prompt(&request.approval_id)
+                        .ok_or_else(|| Status::not_found("unknown or expired bind approval"))?;
+                    match decision {
+                        BindApprovalDecision::Deny => {
+                            return Ok(ResolveBindResponse {
+                                requires_restart: false,
+                            });
+                        }
+                        BindApprovalDecision::Once => {
+                            let policy = api.inner.share_policy.clone();
+                            let paths = tokio::task::spawn_blocking(move || {
+                                let list = Allowlist::from_paths(policy, approval.directories)
+                                    .map_err(policy_status)?;
+                                Ok::<_, Status>(list.roots().to_vec())
+                            })
+                            .await
+                            .map_err(|_| Status::internal("share policy worker stopped"))??;
+                            api.inner.events.stage_once(paths);
+                        }
+                        BindApprovalDecision::Persist => {
+                            api.edit_settings(None, move |settings, policy| {
+                                let mut paths = settings.shares.clone();
+                                paths.extend(approval.directories.into_iter().map(PathBuf::from));
+                                let allowlist = Allowlist::from_paths(policy.clone(), paths)
+                                    .map_err(policy_status)?;
+                                settings.shares = allowlist.roots().to_vec();
+                                Ok(())
+                            })
+                            .await?;
+                        }
+                        BindApprovalDecision::Unspecified => {
+                            return Err(Status::invalid_argument("choose a bind approval action"));
+                        }
+                    }
+                    Ok(ResolveBindResponse {
+                        requires_restart: true,
+                    })
+                },
+            )
+            .await?;
+        Ok(Response::new(response))
     }
 }
 
