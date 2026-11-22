@@ -610,7 +610,10 @@ dependencies = [
  "marsa-core",
  "marsa-share",
  "nix",
+ "serde",
+ "serde_json",
  "tempfile",
+ "thiserror",
  "tokio",
  "tracing",
 ]

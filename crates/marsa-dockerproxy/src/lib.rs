@@ -4,6 +4,9 @@
 use marsa_core as _;
 use marsa_share as _;
 
+/// Bounded parsing of Docker container bind sources for host authorization.
+pub mod bind_mounts;
+
 #[cfg(unix)]
 mod platform;
 
