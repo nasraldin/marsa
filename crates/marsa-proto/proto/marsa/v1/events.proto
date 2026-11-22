@@ -29,6 +29,7 @@ message DaemonEvent {
     UpdateStatus update = 10;
     ListPendingApprovalsResponse approvals = 11;
     ListGrantsResponse grants = 12;
+    BindApprovalList bind_approvals = 13;
   }
 }
 
@@ -41,6 +42,7 @@ message DaemonSnapshot {
   UpdateStatus update = 6;
   ListPendingApprovalsResponse approvals = 7;
   ListGrantsResponse grants = 8;
+  BindApprovalList bind_approvals = 9;
 }
 
 message SettingsChanged {
