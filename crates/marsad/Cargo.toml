@@ -31,6 +31,7 @@ serde_json = "=1.0.154"
 time = { version = "=0.3.55", features = ["parsing"] }
 marsa-core = { path = "../marsa-core" }
 nix = { version = "=0.32.0", features = ["fs", "user"] }
+rustix = { version = "=1.1.6", features = ["fs"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 tokio = { version = "=1.54.1", features = ["io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
 tokio-stream = { version = "=0.1.19", features = ["net"] }
@@ -49,5 +50,5 @@ tower = { version = "=0.5.3", features = ["util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.6.5"
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSBundle", "NSError", "NSString"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSBundle", "NSError", "NSString", "NSURL", "NSValue"] }
 objc2-service-management = { version = "=0.3.2", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService"] }

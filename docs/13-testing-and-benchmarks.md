@@ -79,7 +79,7 @@ A feature is not complete until its four-variant snapshots are reviewed and comm
 | Agent policy | Destroy-tier tools never run without approval; privilege flags refused |
 | Untrusted output | Logs containing instruction-like text do not alter policy decisions |
 | Update tampering | Modified manifest, wrong hash, unsigned bundle and downgrade are all rejected |
-| Fuzzing | Control-protocol decoder, Docker request inspector and manifest parser have fuzz targets run in CI on a schedule |
+| Fuzzing | Guest control frames, settings and update manifest metadata have [scheduled fuzz targets](../fuzz/README.md). M9-15 adds the Docker create-request inspector. |
 | Log redaction | Known secret patterns never appear in logs or diagnostics bundles |
 | External review | An independent security review before the version 1 release |
 

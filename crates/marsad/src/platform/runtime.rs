@@ -21,6 +21,7 @@ use nix::libc;
 
 use crate::diagnostics::localized;
 
+mod backup;
 mod disk;
 use disk::ensure_disk;
 
@@ -96,6 +97,24 @@ impl Packaged {
     /// Report the backend supported by the packaged daemon.
     pub(super) fn capabilities(&self) -> Capabilities {
         self.backend().capabilities()
+    }
+
+    /// Locate the signed Docker CLI bundled by the upstream packaging task.
+    pub(super) fn docker_cli(&self) -> io::Result<PathBuf> {
+        let cli = Artifact::open(self.bundle.join("Contents/Resources/bin/docker"))?;
+        let mode = cli.metadata.mode();
+        if mode & 0o111 == 0
+            || mode & 0o6022 != 0
+            || !valid_signature(&self.bundle)?
+            || !valid_signature(&cli.path)?
+        {
+            return Err(invalid_artifact(localized(
+                "the bundled Docker CLI is not a verified executable",
+                "ملف Docker CLI المضمّن غير قابل للتنفيذ أو لم يتم التحقق منه",
+            )));
+        }
+        cli.check_unchanged()?;
+        Ok(cli.path)
     }
 
     /// Verify the boot files and build a spec snapshot before initializing persistent storage.
@@ -183,6 +202,7 @@ impl Packaged {
         spec.validate()
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         ensure_disk(paths, uid, settings.disk.data_size_limit)?;
+        backup::set_excluded(&paths.data_disk(), settings.disk.exclude_from_backup)?;
         Ok((self.backend(), spec))
     }
 

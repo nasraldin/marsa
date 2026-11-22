@@ -41,17 +41,17 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - A wrong checksum fails the step.
   - The binaries run and report the pinned versions.
 
-### M4-04 Docker context, `DOCKER_HOST` and the optional socket symlink
+### M4-04 Optional Docker socket symlink
 
-- **Status:** todo
-- **Depends on:** M4-01, M4-03
-- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), V-12, Q-08
-- **Do:** Create and maintain the `marsa` Docker context without touching other contexts; ask before switching the current context if another is active. Provide the data for `marsa env`. Implement the opt-in `/var/run/docker.sock` symlink as a single, auditable administrator action with a matching removal. Research which common tools ignore contexts (V-12) and document the recommended setting for each.
-- **Deliver:** context management in `marsad`, the symlink helper, a compatibility note in [09](../09-cli-and-docker-compat.md).
+- **Status:** blocked (owner decision Q-08)
+- **Depends on:** M4-01
+- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), Q-08
+- **Do:** Implement the opt-in `/var/run/docker.sock` symlink as a single, auditable administrator action with a matching removal.
+- **Deliver:** the symlink helper.
 - **Accept when:**
-  - Other contexts and an existing `config.json` are never modified beyond adding the `marsa` context (tested with fixtures).
   - Creating and removing the symlink leaves no other change on the system.
-  - V-12 is resolved in the docs.
+
+Q-08 governs where the optional administrator action is offered. Context registration and environment discovery have their own task, M4-16.
 
 ### M4-05 Shared-folder allowlist
 
@@ -80,8 +80,8 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-07 Data disk management
 
-- **Status:** todo
-- **Depends on:** M3-03, M2-05
+- **Status:** done
+- **Depends on:** M3-03, M2-05, M3-12, M4-01
 - **Docs:** [07 Data disk](../07-file-sharing-and-storage.md#data-disk)
 - **Do:** Create the sparse data image on first run with the configured maximum size, grow it when the setting increases, expose usage through the `Disk` service, exclude it from Time Machine by default with a setting, and guarantee a clean guest shutdown on quit, logout and host shutdown.
 - **Deliver:** data-disk module in `marsad`, `Disk.Usage`.
@@ -89,6 +89,8 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - A fresh install creates and formats the disk on first boot.
   - Increasing the size limit grows the filesystem at next boot.
   - Killing `marsad` mid-run and restarting recovers without data loss in a test that writes a volume first.
+
+**Verification.** On macOS 27.2.1 the signed packaged daemon created a private 64 GiB sparse image and reported host and guest usage. The test verified Time Machine exclusion and opt-out. A separate 1 GiB VM wrote a named volume while Docker was active, then survived a host daemon `SIGKILL` and grew the same ext4 disk to 2 GiB on restart. A subsequent `SIGTERM` left ext4 clean without pending journal recovery. M4-01 provides the Docker socket for the physical recovery test.
 
 ### M4-08 NAT networking, DNS and host names
 
@@ -145,7 +147,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 ### M4-12 Registry credentials
 
 - **Status:** todo
-- **Depends on:** M4-03, M4-04
+- **Depends on:** M4-03, M4-16
 - **Docs:** [11 Registry credentials](../11-security.md#registry-credentials)
 - **Do:** Offer to set the keychain credential helper as the Docker CLI credential store, never overwriting an existing store. Confirm that no credential is written to disk in plain text or stored in the guest.
 - **Deliver:** credential-store setup logic and tests with config fixtures.
@@ -153,21 +155,22 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - `docker login` stores the credential in the keychain.
   - An existing `credsStore` or `credHelpers` entry is left untouched.
 
-### M4-13 SSH agent forwarding
+### M4-13 SSH agent forwarding for builds
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-01
-- **Docs:** [09 SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding)
-- **Do:** Forward the host SSH agent socket to a fixed path in the guest over vsock, on demand.
-- **Deliver:** forwarding in `marsad` and the agent.
+- **Docs:** [09 SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding), [11 SSH agent access](../11-security.md#ssh-agent-access)
+- **Do:** Qualify the upstream Buildx SSH mount through the Docker socket proxy. Use Buildx's per-build session and the invoking client's explicitly supplied SSH agent. Keep the separate guest socket proposal in M4-17.
+- **Deliver:** Signed VM integration test using a disposable SSH agent, test key and local private Git repository.
 - **Accept when:**
-  - `docker build --ssh default` can clone a private repository in a test.
-  - No key material is copied; only the agent protocol is forwarded.
+  - `docker build --ssh default` can clone the private fixture repository.
+  - The test key remains on the Mac. It signs the authentication on the host through the agent protocol.
+  - A build without the SSH provider and a container launched without one have no agent access.
 
 ### M4-14 Conformance suite (gate G4)
 
 - **Status:** todo
-- **Depends on:** M4-02, M4-06, M4-07, M4-09, M4-10, M4-11, M4-12
+- **Depends on:** M4-02, M4-06, M4-07, M4-09, M4-10, M4-11, M4-12, M4-13
 - **Docs:** [09 Compatibility checklist](../09-cli-and-docker-compat.md#compatibility-checklist), [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
 - **Do:** Build the automated conformance suite covering every line of the compatibility checklist with the real `docker` CLI and Compose, at least one Testcontainers suite per listed language, and a Dev Containers open-and-build check. Assert the documented intended differences return their explicit errors.
 - **Deliver:** `tests/conformance/`, wired into Tier 2.
@@ -188,3 +191,27 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - The host keeps desired settings when an update requires a later guest boot.
   - Active workloads are preserved, or the action reports the impact and requires explicit approval before stopping them.
   - A failed engine restart reports the failure and restores the last working configuration.
+
+### M4-16 Docker context and endpoint discovery
+
+- **Status:** done
+- **Depends on:** M4-01, M4-03
+- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), V-12
+- **Do:** Register the `marsa` context with the bundled upstream Docker CLI. Preserve current context selection and let users select Marsa explicitly. Expose the Docker socket and endpoint for `marsa env` through the authenticated host API. Verify common client discovery behavior.
+- **Deliver:** typed backend context and endpoint service, isolated integration tests, and the client compatibility note.
+- **Accept when:**
+  - Explicit context registration is repeatable, preserves other contexts and the existing `config.json`, and refuses to overwrite an unrelated `marsa` context.
+  - The bundled upstream CLI sees the registered context and the host API returns the correct `DOCKER_HOST` data.
+  - V-12 is resolved in the docs.
+
+### M4-17 Explicit SSH agent access for containers
+
+- **Status:** todo
+- **Depends on:** M4-06, M4-13
+- **Docs:** [09 SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding), [11 SSH agent access](../11-security.md#ssh-agent-access)
+- **Do:** Design explicit authorization for a named container to mount an SSH agent socket at a documented guest path. Enforce the grant on the host, restrict the approved agent operations, authenticate the guest transport, and revoke access on container exit, VM stop or user request. Qualify the VSock transport needed by that design.
+- **Deliver:** Container-scoped SSH forwarding in the host daemon and guest agent, with a documented opt-in and revocation flow.
+- **Accept when:**
+  - An authorized container can use an explicitly chosen host agent with a disposable test key.
+  - An unapproved container and a guest-initiated connection without a current grant cannot use the agent.
+  - Revocation closes active streams and rejects subsequent connections. Host private key bytes stay on the host.
