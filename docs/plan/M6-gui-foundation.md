@@ -10,7 +10,7 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 
 ### M6-01 GUI application skeleton
 
-- **Status:** blocked (validated GPUI suite fails production dependency policy)
+- **Status:** blocked (maintained GPUI and component release graph pending)
 - **Depends on:** M1-05, M0-01, M6-14
 - **Docs:** [08 Architecture](../08-gui.md#architecture), [08 Framework version policy](../08-gui.md#framework-version-policy)
 - **Do:** Create `marsa-gui` and `marsa-ui`. Pin GPUI and gpui-component to the revisions validated in M1-01 and document the upgrade procedure. Open a window, handle app lifecycle, and exit the process when the window closes.
@@ -29,6 +29,8 @@ Requalification on 2026-11-22 resolved the published [GPUI Kit 0.10.0](https://d
 | GPUI with its font-enabled platform crate | 17 | 3 | 2 |
 
 Both Apple silicon graphs include the unmaintained `chrono`, `rustybuzz` and `ttf-parser` and the disallowed MPL-2.0 dependencies `cbindgen` and `option-ext`. The target-filtered run also reports two unmatched skips for existing non-Apple dependencies. Both unfiltered workspace runs independently fail the dependency policy. Neither candidate is eligible to enter the production workspace.
+
+M6-14 reproduced a passing native GPUI core graph with source-level patches and the unmodified policy. AccessKit's binding migration is still open upstream and the current component release pins a different GPUI revision. The workspace still needs a maintained, compatible component and core graph. See the [remediation evidence](../spikes/M6-14-gpui-dependency-remediation.md).
 
 ### M6-02 Design tokens, themes and fonts
 
@@ -181,7 +183,7 @@ The tray stays in the daemon and runs with the GUI closed.
 
 ### M6-14 Qualify replacements for blocked GPUI dependencies
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M1-05, M0-07
 - **Docs:** [08 Framework version policy](../08-gui.md#framework-version-policy)
 - **Do:** Replace advisory and license blockers in an isolated GPUI graph. Test Apple rendering against the patched graph and run the original strict workspace and Apple target checks. Keep the production workspace unchanged until the graph is compliant.
@@ -189,3 +191,4 @@ The tray stays in the daemon and runs with the GUI closed.
 - **Accept when:**
   - The replacement graph builds using native Apple text and Metal and the evidence states which interactive tests remain.
   - The same unmodified policy reports the exact blockers for the complete workspace and Apple target before and after the experiment.
+- **Evidence:** The [remediation report](../spikes/M6-14-gpui-dependency-remediation.md) records the replacements, native rendering and protocol results, and the strict dependency checks. The production GUI integration remains M6-01.
