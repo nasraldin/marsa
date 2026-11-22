@@ -9,11 +9,12 @@ use marsa_core::{paths::MarsaPaths, settings::Settings};
 use marsa_proto::{
     guest::v1 as guest,
     host::v1::{
-        CapabilitiesRequest, DaemonEvent, EngineActionRequest, EngineHealthState, EngineState,
-        EngineStatusRequest, GetSettingsRequest, SubscribeRequest, UpdateSettingsRequest,
-        VmStatsRequest, WatchSettingsRequest, daemon_event::Body, engine_client::EngineClient,
+        AddShareRequest, CapabilitiesRequest, DaemonEvent, EngineActionRequest, EngineHealthState,
+        EngineState, EngineStatusRequest, GetSettingsRequest, ListSharesRequest,
+        RemoveShareRequest, SubscribeRequest, UpdateSettingsRequest, VmStatsRequest,
+        WatchSettingsRequest, daemon_event::Body, engine_client::EngineClient,
         events_client::EventsClient, meta_client::MetaClient, settings_client::SettingsClient,
-        stats_client::StatsClient,
+        shares_client::SharesClient, stats_client::StatsClient,
     },
 };
 use marsa_vm::{
@@ -227,11 +228,121 @@ async fn settings_apply_idle_policy_without_requiring_restart() {
     next_state(&mut events, stopping, EngineState::Stopped).await;
 }
 
+#[tokio::test]
+async fn shares_validate_canonical_paths_and_share_settings_revisions() {
+    let fixture = Fixture::new(Vec::new()).await;
+    let mut shares = SharesClient::new(fixture.channel.clone());
+    let mut settings = SettingsClient::new(fixture.channel.clone());
+
+    let root = MarsaPaths::from_home(fixture.home.path()).unwrap();
+    let project = fixture.home.path().join("project");
+    let alias = fixture.home.path().join("project-alias");
+    std::fs::create_dir(&project).unwrap();
+    std::os::unix::fs::symlink(&project, &alias).unwrap();
+
+    let snapshot = settings
+        .get(GetSettingsRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    let add = |id, host_path: &std::path::Path| AddShareRequest {
+        request_id: format!("30000000-0000-4000-8000-{id:012}"),
+        host_path: host_path.to_str().unwrap().to_string(),
+        persist: true,
+        ..Default::default()
+    };
+    for (id, path) in [(1, root.root()), (2, root.root().parent().unwrap())] {
+        assert_eq!(
+            shares.add(add(id, path)).await.unwrap_err().code(),
+            Code::PermissionDenied
+        );
+    }
+    let document = Settings::from_toml(&snapshot.settings_toml).unwrap();
+    let mut unsafe_document = document.clone();
+    unsafe_document.shares.push(root.root().to_owned());
+    assert_eq!(
+        settings
+            .update(UpdateSettingsRequest {
+                request_id: "40000000-0000-4000-8000-000000000001".into(),
+                expected_revision: snapshot.revision,
+                settings_toml: unsafe_document.to_toml().unwrap(),
+            })
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied
+    );
+
+    let request = add(3, &alias);
+    let share = shares.add(request.clone()).await.unwrap().into_inner();
+    assert_eq!(
+        share.host_path,
+        project.canonicalize().unwrap().to_str().unwrap()
+    );
+    assert_eq!(shares.add(request).await.unwrap().into_inner(), share);
+    assert_eq!(
+        shares
+            .list(ListSharesRequest {})
+            .await
+            .unwrap()
+            .into_inner()
+            .shares,
+        vec![share.clone()]
+    );
+
+    let updated = settings
+        .get(GetSettingsRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(updated.revision, snapshot.revision + 1);
+    assert_eq!(
+        Settings::from_toml(&updated.settings_toml).unwrap().shares,
+        [project.canonicalize().unwrap()]
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.config_file()).unwrap(),
+        updated.settings_toml
+    );
+    let mut stale = document;
+    stale.vm.cpus += 1;
+    assert_eq!(
+        settings
+            .update(UpdateSettingsRequest {
+                request_id: "40000000-0000-4000-8000-000000000002".into(),
+                expected_revision: snapshot.revision,
+                settings_toml: stale.to_toml().unwrap(),
+            })
+            .await
+            .unwrap_err()
+            .code(),
+        Code::Aborted
+    );
+
+    // Removal uses the stored ID, including when the directory no longer exists.
+    std::fs::remove_dir(project).unwrap();
+    let remove = RemoveShareRequest {
+        request_id: "30000000-0000-4000-8000-000000000004".into(),
+        share_id: share.id,
+    };
+    shares.remove(remove.clone()).await.unwrap();
+    shares.remove(remove).await.unwrap();
+    assert!(
+        shares
+            .list(ListSharesRequest {})
+            .await
+            .unwrap()
+            .into_inner()
+            .shares
+            .is_empty()
+    );
+}
+
 struct Fixture {
     api: TypedApi,
     supervisor: Supervisor,
     channel: Channel,
-    _home: TempDir,
+    home: TempDir,
     _shutdown: oneshot::Sender<()>,
 }
 
@@ -298,7 +409,7 @@ impl Fixture {
             api,
             supervisor,
             channel,
-            _home: home,
+            home,
             _shutdown: shutdown,
         }
     }

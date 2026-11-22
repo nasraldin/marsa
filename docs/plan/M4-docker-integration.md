@@ -55,7 +55,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-05 Shared-folder allowlist
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M0-04
 - **Docs:** [07 The allowlist](../07-file-sharing-and-storage.md#the-allowlist), [11 Shared folders](../11-security.md#shared-folders), D-012
 - **Do:** Implement `marsa-share`: the allowlist model, path canonicalisation with symlink resolution, the protected-path list as code, containment checks, and the `Shares` API service.

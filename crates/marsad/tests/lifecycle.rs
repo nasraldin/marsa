@@ -298,6 +298,32 @@ async fn settings_updates_commit_before_ordered_events_and_leave_invalid_files_i
     assert!(events.message().await.unwrap().is_none());
 }
 
+#[tokio::test]
+async fn share_grants_protect_the_configured_home_and_the_effective_account_home() {
+    use marsa_proto::host::v1::{AddShareRequest, shares_client::SharesClient};
+    use nix::unistd::{User, geteuid};
+
+    let home = TempDir::new_in("/tmp").unwrap();
+    let account = User::from_uid(geteuid()).unwrap().unwrap();
+    assert_ne!(home.path(), account.dir);
+    let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
+    let mut daemon = Daemon(start(home.path()).spawn().unwrap());
+    let channel = wait_for_channel(&mut daemon, paths.daemon_socket()).await;
+    let mut shares = SharesClient::new(channel);
+    for (index, home) in [home.path(), account.dir.as_path()].into_iter().enumerate() {
+        let result = shares
+            .add(AddShareRequest {
+                request_id: format!("50000000-0000-4000-8000-{index:012}"),
+                host_path: home.join(".ssh").to_str().unwrap().into(),
+                persist: true,
+                ..Default::default()
+            })
+            .await;
+        assert!(matches!(result, Err(ref error) if error.code() == tonic::Code::PermissionDenied));
+    }
+    daemon.terminate().await;
+}
+
 fn start(home: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_marsad"));
     command
