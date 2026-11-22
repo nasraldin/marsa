@@ -22,10 +22,10 @@ Before starting, verify the current MCP specification version and the maintained
 
 ### M8-02 `AgentOps` service and approval queue
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M8-01, M4-02
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [10 Approval flow](../10-mcp-server.md#approval-flow)
-- **Do:** Implement the daemon's `AgentOps` and `Agents` services. Bind execution to a daemon-issued agent session and limit that session to agent operations. Trusted local owner clients register sessions and approve or deny requests. Queue immutable requests with full details, notify through daemon events, and expire unanswered requests. Implement engine status and exact-ID container start as the first read and operate actions. Reject operations without a validated handler.
+- **Do:** Implement the daemon's `AgentOps` and `Agents` services. Bind execution to a daemon-issued agent session and limit that session to agent operations. Trusted local owner clients register sessions and approve or deny requests. Queue immutable requests with full details, notify through daemon events, and expire unanswered requests. Implement engine status and exact-ID container stop as the first read and operate actions. Reject operations without a validated handler.
 - **Deliver:** both services and integration tests using the fake backend and fake engine.
 - **Accept when:**
   - A call needing approval blocks until approved, denied or timed out, and returns a structured result in each case.

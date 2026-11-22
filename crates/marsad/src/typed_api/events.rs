@@ -12,17 +12,24 @@ use futures_util::{Stream, stream};
 use marsa_core::settings::{NetworkMode, Settings, VmBackend};
 use marsa_proto::guest::v1::EgressStage;
 use marsa_proto::host::v1::{
-    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, NetworkMode as WireMode,
-    NetworkStatus, SettingsChanged, SettingsSnapshot, SubscribeRequest, VmStatsSample,
-    daemon_event::Body, events_server::Events,
+    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, ListPendingApprovalsResponse,
+    NetworkMode as WireMode, NetworkStatus, PendingApproval, SettingsChanged, SettingsSnapshot,
+    SubscribeRequest, VmStatsSample, daemon_event::Body, events_server::Events,
 };
 use marsa_vm::NetworkSpec;
-use tokio::sync::{broadcast, watch};
+use tokio::{
+    sync::{broadcast, oneshot, watch},
+    time::Instant,
+};
 use tonic::{Request, Response, Status};
 
 use crate::supervisor::{AlternateFailure, BootNetwork, NetworkResult, State, Transition};
 
-use super::{TypedApi, diagnostics, engine};
+use super::{
+    TypedApi,
+    agents::queue::{Outcome, Queue},
+    diagnostics, engine,
+};
 
 const CAPACITY: usize = 128;
 pub(super) type Output<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send>>;
@@ -40,6 +47,7 @@ struct StateAtCursor {
     settings_snapshot: SettingsSnapshot,
     stats: Option<VmStatsSample>,
     engine_history: VecDeque<diagnostics::EngineSample>,
+    approvals: Queue,
     events: broadcast::Sender<DaemonEvent>,
     settings_events: broadcast::Sender<SettingsSnapshot>,
     stats_events: broadcast::Sender<VmStatsSample>,
@@ -71,6 +79,7 @@ impl Bus {
             },
             stats: None,
             engine_history: VecDeque::new(),
+            approvals: Queue::default(),
             events: broadcast::channel(CAPACITY).0,
             settings_events: broadcast::channel(8).0,
             stats_events: broadcast::channel(CAPACITY).0,
@@ -199,11 +208,47 @@ impl Bus {
         stream_from(state.stats, state.stats_events.subscribe(), stop)
     }
 
+    pub(super) fn pending_approvals(&self) -> ListPendingApprovalsResponse {
+        self.lock().approvals.list(Instant::now())
+    }
+
+    pub(super) fn request_approval(
+        &self,
+        details: PendingApproval,
+        expires: Instant,
+    ) -> Result<(String, oneshot::Receiver<Outcome>), Status> {
+        let mut state = self.lock();
+        let now = Instant::now();
+        let pending = state.approvals.add(details, expires, now)?;
+        state.publish_approvals(now);
+        Ok(pending)
+    }
+
+    pub(super) fn discard_approval(&self, id: &str) {
+        let mut state = self.lock();
+        if state.approvals.remove(id) {
+            state.publish_approvals(Instant::now());
+        }
+    }
+
+    pub(super) fn resolve_approval(&self, id: &str, choice: Outcome) -> Result<(), Status> {
+        let mut state = self.lock();
+        let now = Instant::now();
+        state.approvals.resolve(id, choice, now)?;
+        state.publish_approvals(now);
+        Ok(())
+    }
+
+    pub(super) fn publish_grants(&self, grants: marsa_proto::host::v1::ListGrantsResponse) {
+        self.lock().publish(Body::Grants(grants));
+    }
+
     fn subscribe(&self, stop: watch::Receiver<bool>) -> Output<DaemonEvent> {
         let state = self.lock();
         let first = state.envelope(Body::Snapshot(DaemonSnapshot {
             engine: Some(state.engine.clone()),
             settings_revision: state.settings_snapshot.revision,
+            approvals: Some(state.approvals.list(Instant::now())),
             network: state.network.clone(),
             ..Default::default()
         }));
@@ -222,6 +267,10 @@ impl StateAtCursor {
             self.engine.state(),
             Wire::Starting | Wire::Booting | Wire::Ready | Wire::Idle
         )
+    }
+
+    fn publish_approvals(&mut self, now: Instant) {
+        self.publish(Body::Approvals(self.approvals.list(now)));
     }
 
     fn publish(&mut self, body: Body) {

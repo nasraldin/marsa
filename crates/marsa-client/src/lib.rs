@@ -11,7 +11,7 @@ mod events;
 mod platform;
 
 #[cfg(unix)]
-pub use client::{ClientError, DaemonEndpoint, MarsaClient};
+pub use client::{AgentClient, ClientError, DaemonEndpoint, MarsaClient};
 #[cfg(unix)]
 pub use events::EventSubscription;
 

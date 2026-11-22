@@ -96,7 +96,11 @@ sequenceDiagram
 ```
 
 - Requests time out (default a few minutes) and return a clear "not approved" result so the agent can continue or ask the user in its own interface.
-- If no GUI is open, the notification appears through the tray item and `marsa agents approve` works from a terminal.
+- If no GUI is open, the tray and CLI are planned owner clients for the same approval API.
+- The owner-only daemon socket serves `Agents.OpenSession` and approval decisions. A trusted local owner client registers the agent and project, then delegates a 12-hour capability to the restricted `agent.sock` endpoint. The agent capability authenticates `AgentOps` and has no owner permissions. Do not give an agent the owner connection or raw Docker socket.
+- This protects against an agent using only its delegated operations. Local processes running with the unrestricted owner's Unix access are inside the trusted host boundary. The daemon does not attest physical user presence. The owner GUI or CLI is responsible for collecting the user's decision.
+- M8-02 supports engine status and a reviewed stop for a full container ID. A stop requires approval each time because the handler cannot prove project ownership of a Docker container. The daemon verifies the target ID before issuing the stop.
+- M8-10 enables requests that create bind mounts after the agent and active host share checks are integrated. Until then, the daemon refuses container creation through `AgentOps`.
 
 ## Tools
 

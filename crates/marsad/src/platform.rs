@@ -48,14 +48,15 @@ pub(super) fn run() -> Result<(), DaemonError> {
     let vm_settings = settings.vm.clone();
     let api = TypedApi::new(paths.clone(), uid, settings)?;
     let _logging = logging::initialize(&paths, uid)?;
-    let (socket, docker) = instance.publish(&paths, uid)?;
+    let (socket, docker, agent) = instance.publish(&paths, uid)?;
     let serving = runtime.block_on(async {
         let socket = tokio::net::UnixListener::from_std(socket)?;
         let docker = tokio::net::UnixListener::from_std(docker)?;
+        let agent = tokio::net::UnixListener::from_std(agent)?;
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         let api = configure_packaged_runtime(api, paths, uid, vm_settings)?;
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
-        serve(socket, docker, api, uid, signals).await
+        serve(socket, docker, agent, api, uid, signals).await
     });
     let cleanup = instance.cleanup();
     serving?;
@@ -118,6 +119,7 @@ pub(super) fn login(action: &std::ffi::OsStr) -> io::Result<()> {
 async fn serve(
     listener: tokio::net::UnixListener,
     docker: tokio::net::UnixListener,
+    agent: tokio::net::UnixListener,
     api: TypedApi,
     uid: u32,
     signals: Signals,
@@ -126,7 +128,8 @@ async fn serve(
     let server = api.serve(listener, async {
         let _ = stop.await;
     });
-    tokio::pin!(server);
+    let agents = api.serve_agents(agent);
+    tokio::pin!(server, agents);
     let relay = {
         let docker_api = api.clone();
         let startup = marsa_dockerproxy::Startup {
@@ -147,6 +150,7 @@ async fn serve(
         tokio::pin!(proxy);
         tokio::select! {
             result = &mut server => return result.map_err(Into::into),
+            result = &mut agents => result.map_err(io::Error::other),
             result = &mut proxy => result,
             signal = signals.wait() => {
                 tracing::info!(signal, "daemon shutdown requested");

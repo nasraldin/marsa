@@ -2,6 +2,9 @@
 
 #![cfg(unix)]
 
+#[path = "typed_api/agent_approvals.rs"]
+mod agent_approvals;
+
 use std::{io, sync::Arc, time::Duration};
 
 use hyper_util::rt::TokioIo;
@@ -39,6 +42,18 @@ use tonic::{
 use tower::service_fn;
 
 const WAIT: Duration = Duration::from_secs(3);
+
+#[tokio::test]
+async fn local_owner_can_read_the_pending_agent_approval_snapshot() {
+    use marsa_proto::host::v1::{ListPendingApprovalsRequest, agents_client::AgentsClient};
+
+    let fixture = Fixture::new(vec![]).await;
+    let mut agents = AgentsClient::new(fixture.channel.clone());
+    let result = agents
+        .list_pending_approvals(ListPendingApprovalsRequest {})
+        .await;
+    assert!(result.unwrap().into_inner().approvals.is_empty());
+}
 
 #[tokio::test]
 async fn restart_has_one_activation_and_lifecycle_events_follow_the_same_cursor() {
@@ -501,6 +516,10 @@ struct Fixture {
 
 impl Fixture {
     async fn new(steps: Vec<AgentStep>) -> Self {
+        Self::with_docker(steps, Vec::new()).await
+    }
+
+    async fn with_docker(steps: Vec<AgentStep>, docker: Vec<AgentStep>) -> Self {
         let home = TempDir::new_in("/tmp").unwrap();
         let paths = MarsaPaths::from_home(home.path()).unwrap();
         std::fs::create_dir(paths.root()).unwrap();
@@ -510,7 +529,9 @@ impl Fixture {
             TypedApi::new(paths, nix::unistd::geteuid().as_raw(), Settings::default()).unwrap();
         let (api, supervisor) = api.with_engine(
             Arc::new(FakeHypervisor::new(
-                FakeScenario::default().with_agent(5000, steps),
+                FakeScenario::default()
+                    .with_agent(5000, steps)
+                    .with_agent(marsa_proto::guest::DOCKER_API_PORT, docker),
             )),
             Arc::new(FixtureProbe),
             VmSpec {

@@ -4,6 +4,7 @@ package marsa.v1;
 
 // Manage user decisions and project-specific MCP grants.
 service Agents {
+  rpc OpenSession(OpenAgentSessionRequest) returns (OpenAgentSessionResponse);
   rpc ListPendingApprovals(ListPendingApprovalsRequest) returns (ListPendingApprovalsResponse);
   rpc Approve(ApproveRequest) returns (DecisionResponse);
   rpc Deny(DenyRequest) returns (DecisionResponse);
@@ -14,6 +15,21 @@ service Agents {
 // Allowlisted operations executed by the daemon under MCP policy.
 service AgentOps {
   rpc Execute(AgentOperationRequest) returns (AgentOperationResponse);
+}
+
+// The trusted owner client registers a principal and a project before delegating.
+message OpenAgentSessionRequest {
+  string client_id = 1;
+  string client_name = 2;
+  string project_path = 3;
+  string request_id = 4;
+}
+
+message OpenAgentSessionResponse {
+  // Capability used as Bearer authorization on the restricted AgentOps socket.
+  // Do not show or log this value.
+  string token = 1;
+  string project_path = 2;
 }
 
 message ListPendingApprovalsRequest {}

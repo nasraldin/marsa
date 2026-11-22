@@ -26,6 +26,7 @@ pub(super) struct Instance {
     _lock: File,
     socket: Option<OwnedPath>,
     docker_socket: Option<OwnedPath>,
+    agent_socket: Option<OwnedPath>,
     pid: Option<OwnedPath>,
 }
 
@@ -63,6 +64,7 @@ impl Instance {
             _lock: lock,
             socket: None,
             docker_socket: None,
+            agent_socket: None,
             pid: None,
         })
     }
@@ -71,11 +73,12 @@ impl Instance {
         &mut self,
         paths: &MarsaPaths,
         uid: u32,
-    ) -> io::Result<(UnixListener, UnixListener)> {
+    ) -> io::Result<(UnixListener, UnixListener, UnixListener)> {
         let pid = paths.daemon_pid_file();
         remove_stale(&pid, |entry| is_owned_file(entry, uid))?;
         let api = bind_socket(paths.daemon_socket(), uid, &mut self.socket)?;
         let docker = bind_socket(paths.docker_socket(), uid, &mut self.docker_socket)?;
+        let agent = bind_socket(paths.agent_socket(), uid, &mut self.agent_socket)?;
 
         let mut process = OpenOptions::new()
             .write(true)
@@ -84,14 +87,15 @@ impl Instance {
             .open(&pid)?;
         self.pid = Some(OwnedPath::new(pid, &process.metadata()?));
         writeln!(process, "{}", std::process::id())?;
-        Ok((api, docker))
+        Ok((api, docker, agent))
     }
 
     pub(super) fn cleanup(&mut self) -> io::Result<()> {
         let socket = self.socket.take().map_or(Ok(()), OwnedPath::remove);
         let docker = self.docker_socket.take().map_or(Ok(()), OwnedPath::remove);
+        let agent = self.agent_socket.take().map_or(Ok(()), OwnedPath::remove);
         let pid = self.pid.take().map_or(Ok(()), OwnedPath::remove);
-        socket.and(docker).and(pid)
+        socket.and(docker).and(agent).and(pid)
     }
 }
 
