@@ -154,11 +154,14 @@ checks the documented native roles and every additional Mach-O, including
 code under `Contents/Resources`. It accepts thin arm64 code. It uses Apple's
 `codesign` with a strict requirement for Apple-issued Developer ID
 Application signatures from the supplied team. It checks the Hardened
-Runtime flag on each file and requires the virtualization entitlement on
+Runtime flag and the certified signing timestamp on each file. It reads the
+timestamp directly from Security.framework after strict signature validation.
+It requires the virtualization entitlement on
 `marsad` alone for the VZ release. All other code has an empty entitlement
 dictionary. [Apple code requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements/)
 · [Apple's distribution signing guide](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac)
-· [Apple's Hardened Runtime flag](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/cs_blobs.h).
+· [Apple's Hardened Runtime flag](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/cs_blobs.h)
+· [Apple's signing information keys](https://developer.apple.com/documentation/security/signing-information-dictionary-keys).
 
 When M10-01 places the MCP executable used by M8-07 in the final bundle,
 add that path as a required native role and cover it in the verifier's
@@ -166,9 +169,11 @@ fixture. The Mach-O scan already checks an additional executable when
 present. The required role also makes a missing executable fail verification.
 
 A hardened ad-hoc fixture passed strict structural verification and failed
-the Developer ID requirement on macOS 27.2.1. M10-02 owns Developer ID signing,
-secure timestamp verification, notarization, stapling, Gatekeeper assessment,
-and clean-Mac installation and VM boot.
+both the Developer ID requirement and the standalone timestamp check on macOS
+27.2.1. The standalone check accepted a separate strictly verified Developer ID
+reference binary with a certified timestamp. M10-02 owns Developer ID signing,
+notarization, stapling, Gatekeeper assessment, and clean-Mac installation and
+VM boot.
 [Apple's notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
 For notarization, M10-02 verifies the app inside the final pre-staple
@@ -178,6 +183,36 @@ the exact same file from private staging. Stop the release if the digest
 changes. Assess the stapled artifact separately for distribution.
 
 The Mac App Store is not a distribution target: the sandbox it requires conflicts with running a VM daemon, a shared socket and bundled CLIs.
+
+### Signing and clean-Mac handoff
+
+- Confirm the project’s Apple Developer Program team and the 10-character Team
+  ID. Name the owner responsible for certificate issuance and the custodian of
+  the Developer ID Application identity.
+- Make that identity and its matching private key available to the designated
+  signing user or protected release job. Provision notarization there as an
+  Apple `notarytool` Keychain profile, or use an App Store Connect team API key
+  with its key ID and issuer ID. Share the approved Team ID and profile name
+  through release configuration. Enter credentials directly into the protected
+  signing environment.
+- Designate separate custodians for the [TUF update keys](reference/update-manifest.md#keys-and-expiry).
+  Keep root and targets signing offline or hardware-backed. Sign and test the
+  G3 VM qualification artifact independently of establishing the update channel.
+- Provide a second physical Apple silicon Mac running macOS 27 or later with no
+  Xcode or command-line developer tools and no prior Marsa install or data. Use
+  a standard macOS account, keep Gatekeeper enabled, and allow access to the
+  distribution download. Tell the release operator
+  which macOS build and Mac model are available and who will perform the test.
+- For G3, download the notarized qualification build and record a successful
+  Linux VM boot. For the app release, download the stapled DMG through a browser
+  and preserve quarantine, drag Marsa to Applications, and open it in Finder.
+  Record the first-launch result and VM readiness. Keep the artifact SHA-256
+  and the OS build with the evidence. The release conformance tests cover
+  public image pulls.
+
+[Apple Developer ID certificate setup](https://developer.apple.com/help/account/certificates/create-developer-id-certificates)
+· [Apple notarization authentication](https://developer.apple.com/documentation/technotes/tn3147-migrating-to-the-latest-notarization-tool)
+· [Apple distribution testing](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution).
 
 ## Distribution channels
 

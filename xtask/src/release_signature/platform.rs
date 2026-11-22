@@ -12,6 +12,8 @@ use std::{
 
 use serde_json::{Value, json};
 
+mod timestamp;
+
 const CODESIGN: &str = "/usr/bin/codesign";
 const PLUTIL: &str = "/usr/bin/plutil";
 const APP_ID: &str = "io.github.nasraldin.marsa";
@@ -48,7 +50,7 @@ pub(super) fn verify(bundle: &Path, team: &str) -> io::Result<usize> {
     for relative in &code {
         let path = root.join(relative);
         verify_signature(&path, team, false)?;
-        check_policy(&path, relative == Path::new(DAEMON))?;
+        check_release_policy(&path, relative == Path::new(DAEMON))?;
     }
     Ok(code.len())
 }
@@ -172,6 +174,11 @@ fn signature_result(path: &Path, team: &str, outer: bool) -> io::Result<Output> 
         .args(["--test-requirement", &requirement])
         .arg(path)
         .output()
+}
+
+fn check_release_policy(path: &Path, needs_virtualization: bool) -> io::Result<()> {
+    check_policy(path, needs_virtualization)?;
+    timestamp::require(path)
 }
 
 fn check_policy(path: &Path, needs_virtualization: bool) -> io::Result<()> {
@@ -320,6 +327,20 @@ mod tests {
         );
         fs::write(&resource, "changed").unwrap();
         assert!(!structurally_signed(&app));
+    }
+
+    #[test]
+    fn hardened_adhoc_code_fails_the_release_timestamp_policy() {
+        let scratch = tempfile::tempdir().unwrap();
+        let fixture = scratch.path().join("fixture");
+        fs::copy(std::env::current_exe().unwrap(), &fixture).unwrap();
+        sign(&fixture, true, None);
+        assert!(structurally_signed(&fixture));
+        let error = check_release_policy(&fixture, false).unwrap_err();
+        assert!(
+            error.to_string().contains("secure signing timestamp"),
+            "{error}"
+        );
     }
 
     #[test]
