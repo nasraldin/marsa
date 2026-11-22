@@ -184,6 +184,7 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 | `Engine` | `Status`, `Start`, `Stop`, `Restart`, `Reset` (factory reset with confirmation token) |
 | `Settings` | `Get`, `Update`, `Watch` |
 | `Shares` | `List`, `Add`, `Remove` |
+| `DockerDiscovery` | `GetEndpoint` and explicit `EnsureContext` |
 | `Network` | `Status`, `SetMode`, `ListForwardedPorts` |
 | `Events` | `Subscribe` (server stream of all daemon events) |
 | `Stats` | `VmStats` (server stream: CPU, memory, disk) |

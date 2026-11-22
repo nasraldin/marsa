@@ -31,6 +31,7 @@ async fn packaged_daemon_preserves_volume_and_grows_disk_after_sigkill() {
     config.network.mode = marsa_core::settings::NetworkMode::Userspace;
     replace_settings(&channel, &config, 1).await;
     start(&channel, &paths, 2).await;
+    let helper_pid = userspace_helper(process.0.id());
     let before = usage(&channel).await;
     assert_eq!(before.host_capacity_bytes, GIB);
     let identity = disk_identity(&paths.data_disk());
@@ -88,11 +89,14 @@ async fn packaged_daemon_preserves_volume_and_grows_disk_after_sigkill() {
     process.0.kill().unwrap();
     assert_eq!(process.0.wait().unwrap().signal(), Some(9));
     drop(channel);
+    assert_helper_exits(helper_pid).await;
 
     let logs = scratch.path().join("second.log");
     let mut process = spawn(&daemon, &home, &logs);
     let recovered = connect(&mut process.0, &paths.daemon_socket(), &logs).await;
     start(&recovered, &paths, 4).await;
+    let replacement_helper = userspace_helper(process.0.id());
+    assert_ne!(replacement_helper, helper_pid);
     let after = usage(&recovered).await;
     assert_eq!(after.host_capacity_bytes, 2 * GIB);
     assert!(after.guest_capacity_bytes > before.guest_capacity_bytes + 768 * MIB);
@@ -121,6 +125,47 @@ async fn packaged_daemon_preserves_volume_and_grows_disk_after_sigkill() {
         "Volume survived SIGKILL and guest capacity grew from {} to {} bytes.",
         before.guest_capacity_bytes, after.guest_capacity_bytes
     );
+}
+
+fn userspace_helper(daemon_pid: u32) -> u32 {
+    let processes = Command::new("/bin/ps")
+        .args(["-axww", "-o", "pid=,ppid=,comm="])
+        .output()
+        .unwrap();
+    assert!(processes.status.success());
+    let mut children = String::from_utf8_lossy(&processes.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid = fields.next()?.parse::<u32>().ok()?;
+            let parent = fields.next()?.parse::<u32>().ok()?;
+            (parent == daemon_pid && fields.last()?.ends_with("/marsa-net-helper")).then_some(pid)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(children.len(), 1, "expected a single private helper");
+    children.pop().unwrap()
+}
+
+async fn assert_helper_exits(pid: u32) {
+    let pid = pid.to_string();
+    timeout(WAIT, async {
+        loop {
+            let helper = tokio::process::Command::new("/bin/ps")
+                .args(["-p", &pid, "-o", "comm="])
+                .output()
+                .await
+                .unwrap();
+            if !String::from_utf8_lossy(&helper.stdout)
+                .trim()
+                .ends_with("/marsa-net-helper")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("a private helper survived its daemon's SIGKILL");
 }
 
 pub(super) async fn signal_running_daemon(process: &mut Daemon) {

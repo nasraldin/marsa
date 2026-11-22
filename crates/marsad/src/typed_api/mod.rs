@@ -2,6 +2,7 @@
 
 mod diagnostics;
 mod disk;
+mod docker_discovery;
 mod engine;
 mod events;
 mod meta;
@@ -17,7 +18,8 @@ use marsa_core::{
     settings::{NetworkMode, Settings},
 };
 use marsa_proto::host::v1::{
-    CollectDiagnosticsResponse, diagnostics_server::DiagnosticsServer, disk_server::DiskServer,
+    CollectDiagnosticsResponse, EnsureDockerContextResponse, diagnostics_server::DiagnosticsServer,
+    disk_server::DiskServer, docker_discovery_server::DockerDiscoveryServer,
     engine_server::EngineServer, events_server::EventsServer, meta_server::MetaServer,
     settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
 };
@@ -47,6 +49,7 @@ pub struct TypedApi {
     inner: Arc<Shared>,
     supervisor: Option<Supervisor>,
     capabilities: Option<Capabilities>,
+    docker_contexts: Option<Arc<docker_discovery::Registration>>,
 }
 
 struct Shared {
@@ -60,6 +63,7 @@ struct Shared {
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
     remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
+    docker_context_requests: requests::Cache<(), EnsureDockerContextResponse>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
 }
@@ -85,11 +89,13 @@ impl TypedApi {
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
+                docker_context_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
                 closing,
             }),
             supervisor: None,
             capabilities: None,
+            docker_contexts: None,
         })
     }
 
@@ -195,6 +201,11 @@ impl TypedApi {
                 SharesServer::new(self.clone())
                     .max_decoding_message_size(CONTROL_LIMIT)
                     .max_encoding_message_size(CONFIG_LIMIT),
+            )
+            .add_service(
+                DockerDiscoveryServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT)
+                    .max_encoding_message_size(CONTROL_LIMIT),
             )
             .add_service(EventsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(StatsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))

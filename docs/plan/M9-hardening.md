@@ -18,10 +18,10 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-02 Fuzz targets
 
-- **Status:** todo
-- **Depends on:** M3-07, M4-01
+- **Status:** done
+- **Depends on:** M3-07, M10-03
 - **Docs:** [11 Process hardening on the host](../11-security.md#process-hardening-on-the-host)
-- **Do:** Add fuzz targets for the guest control-protocol decoder, the Docker create-request inspector, the settings parser and the update manifest parser (once M10-03 defines it). Run them on a schedule in CI with a corpus kept in the repository.
+- **Do:** Add fuzz targets for the guest control-protocol decoder, the settings parser and the update manifest parser. Run them on a schedule in CI with a corpus kept in the repository. M9-15 adds the Docker create-request inspector after M4-06 implements it.
 - **Deliver:** `fuzz/` targets and a scheduled workflow.
 - **Accept when:**
   - Each target runs for a fixed budget in CI without crashes.
@@ -63,14 +63,27 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-06 Crash recovery
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-06, M4-07
 - **Docs:** [04 Failure handling](../04-virtualization-macos.md#failure-handling)
-- **Do:** On start, detect and clean up or reattach an orphaned VM, stale sockets, stale port listeners and a stale helper process. Ensure a daemon crash never corrupts the data disk.
+- **Do:** Recover from daemon death without leaving a VM or user-space helper alive, replace stale runtime sockets on start and preserve the data disk. M9-16 verifies stale published port listeners after M4-09 implements forwarding.
 - **Deliver:** recovery logic and fault-injection tests.
 - **Accept when:**
   - Killing `marsad` at each supervisor state and restarting always reaches a correct state without manual steps.
   - A named volume written before the kill is intact afterwards.
+
+**Verification.** Private subprocesses were killed at all eight supervisor states. Each replacement served the Unix API and rebound the Docker socket. The signed Apple silicon test killed the daemon in `Ready`, observed the old network helper exit and verified that the replacement used the original disk and named volume. A later clean shutdown left no ext4 recovery flag.
+
+### M9-16 Recover published ports after a daemon crash
+
+- **Status:** todo
+- **Depends on:** M4-09, M9-06
+- **Docs:** [06 Published ports](../06-networking.md#published-ports), [04 Failure handling](../04-virtualization-macos.md#failure-handling)
+- **Do:** Verify recovery of published TCP and UDP listeners when the daemon is killed, including any helper that owns a listener.
+- **Deliver:** Production port recovery changes where needed and a crash-injection regression in the port-forwarding suite.
+- **Accept when:**
+  - The stale published listeners close after daemon death and a replacement can bind the same endpoints without manual cleanup.
+  - Recovery preserves the configured exposure policy and leaves an unrelated listener alone.
 
 ### M9-07 Diagnostics bundle actions
 
@@ -119,7 +132,7 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 ### M9-11 Security review (gate G6)
 
 - **Status:** todo
-- **Depends on:** M9-01, M9-02, M8-08
+- **Depends on:** M9-01, M9-02, M9-15, M8-08
 - **Docs:** [11 Security](../11-security.md)
 - **Do:** Prepare a review package (threat model, architecture, test results), complete an internal review against every threat, and arrange an independent review before release. Finalise `SECURITY.md` and the vulnerability response process, including advisory monitoring.
 - **Deliver:** review report, resolved or accepted findings recorded, finalised `SECURITY.md`.
@@ -149,3 +162,14 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
   - An authenticated caller can explicitly create one local archive and receive its path even when the engine is stopped.
   - The archive contains the approved logs and diagnostic state without planted secrets, environment values, or raw settings.
   - Retrying the same request ID returns the existing archive path without creating another archive.
+
+### M9-15 Fuzz the Docker create-request inspector
+
+- **Status:** todo
+- **Depends on:** M4-06, M9-02
+- **Docs:** [11 Process hardening on the host](../11-security.md#process-hardening-on-the-host), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements)
+- **Do:** Exercise the production Docker create-request inspector with a committed corpus of representative and malformed request bodies. Check that malformed or unsupported inputs cannot bypass the bind-mount policy.
+- **Deliver:** An inspector target and corpus in `fuzz/`, wired into the scheduled workflow.
+- **Accept when:**
+  - The target runs for a fixed budget in CI without crashes.
+  - Any crash found is fixed and its input added as a regression test.
