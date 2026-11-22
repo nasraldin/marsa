@@ -23,6 +23,12 @@ use tokio::{
 
 const WAIT: Duration = Duration::from_secs(5);
 
+const STARTUP: marsa_dockerproxy::Startup = marsa_dockerproxy::Startup {
+    timeout: WAIT,
+    timed_out: "Marsa timed out starting the engine",
+    unavailable: "The Marsa engine is unavailable",
+};
+
 struct Proxy {
     _dir: tempfile::TempDir,
     task: JoinHandle<io::Result<()>>,
@@ -40,6 +46,7 @@ impl Proxy {
         let task = tokio::spawn(marsa_dockerproxy::serve(
             client_listener,
             geteuid().as_raw(),
+            STARTUP,
             move || {
                 let path = upstream_path.clone();
                 async move { UnixStream::connect(path).await }
@@ -123,6 +130,7 @@ async fn closing_a_quiet_client_drops_the_upstream_in_both_directions() {
     let proxy = tokio::spawn(marsa_dockerproxy::serve(
         listener,
         geteuid().as_raw(),
+        STARTUP,
         move || {
             let opened = opened.clone();
             async move {
@@ -161,6 +169,7 @@ async fn closing_a_client_cancels_a_pending_upstream_open() {
     let proxy = tokio::spawn(marsa_dockerproxy::serve(
         listener,
         geteuid().as_raw(),
+        STARTUP,
         move || {
             let opened = opened.clone();
             let dropped = Dropped(dropped.clone());
@@ -187,6 +196,7 @@ async fn rejects_wrong_peer_uid_before_opening_an_engine_connection() {
     let proxy = tokio::spawn(marsa_dockerproxy::serve(
         listener,
         geteuid().as_raw() ^ 1,
+        STARTUP,
         {
             let opened = opened.clone();
             move || {
@@ -211,4 +221,46 @@ async fn send(from: &mut UnixStream, to: &mut UnixStream, bytes: &[u8]) {
 async fn expect_eof(stream: &mut (impl AsyncReadExt + Unpin)) {
     let mut byte = [0];
     assert_eq!(stream.read(&mut byte).await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn a_startup_deadline_returns_a_docker_json_error() {
+    let dir = tempfile::tempdir_in("/tmp").unwrap();
+    let path = dir.path().join("docker.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    let proxy = tokio::spawn(marsa_dockerproxy::serve(
+        listener,
+        geteuid().as_raw(),
+        marsa_dockerproxy::Startup {
+            timeout: Duration::from_millis(30),
+            timed_out: "Marsa timed out starting the engine",
+            unavailable: "The Marsa engine is unavailable",
+        },
+        pending::<io::Result<UnixStream>>,
+    ));
+    for (method, body) in [
+        (
+            "GET",
+            br#"{"message":"Marsa timed out starting the engine"}"#.as_slice(),
+        ),
+        ("HEAD", b"".as_slice()),
+    ] {
+        let mut client = UnixStream::connect(&path).await.unwrap();
+        client
+            .write_all(format!("{method} /_ping HTTP/1.1\r\nHost: docker\r\n\r\n").as_bytes())
+            .await
+            .unwrap();
+        let mut bytes = Vec::new();
+        timeout(WAIT, client.read_to_end(&mut bytes))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(bytes.starts_with(b"HTTP/1.1 504 "));
+        let separator = bytes
+            .windows(4)
+            .position(|item| item == b"\r\n\r\n")
+            .unwrap();
+        assert_eq!(&bytes[separator + 4..], body);
+    }
+    proxy.abort();
 }

@@ -44,12 +44,10 @@ impl Actor {
                 self.config.idle_stop = stop;
                 self.config.idle_timeout = timeout;
                 self.reset_idle();
-                let result = if stop && self.state() == State::Idle {
-                    self.stop().await
-                } else {
-                    Ok(())
-                };
-                (reply, result)
+                if stop && self.state() == State::Idle && self.empty && self.docker_quiet() {
+                    self.idle_at = Some(Instant::now());
+                }
+                (reply, Ok(()))
             }
             Command::ContainerCount(count, reply) => {
                 self.container_count(count);
@@ -110,15 +108,36 @@ impl Actor {
             if self.state() == State::Idle {
                 self.transition(State::Ready);
             }
-        } else if self.state() == State::Ready {
+        } else if self.state() == State::Ready && self.docker_quiet() {
             self.idle_at
                 .get_or_insert_with(|| Instant::now() + self.config.idle_timeout);
         }
     }
 
+    pub(super) async fn workload_sample(&mut self, count: Option<io::Result<u32>>) {
+        if matches!(self.docker_clients.has_changed(), Ok(true)) {
+            self.docker_activity();
+            return;
+        }
+        self.sample_at = count
+            .as_ref()
+            .map(|_| Instant::now() + Duration::from_secs(2));
+        if let Some(count) = count {
+            // An unavailable or malformed observation never authorizes idle stop.
+            self.container_count(count.unwrap_or(1));
+        }
+        if self.idle_at.is_some_and(|at| at <= Instant::now()) {
+            self.idle().await;
+        }
+    }
+
     pub(super) async fn idle(&mut self) {
+        if matches!(self.docker_clients.has_changed(), Ok(true)) {
+            self.docker_activity();
+            return;
+        }
         self.idle_at = None;
-        if self.state() == State::Ready {
+        if self.empty && self.docker_quiet() && matches!(self.state(), State::Ready | State::Idle) {
             self.transition(State::Idle);
             if self.config.idle_stop {
                 let _ = self.stop().await;
@@ -134,6 +153,7 @@ impl Actor {
         guest.vm.pause().await.map_err(Arc::new)?;
         guest.session.take();
         self.idle_at = None;
+        self.sample_at = None;
         self.transition(State::Paused);
         Ok(())
     }
@@ -175,6 +195,7 @@ impl Actor {
     pub(super) async fn stop(&mut self) -> Result<(), SupervisorError> {
         self.retry_at = None;
         self.idle_at = None;
+        self.sample_at = None;
         if self.state() == State::Stopped {
             return Ok(());
         }
@@ -272,6 +293,7 @@ impl Actor {
             Reason::Canceled => (false, "guest activation canceled".into()),
         };
         self.idle_at = None;
+        self.sample_at = None;
         let stop = self.stop_vm(vm, self.config.stop_timeout).await;
         if let Err(error) = &stop {
             detail.push_str(&format!("; guest cleanup failed: {error}"));
@@ -286,6 +308,11 @@ impl Actor {
                 platform::console_tail(self.runtime.console_log.clone()).await
             },
         });
+        tracing::warn!(
+            stage = ?failure.stage,
+            timed_out = failure.timed_out,
+            "guest activation failed"
+        );
         self.set_state(State::Failed, Some(failure.clone()));
         if self.retries_left > 0 && stop.is_ok() && issue.stage != BootStage::Prepare {
             self.retries_left -= 1;

@@ -164,9 +164,9 @@ stateDiagram-v2
 
 Rules:
 
-- **Start on demand.** The VM starts when the user asks or when the first Docker API call arrives. A call that arrives during `Starting` or `Booting` waits, up to a timeout, and then proceeds.
+- **Start on demand.** The VM starts when the user asks or when a Docker client authenticates on the local socket. Concurrent connections share the same activation and wait for readiness before sending anything to the guest. A connection can wait up to 180 seconds, including a bounded retry.
 - **Ready means usable.** `Ready` requires protocol negotiation, a successful guest clock update, an agent health report of `Ready`, and an independent successful `GET /_ping` over the Docker API vsock port.
-- **Idle behaviour is a setting.** By default the VM stops after a period with no running containers, so an idle Marsa uses almost no memory.
+- **Idle behaviour is a setting.** An active or waiting Docker connection keeps the engine available. Once the last connection closes, the supervisor checks the guest for running, paused, and restarting containers. The idle countdown starts after a successful empty snapshot, with a fresh successful check required at expiry. A failed or oversized snapshot keeps the VM running.
 - **Failures are visible.** Every transition is published, and `Failed` carries the failed stage and a bounded console tail. Retries use a bounded backoff and share a budget across one explicit activation. If VM cleanup fails, the supervisor retains it for another stop attempt before starting a replacement.
 
 ### Guest control
@@ -216,7 +216,7 @@ delivered cursor and checks that live updates follow the cursor in order.
 
 ## Docker socket proxy
 
-`marsad` listens on `~/.marsa/run/docker.sock` (mode 0600, owner only) and forwards each connection to dockerd in the guest over vsock. The sequence below includes on-demand startup (M4-02) and share policy (M4-06).
+`marsad` listens on `~/.marsa/run/docker.sock` (mode 0600, owner only) and forwards each connection to dockerd in the guest over vsock. The sequence below includes the share policy planned for M4-06.
 
 ```mermaid
 sequenceDiagram
@@ -238,13 +238,15 @@ sequenceDiagram
     end
 ```
 
-M4-01 connects to an already-ready guest. The proxy opens a separate stream
+The proxy opens a separate stream
 on guest vsock port 5001 for each authenticated client. The daemon holds
 the listener under its instance lock, checks the Unix peer UID and limits
 the proxy to 128 live connections. Each relay uses an 8 KiB buffer in each
 direction and streams bytes as backpressure permits. A write half-close
 still lets an attached client receive output. A full client disconnect
-drops the upstream stream, including when opening it is still in progress.
+drops the upstream stream, including when opening it is still in progress. If engine activation fails,
+the proxy returns a Docker JSON error with HTTP 503, or HTTP 504 if the
+startup deadline expires.
 
 Docker Engine 29.10.0 exposes API v1.57. The upstream contract specifies
 HTTP connection upgrades for attach and exec, along with raw or multiplexed
@@ -275,6 +277,24 @@ runs interactive CLI tests with a PTY, and samples daemon RSS while reading
 a Docker save archive larger than 2 GiB. It also cancels 140 log-follow
 requests to verify that the guest bridge continues accepting connections.
 
+The idle check queries the pinned API's filtered container list over vsock.
+The `/info` running counter cannot stand in for this list because Docker
+accounts for restarting containers as stopped in its metrics. The
+supervisor limits each observation to 64 KiB and two seconds.
+[Pinned container list](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/list.go)
+· [Pinned state counters](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/monitor.go#L24-L33).
+
+To verify on-demand startup, use the same signed fixture and run the test
+below. Ten concurrent `docker ps` calls share one activation, and running,
+paused, and restarting workloads keep the VM available through the idle
+timeout. The next call wakes the VM after the workloads stop and the idle
+deadline passes.
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
+  --test packaged_runtime packaged_docker_starts_once_on_demand -- --ignored --nocapture
+```
+
 ## Settings
 
 **Proposed.** Stored as TOML at `~/.marsa/config.toml`. The daemon is the only writer; clients change settings through the API.
@@ -301,6 +321,12 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 - Settings replacements use compare-and-swap revisions and an atomic rename of a private file in the config directory. Idle policy changes apply to the supervisor live. Boot-time changes report `restart_required` until the VM runtime is rebuilt with the new settings. VM CPU, memory, disk size, shares, backend and network settings are included in that check.
 - Telemetry remains disabled pending [Q-10](16-risks-and-open-questions.md#open-questions-for-the-project-owner).
 
+## Diagnostics archive
+
+The owner-only Unix API creates one private tar archive in `~/.marsa/diagnostics/` when explicitly asked, even with the engine stopped. Review the archive before sharing it. Collection makes no network requests. Replaying a request ID while the daemon retains its result returns the same path.
+
+The archive includes build and protocol versions, selected settings, engine state and history, network modes and boot result, and redacted log summaries. Settings contain resource limits, feature flags, and counts. Docker and containerd inherit the guest console from PID 1. The collector summarizes those engine records from the console tail. It uses approved record types, levels, and boot-stage timings and drops free-form messages and fields, including paths, environment values, and tokens. Missing or inaccessible logs are recorded by status. [Guest init](../crates/marsa-init/src/platform/linux.rs), [process supervisor](../crates/marsa-init/src/platform/linux/supervisor.rs).
+
 ## Filesystem layout on the host
 
 **Proposed.**
@@ -318,6 +344,7 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 │   └── console.log
 ├── logs/
 │   └── marsad.log
+├── diagnostics/             # user-requested support archives
 ├── state/
 │   ├── grants.json          # agent permission grants
 │   └── update/
