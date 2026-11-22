@@ -3,17 +3,19 @@
 use std::{io, net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 
 use marsa_proto::guest::v1::EgressStage;
-use marsa_vm::{Hypervisor, Vm, VmError, VmSpec, VsockStream, async_trait};
+use marsa_vm::{Hypervisor, Vm, VmError, VmSpec, async_trait};
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 mod actor;
 mod boot;
+mod docker;
 mod host_egress;
 pub(crate) mod launch;
 pub(crate) mod network;
 mod platform;
 
+pub use docker::DockerStream;
 pub use network::{AlternateFailure, BootNetwork, NetworkResult};
 
 #[cfg(test)]
@@ -151,6 +153,11 @@ pub enum SupervisorError {
 /// Negotiate a control session over the backend's guest transport.
 #[async_trait]
 pub trait GuestProbe: Send + Sync {
+    /// Observe running, paused and restarting workloads, or opt out of automatic observation.
+    async fn active_containers(&self, _vm: &dyn Vm) -> Option<io::Result<u32>> {
+        None
+    }
+
     /// Establish the versioned guest session.
     async fn handshake(&self, vm: &dyn Vm) -> io::Result<Box<dyn GuestSession>>;
 }
@@ -188,6 +195,7 @@ type Observer = Arc<dyn Fn(&Transition) + Send + Sync>;
 #[derive(Clone)]
 pub struct Supervisor {
     commands: mpsc::Sender<actor::Command>,
+    docker_clients: watch::Sender<usize>,
     snapshot: watch::Receiver<Snapshot>,
     events: broadcast::Sender<Transition>,
 }
@@ -279,6 +287,7 @@ impl Supervisor {
         observer: Option<Observer>,
     ) -> Self {
         let (commands, input) = mpsc::channel(actor::CHANNEL_CAPACITY);
+        let (docker_clients, clients) = watch::channel(0);
         let (output, snapshot) = watch::channel(Snapshot {
             state: State::Stopped,
             failure: None,
@@ -291,6 +300,7 @@ impl Supervisor {
                 probe,
                 config,
                 input,
+                clients,
                 actor::TransitionOutput {
                     snapshot: output,
                     events: events.clone(),
@@ -301,6 +311,7 @@ impl Supervisor {
         );
         Self {
             commands,
+            docker_clients,
             snapshot,
             events,
         }
@@ -311,14 +322,41 @@ impl Supervisor {
         self.request(actor::Command::EnsureReady).await
     }
 
-    /// Open one Docker API stream to the already-ready guest.
-    pub async fn connect_docker(&self) -> io::Result<VsockStream> {
-        let (reply, result) = oneshot::channel();
-        self.commands
-            .send(actor::Command::ConnectDocker(reply))
-            .await
-            .map_err(|_| io::ErrorKind::NotConnected)?;
-        result.await.map_err(|_| io::ErrorKind::NotConnected)?
+    /// Start the engine if necessary and hold a Docker API stream open against idle stop.
+    pub async fn connect_docker(&self) -> io::Result<DockerStream> {
+        let activity = docker::Activity::acquire(&self.docker_clients);
+        let stream = loop {
+            self.ensure_ready().await.map_err(|error| {
+                let kind = match &error {
+                    SupervisorError::Boot(failure) if failure.timed_out => io::ErrorKind::TimedOut,
+                    _ => io::ErrorKind::NotConnected,
+                };
+                io::Error::new(kind, error)
+            })?;
+            let (reply, result) = oneshot::channel();
+            self.commands
+                .send(actor::Command::ConnectDocker(reply))
+                .await
+                .map_err(|_| io::ErrorKind::NotConnected)?;
+            match result.await.map_err(|_| io::ErrorKind::NotConnected)? {
+                // An explicit restart or host pause can intervene after readiness.
+                // Join that transition without overriding a completed user Stop.
+                Err(error)
+                    if error.kind() == io::ErrorKind::NotConnected
+                        && matches!(
+                            self.snapshot().state,
+                            State::Starting | State::Booting | State::Paused
+                        ) =>
+                {
+                    continue;
+                }
+                result => break result?,
+            }
+        };
+        Ok(DockerStream {
+            stream,
+            _activity: activity,
+        })
     }
 
     /// Stop the guest and cancel any retry or pending activation.

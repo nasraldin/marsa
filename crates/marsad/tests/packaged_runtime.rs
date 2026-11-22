@@ -442,3 +442,5 @@ fn has_backup_exclusion(path: &Path) -> bool {
         .lines()
         .any(|attribute| attribute == "com.apple.metadata:com_apple_backup_excludeItem")
 }
+#[path = "packaged_runtime/on_demand.rs"]
+mod on_demand;

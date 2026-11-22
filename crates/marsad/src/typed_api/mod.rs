@@ -22,7 +22,7 @@ use marsa_proto::host::v1::{
     settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
 };
 use marsa_share::SharePolicy;
-use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec, VsockStream};
+use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
 use nix::unistd::{Uid, User};
 use tokio::{net::UnixListener, sync::watch};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -33,7 +33,9 @@ use tonic::{
 
 use crate::{
     guest_control::{GuestControl, GuestEvent},
-    supervisor::{GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection},
+    supervisor::{
+        DockerStream, GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection,
+    },
 };
 
 const CONTROL_LIMIT: usize = 4096;
@@ -208,8 +210,8 @@ impl TypedApi {
             .await
     }
 
-    /// Connect to the already-ready guest Docker engine through the daemon's runtime.
-    pub async fn connect_docker(&self) -> io::Result<VsockStream> {
+    /// Activate the guest on demand and open a Docker engine stream.
+    pub async fn connect_docker(&self) -> io::Result<DockerStream> {
         let supervisor = self
             .supervisor
             .as_ref()
