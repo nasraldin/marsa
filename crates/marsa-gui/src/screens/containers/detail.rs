@@ -323,6 +323,24 @@ fn inspect(
         }
     };
 
+    let clipboard_details = details.as_ref().clone();
+    body = body.child(
+        row(cx).justify_row_end().child(
+            Button::new("copy-redacted-inspect")
+                .outline()
+                .small()
+                .label(message(
+                    screen.locale,
+                    gui::GUI_DESKTOP_COPY_REDACTED_INSPECT_JSON,
+                ))
+                .on_click(move |_, _, cx| {
+                    if let Ok(json) = clipboard_details.redacted_inspect_json() {
+                        cx.write_to_clipboard(marsa_ui::gpui::ClipboardItem::new_string(json));
+                    }
+                }),
+        ),
+    );
+
     let mut env = card(screen, "Environment variables", "متغيرات البيئة");
     for variable in &details.environment {
         let key = variable.name.clone();

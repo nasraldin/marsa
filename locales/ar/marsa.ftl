@@ -498,3 +498,5 @@ gui-desktop-working = جارٍ التنفيذ…
 gui-desktop-workspace = مساحة العمل
 gui-desktop-wrap-lines = التفاف الأسطر
 gui-desktop-yes = نعم
+gui-desktop-copy-redacted-inspect-json = نسخ بيانات الفحص المحجوبة بصيغة JSON
+gui-desktop-virtual-machine-usage = استخدام الجهاز الافتراضي

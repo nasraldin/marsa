@@ -21,6 +21,9 @@ use marsa_client::{
 
 use crate::store::{ResourceSnapshot, Store};
 
+#[cfg(target_os = "macos")]
+mod metrics;
+
 pub use marsa_client::docker::ExecOutput as TerminalOutput;
 
 const RETRY: Duration = Duration::from_secs(1);

@@ -498,3 +498,5 @@ gui-desktop-working = Working…
 gui-desktop-workspace = Workspace
 gui-desktop-wrap-lines = Wrap lines
 gui-desktop-yes = Yes
+gui-desktop-copy-redacted-inspect-json = Copy redacted inspect JSON
+gui-desktop-virtual-machine-usage = Virtual machine usage

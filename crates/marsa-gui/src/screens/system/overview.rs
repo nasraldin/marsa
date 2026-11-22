@@ -130,6 +130,48 @@ impl SystemView {
                             )),
                     ),
             )
+            .children(self.vm_stats.as_ref().map(|sample| {
+                panel(screen)
+                    .child(title_text(
+                        gui::GUI_DESKTOP_VIRTUAL_MACHINE_USAGE.text(locale),
+                    ))
+                    .child(
+                        row(locale)
+                            .gap_3()
+                            .child(metric(
+                                screen,
+                                "Memory used",
+                                "الذاكرة المستخدمة",
+                                format!(
+                                    "{} / {}",
+                                    bytes(sample.memory_used_bytes),
+                                    bytes(sample.memory_total_bytes)
+                                ),
+                            ))
+                            .child(metric(
+                                screen,
+                                "Guest disk used",
+                                "القرص المستخدم في الضيف",
+                                format!(
+                                    "{} / {}",
+                                    bytes(sample.disk_used_bytes),
+                                    bytes(sample.disk_total_bytes)
+                                ),
+                            ))
+                            .child(metric(
+                                screen,
+                                "Received",
+                                "المستلم",
+                                bytes(sample.network_rx_bytes),
+                            ))
+                            .child(metric(
+                                screen,
+                                "Sent",
+                                "المرسل",
+                                bytes(sample.network_tx_bytes),
+                            )),
+                    )
+            }))
             .child(
                 panel(screen)
                     .child(title_text(

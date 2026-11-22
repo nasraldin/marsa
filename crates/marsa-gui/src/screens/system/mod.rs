@@ -15,6 +15,7 @@ use marsa_client::{
     api::{
         AuditDecision, DaemonSnapshot, DiskUsageResponse, EngineState, GetSettingsRequest,
         ListAgentAuditResponse, PrunePreviewResponse, SettingsSnapshot, VersionResponse,
+        VmStatsSample,
     },
 };
 use marsa_ui::{
@@ -42,6 +43,8 @@ pub(crate) struct SystemView {
     version: Option<VersionResponse>,
     login: Option<marsa_client::login::LoginStatus>,
     disk: Option<DiskUsageResponse>,
+    vm_stats: Option<VmStatsSample>,
+    vm_stats_task: Option<Task<()>>,
     preview: Option<PrunePreviewResponse>,
     cleanup_categories: [bool; 5],
     reclaimed: Option<u64>,
@@ -82,6 +85,8 @@ impl SystemView {
             version: None,
             login: None,
             disk: None,
+            vm_stats: None,
+            vm_stats_task: None,
             preview: None,
             cleanup_categories: [true, true, false, false, true],
             reclaimed: None,
@@ -105,6 +110,15 @@ impl SystemView {
 
     pub(crate) fn observe(&mut self, snapshot: Option<&DaemonSnapshot>, cx: &mut Context<Self>) {
         let revision = snapshot.map(|snapshot| snapshot.settings_revision);
+        let ready = snapshot
+            .and_then(|snapshot| snapshot.engine.as_ref())
+            .is_some_and(|engine| matches!(engine.state(), EngineState::Idle | EngineState::Ready));
+        if !ready {
+            self.vm_stats = None;
+            self.vm_stats_task = None;
+        } else if matches!(self.route, Route::Overview | Route::Machine) {
+            self.watch_vm(cx);
+        }
         if revision != self.revision {
             self.revision = revision;
             self.settings_load = None;
@@ -118,13 +132,49 @@ impl SystemView {
     pub(crate) fn enter(&mut self, route: Route, cx: &mut Context<Self>) {
         self.route = route;
         self.route_load = None;
+        if !matches!(route, Route::Overview | Route::Machine) {
+            self.vm_stats_task = None;
+            self.vm_stats = None;
+        }
         match route {
-            Route::Overview | Route::Disk | Route::Machine => self.load_disk(cx),
+            Route::Overview | Route::Machine => {
+                self.load_disk(cx);
+                self.watch_vm(cx);
+            }
+            Route::Disk => self.load_disk(cx),
             Route::Settings if self.settings_tab == SettingsTab::About => self.load_version(cx),
             Route::Settings if self.settings_tab == SettingsTab::General => self.load_login(cx),
             Route::Activity => self.load_audit(cx),
             _ => {}
         }
+    }
+
+    fn watch_vm(&mut self, cx: &mut Context<Self>) {
+        if self.vm_stats_task.is_some() {
+            return;
+        }
+        let Some(services) = &self.services else {
+            return;
+        };
+        let mut stream = services.watch_vm();
+        self.vm_stats_task = Some(cx.spawn(async move |this, cx| {
+            while let Some(sample) = stream.next().await {
+                if this
+                    .update(cx, |this, cx| {
+                        this.vm_stats = Some(sample);
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            let _ = this.update(cx, |this, cx| {
+                this.vm_stats = None;
+                this.vm_stats_task = None;
+                cx.notify();
+            });
+        }));
     }
 
     fn fetch_settings(&mut self, cx: &Context<Self>) {

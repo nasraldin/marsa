@@ -40,7 +40,7 @@ The desktop route renders grouped live container snapshots. Passive invalidation
   - Every inspect section matches `docker inspect`.
   - Masked values are not exposed in snapshots or logs.
 
-The detail route and masked environment fields are present. A sanitized raw inspect export is pending.
+The detail route masks environment fields. The clipboard export contains redacted inspect metadata.
 
 ---
 
@@ -86,7 +86,7 @@ The owner-socket exec transport and Terminal view are present. Enable the termin
   - Values match `docker stats` within sampling error.
   - Charts keep time flowing left to right in both languages, with labels localised.
 
-The container view presents sampled CPU, memory, network and disk metrics. VM and cross-container totals are pending.
+The container view presents sampled CPU, memory, network and disk metrics. Overview reads passive VM totals. A cross-container roll-up is pending.
 
 ---
 

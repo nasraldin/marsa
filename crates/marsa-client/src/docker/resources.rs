@@ -3,7 +3,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use hyper::Method;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{ContainerId, DockerClient, DockerError, null_to_default};
 
@@ -150,7 +150,7 @@ pub struct ContainerPort {
 }
 
 /// One mount reported for a container.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerMount {
     /// Driver's type such as volume, bind or tmpfs.
@@ -193,6 +193,30 @@ pub struct ContainerDetails {
     /// Labels in the container configuration, without their values.
     #[serde(skip)]
     pub label_names: Vec<String>,
+}
+
+impl ContainerDetails {
+    /// Encode the inspected metadata while excluding all environment and label values.
+    pub fn redacted_inspect_json(&self) -> Result<String, serde_json::Error> {
+        let environment: Vec<&str> = self
+            .environment
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        serde_json::to_string_pretty(&serde_json::json!({
+            "Id": self.id.as_str(),
+            "Name": self.name,
+            "Image": self.image,
+            "Created": self.created,
+            "State": self.state,
+            "Mounts": self.mounts,
+            "NetworkSettings": self.network_settings,
+            "Config": {
+                "EnvironmentNames": environment,
+                "LabelNames": self.label_names,
+            },
+        }))
+    }
 }
 
 #[derive(Deserialize)]
@@ -267,7 +291,7 @@ fn env_parts(entry: &str) -> (&str, Option<&str>) {
 }
 
 /// Runtime portion of an inspect response.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerRuntime {
     /// Machine-readable lifecycle state.
@@ -285,7 +309,7 @@ pub struct ContainerRuntime {
 }
 
 /// Container network attachments and detailed host port mappings.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerNetworkSettings {
     /// Networks indexed by Docker network name.
@@ -297,7 +321,7 @@ pub struct ContainerNetworkSettings {
 }
 
 /// Network attachment for a container.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct NetworkEndpoint {
     /// Stable Docker network ID.
@@ -315,7 +339,7 @@ pub struct NetworkEndpoint {
 }
 
 /// Published host binding reported by `docker inspect`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PortBinding {
     /// Address chosen for the published port.
     #[serde(rename = "HostIp")]

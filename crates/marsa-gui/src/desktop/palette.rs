@@ -64,8 +64,11 @@ pub(super) fn observe_query(
 impl Desktop {
     pub(super) fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.palette_open = true;
-        self.query
-            .update(cx, |input, cx| input.set_value("", window, cx));
+        let locale = self.locale;
+        self.query.update(cx, |input, cx| {
+            input.set_placeholder(gui::GUI_DESKTOP_SEARCH_COMMANDS.text(locale), window, cx);
+            input.set_value("", window, cx);
+        });
         let query = self.query.clone();
         window.on_next_frame(move |window, cx| {
             query.update(cx, |input, cx| input.focus(window, cx));
