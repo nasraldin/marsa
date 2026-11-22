@@ -34,6 +34,15 @@ the source log and `at_unix_millis` is zero when wall-clock time is unavailable.
 `marsa status --json` returns `resources: null` until the guest provides an
 observation. The CPU field is cumulative VM CPU busy time in nanoseconds.
 
+`marsa config list --json` and `marsa config get KEY --json` show the daemon
+settings revision as a decimal string. `marsa config set KEY VALUE` accepts a
+TOML value or a bare string. A rejected settings or shared-folder mutation
+returns `request_rejected` with exit status 1 and the daemon's explanation.
+
+`marsa network status --json` reports the configured and active network modes.
+The guest and gateway fields are IPv4 strings when observed. When the VM is
+stopped, the active mode and both addresses are `null`.
+
 `marsa share approvals --json` shows exact requested directories and expiry
 times. `marsa share resolve ID once|always|deny --json` reports whether the
 owner needs to restart the VM before retrying Docker. A request that cannot be

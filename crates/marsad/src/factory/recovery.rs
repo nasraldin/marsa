@@ -25,7 +25,7 @@ pub(super) fn recover_layout(layout: &Layout, checkpoint: &mut impl FnMut()) -> 
     let journal = read_journal(layout, &directory)?;
     let committed = commit_marker(&directory)?;
     // Validate the complete generation before recovery makes its first change.
-    for (member, record) in MEMBERS.into_iter().zip(journal.members) {
+    for (member, record) in MEMBERS.into_iter().zip(&journal.members) {
         let (name, backup, stage) = member.names();
         let current = layout.directory(member).entry_inode(name)?;
         let old = directory.entry_inode(backup)?;
@@ -47,7 +47,7 @@ pub(super) fn recover_layout(layout: &Layout, checkpoint: &mut impl FnMut()) -> 
             return Err(invalid());
         }
     }
-    for (member, record) in MEMBERS.into_iter().zip(journal.members) {
+    for (member, record) in MEMBERS.into_iter().zip(&journal.members) {
         let live = layout.directory(member);
         let (name, backup, stage) = member.names();
         if !committed {
@@ -107,11 +107,15 @@ fn read_journal(layout: &Layout, directory: &Directory) -> io::Result<Journal> {
         return Err(invalid());
     }
     let journal: Journal = serde_json::from_slice(&bytes)?;
-    if journal.version != 1
+    // Version 1 predates the separately approved proxy policy. No transaction
+    // from that version could have moved the proxy record.
+    if !matches!((journal.version, journal.members.len()), (1, 3) | (2, 4))
         || journal.directories != layout.inodes()?
         || journal.members[0].replacement.is_none()
         || journal.members[1].replacement.is_none()
-        || journal.members[2].replacement.is_some()
+        || journal.members[2..]
+            .iter()
+            .any(|record| record.replacement.is_some())
     {
         return Err(invalid());
     }
@@ -134,7 +138,7 @@ fn clear_finished(layout: &Layout, directory: &Directory) -> io::Result<()> {
         let journal = read_journal(layout, directory)?;
         let mut old_generation = true;
         let mut new_generation = true;
-        for (member, record) in MEMBERS.into_iter().zip(journal.members) {
+        for (member, record) in MEMBERS.into_iter().zip(&journal.members) {
             let (name, backup, stage) = member.names();
             let current = layout.directory(member).entry_inode(name)?;
             old_generation &= current == record.prior;

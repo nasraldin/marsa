@@ -7,6 +7,12 @@
     { "$ref": "#/$defs/error" },
     { "$ref": "#/$defs/bind_approvals" },
     { "$ref": "#/$defs/bind_resolution" },
+    { "$ref": "#/$defs/network_status" },
+    { "$ref": "#/$defs/settings" },
+    { "$ref": "#/$defs/setting" },
+    { "$ref": "#/$defs/shares" },
+    { "$ref": "#/$defs/share_added" },
+    { "$ref": "#/$defs/share_removed" },
     { "$ref": "#/$defs/env" },
     { "$ref": "#/$defs/status" },
     { "$ref": "#/$defs/version" },
@@ -50,6 +56,88 @@
         "kind": { "const": "bind_resolution" },
         "id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
         "decision": { "enum": ["once", "always", "deny"] },
+        "requires_restart": { "type": "boolean" }
+      }
+    },
+    "network_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "configured_mode", "active_mode", "reason", "guest_address", "gateway_address"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "network_status" },
+        "configured_mode": { "enum": ["auto", "nat", "userspace", null] },
+        "active_mode": { "enum": ["nat", "userspace", null] },
+        "reason": { "type": ["string", "null"] },
+        "guest_address": { "type": ["string", "null"] },
+        "gateway_address": { "type": ["string", "null"] }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "settings", "revision", "restart_required"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "settings" },
+        "settings": { "type": "object" },
+        "revision": { "$ref": "#/$defs/settings_revision" },
+        "restart_required": { "type": "boolean" }
+      }
+    },
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "key", "value", "revision", "restart_required"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "setting" },
+        "key": { "type": "string", "minLength": 1 },
+        "value": {},
+        "revision": { "$ref": "#/$defs/settings_revision" },
+        "restart_required": { "type": "boolean" }
+      }
+    },
+    "settings_revision": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+    "shared_folder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "read_only", "requires_restart"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "read_only": { "type": "boolean" },
+        "requires_restart": { "type": "boolean" }
+      }
+    },
+    "shares": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "shares"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "shares" },
+        "shares": { "type": "array", "items": { "$ref": "#/$defs/shared_folder" } }
+      }
+    },
+    "share_added": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "share"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "share_added" },
+        "share": { "$ref": "#/$defs/shared_folder" }
+      }
+    },
+    "share_removed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "id", "requires_restart"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "share_removed" },
+        "id": { "type": "string", "minLength": 1 },
         "requires_restart": { "type": "boolean" }
       }
     },
@@ -214,7 +302,7 @@
       "properties": {
         "schema_version": { "const": 1 },
         "kind": { "const": "error" },
-        "code": { "enum": ["confirmation_required", "invalid_invocation", "not_available", "connection_failed", "home_unavailable", "unprivileged_user_required", "incompatible_daemon", "operation_failed", "bind_resolution_failed"] },
+        "code": { "enum": ["confirmation_required", "invalid_invocation", "not_available", "connection_failed", "home_unavailable", "unprivileged_user_required", "incompatible_daemon", "operation_failed", "request_rejected", "bind_resolution_failed"] },
         "message": { "type": "string", "minLength": 1 }
       }
     }

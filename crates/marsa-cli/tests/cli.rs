@@ -25,6 +25,8 @@ fn all_commands_have_help() {
         &["config", "list"],
         &["share"],
         &["share", "list"],
+        &["share", "approvals"],
+        &["share", "resolve"],
         &["share", "add"],
         &["share", "remove"],
         &["disk"],
@@ -142,11 +144,47 @@ fn global_json_handles_help_and_errors_at_any_depth() {
 }
 
 #[test]
+#[cfg(unix)]
 fn double_dash_keeps_json_literal_out_of_global_flags() {
-    let result = marsa(&["config", "set", "key", "--", "--json"]);
+    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+        .args(["config", "set", "key", "--", "--json"])
+        .env("HOME", "/")
+        .env("LC_ALL", "en_US.UTF-8")
+        .output()
+        .expect("launch marsa");
     assert!(result.stdout.is_empty());
-    assert_eq!(result.status.code(), Some(1));
-    assert_eq!(result.stderr, b"This command is not available yet.\n");
+    assert_eq!(result.status.code(), Some(4));
+    assert!(!result.stderr.is_empty());
+}
+
+#[test]
+#[cfg(unix)]
+fn authenticated_settings_share_and_network_commands_discover_the_daemon() {
+    let commands: &[&[&str]] = &[
+        &["config", "list"],
+        &["share", "list"],
+        &["share", "add", "/tmp/project"],
+        &["share", "remove", "shared-folder-id"],
+        &["share", "approvals"],
+        &[
+            "share",
+            "resolve",
+            "0123456789abcdef0123456789abcdef",
+            "deny",
+        ],
+        &["network", "status"],
+    ];
+    for args in commands {
+        let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+            .args(*args)
+            .arg("--json")
+            .env("HOME", "/")
+            .output()
+            .expect("launch marsa");
+        assert_eq!(result.status.code(), Some(4), "{args:?}: {result:?}");
+        let document: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(document["code"], "home_unavailable", "{args:?}");
+    }
 }
 
 #[test]
