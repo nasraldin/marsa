@@ -177,4 +177,4 @@ The tray stays in the daemon and runs with the GUI closed.
 - **Accept when:**
   - A missing key, mismatched argument or invalid catalog fails build validation.
   - All six Arabic plural categories are exercised in a Fluent fixture.
-  - The migrated CLI message preserves existing English and Arabic output and JSON behavior.
+  - The migrated CLI message preserves its English output and JSON behavior. Desktop messages retain both locales.

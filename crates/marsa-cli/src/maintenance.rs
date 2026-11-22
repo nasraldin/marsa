@@ -13,23 +13,18 @@ use marsa_client::{
 };
 use serde_json::json;
 
-use crate::{Failure, Outcome, command::Language, engine};
+use crate::{Failure, Outcome, command, engine};
 
-pub(super) async fn run(
-    name: &str,
-    args: &ArgMatches,
-    language: Language,
-    yes: bool,
-) -> Option<Outcome> {
+pub(super) async fn run(name: &str, args: &ArgMatches, yes: bool) -> Option<Outcome> {
     let outcome = match name {
-        "diagnose" => diagnose(language).await,
-        "reset" => reset(args.get_flag("factory"), language, yes).await,
+        "diagnose" => diagnose().await,
+        "reset" => reset(args.get_flag("factory"), yes).await,
         _ => return None,
     };
     Some(outcome.unwrap_or_else(Outcome::Failure))
 }
 
-async fn diagnose(language: Language) -> Result<Outcome, Failure> {
+async fn diagnose() -> Result<Outcome, Failure> {
     let client = engine::connect().await?;
     let path = client
         .diagnostics()
@@ -45,9 +40,9 @@ async fn diagnose(language: Language) -> Result<Outcome, Failure> {
     if path.is_empty() {
         return Err(Failure::Operation);
     }
-    let message = language.message(
+    let message = command::message(
         keys::CLI_MAINTENANCE_DIAGNOSE_PATH,
-        &[("path", &language.technical(&path))],
+        &[("path", &command::technical(&path))],
     );
     Ok(Outcome::Data {
         document: json!({"schema_version": 1, "kind": "diagnose", "bundle_path": path}),
@@ -55,10 +50,10 @@ async fn diagnose(language: Language) -> Result<Outcome, Failure> {
     })
 }
 
-async fn reset(factory: bool, language: Language, yes: bool) -> Result<Outcome, Failure> {
+async fn reset(factory: bool, yes: bool) -> Result<Outcome, Failure> {
     if !yes {
         tokio::task::spawn_blocking(move || {
-            confirm(factory, language, io::stdin().lock(), io::stderr().lock())
+            confirm(factory, io::stdin().lock(), io::stderr().lock())
         })
         .await
         .map_err(|_| Failure::Operation)??;
@@ -87,12 +82,12 @@ async fn reset(factory: bool, language: Language, yes: bool) -> Result<Outcome, 
     let (scope, message) = if factory {
         (
             "factory",
-            language.label(keys::CLI_MAINTENANCE_FACTORY_RESET_COMPLETED),
+            command::label(keys::CLI_MAINTENANCE_FACTORY_RESET_COMPLETED),
         )
     } else {
         (
             "settings",
-            language.label(keys::CLI_MAINTENANCE_SETTINGS_RESET_COMPLETED),
+            command::label(keys::CLI_MAINTENANCE_SETTINGS_RESET_COMPLETED),
         )
     };
     Ok(Outcome::Data {
@@ -131,12 +126,7 @@ fn rpc_failure(error: ClientError) -> Failure {
     }
 }
 
-fn confirm(
-    factory: bool,
-    language: Language,
-    input: impl BufRead,
-    mut output: impl Write,
-) -> Result<(), Failure> {
+fn confirm(factory: bool, input: impl BufRead, mut output: impl Write) -> Result<(), Failure> {
     let (phrase, key) = if factory {
         ("FACTORY RESET", keys::CLI_MAINTENANCE_FACTORY_RESET_PROMPT)
     } else {
@@ -145,7 +135,7 @@ fn confirm(
             keys::CLI_MAINTENANCE_SETTINGS_RESET_PROMPT,
         )
     };
-    let prompt = language.message(key, &[("phrase", &language.technical(phrase))]);
+    let prompt = command::message(key, &[("phrase", &command::technical(phrase))]);
     writeln!(output, "{prompt}").map_err(|_| Failure::Operation)?;
     output.flush().map_err(|_| Failure::Operation)?;
     let mut line = String::new();
@@ -178,27 +168,19 @@ mod tests {
             &b"FACTORY RESET extra\n"[..],
         ] {
             assert!(matches!(
-                confirm(true, Language::English, input, Vec::new()),
+                confirm(true, input, Vec::new()),
                 Err(Failure::ConfirmationDeclined)
             ));
         }
-        assert!(confirm(true, Language::English, &b"FACTORY RESET\n"[..], Vec::new()).is_ok());
+        assert!(confirm(true, &b"FACTORY RESET\n"[..], Vec::new()).is_ok());
     }
 
     #[test]
-    fn settings_prompt_is_localized_and_accepts_its_own_phrase() {
+    fn settings_prompt_accepts_its_exact_phrase() {
         let mut prompt = Vec::new();
-        assert!(
-            confirm(
-                false,
-                Language::Arabic,
-                &b"RESET SETTINGS\r\n"[..],
-                &mut prompt
-            )
-            .is_ok()
-        );
+        assert!(confirm(false, &b"RESET SETTINGS\r\n"[..], &mut prompt).is_ok());
         let prompt = String::from_utf8(prompt).unwrap();
-        assert!(prompt.contains("إعادة ضبط إعدادات مرسى"));
+        assert!(prompt.contains("This resets Marsa settings."));
         assert!(prompt.contains("RESET SETTINGS"));
     }
 }

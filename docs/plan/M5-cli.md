@@ -78,17 +78,17 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 
 A signed CLI and daemon in a disposable home also exercised the factory service from M9-18. The CLI returned exit 3 without confirmation, preserved the original disk and grants, and then returned a successful reset after `--yes`. The new disk was sparse, grants were cleared, defaults persisted and an unrelated state entry was unchanged.
 
-### M5-07 CLI localisation
+### M5-07 English command-line output
 
 - **Status:** done
 - **Depends on:** M5-03, M6-12
-- **Docs:** [08 Internationalisation](../08-gui.md#internationalisation)
-- **Do:** Localise human-readable CLI output in English and Arabic using the shared translation system, following the system language with an override flag and environment variable. Keep `--json`, command names and flags in English. Isolate technical values as left-to-right in Arabic output.
-- **Deliver:** CLI strings in `locales/`, tests.
+- **Docs:** [CLI output](../reference/cli-exit-codes.md), [08 Internationalisation](../08-gui.md#internationalisation)
+- **Do:** Keep Marsa's CLI help, messages, confirmation prompts and completion descriptions in English regardless of the environment. The owner clarified that English and Arabic language selection applies to the desktop GUI.
+- **Deliver:** English CLI output, typed settings and shared-folder validation feedback, and regression tests.
 - **Accept when:**
-  - Every CLI message has both translations (build fails otherwise).
-  - Arabic output with embedded container names and paths reads correctly in a terminal that supports bidirectional text, and remains unambiguous in one that does not.
-- **Evidence:** Both catalogs validate at build time. CLI fixtures cover locale precedence, confirmations, English JSON, and raw redirected output. A disposable daemon and pseudo-terminal verified safe TOML display and Arabic share and settings rejections. FriBidi verified directional rendering of an isolated mixed-script path. An older daemon retained its diagnostic in human output while JSON stayed English.
+  - Arabic locale settings and legacy environment overrides leave CLI output in English. Remove the command-line language option.
+  - Preserve JSON contracts, exact confirmation phrases, control escaping for terminal display and raw redirected data.
+- **Evidence:** CLI regression tests compare English and Arabic shell environments for root and nested help, JSON help, completion output and errors. Private-home executable fixtures verified English MCP startup diagnostics and tool descriptions, reserved protocol stdout, and exact terminal approval with `yes`. The shared Fluent suite still tests Arabic plural forms.
 
 ### M5-08 Preview unused guest storage
 

@@ -59,7 +59,6 @@ cli-help-commands = الأوامر
 cli-help-arguments = الوسائط
 cli-help-options-placeholder = الخيارات
 cli-help-command-placeholder = الأمر
-cli-help-display-language = لغة العرض (en-US أو ar)
 cli-invalid-invocation = استدعاء غير صالح. شغّل marsa --help لعرض طريقة الاستخدام.
 cli-confirmation-required = تتطلب هذه العملية الخيار --yes عند تشغيلها دون تفاعل.
 cli-confirmation-declined = أُلغيَت إعادة الضبط لأن عبارة التأكيد غير مطابقة.

@@ -11,18 +11,16 @@ use toml::{Table, Value};
 
 use crate::{
     Failure, Outcome,
-    command::{Language, escape_terminal_controls},
+    command::{self, escape_terminal_controls},
     configuration_feedback::rejection,
     engine::{connection_failure, request_id},
 };
 
-pub(super) async fn run(args: &ArgMatches, language: Language, terminal: bool) -> Outcome {
-    apply(args, language, terminal)
-        .await
-        .unwrap_or_else(Outcome::Failure)
+pub(super) async fn run(args: &ArgMatches, terminal: bool) -> Outcome {
+    apply(args, terminal).await.unwrap_or_else(Outcome::Failure)
 }
 
-async fn apply(args: &ArgMatches, language: Language, terminal: bool) -> Result<Outcome, Failure> {
+async fn apply(args: &ArgMatches, terminal: bool) -> Result<Outcome, Failure> {
     let (command, args) = args.subcommand().ok_or(Failure::Usage)?;
     let name = args.try_get_one::<String>("key").ok().flatten();
     let path = name.map(|key| setting_path(key)).transpose()?;
@@ -47,7 +45,7 @@ async fn apply(args: &ArgMatches, language: Language, terminal: bool) -> Result<
                 "settings": table,
                 "restart_required": base.restart_required,
             }),
-            text: config_text(base.settings_toml, language, terminal),
+            text: config_text(base.settings_toml, terminal),
         }),
         ("get", Some(name), Some(path)) => {
             let value = find(&table, &path).ok_or(Failure::Usage)?;
@@ -56,26 +54,26 @@ async fn apply(args: &ArgMatches, language: Language, terminal: bool) -> Result<
                 value,
                 base.revision,
                 base.restart_required,
-                config_text(value.to_string() + "\n", language, terminal),
+                config_text(value.to_string() + "\n", terminal),
             ))
         }
         ("set", Some(name), Some(path)) => {
             let input = args.get_one::<String>("value").ok_or(Failure::Usage)?;
             let value = parse_value(input);
-            save(&client, table, base.revision, name, &path, value, language).await
+            save(&client, table, base.revision, name, &path, value).await
         }
         _ => Err(Failure::Usage),
     }
 }
 
-fn config_text(toml: String, language: Language, terminal: bool) -> String {
+fn config_text(toml: String, terminal: bool) -> String {
     if !terminal {
         return toml;
     }
     let mut display = String::new();
     for line in toml.split_inclusive('\n') {
         let content = line.strip_suffix('\n').unwrap_or(line);
-        display.push_str(&language.isolate(escape_terminal_controls(content)));
+        display.push_str(&escape_terminal_controls(content));
         if line.ends_with('\n') {
             display.push('\n');
         }
@@ -124,7 +122,6 @@ async fn save(
     name: &str,
     path: &[&str],
     value: Value,
-    language: Language,
 ) -> Result<Outcome, Failure> {
     let (key, parents) = path.split_last().ok_or(Failure::Usage)?;
     let parent = parents
@@ -147,13 +144,12 @@ async fn save(
         Ok(reply) => reply.into_inner(),
         Err(error) => {
             return Ok(rejection(
-                language,
                 ConfigurationIssue::from_status(&error),
                 (client.api_minor() < ConfigurationIssue::API_MINOR).then(|| error.message()),
             ));
         }
     };
-    let message = saved(language, result.restart_required);
+    let message = saved(result.restart_required);
     Ok(value_result(
         name,
         &value,
@@ -177,11 +173,11 @@ fn value_result(name: &str, value: &Value, revision: u64, restart: bool, text: S
     }
 }
 
-pub(super) fn saved(language: Language, restart: bool) -> &'static str {
+pub(super) fn saved(restart: bool) -> &'static str {
     if restart {
-        language.label(keys::CLI_SETTINGS_SAVED_RESTART)
+        command::label(keys::CLI_SETTINGS_SAVED_RESTART)
     } else {
-        language.label(keys::CLI_SETTINGS_SAVED)
+        command::label(keys::CLI_SETTINGS_SAVED)
     }
 }
 
@@ -192,14 +188,10 @@ mod tests {
     #[test]
     fn toml_controls_are_neutralized_only_in_terminal_display() {
         let raw = "a = \"path\u{202e}name\"\nb = \"other\"\n";
-        assert_eq!(config_text(raw.into(), Language::Arabic, false), raw);
+        assert_eq!(config_text(raw.into(), false), raw);
         assert_eq!(
-            config_text(raw.into(), Language::English, true),
+            config_text(raw.into(), true),
             "a = \"path\\u202ename\"\nb = \"other\"\n"
-        );
-        assert_eq!(
-            config_text(raw.into(), Language::Arabic, true),
-            "\u{2066}a = \"path\\u202ename\"\u{2069}\n\u{2066}b = \"other\"\u{2069}\n"
         );
     }
 

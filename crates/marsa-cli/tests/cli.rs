@@ -84,19 +84,6 @@ fn all_supported_shells_get_the_full_command_tree() {
 }
 
 #[test]
-fn arabic_help_has_localized_headings() {
-    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
-        .args(["disk", "--help"])
-        .env("LC_ALL", "ar_AE.UTF-8")
-        .output()
-        .unwrap();
-    assert!(result.status.success());
-    let help = str::from_utf8(&result.stdout).unwrap();
-    assert!(help.contains("الاستخدام"), "{help}");
-    assert!(help.contains("marsa disk"), "{help}");
-}
-
-#[test]
 fn global_json_handles_help_and_errors_at_any_depth() {
     let cases: &[(&[&str], u8, &str, Option<&str>)] = &[
         (&["--json", "disk", "usage", "--help"], 0, "help", None),
@@ -261,11 +248,8 @@ fn unsupported_cleanup_reports_nonzero() {
 }
 
 #[test]
-fn unavailable_message_preserves_localized_text_and_english_json() {
-    for (locale, expected) in [
-        ("en_US.UTF-8", "This command is not available yet.\n"),
-        ("ar_AE.UTF-8", "هذا الأمر غير متاح حاليًا.\n"),
-    ] {
+fn unavailable_message_stays_english_in_text_and_json() {
+    for locale in ["en_US.UTF-8", "ar_AE.UTF-8"] {
         let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
             .args(["update", "check"])
             .env("LC_ALL", locale)
@@ -273,7 +257,7 @@ fn unavailable_message_preserves_localized_text_and_english_json() {
             .unwrap();
         assert_eq!(output.status.code(), Some(1));
         assert!(output.stdout.is_empty());
-        assert_eq!(output.stderr, expected.as_bytes());
+        assert_eq!(output.stderr, b"This command is not available yet.\n");
     }
 
     let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
@@ -359,103 +343,48 @@ fn mcp_requires_a_client_and_project_and_reserves_stdout_for_protocol() {
 }
 
 #[test]
-fn language_override_selects_help_by_flag_before_environment() {
-    let output = |args: &[&str], override_language: Option<&str>, system: &str| {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_marsa"));
-        command
-            .args(args)
-            .env("LC_ALL", system)
-            .env_remove("MARSA_LANG");
-        if let Some(value) = override_language {
-            command.env("MARSA_LANG", value);
-        }
-        let output = command.output().unwrap();
-        assert!(output.status.success(), "{args:?}: {output:?}");
-        String::from_utf8(output.stdout).unwrap()
-    };
-
-    assert!(output(&["--language", "ar"], Some("en-US"), "C").contains("الاستخدام"));
-    assert!(
-        output(
-            &["share", "list", "--language=en-US", "--help"],
-            Some("ar"),
-            "ar"
-        )
-        .contains("Usage")
-    );
-    assert!(output(&["--help"], Some("ar"), "C").contains("الاستخدام"));
-    assert!(output(&["--help"], Some("invalid"), "ar_AE.UTF-8").contains("الاستخدام"));
-}
-
-#[test]
-fn posix_locale_selection_has_fixed_precedence() {
-    let output = |all: &str, messages: &str, lang: &str| {
-        let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
-            .arg("--help")
-            .env_remove("MARSA_LANG")
-            .env("LC_ALL", all)
-            .env("LC_MESSAGES", messages)
-            .env("LANG", lang)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{output:?}");
-        String::from_utf8(output.stdout).unwrap()
-    };
-    assert!(output("C", "ar", "ar").contains("Usage"));
-    assert!(output("", "ar_EG.UTF-8", "C").contains("الاستخدام"));
-    assert!(output("", "C", "ar").contains("Usage"));
-    assert!(output("", "", "ar").contains("الاستخدام"));
-}
-
-#[test]
-fn json_help_stays_english_even_with_an_explicit_arabic_override() {
-    let output = marsa(&["--language=ar", "--json"]);
-    assert!(output.status.success(), "{output:?}");
-    let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(document["kind"], "help");
-    assert!(document["text"].as_str().unwrap().contains("Usage"));
-    assert!(!document["text"].as_str().unwrap().contains("الاستخدام"));
-}
-
-#[test]
-fn invalid_explicit_language_fails_even_with_an_environment_override() {
-    let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
-        .args(["status", "--language", "invalid", "--json"])
-        .env("MARSA_LANG", "ar")
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(document["code"], "invalid_invocation");
-}
-
-#[test]
-fn explicit_language_validation_is_independent_of_help_order_and_scope() {
+fn help_and_completions_stay_english_under_an_arabic_environment() {
     for args in [
-        &["--help", "--language=bogus"][..],
-        &["--language=bogus", "--help"],
-        &[
-            "--language",
-            "en-US",
-            "share",
-            "list",
-            "--language=ar",
-            "--help",
-        ],
-        &[
-            "share",
-            "list",
-            "--help",
-            "--language=ar",
-            "--language",
-            "en-US",
-        ],
-        &["--help", "--language"],
+        &["--help"][..],
+        &["disk", "usage", "--help"],
+        &["--json", "--help"],
+        &["completion", "zsh"],
     ] {
-        let output = marsa(&[args, &["--json"]].concat());
-        assert_eq!(output.status.code(), Some(2), "{args:?}: {output:?}");
-        let body: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(body["code"], "invalid_invocation", "{args:?}");
+        let run = |locale, language| {
+            Command::new(env!("CARGO_BIN_EXE_marsa"))
+                .args(args)
+                .env("LC_ALL", locale)
+                .env("LC_MESSAGES", locale)
+                .env("LANG", locale)
+                .env("MARSA_LANG", language)
+                .output()
+                .unwrap()
+        };
+        let english = run("C", "en-US");
+        let arabic = run("ar_AE.UTF-8", "ar");
+        assert!(
+            english.status.success() && arabic.status.success(),
+            "{args:?}"
+        );
+        assert_eq!(arabic.stdout, english.stdout, "{args:?}");
+        assert!(
+            !String::from_utf8(english.stdout)
+                .unwrap()
+                .contains("--language")
+        );
+    }
+}
+
+#[test]
+fn a_language_override_is_an_invalid_cli_option() {
+    for args in [
+        &["--language", "ar", "--json"][..],
+        &["share", "list", "--language=en-US", "--json"],
+    ] {
+        let output = marsa(args);
+        assert_eq!(output.status.code(), Some(2), "{output:?}");
+        let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(document["code"], "invalid_invocation");
     }
 }
 

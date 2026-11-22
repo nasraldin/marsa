@@ -12,12 +12,9 @@
 | 5 | `incompatible_daemon` | The daemon and CLI have incompatible API versions. |
 
 In human-readable mode, help and completion scripts go to standard output.
-Errors go to standard error. Choose the display language with
-`--language en-US` or `--language ar`. Without the flag, the CLI checks
-`MARSA_LANG` for either of those values. If unset or unrecognized, the CLI
-reads `LC_ALL`, `LC_MESSAGES` and `LANG` in that order. English is the default.
-Use the language flag at most once. This selection applies to the current
-command and does not change the daemon’s settings.
+Errors go to standard error. Marsa's CLI help, messages, prompts and
+completion descriptions are always in English. The desktop language setting
+and the terminal locale do not change CLI output.
 
 With `--json`, standard output carries one English JSON document conforming to
 the [CLI response schema](cli-response.schema.json). Use `schema_version`,
@@ -48,8 +45,9 @@ observation. The CPU field is cumulative VM CPU busy time in nanoseconds.
 `marsa config list --json` and `marsa config get KEY --json` show the daemon
 settings revision as a decimal string. `marsa config set KEY VALUE` accepts a
 TOML value or a bare string. A rejected settings or shared-folder mutation
-returns `request_rejected` with exit status 1. The CLI translates known validation
-reasons and shows bounded legacy details in human output for older daemons.
+returns `request_rejected` with exit status 1. The CLI formats known validation
+reasons in English and may include bounded diagnostic text supplied by an older
+daemon in human output.
 The JSON message stays in English. Redirected `config get` and `config list`
 still write TOML. In a terminal they escape display controls.
 
