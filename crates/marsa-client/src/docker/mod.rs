@@ -1,13 +1,17 @@
 //! Typed access to Docker Engine API v1.57 over Marsa's authenticated Unix socket.
 
+mod actions;
+mod images;
 mod resources;
+mod stats;
 mod stream;
+mod terminal;
 #[cfg(test)]
 mod tests;
 
 use std::{io, path::PathBuf, time::Duration};
 
-use http_body_util::{BodyExt, Empty, Limited};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper::{Method, Request, StatusCode, body::Bytes, client::conn::http1, header};
 use hyper_util::rt::TokioIo;
 use nix::unistd::geteuid;
@@ -17,12 +21,23 @@ use tokio::time::timeout;
 
 use crate::{ClientError, docker_socket_path, platform};
 
+pub use actions::{
+    CreatedNetwork, ImageDetails, ImageId, ImageRemoval, NetworkRemoval, ResourceName,
+    VolumeRemoval,
+};
+pub use images::{ImagePull, ImageReference, ImageRun, PullCounters, PullProgress};
 use resources::ComposeLabels;
 pub use resources::{
-    ContainerDetails, ContainerMount, ContainerNetworkSettings, ContainerPort, ContainerRuntime,
-    NetworkEndpoint, NetworkSummary, PortBinding, VolumeSummary,
+    ContainerDetails, ContainerMount, ContainerNetworkSettings, ContainerPort, ContainerRemoval,
+    ContainerRuntime, EnvironmentEntry, EnvironmentReveal, NetworkEndpoint, NetworkSummary,
+    PortBinding, RemovalMode, RevealedEnvironment, VolumeSummary, VolumeUsage,
+};
+pub use stats::{
+    BlockIoCounter, BlockIoStats, CpuStats, CpuUsage, MemoryStats, NetworkCounters, ProcessStats,
+    StatsSample,
 };
 pub use stream::{DockerEvents, DockerLogs, DockerStats, LogLine, LogSource};
+pub use terminal::{ExecControl, ExecOutput, ExecSession, MAX_TERMINAL_INPUT, TerminalSize};
 
 const API_PREFIX: &str = "/v1.57";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -71,7 +86,7 @@ pub struct ContainerSummary {
     /// Complete container identifier.
     pub id: ContainerId,
     /// Docker names, including Compose-generated names.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub names: Vec<String>,
     /// Image reference reported by the engine.
     pub image: String,
@@ -146,44 +161,6 @@ pub enum DockerChange {
     Images,
 }
 
-/// One sample from the Docker stats stream.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct StatsSample {
-    /// Container memory usage and limit.
-    #[serde(default)]
-    pub memory_stats: MemoryStats,
-    /// Aggregate CPU counters.
-    #[serde(default)]
-    pub cpu_stats: CpuStats,
-}
-
-/// Cumulative CPU counters from Docker.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct CpuStats {
-    /// CPU time consumed by the container.
-    #[serde(default)]
-    pub cpu_usage: CpuUsage,
-    /// CPU time consumed by the host since boot.
-    pub system_cpu_usage: Option<u64>,
-}
-
-/// CPU usage reported for the container.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct CpuUsage {
-    /// Total container CPU time in nanoseconds.
-    #[serde(default)]
-    pub total_usage: u64,
-}
-
-/// Container memory counters from Docker.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct MemoryStats {
-    /// Current total usage in bytes.
-    pub usage: Option<u64>,
-    /// Limit in bytes.
-    pub limit: Option<u64>,
-}
-
 /// Non-destructive container lifecycle operations supported by the desktop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContainerAction {
@@ -201,6 +178,30 @@ pub enum DockerError {
     /// A route must be addressed by the complete container ID.
     #[error("expected a complete Docker container ID")]
     InvalidId,
+    /// Docker resource name or reference isn't supported.
+    #[error("invalid Docker resource name or image reference")]
+    InvalidResourceName,
+    /// A volume removal was not confirmed with its exact name.
+    #[error("volume confirmation did not match")]
+    VolumeConfirmation,
+    /// An environment reveal selected an invalid variable name.
+    #[error("invalid Docker environment name")]
+    InvalidEnvironmentName,
+    /// The registry did not provide an image for the configured guest platform.
+    #[error("image has no matching Linux ARM64 manifest")]
+    ImagePlatform,
+    /// Docker reported failure while pulling an image.
+    #[error("Docker image pull failed")]
+    ImagePull,
+    /// A terminal dimension was zero or exceeded the supported bound.
+    #[error("invalid terminal dimensions")]
+    TerminalSize,
+    /// The engine did not negotiate the requested raw TTY protocol.
+    #[error("invalid Docker terminal upgrade")]
+    TerminalUpgrade,
+    /// An interactive stream could not read or write bytes.
+    #[error("Docker terminal I/O failed")]
+    TerminalIo(#[source] io::Error),
     /// The transport cannot resolve a per-user socket.
     #[error(transparent)]
     Endpoint(#[from] ClientError),
@@ -322,10 +323,39 @@ impl DockerClient {
         .map_err(|_| DockerError::Timeout)?
     }
 
+    async fn post_json<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        payload: serde_json::Value,
+    ) -> Result<T, DockerError> {
+        timeout(REQUEST_TIMEOUT, async {
+            let (_, body) = self
+                .request_payload(Method::POST, path, serde_json::to_vec(&payload)?.into())
+                .await?;
+            let bytes = Limited::new(body.body, SNAPSHOT_LIMIT)
+                .collect()
+                .await
+                .map_err(DockerError::Snapshot)?
+                .to_bytes();
+            Ok(serde_json::from_slice(&bytes)?)
+        })
+        .await
+        .map_err(|_| DockerError::Timeout)?
+    }
+
     async fn request(
         &self,
         method: Method,
         path: &str,
+    ) -> Result<(hyper::HeaderMap, stream::ResponseBody), DockerError> {
+        self.request_payload(method, path, Bytes::new()).await
+    }
+
+    async fn request_payload(
+        &self,
+        method: Method,
+        path: &str,
+        payload: Bytes,
     ) -> Result<(hyper::HeaderMap, stream::ResponseBody), DockerError> {
         if geteuid().is_root() {
             return Err(ClientError::Root.into());
@@ -339,12 +369,15 @@ impl DockerClient {
                 .handshake(TokioIo::new(socket))
                 .await?;
             let task = stream::ConnectionTask::new(tokio::spawn(connection).abort_handle());
-            let request = Request::builder()
+            let mut request = Request::builder()
                 .method(method.clone())
                 .uri(format!("{API_PREFIX}{path}"))
                 .header(header::HOST, "docker")
-                .header(header::CONNECTION, "close")
-                .body(Empty::<Bytes>::new())?;
+                .header(header::CONNECTION, "close");
+            if !payload.is_empty() {
+                request = request.header(header::CONTENT_TYPE, "application/json");
+            }
+            let request = request.body(Full::new(payload))?;
             let response = sender.send_request(request).await?;
             let (parts, body) = response.into_parts();
             if !parts.status.is_success()

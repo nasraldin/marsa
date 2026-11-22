@@ -69,7 +69,7 @@ impl ResponseBody {
         Ok(Some(data))
     }
 
-    async fn json<T: DeserializeOwned>(
+    pub(super) async fn json<T: DeserializeOwned>(
         &mut self,
         line: &mut Vec<u8>,
     ) -> Result<Option<T>, DockerError> {

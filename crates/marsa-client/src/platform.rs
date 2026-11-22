@@ -60,6 +60,16 @@ pub(super) async fn launch_daemon() -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+pub(super) async fn signed_daemon() -> io::Result<PathBuf> {
+    let executable = fs::canonicalize(std::env::current_exe()?).await?;
+    executable
+        .parent()
+        .and_then(app_bundle)
+        .ok_or_else(unsafe_daemon)?;
+    daemon_path(&executable).await
+}
+
 async fn daemon_path(executable: &Path) -> io::Result<PathBuf> {
     let directory = executable
         .parent()
@@ -82,6 +92,27 @@ async fn daemon_path(executable: &Path) -> io::Result<PathBuf> {
         }
     }
     Err(unsafe_daemon())
+}
+
+pub(super) async fn bundled_compose() -> io::Result<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let executable = fs::canonicalize(std::env::current_exe()?).await?;
+        let bundle = executable
+            .parent()
+            .and_then(app_bundle)
+            .ok_or_else(unsafe_daemon)?;
+        let compose = bundle.join("Contents/Resources/bin/cli-plugins/docker-compose");
+        let metadata = fs::symlink_metadata(&compose).await?;
+        if !metadata.is_file() || metadata.mode() & 0o111 == 0 || metadata.mode() & 0o6022 != 0 {
+            return Err(unsafe_daemon());
+        }
+        verify_signature(bundle).await?;
+        verify_signature(&compose).await?;
+        Ok(compose)
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err(io::ErrorKind::Unsupported.into())
 }
 
 fn unsafe_daemon() -> io::Error {

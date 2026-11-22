@@ -5,7 +5,7 @@ use std::{future::Future, io, time::Duration};
 use tokio::{
     runtime,
     sync::{mpsc, watch},
-    task::JoinHandle,
+    task::{AbortHandle, JoinHandle},
     time::{Instant, sleep, timeout_at},
 };
 
@@ -48,6 +48,24 @@ impl Spawner {
 /// A background task that cancels its future and releases its streams on drop.
 pub struct Task(JoinHandle<()>);
 
+impl Task {
+    /// Create a handle that can explicitly cancel this worker from the view.
+    pub fn cancellation(&self) -> Cancellation {
+        Cancellation(self.0.abort_handle())
+    }
+}
+
+/// Cloneable cancellation handle for a scoped worker.
+#[derive(Clone)]
+pub struct Cancellation(AbortHandle);
+
+impl Cancellation {
+    /// Stop the worker and release any attachments it owns.
+    pub fn cancel(&self) {
+        self.0.abort();
+    }
+}
+
 impl Drop for Task {
     fn drop(&mut self) {
         self.0.abort();
@@ -74,10 +92,21 @@ pub fn queue<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
 /// Producer that waits when its bounded queue fills.
 pub struct Sender<T>(mpsc::Sender<T>);
 
+impl<T> Clone for Sender<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
 impl<T> Sender<T> {
     /// Deliver one item, returning false if its consumer is gone.
     pub async fn send(&self, item: T) -> bool {
         self.0.send(item).await.is_ok()
+    }
+
+    /// Enqueue from an event handler without blocking. False means closed or full.
+    pub fn try_send(&self, item: T) -> bool {
+        self.0.try_send(item).is_ok()
     }
 }
 

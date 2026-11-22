@@ -1,7 +1,8 @@
 //! Typed projections for container details, volume and network screens.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
+use hyper::Method;
 use serde::Deserialize;
 
 use super::{ContainerId, DockerClient, DockerError, null_to_default};
@@ -9,12 +10,66 @@ use super::{ContainerId, DockerClient, DockerError, null_to_default};
 impl DockerClient {
     /// Read typed details and verify their identity before showing them to a view.
     pub async fn inspect(&self, id: &ContainerId) -> Result<ContainerDetails, DockerError> {
-        let path = format!("/containers/{}/json", id.as_str());
-        let details: ContainerDetails = self.snapshot(&path).await?;
-        if details.id != *id {
-            return Err(DockerError::ResourceIdentity);
+        let InspectWire {
+            mut details,
+            config,
+        } = self.inspect_wire(id).await?;
+        if let Some(config) = config {
+            details.environment = config
+                .env
+                .iter()
+                .filter_map(|entry| {
+                    let (name, value) = env_parts(entry);
+                    valid_environment_name(name).then(|| EnvironmentEntry {
+                        name: name.to_owned(),
+                        has_value: value.is_some(),
+                    })
+                })
+                .collect();
+            details.label_names = config.labels.into_keys().collect();
         }
         Ok(details)
+    }
+
+    /// Fetch only the explicitly revealed variable; the other values are discarded.
+    pub async fn reveal_environment(
+        &self,
+        reveal: EnvironmentReveal,
+    ) -> Result<Option<RevealedEnvironment>, DockerError> {
+        let inspect = self.inspect_wire(&reveal.container).await?;
+        let value = inspect
+            .config
+            .into_iter()
+            .flat_map(|config| config.env)
+            .find_map(|entry| {
+                let (name, value) = env_parts(&entry);
+                if name == reveal.name {
+                    value.map(str::to_owned)
+                } else {
+                    None
+                }
+            });
+        Ok(value.map(RevealedEnvironment))
+    }
+
+    async fn inspect_wire(&self, id: &ContainerId) -> Result<InspectWire, DockerError> {
+        let path = format!("/containers/{}/json", id.as_str());
+        let inspect: InspectWire = self.snapshot(&path).await?;
+        if inspect.details.id != *id {
+            return Err(DockerError::ResourceIdentity);
+        }
+        Ok(inspect)
+    }
+
+    /// Remove a container after explicit owner confirmation.
+    pub async fn remove_container(&self, removal: ContainerRemoval) -> Result<(), DockerError> {
+        let path = format!(
+            "/containers/{}?force={}",
+            removal.id.as_str(),
+            removal.mode == RemovalMode::Force,
+        );
+        self.request(Method::DELETE, &path).await?;
+        Ok(())
     }
 
     /// List volumes known to Docker.
@@ -22,9 +77,53 @@ impl DockerClient {
         Ok(self.snapshot::<Volumes>("/volumes").await?.volumes)
     }
 
+    /// Measure per-volume use on demand, without scanning unrelated resources.
+    pub async fn volume_usage(&self) -> Result<BTreeMap<String, VolumeUsage>, DockerError> {
+        let disk: DiskUsage = self.snapshot("/system/df?type=volume&verbose=true").await?;
+        Ok(disk
+            .volume_usage
+            .into_iter()
+            .flat_map(|usage| usage.items)
+            .filter_map(|item| {
+                item.usage_data.map(|data| {
+                    (
+                        item.name,
+                        VolumeUsage {
+                            size_bytes: u64::try_from(data.size).ok(),
+                            references: u64::try_from(data.ref_count).ok(),
+                        },
+                    )
+                })
+            })
+            .collect())
+    }
+
     /// List networks known to Docker.
     pub async fn networks(&self) -> Result<Vec<NetworkSummary>, DockerError> {
         self.snapshot("/networks").await
+    }
+}
+
+/// Explicitly chosen container removal mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemovalMode {
+    /// Reject removal if the container is still running.
+    StoppedOnly,
+    /// Stop a running container and remove it.
+    Force,
+}
+
+/// Removal of a selected container after its confirmation dialog succeeds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContainerRemoval {
+    id: ContainerId,
+    mode: RemovalMode,
+}
+
+impl ContainerRemoval {
+    /// Record explicit user confirmation for the chosen container and mode.
+    pub fn confirmed(id: ContainerId, mode: RemovalMode) -> Self {
+        Self { id, mode }
     }
 }
 
@@ -88,6 +187,83 @@ pub struct ContainerDetails {
     pub mounts: Vec<ContainerMount>,
     /// Network endpoints and port mappings, if available.
     pub network_settings: Option<ContainerNetworkSettings>,
+    /// Environment names, with values masked by default.
+    #[serde(skip)]
+    pub environment: Vec<EnvironmentEntry>,
+    /// Labels in the container configuration, without their values.
+    #[serde(skip)]
+    pub label_names: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct InspectWire {
+    #[serde(flatten)]
+    details: ContainerDetails,
+    config: Option<InspectConfiguration>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct InspectConfiguration {
+    #[serde(default, deserialize_with = "null_to_default")]
+    env: Vec<String>,
+    #[serde(default, deserialize_with = "null_to_default")]
+    labels: BTreeMap<String, serde::de::IgnoredAny>,
+}
+
+/// Environment field for ordinary rendering with its value omitted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvironmentEntry {
+    /// Name reported by the engine.
+    pub name: String,
+    /// Whether a value exists and can be revealed.
+    pub has_value: bool,
+}
+
+/// A request authorized by an explicit reveal action in the selected container.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvironmentReveal {
+    container: ContainerId,
+    name: String,
+}
+
+impl EnvironmentReveal {
+    /// Record the variable and container after the owner deliberately reveals it.
+    pub fn confirmed(container: ContainerId, name: impl Into<String>) -> Result<Self, DockerError> {
+        let name = name.into();
+        if !valid_environment_name(&name) {
+            return Err(DockerError::InvalidEnvironmentName);
+        }
+        Ok(Self { container, name })
+    }
+}
+
+/// Secret value scoped to the revealing view. Debug output always omits it.
+pub struct RevealedEnvironment(String);
+
+impl RevealedEnvironment {
+    /// Read a revealed value for its transient presentation.
+    pub fn value(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for RevealedEnvironment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RevealedEnvironment")
+            .finish_non_exhaustive()
+    }
+}
+
+fn valid_environment_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 4096 && !name.chars().any(|ch| ch.is_control() || ch == '=')
+}
+
+fn env_parts(entry: &str) -> (&str, Option<&str>) {
+    entry
+        .split_once('=')
+        .map_or((entry, None), |(name, value)| (name, Some(value)))
 }
 
 /// Runtime portion of an inspect response.
@@ -147,6 +323,42 @@ pub struct PortBinding {
     /// Host port in the engine's original string representation.
     #[serde(rename = "HostPort")]
     pub host_port: String,
+}
+
+/// Current volume usage collected by the engine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VolumeUsage {
+    /// Disk consumption when the local volume driver can measure it.
+    pub size_bytes: Option<u64>,
+    /// Number of container references when Docker can report it.
+    pub references: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct DiskUsage {
+    volume_usage: Option<VolumeUsageList>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct VolumeUsageList {
+    #[serde(default, deserialize_with = "null_to_default")]
+    items: Vec<VolumeUsageItem>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct VolumeUsageItem {
+    name: String,
+    usage_data: Option<UsageData>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct UsageData {
+    size: i64,
+    ref_count: i64,
 }
 
 /// Local or remote volume metadata reported by Docker.

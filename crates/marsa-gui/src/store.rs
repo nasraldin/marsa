@@ -9,7 +9,7 @@ use marsa_client::{
 };
 
 /// The newest daemon snapshot and Docker resources, indexed by stable IDs.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct AppState {
     daemon: Option<DaemonSnapshot>,
     containers: Arc<BTreeMap<ContainerId, ContainerSummary>>,
@@ -95,10 +95,7 @@ impl Default for Store {
 
 impl Store {
     /// Watch a projection. Changes outside that projection never deliver a new value.
-    pub fn select<T: PartialEq>(
-        &self,
-        selector: impl Fn(&AppState) -> T,
-    ) -> Selection<T, impl Fn(&AppState) -> T> {
+    pub fn select<T: PartialEq, F: Fn(&AppState) -> T>(&self, selector: F) -> Selection<T, F> {
         let mut observed = self.0.observe();
         let value = observed.read(&selector);
         Selection {

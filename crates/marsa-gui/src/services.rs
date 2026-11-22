@@ -1,19 +1,27 @@
 //! Keep daemon, Docker and selected resource streams scoped to the desktop window.
 
-use std::{error::Error, fmt, future::Future, io, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap, error::Error, fmt, future::Future, io, sync::Arc, time::Duration,
+};
 
 use marsa_client::{
     ClientError, DaemonEndpoint, EventSubscription,
     api::{DaemonEvent, EngineActionRequest, EngineState, daemon_event::Body},
+    compose::{ComposeCommand, ComposeError, ComposeOutput, ComposeStream},
     docker::{
-        ContainerAction, ContainerDetails, ContainerId, ContainerSummary, DockerClient,
-        DockerError, DockerLogs, DockerStats, ImageSummary, LogLine, NetworkSummary, StatsSample,
-        VolumeSummary,
+        ContainerAction, ContainerDetails, ContainerId, ContainerRemoval, ContainerSummary,
+        CreatedNetwork, DockerClient, DockerError, DockerLogs, DockerStats, EnvironmentReveal,
+        ExecControl, ImageDetails, ImageId, ImagePull, ImageReference, ImageRemoval, ImageRun,
+        ImageSummary, LogLine, MAX_TERMINAL_INPUT, NetworkRemoval, NetworkSummary, PullProgress,
+        ResourceName, RevealedEnvironment, StatsSample, TerminalSize, VolumeRemoval, VolumeSummary,
+        VolumeUsage,
     },
-    runtime::{Background, Receiver, Spawner, Task, delay, queue},
+    runtime::{Background, Cancellation, Receiver, Sender, Spawner, Task, delay, queue},
 };
 
 use crate::store::{ResourceSnapshot, Store};
+
+pub use marsa_client::docker::ExecOutput as TerminalOutput;
 
 const RETRY: Duration = Duration::from_secs(1);
 const LOG_RATE: Duration = Duration::from_millis(16);
@@ -38,6 +46,14 @@ pub enum Command {
         /// Requested lifecycle transition.
         action: ContainerAction,
     },
+    /// Remove a container after the view confirms the selected removal mode.
+    RemoveContainer(ContainerRemoval),
+    /// Remove an image after explicit confirmation.
+    RemoveImage(ImageRemoval),
+    /// Remove a network after explicit confirmation.
+    RemoveNetwork(NetworkRemoval),
+    /// Remove a volume after its canonical name has been typed.
+    RemoveVolume(VolumeRemoval),
 }
 
 /// Daemon lifecycle transitions available to desktop views.
@@ -58,6 +74,8 @@ pub enum ServiceError {
     Daemon(ClientError),
     /// Docker socket operation or response failed.
     Docker(DockerError),
+    /// A selected, bundled Compose operation failed.
+    Compose(ComposeError),
     /// The background runtime could not start.
     Runtime(io::Error),
 }
@@ -67,6 +85,7 @@ impl fmt::Display for ServiceError {
         match self {
             Self::Daemon(error) => fmt::Display::fmt(error, f),
             Self::Docker(error) => fmt::Display::fmt(error, f),
+            Self::Compose(error) => fmt::Display::fmt(error, f),
             Self::Runtime(error) => fmt::Display::fmt(error, f),
         }
     }
@@ -77,6 +96,7 @@ impl Error for ServiceError {
         Some(match self {
             Self::Daemon(error) => error,
             Self::Docker(error) => error,
+            Self::Compose(error) => error,
             Self::Runtime(error) => error,
         })
     }
@@ -116,6 +136,41 @@ impl Services {
         &self.session.store
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn request<T: Send + 'static, F>(
+        &self,
+        operation: impl FnOnce(marsa_client::MarsaClient) -> F + Send + 'static,
+    ) -> Pending<T>
+    where
+        F: Future<Output = Result<T, ClientError>> + Send + 'static,
+    {
+        let endpoint = self.session.backend.daemon.clone();
+        let (reply, completion) = queue(1);
+        let task = self.session.runtime.spawn(async move {
+            let result = match endpoint.connect().await {
+                Ok(client) => operation(client).await,
+                Err(error) => Err(error),
+            };
+            reply.send(result.map_err(ServiceError::from)).await;
+        });
+        Pending {
+            completion,
+            _task: task,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn configure_login(
+        &self,
+        action: marsa_client::login::LoginAction,
+    ) -> Pending<marsa_client::login::LoginStatus> {
+        self.pending(async move {
+            marsa_client::login::configure_login(action)
+                .await
+                .map_err(ServiceError::Runtime)
+        })
+    }
+
     /// Dispatch a command on the worker and receive its completion separately from state updates.
     pub fn dispatch(&self, command: Command) -> PendingCommand {
         self.session.dispatch(command)
@@ -148,6 +203,120 @@ impl Services {
         }
     }
 
+    /// Retrieve one environment value explicitly revealed by the owner.
+    pub fn reveal_environment(
+        &self,
+        reveal: EnvironmentReveal,
+    ) -> Pending<Option<RevealedEnvironment>> {
+        let docker = self.session.backend.docker.clone();
+        self.pending(async move { Ok(docker.reveal_environment(reveal).await?) })
+    }
+
+    /// Read metadata for an existing image.
+    pub fn inspect_image(&self, id: ImageId) -> Pending<ImageDetails> {
+        let docker = self.session.backend.docker.clone();
+        self.pending(async move { Ok(docker.inspect_image(&id).await?) })
+    }
+
+    /// Run the explicitly selected Compose project and stream bounded output.
+    pub fn compose(&self, command: ComposeCommand) -> Batches<ComposeOutput> {
+        batch_stream(
+            &self.session.runtime,
+            async move { command.start().await.map_err(ServiceError::Compose) },
+            Rate {
+                interval: Duration::from_millis(100),
+                maximum: 64,
+                budget: LOG_BYTES,
+                latest: false,
+            },
+            |output| output.text.len(),
+        )
+    }
+
+    /// Pull a public image and stream layer progress. Dropping the batches cancels it.
+    pub fn pull_image(&self, image: ImageReference) -> Batches<PullProgress> {
+        let docker = self.session.backend.docker.clone();
+        batch_stream(
+            &self.session.runtime,
+            async move { Ok(docker.pull_image(&image).await?) },
+            Rate {
+                interval: Duration::from_millis(100),
+                maximum: 64,
+                budget: LOG_BYTES,
+                latest: false,
+            },
+            |progress| {
+                progress.id.as_ref().map_or(0, String::len)
+                    + progress.status.as_ref().map_or(0, String::len)
+            },
+        )
+    }
+
+    /// Run a container using an existing local image and its default command.
+    pub fn run_image(&self, image: ImageId, name: Option<ResourceName>) -> Pending<ImageRun> {
+        let docker = self.session.backend.docker.clone();
+        self.pending(async move { Ok(docker.run_image(&image, name.as_ref()).await?) })
+    }
+
+    /// Create a local volume with the chosen name.
+    pub fn create_volume(&self, name: ResourceName) -> Pending<VolumeSummary> {
+        let docker = self.session.backend.docker.clone();
+        self.pending(async move { Ok(docker.create_volume(&name).await?) })
+    }
+
+    /// Measure volume disk usage when requested by the storage view.
+    pub fn volume_usage(&self) -> Pending<BTreeMap<String, VolumeUsage>> {
+        let docker = self.session.backend.docker.clone();
+        self.pending(async move { Ok(docker.volume_usage().await?) })
+    }
+
+    /// Create a bridge network with the chosen name.
+    pub fn create_network(&self, name: ResourceName) -> Pending<CreatedNetwork> {
+        let docker = self.session.backend.docker.clone();
+        self.pending(async move { Ok(docker.create_network(&name).await?) })
+    }
+
+    fn pending<T: Send + 'static>(
+        &self,
+        work: impl Future<Output = Result<T, ServiceError>> + Send + 'static,
+    ) -> Pending<T> {
+        let (reply, completion) = queue(1);
+        let task = self.session.runtime.spawn(async move {
+            reply.send(work.await).await;
+        });
+        Pending {
+            completion,
+            _task: task,
+        }
+    }
+
+    /// Open a bounded interactive terminal for the selected container.
+    pub fn terminal(&self, id: ContainerId, columns: u16, rows: u16) -> Terminal {
+        let docker = self.session.backend.docker.clone();
+        let (write, controls) = queue(32);
+        let (publish, output) = queue(16);
+        let task = self.session.runtime.spawn(async move {
+            let result = async {
+                let size = TerminalSize::new(columns, rows)?;
+                let session = docker.start_terminal(&id, size).await?;
+                session.drive(controls, &publish).await
+            }
+            .await;
+            if let Err(error) = result {
+                publish.send(Err(error)).await;
+            }
+        });
+        let input = TerminalInput {
+            write,
+            cancellation: task.cancellation(),
+        };
+        Terminal {
+            input,
+            output,
+            _task: task,
+        }
+    }
+
     /// Follow a container's log output in ordered, bounded batches.
     pub fn logs(&self, id: ContainerId) -> Batches<LogLine> {
         self.session.logs(id)
@@ -156,6 +325,53 @@ impl Services {
     /// Follow the latest container stats sample at a capped display rate.
     pub fn stats(&self, id: ContainerId) -> Batches<StatsSample> {
         self.session.stats(id)
+    }
+}
+
+/// Owned interactive attachment for a single terminal tab.
+pub struct Terminal {
+    input: TerminalInput,
+    output: Receiver<Result<TerminalOutput, DockerError>>,
+    _task: Task,
+}
+
+impl Terminal {
+    /// Clone the input side for native key and resize callbacks.
+    pub fn input(&self) -> TerminalInput {
+        self.input.clone()
+    }
+
+    /// Read output in wire order. Closing the attachment ends the stream.
+    pub async fn next(&mut self) -> Option<Result<TerminalOutput, ServiceError>> {
+        self.output
+            .next()
+            .await
+            .map(|result| result.map_err(ServiceError::Docker))
+    }
+}
+
+/// Nonblocking input and explicit cancellation for a terminal tab.
+#[derive(Clone)]
+pub struct TerminalInput {
+    write: Sender<ExecControl>,
+    cancellation: Cancellation,
+}
+
+impl TerminalInput {
+    /// Send a bounded raw input fragment. False means invalid, full, or closed.
+    pub fn write(&self, bytes: Vec<u8>) -> bool {
+        bytes.len() <= MAX_TERMINAL_INPUT && self.write.try_send(ExecControl::Input(bytes))
+    }
+
+    /// Queue a bounded native resize request without blocking the UI.
+    pub fn resize(&self, columns: u16, rows: u16) -> bool {
+        TerminalSize::new(columns, rows)
+            .is_ok_and(|size| self.write.try_send(ExecControl::Resize(size)))
+    }
+
+    /// Stop forwarding and close the socket, including during the upgrade.
+    pub fn close(&self) {
+        self.cancellation.cancel();
     }
 }
 
@@ -423,6 +639,12 @@ trait Clients: Send + Sync + 'static {
     fn dispatch(&self, command: Command) -> impl Future<Output = Result<(), ServiceError>> + Send;
 }
 
+impl Feed<ComposeOutput> for ComposeStream {
+    async fn pull(&mut self) -> Result<Option<ComposeOutput>, ServiceError> {
+        self.next().await.map_err(ServiceError::Compose)
+    }
+}
+
 struct LocalClients {
     daemon: DaemonEndpoint,
     docker: DockerClient,
@@ -446,6 +668,7 @@ macro_rules! docker_feed {
 
 docker_feed!(DockerLogs, LogLine);
 docker_feed!(DockerStats, StatsSample);
+docker_feed!(ImagePull, PullProgress);
 
 impl Clients for LocalClients {
     type Daemon = EventSubscription;
@@ -497,6 +720,10 @@ impl Clients for LocalClients {
                 .map_err(ClientError::from)?;
             }
             Command::Container { id, action } => self.docker.act(&id, action).await?,
+            Command::RemoveContainer(confirmed) => self.docker.remove_container(confirmed).await?,
+            Command::RemoveImage(confirmed) => self.docker.remove_image(confirmed).await?,
+            Command::RemoveVolume(confirmed) => self.docker.remove_volume(confirmed).await?,
+            Command::RemoveNetwork(confirmed) => self.docker.remove_network(confirmed).await?,
         }
         Ok(())
     }
