@@ -44,13 +44,14 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 
 ### M5-04 Configure the network mode from the CLI
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M5-03, M5-11, M4-25
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
 - **Do:** Implement `network mode [auto|nat|userspace]` through the authenticated network API. Report configured and active modes separately and show whether a restart is pending.
 - **Deliver:** network mode command and tests.
 - **Accept when:**
   - An explicit mode stages only the requested configuration and reports the restart requirement.
+- **Evidence:** The signed fixture saved `auto` while the existing user-space guest stayed Ready with the same helper process. The CLI reported pending before an explicit stop and the saved mode with no active attachment after it.
 
 ### M5-05 Disk usage command
 
