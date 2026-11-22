@@ -35,7 +35,7 @@ The Apple silicon dependency audit of GPUI Kit and gpui-component 0.10.0 with GP
 
 ### M6-13 Qualify and stage the Figma typography assets
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-01
 - **Docs:** [08 Design tokens](../08-gui.md#design-tokens), V-16
 - **Do:** Identify the fonts and weights from the Figma Foundations styles. Verify their redistribution licences and exact released native font files. Stage the files and provenance independently of GPUI registration.
