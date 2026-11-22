@@ -52,7 +52,64 @@ pub(super) fn owned_output_parent(directory: &File) -> io::Result<()> {
             "the output parent must be owned by the unprivileged user and protected from other writers",
         ));
     }
+    // Darwin ACLs can grant access outside the mode bits and can be inherited
+    // by newly created directories. Linux POSIX ACLs mask those permissions
+    // with the group mode bits, including when inheriting a default ACL.
+    #[cfg(target_os = "macos")]
+    reject_extended_acl(directory)?;
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn reject_extended_acl(directory: &File) -> io::Result<()> {
+    use std::{
+        ffi::{c_int, c_void},
+        os::fd::AsRawFd,
+        ptr,
+    };
+
+    // <sys/acl.h>: acl_t and acl_entry_t are opaque pointers.
+    const ACL_FIRST_ENTRY: c_int = 0;
+    unsafe extern "C" {
+        fn acl_get_fd(fd: c_int) -> *mut c_void;
+        fn acl_get_entry(acl: *mut c_void, id: c_int, entry: *mut *mut c_void) -> c_int;
+        fn acl_free(acl: *mut c_void) -> c_int;
+    }
+
+    // SAFETY: directory owns a live descriptor throughout the ACL lookup.
+    let acl = unsafe { acl_get_fd(directory.as_raw_fd()) };
+    if acl.is_null() {
+        // Darwin returns ENOENT for an absent ACL on a valid descriptor.
+        return match Errno::last() {
+            Errno::ENOENT => Ok(()),
+            error => Err(io::Error::other(format!(
+                "could not inspect the macOS release output parent ACL: {error}"
+            ))),
+        };
+    }
+
+    let mut entry = ptr::null_mut();
+    // SAFETY: acl_get_fd supplied a live ACL; entry is a writable local out
+    // parameter. Capture errno before releasing the ACL and its entries.
+    let result = unsafe { acl_get_entry(acl, ACL_FIRST_ENTRY, &mut entry) };
+    let error = Errno::last();
+    // SAFETY: This is the one release of the ACL allocation from acl_get_fd.
+    unsafe { acl_free(acl) };
+
+    if result == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "release output parent has a macOS access control list",
+        ));
+    }
+    if error == Errno::EINVAL {
+        // On the valid ACL returned by Darwin, index zero is out of range
+        // only when the ACL has no entries.
+        return Ok(());
+    }
+    Err(io::Error::other(format!(
+        "could not inspect the macOS release output parent ACL: {error}"
+    )))
 }
 
 /// Use the already-open output parent as the base for all temporary paths,

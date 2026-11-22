@@ -280,3 +280,41 @@ fn install_curl(directory: &Path, script: &str) {
     fs::write(&curl, script).unwrap();
     fs::set_permissions(curl, fs::Permissions::from_mode(0o700)).unwrap();
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn rejects_a_darwin_output_parent_with_an_inheritable_acl() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new();
+    let output_parent = fixture.tree.join("output");
+    fs::create_dir(&output_parent).unwrap();
+    fs::set_permissions(&output_parent, fs::Permissions::from_mode(0o700)).unwrap();
+    let status = Command::new("/bin/chmod")
+        .args([
+            "+a",
+            "everyone allow list,search,add_file,file_inherit,directory_inherit",
+        ])
+        .arg(&output_parent)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(
+        fs::metadata(&output_parent).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+
+    install_curl(&fixture.tree, "#!/bin/sh\nexit 99\n");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_xtask"));
+    fixture.append_args(
+        &mut command,
+        &fixture.tree.join("guest"),
+        &output_parent.join("release"),
+    );
+    command.env("PATH", &fixture.tree);
+    fixture.reject_command(
+        command,
+        "release output parent has a macOS access control list",
+    );
+    assert_eq!(fs::read_dir(output_parent).unwrap().count(), 0);
+}
