@@ -6,13 +6,12 @@ use std::{
     time::Duration,
 };
 
-use marsa_proto::host::v1::AgentOperationResponse;
 use tokio::time::Instant;
 use tonic::Status;
 
 use crate::agent_policy::GrantScope;
 
-use super::{super::requests, Prepared};
+use super::{super::requests, Execution, Prepared};
 
 const LIMIT: usize = 64;
 const SESSION_LIFETIME: Duration = Duration::from_secs(12 * 60 * 60);
@@ -25,7 +24,7 @@ pub(super) struct Session {
     pub(super) name: String,
     pub(super) scope: GrantScope,
     pub(super) expires: Instant,
-    pub(super) requests: requests::Cache<Prepared, AgentOperationResponse>,
+    pub(super) requests: requests::Cache<Prepared, Execution>,
 }
 
 impl Sessions {

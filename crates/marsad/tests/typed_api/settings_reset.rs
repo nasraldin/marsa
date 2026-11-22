@@ -18,7 +18,6 @@ async fn confirmed_settings_reset_keeps_disk_grants_and_engine_untouched() {
     let paths = MarsaPaths::from_home(fixture.home.path()).unwrap();
     fs::set_permissions(paths.root(), fs::Permissions::from_mode(0o700)).unwrap();
     fs::create_dir(paths.vm_dir()).unwrap();
-    fs::create_dir(paths.state_dir()).unwrap();
     fs::write(paths.data_disk(), b"private test disk").unwrap();
     fs::write(paths.grants_file(), b"private test grants").unwrap();
 

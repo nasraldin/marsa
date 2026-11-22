@@ -634,7 +634,13 @@ impl Fixture {
         }
         let home = TempDir::new_in("/tmp").unwrap();
         let paths = MarsaPaths::from_home(home.path()).unwrap();
-        std::fs::create_dir(paths.root()).unwrap();
+        use std::os::unix::fs::DirBuilderExt;
+        for directory in [paths.root(), &paths.state_dir()] {
+            std::fs::DirBuilder::new()
+                .mode(0o700)
+                .create(directory)
+                .unwrap();
+        }
         let path = home.path().join("grpc.sock");
         let listener = UnixListener::bind(&path).unwrap();
         let api =
