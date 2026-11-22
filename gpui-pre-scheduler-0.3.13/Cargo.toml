@@ -49,15 +49,9 @@ version = "4.7"
 [dependencies.backtrace]
 version = "0.3"
 
-[dependencies.chrono]
-version = "0.4"
-features = [
-    "std",
-    "serde",
-    "now",
-    "wasmbind",
-]
-default-features = false
+[dependencies.time]
+version = "=0.3.55"
+features = ["macros"]
 
 [dependencies.flume]
 version = "0.12"
@@ -71,11 +65,11 @@ version = "0.3.34"
 version = "0.12.1"
 
 [dependencies.rand]
-version = "0.9"
+version = "=0.10.4"
 features = [
     "std",
     "std_rng",
-    "os_rng",
+    "sys_rng",
 ]
 default-features = false
 

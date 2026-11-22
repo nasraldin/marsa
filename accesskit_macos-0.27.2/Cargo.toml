@@ -51,15 +51,15 @@ version = "0.25.2"
 version = "0.39.2"
 
 [dependencies.hashbrown]
-version = "0.17"
+version = "=0.17.1"
 features = ["default-hasher"]
 default-features = false
 
 [dependencies.objc2]
-version = "0.5.1"
+version = "=0.6.5"
 
 [dependencies.objc2-app-kit]
-version = "0.2.0"
+version = "=0.3.2"
 features = [
     "NSAccessibility",
     "NSAccessibilityConstants",
@@ -73,7 +73,7 @@ features = [
 ]
 
 [dependencies.objc2-foundation]
-version = "0.2.0"
+version = "=0.3.2"
 features = [
     "NSArray",
     "NSDictionary",
@@ -83,3 +83,6 @@ features = [
 
 [dev-dependencies.libtest-mimic]
 version = "0.8.2"
+
+[dependencies.objc2-core-graphics]
+version = "=0.3.2"

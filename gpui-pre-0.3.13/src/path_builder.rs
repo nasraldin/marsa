@@ -398,6 +398,22 @@ impl Path {
         }
     }
 
+    /// Move the prepared path by an offset in logical pixels.
+    pub fn translated(mut self, offset: Point<Pixels>) -> Self {
+        if offset.x == px(0.) && offset.y == px(0.) {
+            return self;
+        }
+
+        let offset = point(offset.x.as_f32(), offset.y.as_f32());
+        // Translation changes the endpoints while the polynomial's difference
+        // coefficients and the winding signs stay the same.
+        for curve in Arc::make_mut(&mut self.curves) {
+            curve.p0 += offset;
+            curve.p1 += offset;
+        }
+        self
+    }
+
     pub(crate) fn even_odd(&self) -> bool {
         self.even_odd
     }
@@ -574,4 +590,34 @@ fn skia_path(path: &lyon_path::Path) -> Option<tiny_skia_path::Path> {
         }
     }
     builder.finish()
+}
+
+
+#[cfg(test)]
+mod translation_tests {
+    use super::*;
+
+    #[test]
+    fn translates_curves_without_mutating_cached_path() -> Result<(), Error> {
+        let mut builder = PathBuilder::fill();
+        builder.move_to(point(px(2.), px(7.)));
+        builder.curve_to(point(px(10.), px(12.)), point(px(5.), px(11.)));
+        builder.close();
+        let path = builder.build()?;
+        let offset = point(px(50.), px(-30.));
+        let moved = path.clone().translated(offset);
+
+        assert!(!path.curves.is_empty());
+        assert_eq!(path.curves.len(), moved.curves.len());
+        assert_eq!(path.even_odd(), moved.even_odd());
+        for (original, translated) in path.curves.iter().zip(&*moved.curves) {
+            let offset = point(offset.x.as_f32(), offset.y.as_f32());
+            assert_eq!(translated.p0, original.p0 + offset);
+            assert_eq!(translated.p1, original.p1 + offset);
+            assert_eq!(translated.a, original.a);
+            assert_eq!(translated.b, original.b);
+            assert_eq!(translated.sign, original.sign);
+        }
+        Ok(())
+    }
 }

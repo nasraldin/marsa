@@ -117,6 +117,7 @@
 //!
 //! [CSS Fonts Module Level 3]: https://drafts.csswg.org/css-fonts-3/#font-matching-algorithm
 
+#![cfg(target_os = "macos")]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
 #![warn(missing_copy_implementations)]

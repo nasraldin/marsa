@@ -6,6 +6,7 @@ use collections::HashMap;
 use image::Frame;
 use parking_lot::Mutex;
 use resvg::tiny_skia::Pixmap;
+use skrifa::MetadataProvider;
 use smallvec::SmallVec;
 use std::{
     hash::Hash,
@@ -44,9 +45,9 @@ fn is_emoji_presentation(c: char) -> bool {
 
 fn font_has_char(db: &usvg::fontdb::Database, id: usvg::fontdb::ID, ch: char) -> bool {
     db.with_face_data(id, |font_data, face_index| {
-        ttf_parser::Face::parse(font_data, face_index)
+        skrifa::FontRef::from_index(font_data, face_index)
             .ok()
-            .and_then(|face| face.glyph_index(ch))
+            .and_then(|face| face.charmap().map(ch))
             .is_some()
     })
     .unwrap_or(false)

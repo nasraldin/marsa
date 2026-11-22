@@ -15,8 +15,6 @@ mod apple_build {
         path::{Path, PathBuf},
     };
 
-    use cbindgen::Config;
-
     pub fn run() {
         let header_path = generate_shader_bindings();
 
@@ -27,87 +25,14 @@ mod apple_build {
     }
 
     fn generate_shader_bindings() -> PathBuf {
-        let output_path = PathBuf::from(env::var("OUT_DIR").unwrap()).join("scene.h");
-
-        let gpui_dir = find_gpui_crate_dir();
-
-        let mut config = Config {
-            include_guard: Some("SCENE_H".into()),
-            language: cbindgen::Language::C,
-            no_includes: true,
-            ..Default::default()
-        };
-        config.export.include.extend([
-            "Bounds".into(),
-            "Corners".into(),
-            "Edges".into(),
-            "Size".into(),
-            "Pixels".into(),
-            "Hsla".into(),
-            "ContentMask".into(),
-            "Uniforms".into(),
-            "AtlasTile".into(),
-            "GlobalInputIndex".into(),
-            "PathTileInputIndex".into(),
-            "PathTile".into(),
-            "PathCurve".into(),
-            "PathPaint".into(),
-            "ShadowInputIndex".into(),
-            "Shadow".into(),
-            "QuadInputIndex".into(),
-            "Underline".into(),
-            "UnderlineInputIndex".into(),
-            "Quad".into(),
-            "BorderStyle".into(),
-            "SpriteInputIndex".into(),
-            "MonochromeSprite".into(),
-            "PolychromeSprite".into(),
-            "SurfaceInputIndex".into(),
-            "SurfaceBounds".into(),
-            "TransformationMatrix".into(),
-        ]);
-        config.no_includes = true;
-        config.enumeration.prefix_with_name = true;
-
-        let mut builder = cbindgen::Builder::new();
-
-        let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-
-        // Source files from gpui that define types used in shaders
-        let gpui_src_paths = [
-            gpui_dir.join("src/scene.rs"),
-            gpui_dir.join("src/geometry.rs"),
-            gpui_dir.join("src/color.rs"),
-            gpui_dir.join("src/window.rs"),
-            gpui_dir.join("src/platform.rs"),
-        ];
-
-        // Source files from this crate
-        let local_src_paths = [crate_dir.join("src/metal_renderer.rs")];
-
-        for src_path in gpui_src_paths.iter().chain(local_src_paths.iter()) {
-            println!("cargo:rerun-if-changed={}", src_path.display());
-            builder = builder.with_src(src_path);
-        }
-
-        builder
-            .with_config(config)
-            .generate()
-            .expect("Unable to generate bindings")
-            .write_to_file(&output_path);
-
-        output_path
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/scene.h");
+        let output = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo provides OUT_DIR"))
+            .join("scene.h");
+        println!("cargo:rerun-if-changed={}", source.display());
+        std::fs::copy(source, &output).expect("copy the shader header bundled with this GPUI revision");
+        output
     }
 
-    /// Locate the gpui crate directory relative to this crate. Resolved at
-    /// build-script runtime against this crate's manifest dir, so no checkout
-    /// path is baked into a compiled artifact (which corgi rejects).
-    fn find_gpui_crate_dir() -> PathBuf {
-        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("vendor/gpui")
-    }
-
-    /// To enable runtime compilation, we need to "stitch" the shaders file with the generated header
-    /// so that it is self-contained.
     #[cfg(feature = "runtime_shaders")]
     fn emit_stitched_shaders(header_path: &Path) {
         fn stitch_header(header: &Path, shader_path: &Path) -> std::io::Result<PathBuf> {

@@ -280,7 +280,7 @@ name = "action_macros"
 path = "tests/action_macros.rs"
 
 [dependencies.accesskit]
-version = "0.24.0"
+version = "=0.25.2"
 features = ["enumn"]
 
 [dependencies.anyhow]
@@ -300,13 +300,9 @@ package = "gpui-pre-bench-metrics"
 [dependencies.bitflags]
 version = "2.6.0"
 
-[dependencies.chrono]
-version = "0.4"
-features = [
-    "std",
-    "serde",
-]
-default-features = true
+[dependencies.time]
+version = "=0.3.55"
+features = ["formatting", "local-offset", "macros", "wasm-bindgen"]
 
 [dependencies.collections]
 version = "=0.3.13"
@@ -394,7 +390,7 @@ default-features = false
 version = "0.3.19"
 
 [dependencies.itertools]
-version = "0.14.0"
+version = "=0.15.0"
 
 [dependencies.log]
 version = "0.4"
@@ -432,12 +428,11 @@ optional = true
 package = "proptest"
 
 [dependencies.rand]
-version = "0.9"
+version = "=0.10.4"
 features = [
     "std",
     "std_rng",
-    "os_rng",
-    "small_rng",
+    "sys_rng",
     "thread_rng",
 ]
 default-features = false
@@ -458,10 +453,9 @@ features = [
 default-features = true
 
 [dependencies.resvg]
-version = "0.46.0"
+version = "=0.50.0"
 features = [
     "text",
-    "system-fonts",
     "memmap-fonts",
     "raster-images",
 ]
@@ -508,7 +502,7 @@ features = [
 ]
 
 [dependencies.spin]
-version = "0.10"
+version = "=0.12.3"
 features = [
     "mutex",
     "spin_mutex",
@@ -545,10 +539,10 @@ default-features = false
 version = "2.0.12"
 
 [dependencies.tiny-skia-path]
-version = "0.11"
+version = "=0.12.0"
 
-[dependencies.ttf-parser]
-version = "0.25"
+[dependencies.skrifa]
+version = "=0.49.0"
 
 [dependencies.unicode-segmentation]
 version = "1.10"
@@ -557,7 +551,7 @@ version = "1.10"
 version = "2.2"
 
 [dependencies.usvg]
-version = "0.46.0"
+version = "=0.50.0"
 default-features = false
 
 [dependencies.uuid]
@@ -633,7 +627,7 @@ default-features = false
 version = "0.4.0"
 
 [target.'cfg(target_family = "wasm")'.dependencies.getrandom]
-version = "0.3.4"
+version = "0.4.3"
 features = ["wasm_js"]
 
 [target.'cfg(target_family = "wasm")'.dependencies.uuid]
