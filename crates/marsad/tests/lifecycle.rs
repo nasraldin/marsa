@@ -60,6 +60,7 @@ async fn serves_meta_and_cleans_up_its_runtime_files_on_sigterm() {
     );
     assert_eq!(mode(paths.run_dir()), 0o700);
     assert_eq!(mode(paths.daemon_socket()), 0o600);
+    assert_eq!(mode(paths.docker_socket()), 0o600);
     assert!(
         fs::symlink_metadata(paths.daemon_socket())
             .unwrap()
@@ -83,6 +84,7 @@ async fn serves_meta_and_cleans_up_its_runtime_files_on_sigterm() {
 
     daemon.terminate().await;
     assert!(!paths.daemon_socket().exists());
+    assert!(!paths.docker_socket().exists());
     assert!(!paths.daemon_pid_file().exists());
     assert!(paths.daemon_lock_file().is_file());
     let log = fs::read_to_string(paths.daemon_log()).unwrap();
@@ -111,6 +113,7 @@ async fn recovers_stale_socket_and_pid_after_an_unclean_exit() {
     first.0.kill().unwrap();
     first.0.wait().unwrap();
     assert!(paths.daemon_socket().exists());
+    assert!(paths.docker_socket().exists());
     assert!(paths.daemon_pid_file().exists());
 
     let mut replacement = Daemon(start(home.path()).spawn().unwrap());
@@ -156,22 +159,30 @@ fn refuses_a_symlink_runtime_directory_and_invalid_settings() {
 
 #[test]
 fn leaves_an_unexpected_socket_path_and_its_target_intact() {
-    let home = TempDir::new_in("/tmp").unwrap();
-    let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
-    fs::create_dir_all(paths.run_dir()).unwrap();
-    let sentinel = home.path().join("sentinel");
-    fs::write(&sentinel, "keep this file").unwrap();
-    symlink(&sentinel, paths.daemon_socket()).unwrap();
-    let rejected = start(home.path()).output().unwrap();
-    assert!(!rejected.status.success());
-    assert!(
-        String::from_utf8(rejected.stderr)
-            .unwrap()
-            .contains("unexpected owner or file type")
-    );
-    assert_eq!(fs::read_link(paths.daemon_socket()).unwrap(), sentinel);
-    assert_eq!(fs::read_to_string(sentinel).unwrap(), "keep this file");
-    assert!(!paths.daemon_pid_file().exists());
+    for docker in [false, true] {
+        let home = TempDir::new_in("/tmp").unwrap();
+        let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
+        fs::create_dir_all(paths.run_dir()).unwrap();
+        let (socket, other_socket) = if docker {
+            (paths.docker_socket(), paths.daemon_socket())
+        } else {
+            (paths.daemon_socket(), paths.docker_socket())
+        };
+        let sentinel = home.path().join("sentinel");
+        fs::write(&sentinel, "keep this file").unwrap();
+        symlink(&sentinel, &socket).unwrap();
+        let rejected = start(home.path()).output().unwrap();
+        assert!(!rejected.status.success());
+        assert!(
+            String::from_utf8(rejected.stderr)
+                .unwrap()
+                .contains("unexpected owner or file type")
+        );
+        assert_eq!(fs::read_link(socket).unwrap(), sentinel);
+        assert_eq!(fs::read_to_string(sentinel).unwrap(), "keep this file");
+        assert!(!other_socket.exists());
+        assert!(!paths.daemon_pid_file().exists());
+    }
 }
 
 #[tokio::test]

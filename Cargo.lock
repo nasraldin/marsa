@@ -660,6 +660,10 @@ version = "0.1.0"
 dependencies = [
  "marsa-core",
  "marsa-share",
+ "nix",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

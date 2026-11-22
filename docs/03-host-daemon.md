@@ -216,7 +216,7 @@ delivered cursor and checks that live updates follow the cursor in order.
 
 ## Docker socket proxy
 
-`marsad` listens on `~/.marsa/run/docker.sock` (mode 0600, owner only) and forwards each connection to dockerd in the guest over vsock.
+`marsad` listens on `~/.marsa/run/docker.sock` (mode 0600, owner only) and forwards each connection to dockerd in the guest over vsock. The sequence below includes on-demand startup (M4-02) and share policy (M4-06).
 
 ```mermaid
 sequenceDiagram
@@ -238,11 +238,42 @@ sequenceDiagram
     end
 ```
 
+M4-01 connects to an already-ready guest. The proxy opens a separate stream
+on guest vsock port 5001 for each authenticated client. The daemon holds
+the listener under its instance lock, checks the Unix peer UID and limits
+the proxy to 128 live connections. Each relay uses an 8 KiB buffer in each
+direction and streams bytes as backpressure permits. A write half-close
+still lets an attached client receive output. A full client disconnect
+drops the upstream stream, including when opening it is still in progress.
+
+Docker Engine 29.10.0 exposes API v1.57. The upstream contract specifies
+HTTP connection upgrades for attach and exec, along with raw or multiplexed
+output. BuildKit also uses an upgraded session alongside the build request.
+The proxy leaves these streams and HTTP message framing intact.
+[Docker API v1.57](https://raw.githubusercontent.com/moby/moby/docker-v29.10.0/api/docs/v1.57-swagger.yaml)
+· [BuildKit session handler](https://github.com/moby/moby/blob/docker-v29.10.0/vendor/github.com/moby/buildkit/session/manager.go#L42-L86).
+
 Proxy rules:
 
 - **Transparent by default.** Requests and responses are forwarded unchanged, including connection upgrades used by `attach`, `exec` and BuildKit.
 - **One inspection point only.** `POST /containers/create` is inspected for bind mounts that fall outside the shared-folder allowlist. Agent traffic does not use this socket at all; it goes through the `AgentOps` service of the typed API, where the permission policy applies.
 - **No API emulation.** The proxy never rewrites engine responses. Anything the engine supports works.
+
+Run the Docker proxy system test on Apple silicon from the workspace root.
+Set `MARSA_VZ_GUEST_DIR` to the output of `cargo xtask guest all` and
+`MARSA_VZ_NETWORK_HELPER` to the built userspace network helper. Put the
+Docker CLI and `docker-buildx` on PATH.
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
+  --test packaged_runtime packaged_docker_socket -- --ignored --nocapture
+```
+
+The test uses a temporary home, a signed test bundle, and an isolated Docker
+configuration. It builds a fixture using binaries from the guest image,
+runs interactive CLI tests with a PTY, and samples daemon RSS while reading
+a Docker save archive larger than 2 GiB. It also cancels 140 log-follow
+requests to verify that the guest bridge continues accepting connections.
 
 ## Settings
 
@@ -300,7 +331,7 @@ The read-only guest image (kernel and root filesystem) ships inside the app bund
 - From the signed app, `Contents/MacOS/marsad login status`, `enable` and `disable` read or change the start-at-login setting for the current user. Service Management stores the setting. If macOS requests approval, enable Marsa under **System Settings → General → Login Items & Extensions**.
 - The bundled per-user LaunchAgent uses `SMAppService.agent(plistName:)` from macOS 13 onward. [Apple documents](https://developer.apple.com/documentation/servicemanagement/smappservice/register%28%29?changes=_4) that an approved LaunchAgent starts when registered and on subsequent logins. Unregistering removes the job and terminates the running agent. The plist uses bundle-relative `BundleProgram` to locate `Contents/MacOS/marsad`.
 - The GUI and CLI can start `marsad` through `marsa-client` when the socket is absent or refuses connections. A packaged client verifies the containing app and the sibling daemon signatures before starting the daemon as the current user. The daemon lock resolves simultaneous launches. On-demand starts leave the start-at-login preference alone.
-- `marsad` holds an exclusive lock on `marsad.lock` so only one instance runs per user. On SIGINT or SIGTERM it drains the local API, removes its socket and PID file, and releases the lock. The lock file stays in place for the next launch.
+- `marsad` holds an exclusive lock on `marsad.lock` so only one instance runs per user. On SIGINT or SIGTERM it closes Docker connections, drains the local API, removes both sockets and the PID file, and releases the lock. The lock file stays in place for the next launch.
 - With start at login enabled, launchd restarts the daemon after a crash or a nonzero exit. The agent stays stopped after a successful exit. On restart the daemon reattaches or cleans up any orphaned VM before accepting requests.
 
 To verify registration, crash recovery and cleanup on a logged-in macOS desktop, build the daemon and run the isolated fixture.

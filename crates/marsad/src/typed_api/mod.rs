@@ -19,7 +19,7 @@ use marsa_proto::host::v1::{
     settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
 };
 use marsa_share::SharePolicy;
-use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
+use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec, VsockStream};
 use nix::unistd::{Uid, User};
 use tokio::{net::UnixListener, sync::watch};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -195,6 +195,15 @@ impl TypedApi {
                 }
             })
             .await
+    }
+
+    /// Connect to the already-ready guest Docker engine through the daemon's runtime.
+    pub async fn connect_docker(&self) -> io::Result<VsockStream> {
+        let supervisor = self
+            .supervisor
+            .as_ref()
+            .ok_or(io::ErrorKind::NotConnected)?;
+        supervisor.connect_docker().await
     }
 
     fn authorize<T>(&self, request: Request<T>) -> Result<T, Status> {
