@@ -59,6 +59,15 @@ must match the current revision. Read it again after reconnecting to a
 different daemon process. The daemon publishes a new revision only after the
 replacement has committed. `Settings.Watch` starts with the current settings.
 
+`Network.SetMode` accepts the explicit auto, NAT and user-space enum values.
+It persists a single-field settings edit. A successful response reports the
+mode saved by that request, plus the independently observed VM attachment
+and addresses when available. Active fields remain empty when the observer
+has no guest. Replay the same UUID and mode for the original mutation
+response, or call `Network.Status` for a fresh observation. Engine restart
+is a separate action.
+
+
 API 1.1 adds `SettingsSnapshot.restart_required` and
 `EngineStatus.guest_health` without changing existing fields. API 1.0 clients
 ignore both fields. Missing fields have the protobuf defaults of `false` and

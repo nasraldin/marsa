@@ -69,6 +69,13 @@ the native attachment and keep local Docker available. A failed alternate
 attempt must stop before the supervisor restores native networking on the
 same data disk. Explicitly selected modes skip automatic switching.
 
+The authenticated `Network.SetMode` call saves `auto`, `nat`, or `userspace`
+as the configured mode. The current attachment stays in use until a cold
+activation, such as an ordinary restart. A configured pin is authoritative
+for that activation. When integrating approved daemon proxy policy, enforce
+its user-space attachment requirement. An incompatible setting must be
+refused or reported as pending until approval clears that constraint.
+
 | Observation | Behavior in `auto` mode |
 |---|---|
 | Native path succeeds | Keep native NAT. |

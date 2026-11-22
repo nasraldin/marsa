@@ -240,10 +240,9 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   -- --exact --ignored --nocapture --test-threads=1
 ```
 
-
 ### M4-25 Save the configured network mode through the typed API
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-15, M4-18
 - **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection)
 - **Do:** Implement owner-authenticated `Network.SetMode` using the existing settings transaction and request deduplication. Change only the configured mode. Report that saved mode and any independently observed active attachment and guest addresses. Leave the current VM and its connections alone.
@@ -252,3 +251,5 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - Only the authenticated owner can set `auto`, `nat`, or `userspace`. Invalid modes and request IDs change nothing. Repeating a request returns its original result, and using its ID for a different mode is rejected.
   - Only the network mode changes on disk and in settings. Concurrent edits serialize without losing unrelated settings. A stopped or unavailable runtime has no active mode or address reported.
   - Changing the mode while the VM is ready leaves its active attachment intact. An ordinary restart uses the saved explicit pin and automatic selection does not override it.
+
+- **Evidence:** The authenticated Unix tests verified validation, duplicate and conflicting request IDs, preservation of unrelated settings and serialization with full settings updates. The daemon process wrote an owner-only file in a disposable home and read its saved mode after relaunch without booting a VM. The fake packaged runtime kept NAT active during a Userspace edit, then selected the new pin only on an ordinary restart. A failed boot left active fields empty.
