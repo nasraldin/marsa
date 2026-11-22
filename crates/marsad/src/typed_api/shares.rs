@@ -18,6 +18,7 @@ impl Shares for TypedApi {
         request: Request<ListSharesRequest>,
     ) -> Result<Response<ListSharesResponse>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         let (settings, _) = self.inner.events.settings();
         let shares = settings
             .shares
