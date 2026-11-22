@@ -250,6 +250,7 @@ impl TypedApi {
         self.inner
             .events
             .update_settings(settings, document, next_revision, idle_applied);
+        self.inner.events.reset_bind_approvals();
         drop(permit);
         Ok(ResetResponse {
             result: Some(ResetResult::Completed(ResetCompleted {})),
@@ -280,6 +281,43 @@ mod tests {
     use marsa_core::paths::MarsaPaths;
 
     use super::*;
+
+    #[tokio::test]
+    async fn factory_reset_invalidates_approved_next_boot_binds() {
+        use std::{fs, os::unix::fs::PermissionsExt};
+
+        let home = tempfile::tempdir().unwrap();
+        let paths = marsa_core::paths::MarsaPaths::from_root(home.path()).unwrap();
+        for directory in [home.path().to_owned(), paths.vm_dir(), paths.state_dir()] {
+            if directory != home.path() {
+                fs::create_dir(&directory).unwrap();
+            }
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let api =
+            TypedApi::new(paths, nix::unistd::geteuid().as_raw(), Settings::default()).unwrap();
+        let approved = tempfile::tempdir_in("/tmp").unwrap();
+        api.inner
+            .events
+            .stage_once(vec![approved.path().canonicalize().unwrap()]);
+        let prepared = api
+            .prepare_factory_reset("51000000-0000-4000-8000-000000000001".into())
+            .await
+            .unwrap();
+        let Some(ResetResult::Challenge(challenge)) = prepared.result else {
+            panic!("expected a factory reset challenge");
+        };
+        assert_eq!(api.inner.events.boot_configuration().1.len(), 1);
+        let response = api
+            .confirm_factory_reset(
+                "51000000-0000-4000-8000-000000000002",
+                challenge.confirmation_token,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(response.result, Some(ResetResult::Completed(_))));
+        assert!(api.inner.events.boot_configuration().1.is_empty());
+    }
 
     #[test]
     fn an_expired_factory_confirmation_has_no_live_reservation() {

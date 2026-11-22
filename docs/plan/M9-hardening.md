@@ -217,7 +217,7 @@ redirected stage member was refused and its target remained intact.
 
 ### M9-15 Fuzz the Docker create-request inspector
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-06, M9-02
 - **Docs:** [11 Process hardening on the host](../11-security.md#process-hardening-on-the-host), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements)
 - **Do:** Exercise the production Docker create-request inspector with a committed corpus of representative and malformed request bodies. Check that malformed or unsupported inputs cannot bypass the bind-mount policy.
@@ -225,3 +225,5 @@ redirected stage member was refused and its target remained intact.
 - **Accept when:**
   - The target runs for a fixed budget in CI without crashes.
   - Any crash found is fixed and its input added as a regression test.
+
+The [hosted fuzz run](https://github.com/nasraldin/marsa/actions/runs/44974259069) completed the configured budget for all four targets without a crash.

@@ -37,7 +37,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
-| V-06 | Verify the change relay and permission mapping in real containers. The VZ spike found missing host-origin events and a non-root write denial. | [07](07-file-sharing-and-storage.md), [M1-04](spikes/M1-04-virtiofs.md) | M4-06 |
+| V-06 | Complete development-server qualification. The production guest verifies Mac ownership from UID/GID 12345 and scoped Compose Watch produces native Linux notifications. The direct virtiofs mount received new bytes without host-origin inotify. | [07](07-file-sharing-and-storage.md#correctness-requirements), [M1-04](spikes/M1-04-virtiofs.md) | M4-19 |
 | V-07 | NAT attachment requirements; user-space attachment class | [06](06-networking.md) | M4-08, M4-10 |
 | V-09 | libkrun: current release, API, kernel requirements (own kernel or libkrunfw) | [04](04-virtualization-macos.md) | M11-02 |
 | V-10 | gpui-component's i18n and whether Fluent can coexist with it | [08](08-gui.md) | M6-04 |

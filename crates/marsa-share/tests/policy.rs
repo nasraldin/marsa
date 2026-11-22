@@ -109,6 +109,37 @@ fn denies_aliases_in_both_directions() {
 }
 
 #[test]
+fn an_attached_directory_never_authorizes_its_redirected_or_replaced_path() {
+    let f = Fixture::new();
+    let original = f.dir("original").canonicalize().unwrap();
+    let other = f.dir("other").canonicalize().unwrap();
+    let mounted = Allowlist::from_paths(f.policy.clone(), [&original, &other]).unwrap();
+    let approval = Allowlist::from_paths(f.policy, [&original]).unwrap();
+    assert!(
+        mounted
+            .authorize_if(&original, |root| root == original)
+            .is_ok()
+    );
+
+    let detached = original.with_file_name("detached");
+    fs::rename(&original, detached).unwrap();
+    symlink(&other, &original).unwrap();
+    assert!(matches!(
+        mounted.authorize_if(&other, |root| root == original),
+        Err(ShareError::NotAllowed)
+    ));
+    assert!(approval.verify_roots().is_err());
+
+    fs::remove_file(&original).unwrap();
+    fs::create_dir(&original).unwrap();
+    assert!(matches!(
+        mounted.authorize(&original),
+        Err(ShareError::NotAllowed)
+    ));
+    assert!(approval.verify_roots().is_err());
+}
+
+#[test]
 fn checks_containment_on_canonical_components_and_refuses_traversal() {
     let f = Fixture::new();
     let configured = f.dir("project");

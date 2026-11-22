@@ -74,6 +74,7 @@ Marsa.app/
     │   │   ├── Image
     │   │   ├── rootfs.img
     │   │   └── guest-manifest.json
+    │   ├── Marsa.icns
     │   ├── locales/
     │   ├── fonts/
     │   └── licenses/                  # third-party notices and SBOM
@@ -112,6 +113,16 @@ publishing atomically on macOS and GNU/Linux. Copy the staged
 third-party notices (M10-08).
 
 Verify the checksums in the [font asset inventory](../assets/fonts/README.md) before copying the native fonts and their original notice into the bundle.
+
+Copy the verified [Harbor icon](../assets/icons/README.md) into `Contents/Resources/Marsa.icns` and set `CFBundleIconFile` to `Marsa.icns`.
+
+Verify the checksums in the [font asset inventory](../assets/fonts/README.md) before copying the native fonts and their original notice into the bundle.
+
+
+Copy the verified `bin/` tree from the directory printed by
+[`cargo xtask fetch-upstream`](09-cli-and-docker-compat.md#bundled-upstream-binaries)
+into `Contents/Resources/bin/`. Feed the staging directory’s
+`upstream-sbom-input.json` into the release SBOM.
 
 ## Signing and notarization
 
