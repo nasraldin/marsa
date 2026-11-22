@@ -95,15 +95,21 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-17 Confirm and reset daemon settings
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-08
-- **Docs:** [03 Local control API](../03-host-daemon.md#local-control-api), [07 Integrity](../07-file-sharing-and-storage.md#integrity)
+- **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [07 Integrity](../07-file-sharing-and-storage.md#integrity)
 - **Do:** Add owner-authenticated settings reset to `Engine.Reset`. Prepare a short-lived single-use confirmation bound to the current settings revision and private configuration member. After confirmation, atomically persist defaults and publish the settings revision.
 - **Deliver:** settings-only reset RPC and fixture tests.
 - **Accept when:**
   - A valid confirmation resets settings without starting the engine or touching its disk or grants.
-  - Missing, expired, repeated and stale confirmations cannot apply a reset. Malformed or substituted configuration members remain intact.
+  - Missing, expired, repeated and stale confirmations cannot apply a reset. Unsafe or substituted configuration members remain intact.
   - Interrupted persistence leaves either the existing complete settings or the complete defaults.
+
+**Verification.** Tests use the authenticated Unix API and private fixture
+storage. They cover expiry, duplicate requests, revision changes and inode
+substitution. Killing the staging fixture after file sync and before rename
+preserved its original complete configuration. The following reset persisted
+the complete defaults.
 
 ### M9-18 Recover private storage with confirmed factory reset
 
@@ -115,7 +121,7 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 - **Accept when:**
   - Factory reset works even when the engine cannot start.
   - The confirmed reset recreates the data disk, clears grants and restores settings defaults. Unconfirmed or stale requests leave all three intact.
-  - Interrupted writes or restart do not expose partial reset state or modify unrelated files.
+  - After interruption the daemon either restores the prior disk, grants and settings together or completes the confirmed reset before serving requests. Unrelated files remain intact.
 
 ### M9-09 Data-disk versioning and upgrade path
 
