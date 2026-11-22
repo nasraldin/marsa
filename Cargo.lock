@@ -2686,10 +2686,14 @@ dependencies = [
 name = "marsa-client"
 version = "0.1.0"
 dependencies = [
+ "http-body-util",
+ "hyper",
  "hyper-util",
  "marsa-l10n",
  "marsa-proto",
  "nix",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
  "tokio",

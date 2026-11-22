@@ -9,9 +9,13 @@ pub use marsa_proto::host::v1 as api;
 #[cfg(unix)]
 mod client;
 #[cfg(unix)]
+pub mod docker;
+#[cfg(unix)]
 mod events;
 #[cfg(unix)]
 mod platform;
+#[cfg(unix)]
+pub mod runtime;
 
 #[cfg(unix)]
 pub use client::{AgentClient, ClientError, DaemonEndpoint, MarsaClient, docker_socket_path};

@@ -1,10 +1,10 @@
 //! Marsa desktop client.
 
-use marsa_client as _;
 use std::process::ExitCode;
 
 #[cfg(target_os = "macos")]
 fn main() -> ExitCode {
+    let _services = marsa_gui::services::Services::start();
     marsa_ui::run()
 }
 

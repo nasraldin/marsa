@@ -127,6 +127,13 @@ Arabic editing and VoiceOver integration.
   - Views re-render only when their selected state changes (tested with counters).
   - Closing the window cancels every stream.
 
+The owner socket delivers ordered daemon snapshots and events. The desktop reads
+Docker collections on engine readiness and explicit refresh. A persistent
+subscription through the public Docker socket keeps its activity lease open
+and prevents idle shutdown. Live Docker collection invalidation needs a
+non-waking observer on the owner API before the event-driven acceptance is
+complete.
+
 ### M6-08 Keyboard and accessibility foundation
 
 - **Status:** todo
