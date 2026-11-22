@@ -27,16 +27,16 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
   - Each target runs for a fixed budget in CI without crashes.
   - Any crash found is fixed and its input added as a regression test.
 
-### M9-03 Disk space reclaim end to end
+### M9-03 Explicit disk space reclaim
 
-- **Status:** todo
-- **Depends on:** M4-07, M2-08, M1-03
+- **Status:** in progress
+- **Depends on:** M4-07, M2-08, M1-03, M5-05
 - **Docs:** [07 Returning space to macOS](../07-file-sharing-and-storage.md#returning-space-to-macos), V-05, R-14
-- **Do:** Implement `Disk.Reclaim` using the mechanism proven in M1-03, automatic reclaim after cleanup and on a schedule when idle, and the offline compaction fallback if it was needed. Wire `marsa disk reclaim` and the GUI cleanup flow.
-- **Deliver:** reclaim implementation and a Tier 2 test.
+- **Do:** Implement authenticated `Disk.Reclaim` and wire `marsa disk reclaim`. Send the existing Trim command to the ready guest on explicit request. Measure actual host sparse allocation before and after, and report the observed delta separately from guest bytes submitted for discard. Keep automatic and post-cleanup reclaim in M9-14.
+- **Deliver:** daemon and CLI integration, unit tests, and a Tier 2 disposable-data test.
 - **Accept when:**
-  - A test that pulls several gigabytes of images, removes them and reclaims shows the image file's real size on the host dropping by at least 90% of the freed amount.
-  - Reclaim never runs during heavy I/O without the user asking.
+  - After deleting several GiB of disposable data in a dedicated test VM, explicit reclaim drops host image allocation by at least 90% of the freed amount.
+  - A stopped VM does not boot for reclaim. Reclaim only runs on explicit request and concurrent or retried requests remain bounded.
 
 ### M9-04 Memory behaviour
 
@@ -209,6 +209,17 @@ redirected stage member was refused and its target remained intact.
   - An authenticated caller can explicitly create one local archive and receive its path even when the engine is stopped.
   - The archive contains the approved logs and diagnostic state without planted secrets, environment values, or raw settings.
   - Retrying the same request ID returns the existing archive path without creating another archive.
+
+### M9-14 Coordinate automatic reclaim with confirmed cleanup
+
+- **Status:** todo
+- **Depends on:** M9-03, M5-08, M7-11
+- **Docs:** [07 Returning space to macOS](../07-file-sharing-and-storage.md#returning-space-to-macos), [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
+- **Do:** Reclaim after applying a confirmed cleanup plan and on a schedule when the VM is idle. Honor the setting and verify that automatic admission remains safe under concurrent disk activity. Wire the GUI cleanup flow and qualify any required offline compaction fallback for a backend without discard.
+- **Deliver:** automatic admission and cleanup integration, GUI reporting, and a Tier 2 image cleanup test.
+- **Accept when:**
+  - A test that pulls several gigabytes of images, removes them and reclaims shows the image file's real size on the host dropping by at least 90% of the freed amount.
+  - Reclaim never runs during heavy I/O without the user asking.
 
 ### M9-15 Fuzz the Docker create-request inspector
 
