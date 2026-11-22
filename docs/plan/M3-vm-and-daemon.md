@@ -227,7 +227,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 - **Depends on:** M3-06, M4-02
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle)
 - **Do:** Add an exclusive supervisor permit for daemon maintenance. Optionally compare the caller's preview with the lifecycle revision in the actor. Suspend automatic retry and idle stop, and block ordinary lifecycle and new Docker connections while the permit is held. Let the holder stop the guest or start one candidate.
-- **Deliver:** A daemon-internal admission interface and fake backend tests for M4-21 and M9-18.
+- **Deliver:** A daemon-internal admission interface and fake backend tests for proxy activation and factory reset.
 - **Accept when:**
   - Two callers cannot reserve maintenance at once. A stale preview is rejected before admission.
   - Ordinary start, stop, restart, pause, resume, and Docker connection requests return busy while maintenance is reserved.
