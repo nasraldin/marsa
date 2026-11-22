@@ -13,6 +13,10 @@ This folder is the single source of truth for what Marsa is, how it is built and
 | Know what is still uncertain | [16 Risks and open questions](16-risks-and-open-questions.md) |
 | Pick up work | [Implementation plan](plan/README.md) and the task files next to it |
 
+## User guides
+
+[English](user/README.md) · [العربية](user/ar/README.md)
+
 ## Contents
 
 ### Product and architecture
