@@ -44,6 +44,13 @@ The same minor adds the explicit `DockerDiscovery.EnableRegistryKeychain`
 mutation. The RPC accepts no credentials and returns only whether it added
 the setting.
 
+Host API minor 4 adds factory reset. Use the separate `PrepareFactoryReset`
+and `ConfirmFactoryReset` messages. The confirmation binds to private storage
+identities and expires after 60 seconds. A committed factory reset stops the
+guest, restores settings defaults, clears grants and installs a fresh sparse
+data disk. An interrupted transaction is resolved before the daemon serves
+either socket.
+
 `Events.Subscribe` emits a snapshot before live updates on each connection.
 The daemon takes that snapshot at an event cursor and then emits events after
 that cursor in order. Sequence numbers are scoped to the stream ID of the

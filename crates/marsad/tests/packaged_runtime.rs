@@ -38,6 +38,8 @@ use tower::service_fn;
 mod bind_shares;
 #[path = "packaged_runtime/disk_schema.rs"]
 mod disk_schema;
+#[path = "packaged_runtime/factory.rs"]
+mod factory;
 #[path = "packaged_runtime/recovery.rs"]
 mod recovery;
 #[path = "packaged_runtime/support.rs"]

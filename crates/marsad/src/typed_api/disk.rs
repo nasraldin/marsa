@@ -27,6 +27,7 @@ impl Disk for TypedApi {
         request: Request<DiskUsageRequest>,
     ) -> Result<Response<DiskUsageResponse>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         let path = self.inner.paths.root().to_owned();
         let uid = self.inner.uid;
         let mut usage = tokio::task::spawn_blocking(move || host_usage(&path, uid))
