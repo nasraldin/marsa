@@ -44,6 +44,11 @@ jobs:
           MARSA_ENTITLED_DAEMON_NETWORK=1 bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest
       - name: Exercise the packaged daemon
         run: |
+          bundle="$(cargo xtask fetch-upstream | sed -n 's/^Staged verified upstream binaries in //p')"
+          test -n "$bundle"
+          test -x "$bundle/bin/docker"
+          test -x "$bundle/bin/cli-plugins/docker-buildx"
+          export PATH="$bundle/bin:$bundle/bin/cli-plugins:$PATH"
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked -p marsa-cli
           export MARSA_TEST_CLI="$PWD/target/debug/marsa"
           export MARSA_VZ_GUEST_DIR="$PWD/target/guest"
