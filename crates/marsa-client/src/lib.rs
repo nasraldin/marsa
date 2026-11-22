@@ -11,7 +11,7 @@ mod events;
 mod platform;
 
 #[cfg(unix)]
-pub use client::{ClientError, DaemonEndpoint, MarsaClient};
+pub use client::{ClientError, DaemonEndpoint, MarsaClient, docker_socket_path};
 #[cfg(unix)]
 pub use events::EventSubscription;
 
