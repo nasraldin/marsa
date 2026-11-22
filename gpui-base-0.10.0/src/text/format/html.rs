@@ -4,10 +4,10 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use super::html_tree::{HtmlTree, Node, NodeData};
 use gpui::{DefiniteLength, Hsla, SharedString, px, relative};
 use html5ever::tendril::TendrilSink;
 use html5ever::{LocalName, ParseOpts, local_name, parse_document};
-use super::html_tree::{HtmlTree, Node, NodeData};
 
 use crate::text::document::ParsedDocument;
 use crate::text::node::{
@@ -97,14 +97,16 @@ pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument
         ..Default::default()
     };
 
-    let bytes = cleanup_html(&source);
+    let bytes = cleanup_html(source).map_err(|e| SharedString::from(e.to_string()))?;
     let mut cursor = std::io::Cursor::new(bytes);
     // Ref
     // https://docs.rs/html5ever/latest/html5ever/fn.parse_document.html
     let dom = parse_document(HtmlTree::default(), opts)
         .from_utf8()
         .read_from(&mut cursor)
-        .map_err(|e| SharedString::from(format!("{:?}", e)))?;
+        .map_err(|e| SharedString::from(e.to_string()))?;
+    dom.check_limits()
+        .map_err(|e| SharedString::from(e.to_string()))?;
 
     let mut paragraph = HtmlParagraph::default();
     // NOTE: The outer paragraph is not used.
@@ -118,16 +120,13 @@ pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument
     })
 }
 
-fn cleanup_html(source: &str) -> Vec<u8> {
-    let mut w = std::io::Cursor::new(vec![]);
-    let mut r = std::io::Cursor::new(source);
-    let mut minify = super::html5minify::Minifier::new(&mut w);
-    minify.omit_doctype(true);
-    if let Ok(()) = minify.minify(&mut r) {
-        w.into_inner()
-    } else {
-        source.bytes().collect()
-    }
+fn cleanup_html(source: &str) -> std::io::Result<Vec<u8>> {
+    let mut output = Vec::new();
+    let mut input = source.as_bytes();
+    super::html5minify::Minifier::new(&mut output)
+        .omit_doctype(true)
+        .minify(&mut input)?;
+    Ok(output)
 }
 
 fn attr_value(attrs: &RefCell<Vec<html5ever::Attribute>>, name: LocalName) -> Option<String> {
@@ -727,9 +726,7 @@ fn parse_node(
                 span: None,
             })
         }
-        NodeData::Doctype
-        | NodeData::Comment { .. }
-        | NodeData::ProcessingInstruction => None,
+        NodeData::Doctype | NodeData::Comment { .. } | NodeData::ProcessingInstruction => None,
     }
 }
 

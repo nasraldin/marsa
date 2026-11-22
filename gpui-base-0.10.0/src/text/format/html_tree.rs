@@ -3,6 +3,7 @@
 use std::{
     borrow::Cow,
     cell::RefCell,
+    io,
     rc::{Rc, Weak},
 };
 
@@ -11,6 +12,10 @@ use html5ever::{
     tendril::StrTendril,
     tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeSink},
 };
+
+pub(super) const MAX_INPUT_BYTES: usize = 1024 * 1024;
+const MAX_TREE_DEPTH: usize = 128;
+const MAX_TREE_NODES: usize = 50_000;
 
 type Handle = Rc<Node>;
 
@@ -98,6 +103,39 @@ impl Drop for Node {
 
 pub(super) struct HtmlTree {
     pub(super) document: Handle,
+}
+
+impl HtmlTree {
+    /// Check the tree before entering recursive import and minification code.
+    pub(super) fn check_limits(&self) -> io::Result<()> {
+        let mut pending = vec![(self.document.clone(), 0)];
+        let mut visited = 0;
+        while let Some((node, depth)) = pending.pop() {
+            visited += 1;
+            if depth > MAX_TREE_DEPTH || visited + pending.len() > MAX_TREE_NODES {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "HTML tree exceeds its limits",
+                ));
+            }
+            let children = node.children.borrow();
+            if visited + pending.len() + children.len() > MAX_TREE_NODES {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "HTML tree exceeds its limits",
+                ));
+            }
+            pending.extend(children.iter().cloned().map(|child| (child, depth + 1)));
+            if let NodeData::Element {
+                template: Some(template),
+                ..
+            } = &node.data
+            {
+                pending.push((template.clone(), depth + 1));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for HtmlTree {

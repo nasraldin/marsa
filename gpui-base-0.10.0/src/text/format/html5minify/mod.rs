@@ -3,13 +3,18 @@
 //! This is a fork of the `html5minify` crate.
 //! https://github.com/martingallagher/html5minify
 
-use std::{cell::RefCell, io, rc::Rc, str};
+use std::{
+    cell::RefCell,
+    io::{self, Read},
+    rc::Rc,
+    str,
+};
 
+use super::html_tree::{HtmlTree, MAX_INPUT_BYTES, Node, NodeData};
 use html5ever::{
     Attribute, ParseOpts, QualName, parse_document,
     tendril::{Tendril, TendrilSink, fmt::UTF8},
 };
-use super::html_tree::{HtmlTree, Node, NodeData};
 
 /// Defines the minify trait.
 #[allow(dead_code)]
@@ -177,10 +182,20 @@ where
     /// Will return `Err` if unable to write to the output writer.
     #[inline]
     #[allow(dead_code)]
-    pub fn minify<R: io::Read>(&mut self, mut r: &mut R) -> io::Result<()> {
+    pub fn minify<R: io::Read>(&mut self, r: &mut R) -> io::Result<()> {
+        let mut input = Vec::new();
+        r.take((MAX_INPUT_BYTES + 1) as u64)
+            .read_to_end(&mut input)?;
+        if input.len() > MAX_INPUT_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "HTML input exceeds its size limit",
+            ));
+        }
         let dom = parse_document(HtmlTree::default(), ParseOpts::default())
             .from_utf8()
-            .read_from(&mut r)?;
+            .read_from(&mut input.as_slice())?;
+        dom.check_limits()?;
 
         if !self.omit_doctype {
             self.w.write_all(b"<!doctype html>")?;
@@ -508,13 +523,11 @@ where
 
     fn write_qualified_name(&mut self, name: &QualName) -> io::Result<()> {
         if let Some(prefix) = &name.prefix {
-            self.w
-                .write_all(prefix.to_ascii_lowercase().as_bytes())?;
+            self.w.write_all(prefix.to_ascii_lowercase().as_bytes())?;
             self.w.write_all(b":")?;
         }
 
-        self.w
-            .write_all(name.local.to_ascii_lowercase().as_bytes())
+        self.w.write_all(name.local.to_ascii_lowercase().as_bytes())
     }
 
     fn write_start_tag(&mut self, name: &QualName, attrs: &[Attribute]) -> io::Result<()> {
