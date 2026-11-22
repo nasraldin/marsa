@@ -224,7 +224,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-17 Explicit SSH agent access for containers
 
 - **Status:** todo
-- **Depends on:** M4-06, M4-13
+- **Depends on:** M4-06, M4-13, M4-24
 - **Docs:** [09 SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding), [11 SSH agent access](../11-security.md#ssh-agent-access)
 - **Do:** Design explicit authorization for a named container to mount an SSH agent socket at a documented guest path. Enforce the grant on the host, restrict the approved agent operations, authenticate the guest transport, and revoke access on container exit, VM stop or user request. Qualify the VSock transport needed by that design.
 - **Deliver:** Container-scoped SSH forwarding in the host daemon and guest agent, with a documented opt-in and revocation flow.
@@ -300,3 +300,15 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 - **Accept when:**
   - The documented experiment records the macOS version, address families, transports, and OS errors.
   - No host privilege, LAN listener, or system setting is required.
+
+### M4-24 Qualify SSH agent transport and guest peer identity
+
+- **Status:** in progress
+- **Depends on:** M3-03, M3-16, M4-06, M4-13
+- **Docs:** [11 SSH agent access](../11-security.md#ssh-agent-access), [D-030](../15-decisions.md#d-030-scope-build-ssh-agent-access-to-buildx-sessions), [RFC 9987](https://www.rfc-editor.org/rfc/rfc9987.html)
+- **Do:** Qualify host-initiated VZ access to a closed, disposable guest relay and validate Unix opener identity against a pinned cgroup with the peer's Linux pidfd. Prove that filesystem visibility of the same socket is insufficient. Check that the forwarded agent accepts bounded identity listing and signing while rejecting mutations. Keep the test agent, key and VM separate from user state.
+- **Deliver:** Entitled disposable fixture and a documented transport and identity boundary for M4-17. M4-17 owns production grant and immutable Docker-ID mapping, socket mount authorization, and lifecycle revocation.
+- **Accept when:**
+  - The signed host connects to the guest relay and the relay verifies the host CID. Neither an unsolicited guest-to-host connection nor a guest opener without the expected peer identity gains access.
+  - Two guest Linux cgroups see the same Unix socket. Only the approved one can verify a signature made by its explicitly selected disposable Mac agent, and a forbidden mutation leaves the agent's key intact.
+  - Closing the host transport disconnects an active guest stream and another request fails. The key and approval exist only inside the disposable fixture lifecycle. Document the privileged guest and Docker integration limits.
