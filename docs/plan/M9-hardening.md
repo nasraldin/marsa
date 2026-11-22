@@ -227,3 +227,14 @@ redirected stage member was refused and its target remained intact.
   - Any crash found is fixed and its input added as a regression test.
 
 The [hosted fuzz run](https://github.com/nasraldin/marsa/actions/runs/44974259069) completed the configured budget for all four targets without a crash.
+
+### M9-19 Synchronize the crash-recovery test with daemon readiness
+
+- **Status:** in progress
+- **Depends on:** M9-06
+- **Docs:** [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
+- **Do:** Synchronize crash injection with an authenticated daemon RPC. A transport handshake can complete while PID-file publication is still in progress.
+- **Deliver:** corrected daemon lifecycle regression.
+- **Accept when:**
+  - The test proves the first process published its PID before injecting SIGKILL and verifies recovery by the replacement process.
+  - Repeated execution and the daemon lifecycle test suite pass on the standard user account.
