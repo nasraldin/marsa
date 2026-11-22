@@ -142,7 +142,15 @@ Run the strict test on Apple silicon with
   - The notarized build boots the VM on a Mac that has no developer tools installed.
   - The exact entitlements used are recorded in [12](../12-build-release-update.md).
 
-Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also requires access to a second Apple silicon Mac running macOS 27 or later with developer tools absent. The native entitlement and boot path have been verified with an ad-hoc signed test on the first Mac.
+- **Evidence:** Xcode 27.2 used the existing local Developer ID Application identity and signed-in account to submit and export the daemon qualification archive. The exported bundle passed strict signature and staple validation and retained only the virtualization entitlement on the daemon. With a private home, the exported daemon selected Userspace networking, reached Ready on the physical M1 Max with macOS 27.2.1, and answered Docker `/_ping`. An earlier guest fixture failed at the handshake. The passing test used the previously qualified native-init fixture.
+
+G3 still requires the clean second physical Apple silicon boot. Apple's
+`VZGenericPlatformConfiguration.isNestedVirtualizationSupported` returned
+`false` on the M1 Max host. A fresh Tart guest was restored from Apple's macOS 27.2.1 image and
+started for install and Gatekeeper qualification. The guest test awaits
+first-run setup. The Linux VM boot inside that guest is outside the
+host's capabilities. Project custody and update-key ownership
+remain tracked by Q-04. [Tart nested virtualization support](https://tart.run/faq/#nested-virtualization-support).
 
 ### M3-11 Power and network watcher
 
