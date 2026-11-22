@@ -191,7 +191,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-16 Docker context and endpoint discovery
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M4-01, M4-03
 - **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), V-12
 - **Do:** Register the `marsa` context with the bundled upstream Docker CLI. Preserve current context selection and let users select Marsa explicitly. Expose the Docker socket and endpoint for `marsa env` through the authenticated host API. Verify common client discovery behavior.

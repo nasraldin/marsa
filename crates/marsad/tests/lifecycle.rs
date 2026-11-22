@@ -324,6 +324,168 @@ async fn share_grants_protect_the_configured_home_and_the_effective_account_home
     daemon.terminate().await;
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tokio::test]
+#[ignore = "requires the verified M4-03 Docker CLI at MARSA_TEST_DOCKER_CLI"]
+async fn pinned_cli_sees_the_context_and_retains_user_selection() {
+    use marsa_proto::host::v1::{
+        EnsureDockerContextRequest, docker_discovery_client::DockerDiscoveryClient,
+    };
+
+    let cli = PathBuf::from(std::env::var_os("MARSA_TEST_DOCKER_CLI").unwrap())
+        .canonicalize()
+        .unwrap();
+    let version = Command::new(&cli)
+        .arg("--version")
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(version.status.success());
+    assert!(
+        String::from_utf8(version.stdout)
+            .unwrap()
+            .contains("Docker version 29.10.0")
+    );
+    let home = tempfile::Builder::new()
+        .prefix("m4=, \"")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
+    let config = home.path().join("docker-fixture");
+    fs::create_dir(&config).unwrap();
+    let app = home.path().join("Marsa.app");
+    let binary = app.join("Contents/MacOS/marsad");
+    let packaged_cli = app.join("Contents/Resources/bin/docker");
+    for path in [&binary, &packaged_cli] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+    }
+    fs::copy(env!("CARGO_BIN_EXE_marsad"), &binary).unwrap();
+    fs::copy(&cli, &packaged_cli).unwrap();
+    fs::write(
+        app.join("Contents/Info.plist"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>org.marsa.context-test</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleExecutable</key><string>marsad</string>
+<key>CFBundleVersion</key><string>1</string>
+</dict></plist>"#,
+    )
+    .unwrap();
+    let sign = |path: &Path| {
+        assert!(
+            Command::new("/usr/bin/codesign")
+                .args(["--force", "--sign", "-", "--timestamp=none"])
+                .arg(path)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    };
+    sign(&packaged_cli);
+    sign(&app);
+    let mut daemon = Daemon(
+        Command::new("/bin/sh")
+            .args(["-c", "umask 0777; exec \"$@\"", "marsa-context-fixture"])
+            .arg(binary)
+            .env_clear()
+            .env("HOME", home.path())
+            .env("DOCKER_CONFIG", &config)
+            .env("DOCKER_CONTEXT", "unrelated-fixture")
+            .env("DOCKER_HOST", "unix:///tmp/unrelated-fixture.sock")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let channel = wait_for_channel(&mut daemon, paths.daemon_socket()).await;
+    let run = |args: &[&str]| {
+        let output = Command::new(&cli)
+            .env_clear()
+            .env("HOME", home.path())
+            .arg("--config")
+            .arg(&config)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "fixture Docker command failed");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    run(&[
+        "context",
+        "create",
+        "unrelated",
+        "--docker",
+        "host=unix:///tmp/unrelated.sock",
+    ]);
+    let unrelated = run(&["context", "inspect", "unrelated"]);
+    let config_file = config.join("config.json");
+    let original = b"{ \"currentContext\" : \"unrelated\", \"credsStore\" : \"fixture\" }\n";
+    fs::write(&config_file, original).unwrap();
+    assert_eq!(run(&["context", "show"]).trim(), "unrelated");
+    assert!(
+        !run(&["context", "ls", "--format", "{{.Name}}"])
+            .lines()
+            .any(|name| name == "marsa")
+    );
+
+    let mut discovery = DockerDiscoveryClient::new(channel);
+    let request = |id| EnsureDockerContextRequest {
+        request_id: format!("34000000-0000-4000-8000-{id:012}"),
+    };
+    let mut concurrent = discovery.clone();
+    let (a, b) = tokio::join!(
+        discovery.ensure_context(request(1)),
+        concurrent.ensure_context(request(2)),
+    );
+    let a = a.unwrap().into_inner();
+    let b = b.unwrap().into_inner();
+    assert_ne!(a.created, b.created);
+    let endpoint = a.endpoint.as_ref().unwrap();
+    assert_eq!(Some(endpoint), b.endpoint.as_ref());
+    assert_eq!(
+        discovery
+            .ensure_context(request(1))
+            .await
+            .unwrap()
+            .into_inner(),
+        a
+    );
+    let inspected = run(&[
+        "context",
+        "inspect",
+        "marsa",
+        "--format",
+        "{{.Endpoints.docker.Host}}",
+    ]);
+    assert_eq!(inspected.trim(), endpoint.docker_host);
+    assert_eq!(
+        endpoint.socket_path,
+        paths.docker_socket().to_str().unwrap()
+    );
+    let context_path = run(&[
+        "context",
+        "inspect",
+        "marsa",
+        "--format",
+        "{{.Storage.MetadataPath}}",
+    ]);
+    let context_path = Path::new(context_path.trim());
+    assert_eq!(mode(context_path.to_owned()), 0o700);
+    assert_eq!(mode(context_path.join("meta.json")), 0o600);
+    assert_eq!(run(&["context", "show"]).trim(), "unrelated");
+    assert_eq!(
+        run(&["--context", "marsa", "context", "show"]).trim(),
+        "marsa"
+    );
+    assert_eq!(run(&["context", "inspect", "unrelated"]), unrelated);
+    assert_eq!(fs::read(config_file).unwrap(), original);
+    assert!(!home.path().join(".docker").exists());
+    assert!(!paths.data_disk().exists());
+    daemon.terminate().await;
+}
+
 fn start(home: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_marsad"));
     command

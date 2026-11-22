@@ -61,6 +61,24 @@ impl Packaged {
         self.backend().capabilities()
     }
 
+    /// Locate the signed Docker CLI bundled by the upstream packaging task.
+    pub(super) fn docker_cli(&self) -> io::Result<PathBuf> {
+        let cli = Artifact::open(self.bundle.join("Contents/Resources/bin/docker"))?;
+        let mode = cli.metadata.mode();
+        if mode & 0o111 == 0
+            || mode & 0o6022 != 0
+            || !valid_signature(&self.bundle)?
+            || !valid_signature(&cli.path)?
+        {
+            return Err(invalid_artifact(localized(
+                "the bundled Docker CLI is not a verified executable",
+                "ملف Docker CLI المضمّن غير قابل للتنفيذ أو لم يتم التحقق منه",
+            )));
+        }
+        cli.check_unchanged()?;
+        Ok(cli.path)
+    }
+
     /// Verify the boot files and build a spec snapshot before initializing persistent storage.
     pub(super) fn prepare(
         &self,
