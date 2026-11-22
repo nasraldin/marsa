@@ -21,6 +21,15 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 
 The Apple silicon dependency audit of GPUI Kit and gpui-component 0.10.0 with GPUI 0.3.12 reported five RustSec unmaintained dependencies (`instant`, `paste`, `ttf-parser`, `rustybuzz` and `chrono`), two MPL-2.0 dependencies outside the current allowlist (`cbindgen` and `option-ext`), and 21 duplicate-version groups. Kit and its components require several of these crates directly. The audit added the exact tested Kit version in an isolated worktree and ran `cargo deny --target aarch64-apple-darwin --locked check`. Resume with a maintained, policy-compliant GPUI dependency graph and re-run the input and lifecycle qualification for its pins. See [D-023](../15-decisions.md#d-023-choose-gpui-for-the-desktop).
 
+Requalification on 2026-11-22 resolved the published [GPUI Kit 0.10.0](https://docs.rs/crate/gpui-kit/0.10.0) with only its `component` feature, and a separate graph using [gpui-pre 0.3.13](https://docs.rs/crate/gpui-pre/0.3.13) and [gpui-pre-platform 0.3.13](https://docs.rs/crate/gpui-pre-platform/0.3.13) with the macOS `font-kit` feature. Each resolved in a separate workspace copy and was checked with the existing `deny.toml` using `cargo deny --locked check` and `cargo deny --target aarch64-apple-darwin --locked check`.
+
+| Resolved graph | Apple silicon duplicate groups | Apple silicon unmaintained crates | Apple silicon disallowed licences |
+|---|---:|---:|---:|
+| GPUI Kit with components | 21 | 5 | 2 |
+| GPUI with its font-enabled platform crate | 17 | 3 | 2 |
+
+Both Apple silicon graphs include the unmaintained `chrono`, `rustybuzz` and `ttf-parser` and the disallowed MPL-2.0 dependencies `cbindgen` and `option-ext`. The target-filtered run also reports two unmatched skips for existing non-Apple dependencies. Both unfiltered workspace runs independently fail the dependency policy. Neither candidate is eligible to enter the production workspace.
+
 ### M6-02 Design tokens, themes and fonts
 
 - **Status:** todo
