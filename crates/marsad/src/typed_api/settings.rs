@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 pub(super) mod storage;
 
-use marsa_core::settings::Settings as Document;
+use marsa_core::settings::{NetworkMode, Settings as Document};
 use marsa_proto::host::v1::{
     GetSettingsRequest, SettingsSnapshot, UpdateSettingsRequest, WatchSettingsRequest,
     settings_server::Settings,
@@ -24,6 +24,7 @@ impl Settings for TypedApi {
         request: Request<GetSettingsRequest>,
     ) -> Result<Response<SettingsSnapshot>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         Ok(Response::new(self.inner.events.settings_snapshot()))
     }
 
@@ -52,6 +53,7 @@ impl Settings for TypedApi {
         request: Request<WatchSettingsRequest>,
     ) -> Result<Response<Self::WatchStream>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         Ok(Response::new(
             self.inner
                 .events
@@ -110,8 +112,10 @@ impl TypedApi {
         prepared: Option<PreparedConfig>,
         edit: impl FnOnce(&mut Document, &SharePolicy) -> Result<T, Status> + Send + 'static,
     ) -> Result<(SettingsSnapshot, T), Status> {
+        let _admission = self.inner.factory_reset.read()?;
         let _update = self.inner.edit.lock().await;
-        let (prior, snapshot) = self.inner.events.settings();
+        let (prior, once) = self.inner.events.boot_configuration();
+        let snapshot = self.inner.events.settings_snapshot();
         if expected.is_some_and(|revision| revision != snapshot.revision) {
             return Err(Status::aborted(
                 "settings revision changed; load the latest settings",
@@ -124,11 +128,27 @@ impl TypedApi {
         let root = self.inner.paths.root().to_owned();
         let uid = self.inner.uid;
         let policy = self.inner.share_policy.clone();
+        let proxy = self.proxy.clone();
         let (updated, result) = tokio::task::spawn_blocking(move || {
             let mut settings = prior.clone();
             let result = edit(&mut settings, &policy)?;
+            if prior.network.mode != settings.network.mode
+                && settings.network.mode != NetworkMode::Userspace
+                && proxy.is_some_and(|runtime| runtime.has_approved_proxy())
+            {
+                return Err(Status::failed_precondition(
+                    "disable the approved daemon proxy before changing network mode",
+                ));
+            }
             if prior == settings && prepared.is_none() {
                 return Ok((None, result));
+            }
+            if settings.shares != prior.shares {
+                super::shares::validate_boot_roots(
+                    &policy,
+                    settings.shares.iter().chain(&once),
+                    settings.ui.language,
+                )?;
             }
             let text = settings
                 .to_toml()

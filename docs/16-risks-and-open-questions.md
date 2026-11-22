@@ -27,6 +27,7 @@ These need a decision from a person. Agents must not decide them.
 | Q-02 | The owner selected macOS 27 as the minimum supported version on 2026-11-21. |
 | Q-05 | The owner selected their current Apple silicon Mac as the planned Tier 2 host on 2026-11-21. Registration is pending. See the [runner setup](12-build-release-update.md#tier-2-runner-setup). |
 | V-01 | The macOS spike reproduced incorrect visual caret and click placement in GPUI Arabic input. The other four criteria passed. See the [M1-01 report](spikes/M1-01-gpui-rtl.md). |
+| V-08 | A standard user on macOS 27.2.1 received `EACCES` on tested TCP and UDP loopback ports below 1024. Port 1024 succeeded for IPv4 and IPv6. See the [bind qualification](06-networking.md#macos-loopback-port-privilege). |
 | V-13 | GitHub-hosted Apple silicon runners do not support nested virtualization. Tier 2 requires separate hardware. Verified on 2026-11-21 against [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#limitations-for-arm64-macos-runners). |
 
 ## Technical unknowns to verify
@@ -36,9 +37,8 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
 | V-04 | How much guest memory does the balloon actually return to macOS? | [04](04-virtualization-macos.md) | M9-04 |
-| V-06 | Verify the change relay and permission mapping in real containers. The VZ spike found missing host-origin events and a non-root write denial. | [07](07-file-sharing-and-storage.md), [M1-04](spikes/M1-04-virtiofs.md) | M4-06 |
+| V-06 | Complete development-server qualification. The production guest verifies Mac ownership from UID/GID 12345 and scoped Compose Watch produces native Linux notifications. The direct virtiofs mount received new bytes without host-origin inotify. | [07](07-file-sharing-and-storage.md#correctness-requirements), [M1-04](spikes/M1-04-virtiofs.md) | M4-19 |
 | V-07 | NAT attachment requirements; user-space attachment class | [06](06-networking.md) | M4-08, M4-10 |
-| V-08 | Binding privileged ports without root on current macOS | [06](06-networking.md) | M4-09 |
 | V-09 | libkrun: current release, API, kernel requirements (own kernel or libkrunfw) | [04](04-virtualization-macos.md) | M11-02 |
 | V-10 | gpui-component's i18n and whether Fluent can coexist with it | [08](08-gui.md) | M6-04 |
 | V-11 | State of GPUI accessibility on macOS | [08](08-gui.md) | M6-08 |

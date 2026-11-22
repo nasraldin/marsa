@@ -67,15 +67,30 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-06 Attach shares and enforce bind-mount policy
 
-- **Status:** todo
-- **Depends on:** M4-05, M4-01, M3-04
+- **Status:** done
+- **Depends on:** M4-05, M4-01, M4-03, M3-16, M9-18
 - **Docs:** [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
-- **Do:** Map allowlist entries to virtiofs shares mounted at identical paths in the guest. Inspect `POST /containers/create` in the proxy for bind mounts outside the allowlist and return a clear error with the fix; raise an approval event that the GUI and CLI can answer (once, always, deny). Handle adding a share with or without a VM restart according to backend capabilities. Implement whatever M1-04 found necessary for change notifications and ownership.
-- **Deliver:** share attachment, proxy inspection, approval event flow, a file-sharing compatibility test suite.
+- **Do:** Map allowlist entries to virtiofs shares at identical paths. Use the pinned Docker Engine authorization plugin for container-create checks and preserve the byte-transparent host proxy. Authorize each explicit bind source through the bounded VM policy channel. Expose owner approval actions for once, always and deny, with explicit restart on Apple VZ. Preserve the observed ownership behavior. M5-09 and M7-10 present the approvals. M4-19 qualifies the hot-reload workflow.
+- **Deliver:** share attachment, Docker authorization, typed approval events and decisions, and signed file-sharing tests.
 - **Accept when:**
   - `docker run -v <allowed path>:/x` works; an unlisted path is refused with an actionable message.
   - Files created in a container on a share are owned by the Mac user on the host.
-  - A file edit on the host triggers a watcher inside a container (hot reload test with a common dev server).
+  - One-session and persistent approvals take effect at restart. The session grant expires at the following stop and the persistent grant survives.
+  - The production ownership behavior and the supported change-notification workflow are documented. M4-19 owns the dev-server acceptance and final V-06 disposition.
+
+
+**Qualification.** The signed Apple silicon guest preserved raw HTTP 200 attach, HTTP 101 BuildKit upgrades and private SSH builds with the upstream authorization hook. The hook denied disallowed binds through fixed-length, chunked and native HTTP/2 REST, plus invalid or missing JSON. The product inspector caps container-create JSON at 1 MiB. The signed packaged tests verified Mac ownership, one-session expiry, persistent approval and the exact guest Docker socket mount. With authorization enabled, Docker preserved BuildKit, interactive terminals, log following and attach. A 2,215,736,832-byte Docker save caused zero observed daemon resident-memory growth over 405 samples.
+
+### M4-19 Qualify host edits in a container development server
+
+- **Status:** todo
+- **Depends on:** M4-06, M4-03
+- **Docs:** [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
+- **Do:** Test an upstream development server that relies on file-change events in the signed default Apple virtualization runtime. Use scoped Compose Watch sync to writable container storage. Record limitations for development servers using direct virtiofs binds.
+- **Deliver:** repeatable Tier 2 development server fixture and user documentation.
+- **Accept when:**
+  - Editing host source triggers hot reload in a running container, including a common editor's atomic save.
+  - The test confirms only selected development files reach the container.
   - V-06 is resolved in the docs.
 
 ### M4-07 Data disk management
@@ -107,9 +122,9 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-09 Port forwarder
 
 - **Status:** todo
-- **Depends on:** M4-08, M2-08
-- **Docs:** [06 Published ports](../06-networking.md#published-ports), V-08, Q-07
-- **Do:** Implement `marsa-net`'s forwarder for TCP and UDP driven by agent port events: bind on loopback by default (LAN exposure behind a setting), IPv4 and IPv6 loopback, conflict detection with a clear error, teardown on close. Verify unprivileged binding of low ports on current macOS (V-08).
+- **Depends on:** M4-08, M2-08, M4-23
+- **Docs:** [06 Published ports](../06-networking.md#published-ports), Q-07
+- **Do:** Implement `marsa-net`'s forwarder for TCP and UDP driven by agent port events: bind on loopback by default (LAN exposure behind a setting), IPv4 and IPv6 loopback, conflict detection with a clear error, teardown on close. Report denied host binds with the affected address and port.
 - **Deliver:** `crates/marsa-net` forwarder, `Network.ListForwardedPorts`.
 - **Accept when:**
   - `docker run -p 8080:80 nginx` is reachable at `localhost:8080` over IPv4 and IPv6.
@@ -172,7 +187,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-14 Conformance suite (gate G4)
 
 - **Status:** todo
-- **Depends on:** M4-02, M4-06, M4-07, M4-09, M4-10, M4-11, M4-12, M4-13
+- **Depends on:** M4-02, M4-06, M4-07, M4-09, M4-10, M4-11, M4-12, M4-13, M4-19
 - **Docs:** [09 Compatibility checklist](../09-cli-and-docker-compat.md#compatibility-checklist), [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
 - **Do:** Build the automated conformance suite covering every line of the compatibility checklist with the real `docker` CLI and Compose, at least one Testcontainers suite per listed language, and a Dev Containers open-and-build check. Assert the documented intended differences return their explicit errors.
 - **Deliver:** `tests/conformance/`, wired into Tier 2.
@@ -264,16 +279,29 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 
 ### M4-21 Activate staged manual daemon proxy with approval and rollback
 
-- **Status:** todo
-- **Depends on:** M4-20
+- **Status:** done
+- **Depends on:** M3-17, M4-20, M9-18, M4-06
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
 - **Do:** Expose an authenticated preview and explicit revision-bound activation for manual daemon proxy on the pinned user-space attachment. Coordinate engine admission and any approved workload interruption. Retain the previous working policy until the candidate succeeds, and restore it after a failed candidate. Persist successful activation separately from the desired draft.
 - **Deliver:** Controlled activation, durable last-known-good state, and signed end-to-end tests using a controlled reachable proxy destination.
 - **Accept when:**
-  - A valid approved proxy carries actual registry and default Docker-driver BuildKit requests. The signed test confirms routing through the approved proxy.
+  - A valid approved proxy carries actual registry and default Docker-driver BuildKit requests. The signed test confirms routing through the approved proxy with the bind-authorization service enabled.
   - Draft edits persist without interrupting workloads, and ordinary boot/retry never activates an unapproved draft.
   - The user sees the potential impact before granting approval. Stale approvals and racing starts or connects cannot apply or use a candidate out of order.
   - A failed candidate leaves the draft pending, reports failure, and restores the last working configuration on the same data disk. Cancellation and daemon recovery preserve the last working policy.
+
+- **Evidence:** On macOS 27.2.1, the final signed packaged test passed in 88.36 seconds with Docker Engine 29.10.0, BuildKit 0.35.0 and Buildx 0.39.1. The running engine kept its original proxy during draft save and after a declined confirmation. Explicit approval retained the same data disk and wrote an owner-only policy record. Docker pull and the default Docker-driver BuildKit build used separate restricted CONNECT requests and obtained distinct registry manifests through verified TLS. The fixture exported the BuildKit base image marker. The test used guest loopback and a fixture-only CA. The [reproduction](../../crates/marsad/tests/packaged_runtime/proxy_fixture/README.md) includes guest preparation. Fake-backend tests cover stale and expired approvals, delayed-worker replay after disconnect, candidate rollback and uncommitted VM cleanup.
+
+### M4-23 Verify unprivileged macOS loopback binds
+
+- **Status:** done
+- **Depends on:** M0-01
+- **Docs:** [06 Published ports](../06-networking.md#published-ports), V-08
+- **Do:** Check standard-user IPv4 and IPv6 loopback binds below 1024 with a control at 1024, for both TCP and UDP. Record the result and the port forwarder’s expected behavior when macOS denies a bind.
+- **Deliver:** verified port privilege behavior in the networking design and verification ledger.
+- **Accept when:**
+  - The documented experiment records the macOS version, address families, transports, and OS errors.
+  - No host privilege, LAN listener, or system setting is required.
 
 ### M4-25 Save the configured network mode through the typed API
 

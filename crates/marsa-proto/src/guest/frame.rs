@@ -38,7 +38,7 @@ pub fn encode_guest(envelope: &GuestEnvelope) -> Result<Vec<u8>, ProtocolError> 
     encode(envelope, validation::guest(envelope)?)
 }
 
-fn bounded_length(actual: usize, maximum: usize) -> Result<(), ProtocolError> {
+pub(super) fn bounded_length(actual: usize, maximum: usize) -> Result<(), ProtocolError> {
     if actual == 0 {
         return Err(ProtocolError::EmptyFrame);
     }
@@ -53,7 +53,7 @@ fn decode<M: Message + Default>(payload: &[u8]) -> Result<M, ProtocolError> {
     M::decode(payload).map_err(ProtocolError::Decode)
 }
 
-fn encode(envelope: &impl Message, maximum: usize) -> Result<Vec<u8>, ProtocolError> {
+pub(super) fn encode(envelope: &impl Message, maximum: usize) -> Result<Vec<u8>, ProtocolError> {
     let length = envelope.encoded_len();
     bounded_length(length, maximum)?;
 

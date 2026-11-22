@@ -1,6 +1,8 @@
 //! Serve the guest control socket and report Docker engine state to the host.
 
 #[cfg(any(target_os = "linux", test))]
+mod authorization;
+#[cfg(any(target_os = "linux", test))]
 mod control;
 #[cfg(target_os = "linux")]
 mod egress;

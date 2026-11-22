@@ -40,6 +40,16 @@ UUID with a different operation or payload fails with `ALREADY_EXISTS`.
 Host API minor 3 adds settings reset. Send `PrepareSettingsReset`, obtain user
 confirmation, then send `ResetSettings` with that token and a separate request
 UUID. The token is scoped to the current configuration state.
+The same minor adds the explicit `DockerDiscovery.EnableRegistryKeychain`
+mutation. The RPC accepts no credentials and returns only whether it added
+the setting.
+
+Host API minor 4 adds factory reset. Use the separate `PrepareFactoryReset`
+and `ConfirmFactoryReset` messages. The confirmation binds to private storage
+identities and expires after 60 seconds. A committed factory reset stops the
+guest, restores settings defaults, clears grants and installs a fresh sparse
+data disk. An interrupted transaction is resolved before the daemon serves
+either socket.
 
 `Events.Subscribe` emits a snapshot before live updates on each connection.
 The daemon takes that snapshot at an event cursor and then emits events after
@@ -79,6 +89,17 @@ ignore both fields. Missing fields have the protobuf defaults of `false` and
 unspecified health. VM stats are live observations of the active guest.
 The stream starts with a sample only when the daemon has observed one.
 
+API 1.5 adds `Network.PrepareProxyActivation` and `Network.ActivateProxy`.
+Clients read the current settings revision, request a preview, and show every
+reported potential interruption before asking the owner to approve. Apply
+only after approval using the preview token, the same settings revision and a
+fresh request UUID. The token expires after 90 seconds and is single-use.
+Replay a disconnected request with the same UUID and fields to obtain the
+original result. A changed VM lifecycle or settings revision invalidates the
+preview. Result enums report failed stop, start or persistence and whether the
+prior policy or engine was recovered. Treat approval tokens and proxy URLs as
+sensitive.
+
 Agent requests identify an
 allowlisted operation and use that operation's existing JSON Schema for its
 arguments. The daemon authenticates the client, validates those arguments, and
@@ -95,6 +116,13 @@ length. Read that header and call `frame_length` before reserving a buffer or
 reading the body. Read exactly that many bytes, then call `decode_host` or
 `decode_guest` for the expected direction. The global payload limit is 1 MiB.
 The separate Docker API bridge uses the Docker byte stream directly.
+
+The guest bind-authorization channel uses a separate host-initiated vsock
+stream on port 5003. Each length-prefixed protobuf payload is at most 64 KiB.
+Queries carry only the explicit absolute bind sources and a request ID.
+Version 1.0 requires matching sequential IDs and a valid allow or deny response.
+The guest denies these binds if the policy channel cannot answer. Boot-mounted
+virtiofs roots remain the host isolation boundary.
 
 1. After connecting, the guest sends `Hello` with request ID zero. The image
    version, component versions and boot timings describe the running image.
@@ -176,4 +204,24 @@ not respond within its deadline. The guest reads the configured upstream
 interface and its default route from the kernel. The record describes
 guest state and is independent of the guest control session.
 
-Host API minor 3 adds the explicit `DockerDiscovery.EnableRegistryKeychain` mutation. The RPC accepts no credentials and returns only whether it added the setting.
+## Bind authorization
+
+The host initiates a dedicated AF_VSOCK connection to guest port 5003.
+Only the host CID can enter the listener. The guest sends
+`BindAuthorizationRequest` and the host replies with
+`BindAuthorizationResponse`. Each protobuf payload has a four-byte
+big-endian length prefix, with a limit of 64 KiB. This channel declares
+protocol 1.0 in each frame independently of the guest control session.
+
+One request is outstanding at a time. The guest starts request IDs at one
+after each connection and increments by one for each query. A response must
+echo the outstanding ID. Unexpected IDs, versions, incomplete frames or a
+deadline close the stream and provide no authorization.
+
+Queries carry only one to 64 absolute UTF-8 bind source strings of at most
+4096 bytes each. A request supplies candidate paths, not approvals or an
+attachment inventory. The host validates every source against the grants
+and attachments for that VM. A denial carries an actionable message of at
+most 1024 bytes. An allow has an empty message. Source and message strings
+exclude control characters. Neither the Docker body nor any headers cross
+this channel.

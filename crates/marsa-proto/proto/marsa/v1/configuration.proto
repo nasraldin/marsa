@@ -14,6 +14,7 @@ service Shares {
   rpc List(ListSharesRequest) returns (ListSharesResponse);
   rpc Add(AddShareRequest) returns (Share);
   rpc Remove(RemoveShareRequest) returns (RemoveShareResponse);
+  rpc ResolveBind(ResolveBindRequest) returns (ResolveBindResponse);
 }
 
 // Discover the private Docker endpoint and explicitly register a local context.
@@ -56,6 +57,8 @@ service Network {
   rpc Status(NetworkStatusRequest) returns (NetworkStatus);
   rpc SetMode(SetNetworkModeRequest) returns (NetworkStatus);
   rpc ListForwardedPorts(ListForwardedPortsRequest) returns (ListForwardedPortsResponse);
+  rpc PrepareProxyActivation(PrepareProxyActivationRequest) returns (ProxyActivationPreview);
+  rpc ActivateProxy(ActivateProxyRequest) returns (ProxyActivationResult);
 }
 
 message GetSettingsRequest {}
@@ -107,6 +110,35 @@ message RemoveShareResponse {
   bool requires_restart = 1;
 }
 
+// Owner-only prompts for a Docker create request with an unshared bind source.
+message BindApprovalList {
+  repeated BindApproval approvals = 1;
+}
+
+message BindApproval {
+  string id = 1;
+  repeated string directories = 2;
+  int64 expires_at_unix_millis = 3;
+}
+
+enum BindApprovalDecision {
+  BIND_APPROVAL_DECISION_UNSPECIFIED = 0;
+  BIND_APPROVAL_DECISION_ONCE = 1;
+  BIND_APPROVAL_DECISION_PERSIST = 2;
+  BIND_APPROVAL_DECISION_DENY = 3;
+}
+
+message ResolveBindRequest {
+  string request_id = 1;
+  string approval_id = 2;
+  BindApprovalDecision decision = 3;
+}
+
+message ResolveBindResponse {
+  // Static backends require the confirmed share to be applied at the next boot.
+  bool requires_restart = 1;
+}
+
 message NetworkStatusRequest {}
 
 message NetworkStatus {
@@ -150,4 +182,58 @@ enum PortTransport {
   PORT_TRANSPORT_UNSPECIFIED = 0;
   PORT_TRANSPORT_TCP = 1;
   PORT_TRANSPORT_UDP = 2;
+}
+
+// Prepare one activation of the credential-free proxy in pending settings.
+message PrepareProxyActivationRequest {
+  uint64 expected_settings_revision = 1;
+}
+
+message ProxyActivationPreview {
+  // Process-local, short-lived and one use. Treat as sensitive.
+  bytes approval_token = 1;
+  uint64 settings_revision = 2;
+  // The VM will be stopped; workloads, builds, streams and one-session shares
+  // may be interrupted. A capacity or container count is not consent.
+  bool interrupts_running_engine = 3;
+  uint32 approval_valid_seconds = 4;
+  repeated ProxyActivationImpact potential_interruptions = 5;
+}
+
+enum ProxyActivationImpact {
+  PROXY_ACTIVATION_IMPACT_UNSPECIFIED = 0;
+  PROXY_ACTIVATION_IMPACT_CONTAINERS = 1;
+  PROXY_ACTIVATION_IMPACT_BUILDS = 2;
+  PROXY_ACTIVATION_IMPACT_ATTACHED_STREAMS = 3;
+  PROXY_ACTIVATION_IMPACT_SESSION_SHARES = 4;
+}
+
+message ActivateProxyRequest {
+  string request_id = 1;
+  uint64 expected_settings_revision = 2;
+  bytes approval_token = 3;
+  // Set after the authenticated owner reviews the preview and explicitly agrees.
+  bool approved = 4;
+}
+
+message ProxyActivationResult {
+  ProxyActivationOutcome outcome = 1;
+  ProxyActivationFailureStage failure_stage = 2;
+}
+
+enum ProxyActivationOutcome {
+  PROXY_ACTIVATION_OUTCOME_UNSPECIFIED = 0;
+  PROXY_ACTIVATION_OUTCOME_APPLIED = 1;
+  PROXY_ACTIVATION_OUTCOME_APPLIED_DURABILITY_UNCERTAIN = 2;
+  PROXY_ACTIVATION_OUTCOME_PRIOR_POLICY_KEPT = 3;
+  PROXY_ACTIVATION_OUTCOME_PRIOR_ENGINE_RESTORED = 4;
+  PROXY_ACTIVATION_OUTCOME_ENGINE_RECOVERY_REQUIRED = 5;
+}
+
+enum ProxyActivationFailureStage {
+  PROXY_ACTIVATION_FAILURE_STAGE_UNSPECIFIED = 0;
+  PROXY_ACTIVATION_FAILURE_STAGE_STOP = 1;
+  PROXY_ACTIVATION_FAILURE_STAGE_START = 2;
+  PROXY_ACTIVATION_FAILURE_STAGE_PERSIST = 3;
+  PROXY_ACTIVATION_FAILURE_STAGE_SHUTDOWN = 4;
 }

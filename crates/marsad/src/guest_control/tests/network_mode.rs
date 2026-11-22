@@ -8,7 +8,7 @@ use marsa_core::{
     settings::{NetworkMode as ConfigMode, Settings},
 };
 use marsa_proto::{
-    guest::DOCKER_API_PORT,
+    guest::{BIND_AUTHORIZATION_PORT, DOCKER_API_PORT},
     host::v1::{
         EngineActionRequest, EngineState, GetSettingsRequest, NetworkMode, NetworkStatusRequest,
         SetNetworkModeRequest, engine_client::EngineClient, network_client::NetworkClient,
@@ -38,7 +38,9 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
     let mut settings = Settings::default();
     settings.network.mode = ConfigMode::Nat;
     let backend = Arc::new(FakeHypervisor::new(
-        normal_session().with_agent(DOCKER_API_PORT, docker_ping(200)),
+        normal_session()
+            .with_agent(DOCKER_API_PORT, docker_ping(200))
+            .with_agent(BIND_AUTHORIZATION_PORT, vec![]),
     ));
     let api = TypedApi::new(paths, nix::unistd::geteuid().as_raw(), settings)
         .unwrap()
@@ -54,7 +56,7 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
                 initial_backoff: Duration::ZERO,
                 maximum_backoff: Duration::ZERO,
             },
-            move |_| Ok((backend.clone(), spec())),
+            move |_, _| Ok((backend.clone(), spec())),
         )
         .await
         .unwrap();
