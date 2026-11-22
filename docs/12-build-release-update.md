@@ -221,6 +221,36 @@ scoped signing and notarization configuration.
 · [Apple notarization authentication](https://developer.apple.com/documentation/technotes/tn3147-migrating-to-the-latest-notarization-tool)
 · [Apple distribution testing](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution).
 
+### Automated Tart qualification
+
+Use a disposable macOS 27 or newer Tart guest for the signed M3-10 qualification
+ZIP. Launch the VM with Gatekeeper enabled and a fresh desktop account
+automatically logged in. Run the Tart Guest Agent as a launchd agent for that
+account. Tart's `ghcr.io/cirruslabs/macos-golden-gate-base` image includes
+the agent. Pin the approved image digest when configuring a persistent runner. Keep the host VPN and
+firewall in their target configuration and attach the trusted ZIP to the guest
+through a read-only volume.
+
+From the host, with Tart and Python 3.11 or later:
+
+```sh
+python3 packaging/macos/check-tart-qualification.py \
+  marsa-qualification /path/to/Marsa-VM-Qualification.zip
+```
+
+The default guest archive path is
+`/Volumes/Marsa Qualification/Marsa-VM-Qualification.zip`. Use
+`--guest-archive` for another read-only volume path. The runner uses `tart exec`
+to check IPv4, the gateway and HTTPS, verify the guest ZIP against the host's
+SHA-256, assess the app with a test quarantine marker, and wait for the daemon
+socket after first launch. Use a fresh clone for each run. The first-launch
+check creates Marsa state in the guest account.
+
+G3 additionally requires the second physical Mac boot, and app release
+qualification includes downloading the DMG through a browser with quarantine
+preserved. [Tart Guest Agent](https://github.com/openai/tart-guest-agent)
+· [Tart macOS images](https://tart.run/quick-start/).
+
 ## Distribution channels
 
 | Channel | Status |

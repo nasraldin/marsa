@@ -146,11 +146,12 @@ Run the strict test on Apple silicon with
 
 G3 still requires the clean second physical Apple silicon boot. Apple's
 `VZGenericPlatformConfiguration.isNestedVirtualizationSupported` returned
-`false` on the M1 Max host. A fresh Tart guest was restored from Apple's macOS 27.2.1 image and
-started for install and Gatekeeper qualification. The guest test awaits
-first-run setup. The Linux VM boot inside that guest is outside the
-host's capabilities. Project custody and update-key ownership
-remain tracked by Q-04. [Tart nested virtualization support](https://tart.run/faq/#nested-virtualization-support).
+`false` on the M1 Max host. In a fresh Tart guest restored from Apple's macOS
+27.2.1 image, the operator verified assigned IPv4, a responding default gateway,
+and HTTPS by IP and DNS name. The ZIP checksum passed, Gatekeeper accepted the
+app with a test quarantine marker, and first launch created the daemon socket.
+The Linux VM boot inside that guest is outside the host's capabilities.
+Project custody and update-key ownership remain tracked by Q-04. [Tart nested virtualization support](https://tart.run/faq/#nested-virtualization-support).
 
 ### M3-11 Power and network watcher
 
