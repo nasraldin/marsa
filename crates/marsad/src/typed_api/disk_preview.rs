@@ -3,7 +3,7 @@
 use std::{collections::BTreeSet, io, time::Duration};
 
 use marsa_proto::host::v1::{
-    DiskCategory, PruneCandidate, PrunePreviewRequest, PrunePreviewResponse,
+    DiskCategory, PruneApplyCapability, PruneCandidate, PrunePreviewRequest, PrunePreviewResponse,
 };
 use serde::Deserialize;
 use tokio::time::timeout;
@@ -193,7 +193,10 @@ struct Cache {
 
 impl DiskUsage {
     fn preview(self, selection: Selection) -> Result<PrunePreviewResponse, Status> {
-        let mut preview = PrunePreviewResponse::default();
+        let mut preview = PrunePreviewResponse {
+            apply_capability: PruneApplyCapability::ExactDeletionUnsupported.into(),
+            ..Default::default()
+        };
         for category in selection.categories {
             match category {
                 DiskCategory::Containers => add(

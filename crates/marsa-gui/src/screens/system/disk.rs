@@ -1,7 +1,9 @@
 //! Storage accounting, exact cleanup preview and explicit space reclaim.
 
 use crate::screens::common::message;
-use marsa_client::api::{DiskCategory, DiskReclaimRequest, DiskUsageRequest, PrunePreviewRequest};
+use marsa_client::api::{
+    DiskCategory, DiskReclaimRequest, DiskUsageRequest, PruneApplyCapability, PrunePreviewRequest,
+};
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken,
@@ -17,11 +19,10 @@ use crate::screens::common::{ScreenContext, color, panel, row, technical};
 
 use super::{SystemView, machine::title_text};
 
-const CATEGORIES: [DiskCategory; 5] = [
+const CATEGORIES: [DiskCategory; 4] = [
     DiskCategory::Containers,
     DiskCategory::Images,
     DiskCategory::Volumes,
-    DiskCategory::Networks,
     DiskCategory::BuildCache,
 ];
 
@@ -221,6 +222,17 @@ impl SystemView {
                     .child(title_text(
                         gui::GUI_DESKTOP_CLEANUP_PREVIEW.text(screen.locale),
                     ))
+                    .child(message(
+                        locale,
+                        match preview.apply_capability() {
+                            PruneApplyCapability::ExactDeletionUnsupported => {
+                                gui::GUI_DESKTOP_CLEANUP_APPLY_ENGINE_UNSUPPORTED
+                            }
+                            PruneApplyCapability::Unspecified => {
+                                gui::GUI_DESKTOP_CLEANUP_PREVIEW_ONLY
+                            }
+                        },
+                    ))
                     .children(preview.candidates.is_empty().then(|| {
                         message(screen.locale, gui::GUI_DESKTOP_NO_UNUSED_RESOURCES_FOUND)
                     }))
@@ -232,11 +244,21 @@ impl SystemView {
                             .child(
                                 div()
                                     .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
                                     .child(technical(if candidate.name.is_empty() {
                                         &candidate.id
                                     } else {
                                         &candidate.name
-                                    })),
+                                    }))
+                                    .children(
+                                        (!candidate.name.is_empty()
+                                            && candidate.name != candidate.id)
+                                            .then(|| {
+                                                div().text_xs().child(technical(&candidate.id))
+                                            }),
+                                    ),
                             )
                             .child(candidate.size_bytes.map_or_else(
                                 || message(screen.locale, gui::GUI_DESKTOP_UNKNOWN_SIZE),
