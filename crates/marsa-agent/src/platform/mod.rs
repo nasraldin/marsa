@@ -23,11 +23,11 @@ use nix::{
 use tokio::{fs::OpenOptions, sync::mpsc, task::JoinSet};
 
 use crate::{
+    authorization::socket::GUEST_ENGINE_SOCKET,
     control::{self, GuestState},
     metadata,
 };
 
-const ENGINE_SOCKET: &str = "/var/run/docker.sock";
 const READY_FILE: &str = "/run/marsa/agent.ready";
 
 struct Linux {
@@ -122,11 +122,11 @@ pub(crate) fn run() -> io::Result<()> {
             tokio::spawn(authorization::serve_plugin(plugin, policy));
             let interface = network_facts::interface()?;
             tokio::spawn(network_facts::serve(facts, interface));
-            tokio::spawn(async move { bridge::serve(&bridge, ENGINE_SOCKET).await });
+            tokio::spawn(async move { bridge::serve(&bridge, GUEST_ENGINE_SOCKET).await });
             loop {
                 let stream = listener.accept_host().await?;
                 if let Err(error) =
-                    control::session(stream, hello.clone(), &state, ENGINE_SOCKET).await
+                    control::session(stream, hello.clone(), &state, GUEST_ENGINE_SOCKET).await
                     && error.kind() != io::ErrorKind::UnexpectedEof
                 {
                     eprintln!("marsa-agent: control connection: {error}");

@@ -19,7 +19,7 @@ use tokio::{
     time::{sleep, timeout},
 };
 
-use crate::authorization::{self, Decision, PLUGIN, Policy};
+use crate::authorization::{self, Decision, PLUGIN, Policy, socket};
 
 use super::vsock;
 
@@ -138,7 +138,7 @@ async fn callback(
                 .await
                 .ok()?
                 .to_bytes();
-            Some(authorization::authorize(&body, policy).await)
+            Some(authorization::authorize(&body, policy, socket::is_guest_engine_socket()).await)
         } else {
             // Moby may send large JSON responses in a single write. Drain
             // the callback in constant memory without inspecting the data.

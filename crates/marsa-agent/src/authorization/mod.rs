@@ -1,8 +1,9 @@
 //! Inspect only the Docker operations that can name host-backed binds or the reserved plugin.
 
 mod channel;
+pub(crate) mod socket;
 
-use std::borrow::Cow;
+use std::{borrow::Cow, future::Future};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use http::Uri;
@@ -20,6 +21,7 @@ pub(crate) use channel::Policy;
 pub(crate) const PLUGIN: &str = "MarsaBindAuthorization";
 
 const INVALID_CREATE: &str = "Docker mount configuration could not be checked. Send a valid application/json container create request. | تعذّر التحقق من إعدادات التركيب. أرسل طلب إنشاء حاوية صالحًا بتنسيق application/json.";
+const INVALID_GUEST_SOCKET: &str = "Marsa could not verify the guest Docker socket. Retry once Docker is running. | تعذّر على مارسا التحقق من مقبس دوكر داخل الضيف. أعد المحاولة بعد تشغيل دوكر.";
 const INVALID_CALLBACK: &str =
     "Marsa could not verify this Docker request. | تعذّر على مارسا التحقق من طلب دوكر.";
 const RESERVED_PLUGIN: &str =
@@ -61,7 +63,11 @@ enum Operation {
     Reserved,
 }
 
-pub(crate) async fn authorize(callback: &[u8], policy: &Policy) -> Decision {
+pub(crate) async fn authorize(
+    callback: &[u8],
+    policy: &Policy,
+    verify_guest_socket: impl Future<Output = bool>,
+) -> Decision {
     let operation = serde_json::from_slice(callback)
         .ok()
         .and_then(|request| operation(&request));
@@ -69,11 +75,17 @@ pub(crate) async fn authorize(callback: &[u8], policy: &Policy) -> Decision {
         Some(Operation::Other) => Decision::Allow,
         Some(Operation::Reserved) => Decision::deny(RESERVED_PLUGIN),
         Some(Operation::Create) => {
-            let Some(paths) = bind_sources(callback) else {
+            let Some(mut paths) = bind_sources(callback) else {
                 return Decision::deny(INVALID_CREATE);
             };
             if paths.len() > MAX_BIND_AUTHORIZATION_SOURCES {
                 return Decision::deny(QUERY_TOO_LARGE);
+            }
+            if paths.iter().any(|path| path == socket::GUEST_ENGINE_SOCKET) {
+                if !verify_guest_socket.await {
+                    return Decision::deny(INVALID_GUEST_SOCKET);
+                }
+                paths.retain(|path| path != socket::GUEST_ENGINE_SOCKET);
             }
             if paths.is_empty() {
                 return Decision::Allow;
@@ -224,17 +236,21 @@ mod tests {
             .unwrap()
         };
         assert_eq!(
-            authorize(&callback("not base64"), &policy).await,
+            authorize(&callback("not base64"), &policy, async { false }).await,
             Decision::deny(INVALID_CREATE)
         );
         assert_eq!(
-            authorize(&callback(&STANDARD.encode(b"[not JSON")), &policy).await,
+            authorize(&callback(&STANDARD.encode(b"[not JSON")), &policy, async {
+                false
+            })
+            .await,
             Decision::deny(INVALID_CREATE)
         );
         assert_eq!(
             authorize(
                 &callback(&STANDARD.encode(br#"{"HostConfig":{"Binds":["/host:/guest"]}}"#)),
-                &policy
+                &policy,
+                async { false }
             )
             .await,
             Decision::deny(POLICY_UNAVAILABLE)
@@ -242,7 +258,8 @@ mod tests {
         assert_eq!(
             authorize(
                 &callback(&STANDARD.encode(br#"{"HostConfig":{"Binds":["named:/guest"]}}"#)),
-                &policy
+                &policy,
+                async { false }
             )
             .await,
             Decision::Allow
@@ -250,10 +267,63 @@ mod tests {
         assert_eq!(
             authorize(
                 br#"{"RequestMethod":"POST","RequestUri":"/build?t=example\u0026pull=false","RequestBody":"ignored"}"#,
-                &policy
+                &policy,
+                async { false }
             )
             .await,
             Decision::Allow
         );
+    }
+
+    #[tokio::test]
+    async fn exempts_only_the_verified_exact_guest_engine_socket() {
+        let policy = Policy::default();
+        let callback = |mount_config: serde_json::Value| {
+            serde_json::to_vec(&serde_json::json!({
+                "RequestMethod": "POST",
+                "RequestUri": "/containers/create",
+                "RequestBody": STANDARD.encode(serde_json::to_vec(&mount_config).unwrap())
+            }))
+            .unwrap()
+        };
+        let exact = callback(serde_json::json!({
+            "HostConfig": { "Binds": ["/var/run/docker.sock:/socket"] }
+        }));
+        assert_eq!(
+            authorize(&exact, &policy, async { true }).await,
+            Decision::Allow
+        );
+        assert_eq!(
+            authorize(&exact, &policy, async { false }).await,
+            Decision::deny(INVALID_GUEST_SOCKET)
+        );
+        let mixed = callback(serde_json::json!({
+            "HostConfig": {
+                "Binds": ["/var/run/docker.sock:/socket"],
+                "Mounts": [{ "Type": "bind", "Source": "/host/project", "Target": "/work" }]
+            }
+        }));
+        assert_eq!(
+            authorize(&mixed, &policy, async { true }).await,
+            Decision::deny(POLICY_UNAVAILABLE)
+        );
+        for other in [
+            "/run/docker.sock",
+            "/var/run//docker.sock",
+            "/var/run/other.sock",
+        ] {
+            let alternate = callback(serde_json::json!({
+                "HostConfig": {
+                    "Mounts": [{ "Type": "bind", "Source": other, "Target": "/socket" }]
+                }
+            }));
+            assert_eq!(
+                authorize(&alternate, &policy, async {
+                    panic!("unexpected guest verification")
+                })
+                .await,
+                Decision::deny(POLICY_UNAVAILABLE)
+            );
+        }
     }
 }
