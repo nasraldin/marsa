@@ -3,7 +3,8 @@
 use std::{collections::HashSet, io, path::PathBuf};
 
 const MAX_CMDLINE: usize = 4096;
-const MAX_SHARES: usize = 16;
+/// Maximum number of filesystem shares supported in one VM boot.
+pub const MAX_SHARES: usize = 16;
 
 #[derive(Debug, PartialEq, Eq)]
 /// An allowlisted virtiofs tag and its destination in the guest.

@@ -22,6 +22,7 @@ use tokio::{
 
 use crate::supervisor::{GuestProbe, GuestSession};
 
+mod bind_authorization;
 mod observations;
 mod session;
 mod wire;
@@ -118,6 +119,7 @@ pub struct GuestControl {
     events: observations::EventBus,
     clock: fn() -> SystemTime,
     agent_connect_timeout: Duration,
+    bind_policy: Option<bind_authorization::Policy>,
 }
 
 impl Default for GuestControl {
@@ -127,11 +129,17 @@ impl Default for GuestControl {
             events: observations::EventBus::default(),
             clock: SystemTime::now,
             agent_connect_timeout: AGENT_CONNECT_TIMEOUT,
+            bind_policy: None,
         }
     }
 }
 
 impl GuestControl {
+    pub(crate) fn authorize_binds(mut self, policy: bind_authorization::Policy) -> Self {
+        self.bind_policy = Some(policy);
+        self
+    }
+
     pub(crate) fn observe_active(
         mut self,
         observer: impl Fn(&GuestEvent) + Send + Sync + 'static,
@@ -231,9 +239,12 @@ impl GuestProbe for GuestControl {
         let stream = timeout(self.agent_connect_timeout, wire::open(vm, CONTROL_PORT))
             .await
             .map_err(|_| GuestControlError::TimedOut("connecting to the guest agent"))??;
-        let session = timeout(HANDSHAKE_TIMEOUT, self.connect(stream))
+        let mut session = timeout(HANDSHAKE_TIMEOUT, self.connect(stream))
             .await
             .map_err(|_| GuestControlError::TimedOut("negotiating the guest session"))??;
+        if let Some(policy) = &self.bind_policy {
+            session.retain_bind_worker(bind_authorization::connect(vm, policy.clone()).await?);
+        }
         Ok(Box::new(session))
     }
 }

@@ -136,7 +136,7 @@ impl Shares for TypedApi {
                             })
                             .await
                             .map_err(|_| Status::internal("share policy worker stopped"))??;
-                            api.inner.events.stage_once(paths);
+                            api.inner.events.stage_once(paths)?;
                         }
                         BindApprovalDecision::Persist => {
                             api.edit_settings(None, move |settings, policy| {

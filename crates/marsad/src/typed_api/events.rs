@@ -98,6 +98,12 @@ impl Bus {
             }
             _ => state.engine.guest_health,
         };
+        if matches!(
+            transition.current,
+            State::Stopped | State::Stopping | State::Failed
+        ) {
+            state.once_active.clear();
+        }
         state.engine = engine::from_transition(&state.engine.backend, transition, health);
         let status = state.engine.clone();
         state.publish(Body::Engine(status));
@@ -144,19 +150,46 @@ impl Bus {
         (state.settings.clone(), state.once_staged.clone())
     }
 
-    pub(super) fn stage_once(&self, paths: Vec<PathBuf>) {
+    pub(super) fn stage_once(&self, paths: Vec<PathBuf>) -> Result<(), Status> {
         let mut state = self.lock();
+        let mut pending = state.once_staged.clone();
         for path in paths {
-            if !state.once_staged.contains(&path) {
-                state.once_staged.push(path);
+            if !pending.contains(&path) && !state.settings.shares.contains(&path) {
+                pending.push(path);
             }
         }
+        if state.settings.shares.len() + pending.len() > marsa_core::guest_boot::MAX_SHARES {
+            return Err(Status::resource_exhausted(super::bind_policy::shown(
+                state.settings.ui.language,
+                "The VM can attach at most 16 shared folders.",
+                "يمكن للآلة الافتراضية وصل ١٦ مجلدًا مشتركًا على الأكثر.",
+            )));
+        }
+        state.once_staged = pending;
+        Ok(())
     }
 
     pub(super) fn activate_once(&self, paths: &[PathBuf]) {
         let mut state = self.lock();
         state.once_active = paths.to_vec();
         state.once_staged.retain(|staged| !paths.contains(staged));
+    }
+
+    pub(super) fn bind_configuration(&self) -> (Vec<PathBuf>, Settings, u64) {
+        let state = self.lock();
+        let roots = state
+            .startup
+            .shares
+            .iter()
+            .filter(|path| state.settings.shares.contains(path))
+            .chain(&state.once_active)
+            .cloned()
+            .collect();
+        (
+            roots,
+            state.settings.clone(),
+            state.settings_snapshot.revision,
+        )
     }
 
     pub(super) fn bind_prompt(&self, paths: Vec<PathBuf>) -> io::Result<Option<String>> {

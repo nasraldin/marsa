@@ -92,6 +92,22 @@ impl SharePolicy {
         self.directory(path).map(|resolved| resolved.path)
     }
 
+    /// Find the exact directory to request when a regular file or directory is unshared.
+    pub fn bind_approval_directory(&self, source: &Path) -> Result<PathBuf, ShareError> {
+        let (resolved, file_type) = self.check(source)?;
+        if resolved.path != source {
+            return Err(ShareError::InvalidPath);
+        }
+        if file_type.is_dir() {
+            return Ok(resolved.path);
+        }
+        if !file_type.is_file() {
+            return Err(ShareError::UnsupportedSource);
+        }
+        let parent = resolved.path.parent().ok_or(ShareError::InvalidPath)?;
+        self.validate_share(parent)
+    }
+
     fn directory(&self, path: &Path) -> Result<Resolved, ShareError> {
         let (resolved, file_type) = self.check(path)?;
         if !file_type.is_dir() {

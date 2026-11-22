@@ -1,5 +1,6 @@
 //! Serve typed host APIs from one state and a composable VM supervisor.
 
+mod bind_policy;
 mod bind_prompts;
 mod engine;
 mod events;
@@ -155,11 +156,20 @@ impl TypedApi {
             })
         });
         let observations = self.inner.events.clone();
-        let control = Arc::new(control.observe_active(move |event| match event {
-            GuestEvent::Health(health) => engine::publish_health(&observations, health),
-            GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
-            GuestEvent::Port(_) => (),
-        }));
+        let bind_events = self.inner.events.clone();
+        let bind_policy = self.inner.share_policy.clone();
+        let runtime = tokio::runtime::Handle::current();
+        let control = Arc::new(
+            control
+                .observe_active(move |event| match event {
+                    GuestEvent::Health(health) => engine::publish_health(&observations, health),
+                    GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
+                    GuestEvent::Port(_) => (),
+                })
+                .authorize_binds(Arc::new(move |sources| {
+                    bind_policy::evaluate(&bind_events, &bind_policy, &runtime, sources)
+                })),
+        );
         let supervisor = Supervisor::spawn_packaged(
             preparation,
             self.inner.paths.console_log(),
