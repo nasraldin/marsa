@@ -121,10 +121,10 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-10 User-space network mode and automatic selection
 
 - **Status:** todo
-- **Depends on:** M4-09, M3-15
+- **Depends on:** M4-09, M3-15, M4-25
 - **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection), V-07
 - **Do:** Use the qualified transport from M3-14 and boot-time mode selection from M3-15. Implement `userspace` port forwarding and network-change recovery with events. Respect a pinned mode.
-- **Deliver:** user-space mode, the probe, `Network.SetMode`.
+- **Deliver:** user-space port forwarding and network-change recovery using the boot probe. M4-25 owns `Network.SetMode`.
 - **Accept when:**
   - With NAT egress blocked by a firewall rule in a test, `auto` switches to `userspace` and a pull succeeds.
   - The switch is reported as an event with its reason.
@@ -239,3 +239,16 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   fallback_dns::scoped_dns_updates_reach_existing_containers_without_restart \
   -- --exact --ignored --nocapture --test-threads=1
 ```
+
+
+### M4-25 Save the configured network mode through the typed API
+
+- **Status:** in progress
+- **Depends on:** M3-15, M4-18
+- **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection)
+- **Do:** Implement owner-authenticated `Network.SetMode` using the existing settings transaction and request deduplication. Change only the configured mode. Report that saved mode and any independently observed active attachment and guest addresses. Leave the current VM and its connections alone.
+- **Deliver:** A typed settings mutation with disposable-state and fake-runtime tests.
+- **Accept when:**
+  - Only the authenticated owner can set `auto`, `nat`, or `userspace`. Invalid modes and request IDs change nothing. Repeating a request returns its original result, and using its ID for a different mode is rejected.
+  - Only the network mode changes on disk and in settings. Concurrent edits serialize without losing unrelated settings. A stopped or unavailable runtime has no active mode or address reported.
+  - Changing the mode while the VM is ready leaves its active attachment intact. An ordinary restart uses the saved explicit pin and automatic selection does not override it.
