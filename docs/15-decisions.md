@@ -242,3 +242,11 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Consequence:** Validate the unmodified Docker CLI and Buildx against a private fixture. Require a separate host-side authorization and revocation model before adding a socket for regular containers.
 - **Reopen if:** The pinned CLI or engine changes the Buildx session contract.
 - **Date and task:** 2026-11-22, M4-13.
+
+
+## D-032 Use IBM Plex for desktop typography
+
+- **Decision:** Use the Figma Foundations' IBM Plex typography. Bundle unmodified IBM Plex Sans and IBM Plex Sans Arabic for UI text and IBM Plex Mono for Latin technical text.
+- **Why:** The dedicated Arabic faces supply the same regular, medium and semibold roles as the Latin design. HarfBuzz verified joining in each Arabic weight, and CoreText read the original native files on macOS.
+- **Consequence:** Verify the [pinned font files and licence notice](../assets/fonts/README.md) at packaging, and use the Arabic face where Mono lacks a glyph. M6-02 owns GPUI registration and rendering.
+- **Date and task:** 2026-11-22, M6-13.
