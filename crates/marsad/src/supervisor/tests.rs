@@ -26,6 +26,7 @@ use super::{
     Transition,
 };
 
+mod maintenance;
 mod network;
 
 const PORT: u32 = 5000;

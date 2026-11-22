@@ -1,5 +1,6 @@
 //! Shared settings, paths, and types for the Marsa workspace.
 
+pub mod disk_schema;
 pub mod docker_mounts;
 pub mod error;
 pub mod guest_boot;
