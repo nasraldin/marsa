@@ -38,7 +38,7 @@ fn fixture(mask: u32) -> (tempfile::TempDir, MarsaPaths, [Option<Inode>; 3]) {
                 file.set_len(512).unwrap();
             }
             file.sync_all().unwrap();
-            original[index] = Some(Inode::from(&file.metadata().unwrap()));
+            original[index] = Some(Inode::identify(&file.metadata().unwrap()).unwrap());
         }
     }
     (scratch, paths, original)
@@ -205,13 +205,16 @@ fn assert_generation(paths: &MarsaPaths, original: [Option<Inode>; 3], committed
                     let metadata = file.unwrap().metadata().unwrap();
                     assert_eq!(metadata.len(), options().disk.data_size_limit);
                     assert!(metadata.blocks() * 512 < metadata.len());
-                    assert_ne!(Some(Inode::from(&metadata)), original[index]);
+                    assert_ne!(Some(Inode::identify(&metadata).unwrap()), original[index]);
                 }
                 Member::Grants => assert!(file.is_none()),
             }
         } else if let Some(identity) = original[index] {
             let file = file.unwrap();
-            assert_eq!(Inode::from(&file.metadata().unwrap()), identity);
+            assert_eq!(
+                Inode::identify(&file.metadata().unwrap()).unwrap(),
+                identity
+            );
             let mut bytes = vec![0; ORIGINAL[index].len()];
             (&file).read_exact(&mut bytes).unwrap();
             assert_eq!(bytes, ORIGINAL[index]);

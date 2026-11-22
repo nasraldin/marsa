@@ -139,7 +139,8 @@ the complete defaults.
 **Implementation plan.** Quiesce the supervisor actor before taking custody
 of storage. Serialize state readers and writers during the transaction.
 Prepare replacements in a private journal on the same filesystem and record
-the expected member inodes before renaming any live member. Keep originals
+the expected member identities before renaming any live member. Identity
+checks include filesystem creation time to distinguish reused inodes. Keep originals
 until a durable commit record exists. Recover before reading settings or
 binding sockets and refuse any unrecognized member. Exercise every rename
 and journal boundary with disposable storage. Recovery also removes abandoned

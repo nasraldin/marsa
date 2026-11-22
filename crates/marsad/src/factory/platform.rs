@@ -5,6 +5,7 @@ use std::{
     io,
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::Path,
+    time::UNIX_EPOCH,
 };
 
 use nix::{
@@ -28,14 +29,23 @@ const FILES: OFlag = OFlag::O_NOFOLLOW
 pub(super) struct Inode {
     device: u64,
     inode: u64,
+    creation_seconds: u64,
+    creation_nanoseconds: u32,
 }
 
 impl Inode {
-    pub(super) fn from(metadata: &Metadata) -> Self {
-        Self {
+    pub(super) fn identify(metadata: &Metadata) -> io::Result<Self> {
+        // Creation time survives renames and distinguishes immediate inode reuse.
+        let creation = metadata
+            .created()?
+            .duration_since(UNIX_EPOCH)
+            .map_err(io::Error::other)?;
+        Ok(Self {
             device: metadata.dev(),
             inode: metadata.ino(),
-        }
+            creation_seconds: creation.as_secs(),
+            creation_nanoseconds: creation.subsec_nanos(),
+        })
     }
 }
 
@@ -73,7 +83,7 @@ impl Directory {
     }
 
     pub(super) fn inode(&self) -> io::Result<Inode> {
-        Ok(Inode::from(&self.file.metadata()?))
+        Inode::identify(&self.file.metadata()?)
     }
 
     pub(super) fn same_device(&self, other: &Self) -> io::Result<bool> {
@@ -111,7 +121,7 @@ impl Directory {
 
     pub(super) fn entry_inode(&self, name: &str) -> io::Result<Option<Inode>> {
         self.entry(name, false)?
-            .map(|file| file.metadata().map(|meta| Inode::from(&meta)))
+            .map(|file| Inode::identify(&file.metadata()?))
             .transpose()
     }
 
