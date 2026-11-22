@@ -69,7 +69,8 @@ must match the current revision. Read it again after reconnecting to a
 different daemon process. The daemon publishes a new revision only after the
 replacement has committed. `Settings.Watch` starts with the current settings.
 
-`Network.SetMode` accepts the explicit auto, NAT and user-space enum values.
+Host API minor 7 implements `Network.SetMode` for the explicit auto, NAT and
+user-space enum values.
 It persists a single-field settings edit. A successful response reports the
 mode saved by that request, plus the independently observed VM attachment
 and addresses when available. Active fields remain empty when the observer
