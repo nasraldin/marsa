@@ -220,3 +220,16 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
   - Balloon inflation, pause and resume work on Apple silicon and state changes are published.
   - The user-space attachment still passes HTTPS verification and the strict native test still requires IPv4, gateway and HTTPS through native NAT.
 - **Evidence:** The entitled suite on macOS 27.2.1 passed read-only virtiofs, balloon inflation, pause and resume, guest IPv4 facts, and a TLS-verified registry pull through the user-space attachment. The separately selected native test recorded five DHCP discovers and no IPv4 lease.
+
+### M3-17 Reserve lifecycle admission for maintenance
+
+- **Status:** in progress
+- **Depends on:** M3-06, M4-02
+- **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle)
+- **Do:** Add an exclusive supervisor permit for daemon maintenance. Optionally compare the caller's preview with the lifecycle revision in the actor. Suspend automatic retry and idle stop, and block ordinary lifecycle and new Docker connections while the permit is held. Let the holder stop the guest or start one candidate.
+- **Deliver:** A daemon-internal admission interface and fake backend tests for M4-21 and M9-18.
+- **Accept when:**
+  - Two callers cannot reserve maintenance at once. A stale preview is rejected before admission.
+  - Ordinary start, stop, restart, pause, resume, and Docker connection requests return busy while maintenance is reserved.
+  - The holder can stop or cancel the current boot, then start a candidate with no automatic retry. An unfinished candidate is cleaned up before the permit releases its reservation.
+  - Cancellation of a waiting reservation and release of a held permit leave ordinary admission usable.
