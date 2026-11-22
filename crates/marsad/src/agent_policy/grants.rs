@@ -256,6 +256,11 @@ impl GrantStore {
         Ok(result)
     }
 
+    pub(crate) fn with_lock<T>(&self, operation: impl FnOnce() -> T) -> Result<T, GrantError> {
+        let _lock = self.lock.lock().map_err(|_| GrantError::InvalidDocument)?;
+        Ok(operation())
+    }
+
     fn read(&self) -> Result<(Grants, Option<Vec<u8>>), GrantError> {
         let bytes = platform::read(&self.paths, self.uid, MAX_BYTES + 1)?;
         let grants = bytes
