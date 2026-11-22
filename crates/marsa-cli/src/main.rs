@@ -3,6 +3,8 @@
 mod command;
 #[cfg(unix)]
 mod disk;
+#[cfg(unix)]
+mod engine;
 
 use std::{
     env,
@@ -84,8 +86,8 @@ impl Failure {
                 "واجهة الخادم غير متوافقة مع إصدار سطر أوامر مرسى الحالي.",
             ),
             Self::Operation => language.text(
-                "Could not read disk usage from the Marsa daemon.",
-                "تعذّرت قراءة استخدام القرص من خادم مرسى.",
+                "The Marsa operation failed. Run marsa status or check marsa logs for details.",
+                "فشلت عملية مرسى. شغّل marsa status أو اطّلع على marsa logs لمعرفة التفاصيل.",
             ),
         }
     }
@@ -101,6 +103,7 @@ enum Outcome {
         document: serde_json::Value,
         text: String,
     },
+    Streamed,
     Failure(Failure),
 }
 
@@ -118,7 +121,7 @@ async fn main() -> ExitCode {
         Language::current()
     };
     let interactive = io::stdin().is_terminal() && !json;
-    let outcome = execute(args, language, interactive).await;
+    let outcome = execute(args, language, interactive, json).await;
     match render(outcome, language, json) {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
@@ -131,7 +134,12 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn execute(args: Vec<OsString>, language: Language, interactive: bool) -> Outcome {
+async fn execute(
+    args: Vec<OsString>,
+    language: Language,
+    interactive: bool,
+    json: bool,
+) -> Outcome {
     let mut cli = build(language);
     if args.len() == 1 || args.len() == 2 && args[1] == "--json" {
         return Outcome::Help(cli.render_help().to_string());
@@ -155,6 +163,10 @@ async fn execute(args: Vec<OsString>, language: Language, interactive: bool) -> 
     #[cfg(unix)]
     if name == "disk" && args.subcommand_matches("usage").is_some() {
         return disk::usage(language).await.unwrap_or_else(Outcome::Failure);
+    }
+    #[cfg(unix)]
+    if let Some(outcome) = engine::run(name, args, language, json).await {
+        return outcome;
     }
     Outcome::Failure(Failure::Unavailable)
 }
@@ -193,6 +205,7 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
             Outcome::Completion { shell, script } => {
                 json!({"schema_version": 1, "kind": "completion", "shell": shell.to_string(), "script": script})
             }
+            Outcome::Streamed => return Ok(code),
             Outcome::Data { document, .. } => document,
             Outcome::Failure(failure) => json!({
                 "schema_version": 1,
@@ -204,6 +217,7 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
         writeln!(io::stdout().lock(), "{body}")?;
     } else {
         match outcome {
+            Outcome::Streamed => (),
             Outcome::Help(text) | Outcome::Data { text, .. } => {
                 write!(io::stdout().lock(), "{text}")?
             }

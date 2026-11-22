@@ -5,7 +5,13 @@
     { "$ref": "#/$defs/help" },
     { "$ref": "#/$defs/completion" },
     { "$ref": "#/$defs/error" },
-    { "$ref": "#/$defs/disk_usage" }
+    { "$ref": "#/$defs/disk_usage" },
+    { "$ref": "#/$defs/env" },
+    { "$ref": "#/$defs/status" },
+    { "$ref": "#/$defs/version" },
+    { "$ref": "#/$defs/lifecycle" },
+    { "$ref": "#/$defs/logs" },
+    { "$ref": "#/$defs/log" }
   ],
   "$defs": {
     "disk_usage": {
@@ -46,6 +52,139 @@
             }
           }
         }
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "docker_host"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "env" },
+        "docker_host": { "type": "string", "pattern": "^unix:///" }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "engine", "versions", "resources"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "status" },
+        "engine": { "$ref": "#/$defs/engine" },
+        "versions": { "$ref": "#/$defs/versions" },
+        "resources": { "anyOf": [{ "$ref": "#/$defs/resources" }, { "type": "null" }] }
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "versions"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "version" },
+        "versions": { "$ref": "#/$defs/versions" }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "action", "engine"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "lifecycle" },
+        "action": { "enum": ["start", "stop", "restart"] },
+        "engine": { "$ref": "#/$defs/engine" }
+      }
+    },
+    "logs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "entries"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "logs" },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/log_entry" } }
+      }
+    },
+    "log": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "entry"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "log" },
+        "entry": { "$ref": "#/$defs/log_entry" }
+      }
+    },
+    "log_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at_unix_millis", "component", "level", "message"],
+      "properties": {
+        "at_unix_millis": { "type": "integer" },
+        "component": { "type": "string" },
+        "level": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "guest_health", "backend", "boot_stage"],
+      "properties": {
+        "state": { "type": "string" },
+        "guest_health": { "type": "string" },
+        "backend": { "type": "string" },
+        "boot_stage": { "type": ["string", "null"] }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cli", "daemon", "api", "components"],
+      "properties": {
+        "cli": { "type": "string" },
+        "daemon": { "type": "string" },
+        "api": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["major", "minor"],
+          "properties": {
+            "major": { "type": "integer", "minimum": 0 },
+            "minor": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "version"],
+            "properties": {
+              "name": { "type": "string" },
+              "version": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at_unix_millis", "cpu_busy_nanos", "memory_used_bytes", "memory_total_bytes",
+        "disk_used_bytes", "disk_total_bytes", "network_rx_bytes", "network_tx_bytes"
+      ],
+      "properties": {
+        "observed_at_unix_millis": { "type": "integer" },
+        "cpu_busy_nanos": { "type": "integer", "minimum": 0 },
+        "memory_used_bytes": { "type": "integer", "minimum": 0 },
+        "memory_total_bytes": { "type": "integer", "minimum": 0 },
+        "disk_used_bytes": { "type": "integer", "minimum": 0 },
+        "disk_total_bytes": { "type": "integer", "minimum": 0 },
+        "network_rx_bytes": { "type": "integer", "minimum": 0 },
+        "network_tx_bytes": { "type": "integer", "minimum": 0 }
       }
     },
     "help": {

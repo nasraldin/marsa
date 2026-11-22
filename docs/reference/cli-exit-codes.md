@@ -32,3 +32,9 @@ read the script from the response's `script` field.
 logical capacity under `host`. The `guest` field is `null` until the
 daemon has a current filesystem observation. `categories` lists the
 breakdown supplied by the daemon.
+
+`marsa logs --follow --json` writes newline-delimited JSON, with one response
+per log record. In the record, `message` contains a safe classification of
+the source log and `at_unix_millis` is zero when wall-clock time is unavailable.
+`marsa status --json` returns `resources: null` until the guest provides an
+observation. The CPU field is cumulative VM CPU busy time in nanoseconds.
