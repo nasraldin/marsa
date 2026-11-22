@@ -6,7 +6,7 @@ use marsa_proto::host::v1::{
 };
 use tonic::{Request, Response, Status};
 
-use super::{Prepared, TypedApi, audit};
+use super::{Prepared, TypedApi, audit, reads};
 
 #[tonic::async_trait]
 impl AgentOps for TypedApi {
@@ -75,7 +75,7 @@ impl TypedApi {
         let operation = request.operation();
         // Unsupported operations receive a refusal receipt with arguments
         // omitted. A full Docker ID does not make a stop an exact mutation.
-        if operation != AgentOperation::EngineStatus {
+        if operation != AgentOperation::EngineStatus && !reads::Read::supports(operation) {
             return Ok(self.operation_error(
                 "unsupported_operation",
                 "This agent operation is unavailable.",

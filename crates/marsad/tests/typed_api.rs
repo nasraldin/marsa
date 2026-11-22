@@ -4,6 +4,8 @@
 
 #[path = "typed_api/agent_approvals.rs"]
 mod agent_approvals;
+#[path = "typed_api/mcp_reads.rs"]
+mod mcp_reads;
 
 use std::{io, sync::Arc, time::Duration};
 
