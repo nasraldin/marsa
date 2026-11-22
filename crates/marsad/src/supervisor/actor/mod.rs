@@ -2,7 +2,7 @@
 
 use std::{future::pending, io, sync::Arc, time::Duration};
 
-use marsa_vm::{Vm, VsockStream};
+use marsa_vm::{NetworkInfo, Vm, VsockStream};
 use tokio::{
     sync::{broadcast, mpsc, oneshot, watch},
     task::{JoinError, JoinHandle},
@@ -10,7 +10,7 @@ use tokio::{
 };
 
 use super::{
-    BootFailure, BootStage, GuestProbe, Observer, Snapshot, State, SupervisorConfig,
+    BootFailure, BootNetwork, BootStage, GuestProbe, Observer, Snapshot, State, SupervisorConfig,
     SupervisorError, Transition,
     boot::{self, LiveGuest, Outcome},
     launch::Runtime,
@@ -33,6 +33,7 @@ pub(super) enum Command {
     MaintenanceStop(u64, Reply),
     EnsureReady(Reply),
     ConnectDocker(oneshot::Sender<io::Result<VsockStream>>),
+    Network(oneshot::Sender<Option<(BootNetwork, Option<NetworkInfo>)>>),
     Stop(Reply),
     Restart(Reply),
     Pause(Reply),

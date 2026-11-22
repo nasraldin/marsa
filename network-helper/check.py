@@ -85,11 +85,22 @@ def main():
 
     peer, helper = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
     with peer, helper:
-        process = subprocess.Popen([options.helper], stdin=helper, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        invalid = subprocess.run(
+            [options.helper], stdin=helper, capture_output=True, timeout=5, check=False,
+        )
+        assert invalid.returncode and not invalid.stdout
+        assert b"connected Unix stream socket" in invalid.stderr
+
+    peer, helper = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+    control, child_control = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    with peer, helper, control, child_control:
+        process = subprocess.Popen([options.helper], stdin=helper, stdout=child_control, stderr=subprocess.PIPE)
         helper.close()
+        child_control.close()
         try:
-            assert select.select([process.stdout], [], [], 10)[0], "helper startup timed out"
-            assert process.stdout.readline() == b"READY\n", "helper did not report readiness"
+            control.settimeout(10)
+            with control.makefile("rb") as readiness:
+                assert readiness.readline(6) == b"READY\n", "helper did not report readiness"
             peer.send(b"not Ethernet")
             wrong_mac = arp_frame()[:6] + b"\x02" * 6 + arp_frame()[12:]
             peer.send(wrong_mac)
@@ -116,13 +127,14 @@ def main():
                 listener.bind(("127.0.0.1", 0))
                 peer.send(udp_frame(GUEST_IP, "127.0.0.1", listener.getsockname()[1], b"must be blocked"))
                 assert not select.select([listener], [], [], 0.5)[0], "guest reached a host loopback listener"
+            # Leave the datagram peer open to isolate a daemon crash from a VM shutdown.
+            control.close()
+            assert process.wait(timeout=5) == 0, process.stderr.read().decode(errors="replace")
         finally:
             if process.poll() is None:
-                process.terminate()
-            stdout, stderr = process.communicate(timeout=8)
-            assert process.returncode == 0, stderr.decode(errors="replace")
-            assert not stdout
-    print("socketpair, Ethernet validation, DHCP, system DNS, loopback isolation and shutdown passed")
+                process.kill()
+            process.communicate(timeout=8)
+    print("socketpair, Ethernet validation, DHCP, system DNS, loopback isolation and daemon lifetime passed")
 
 
 if __name__ == "__main__":

@@ -58,6 +58,14 @@ impl Actor {
                 self.connect_docker(reply).await;
                 return;
             }
+            Command::Network(reply) => {
+                let active = self
+                    .guest
+                    .as_ref()
+                    .map(|guest| (guest.network, guest.vm.network_info()));
+                let _ = reply.send(active);
+                return;
+            }
             Command::Stop(reply) => (reply, self.stop().await),
             Command::Restart(reply) => {
                 if let Err(error) = self.stop().await {
@@ -320,7 +328,10 @@ impl Actor {
             Ok(Outcome::Failed { vm, issue }) => {
                 if matches!(
                     issue.stage,
-                    BootStage::Handshake | BootStage::Network | BootStage::Engine
+                    BootStage::Handshake
+                        | BootStage::DataDisk
+                        | BootStage::Network
+                        | BootStage::Engine
                 ) {
                     self.booting();
                 }
@@ -365,7 +376,10 @@ impl Actor {
             "guest activation failed"
         );
         self.set_state(State::Failed, Some(failure.clone()));
-        if self.retries_left > 0 && stop.is_ok() && issue.stage != BootStage::Prepare {
+        if self.retries_left > 0
+            && stop.is_ok()
+            && !matches!(issue.stage, BootStage::Prepare | BootStage::DataDisk)
+        {
             self.retries_left -= 1;
             self.retry_at = Some(Instant::now() + self.backoff);
             self.backoff = self

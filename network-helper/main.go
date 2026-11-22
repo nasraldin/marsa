@@ -27,20 +27,36 @@ func run(ctx context.Context) error {
 	if len(os.Args) != 1 || os.Getuid() == 0 || os.Geteuid() == 0 {
 		return errors.New("expected no arguments and an unprivileged user")
 	}
-	conn, err := inheritedDatagram(os.Stdin)
+	conn, err := inheritedSocket(os.Stdin, unix.SOCK_DGRAM, "stdin must be a connected Unix datagram socket")
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	// The only host-side transport is this connected descriptor.
+	control, err := inheritedSocket(os.Stdout, unix.SOCK_STREAM, "stdout must be a connected Unix stream socket")
+	if err != nil {
+		return err
+	}
+	defer control.Close()
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		// A daemon never sends bytes. EOF also arrives when the daemon is killed
+		// and cannot run its normal child cleanup.
+		var unexpected [1]byte
+		_, _ = control.Read(unexpected[:])
+		cancel()
+	}()
+
+	// The only host-side Ethernet transport is this connected descriptor.
 	switcher, shutdown, err := startNetwork(ctx)
 	if err != nil {
 		return err
 	}
 	defer shutdown()
 
-	if _, err := fmt.Fprintln(os.Stdout, "READY"); err != nil {
+	if _, err := fmt.Fprintln(control, "READY"); err != nil {
 		return err
 	}
 	result := make(chan error, 1)
@@ -55,24 +71,24 @@ func run(ctx context.Context) error {
 	}
 }
 
-func inheritedDatagram(input *os.File) (*net.UnixConn, error) {
+func inheritedSocket(input *os.File, socketType int, description string) (*net.UnixConn, error) {
 	fd := int(input.Fd())
 	kind, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TYPE)
-	if err != nil || kind != unix.SOCK_DGRAM {
-		return nil, errors.New("stdin must be a connected Unix datagram socket")
+	if err != nil || kind != socketType {
+		return nil, errors.New(description)
 	}
 	peer, err := unix.Getpeername(fd)
 	if _, isUnix := peer.(*unix.SockaddrUnix); err != nil || !isUnix {
-		return nil, errors.New("stdin must be a connected Unix datagram socket")
+		return nil, errors.New(description)
 	}
 	duplicate, err := net.FileConn(input)
 	if err != nil {
-		return nil, fmt.Errorf("duplicate guest datagram socket: %w", err)
+		return nil, fmt.Errorf("duplicate inherited socket: %w", err)
 	}
 	conn, ok := duplicate.(*net.UnixConn)
 	if !ok {
 		duplicate.Close()
-		return nil, errors.New("stdin is not a Unix datagram socket")
+		return nil, errors.New(description)
 	}
 	return conn, nil
 }

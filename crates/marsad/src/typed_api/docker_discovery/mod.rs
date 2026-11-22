@@ -1,5 +1,6 @@
 //! Discover Marsa's endpoint and create a Docker context on explicit local request.
 
+mod keychain;
 mod store;
 
 use std::{
@@ -12,13 +13,16 @@ use std::{
 
 use marsa_core::paths::MarsaPaths;
 use marsa_proto::host::v1::{
-    DockerEndpoint, EnsureDockerContextRequest, EnsureDockerContextResponse,
-    GetDockerEndpointRequest, docker_discovery_server::DockerDiscovery,
+    DockerEndpoint, EnableRegistryKeychainRequest, EnableRegistryKeychainResponse,
+    EnsureDockerContextRequest, EnsureDockerContextResponse, GetDockerEndpointRequest,
+    docker_discovery_server::DockerDiscovery,
 };
 use tokio::{process::Command, sync::Mutex, time::timeout};
 use tonic::{Request, Response, Status};
 
 use super::TypedApi;
+
+pub(super) type VerifyKeychain = Arc<dyn Fn() -> io::Result<()> + Send + Sync>;
 
 const NAME: &str = "marsa";
 const DESCRIPTION: &str = "Marsa";
@@ -83,6 +87,47 @@ impl DockerDiscovery for TypedApi {
             .await?;
         Ok(Response::new(response))
     }
+
+    async fn enable_registry_keychain(
+        &self,
+        request: Request<EnableRegistryKeychainRequest>,
+    ) -> Result<Response<EnableRegistryKeychainResponse>, Status> {
+        let request = self.authorize(request)?;
+        let api = self.clone();
+        let configured = self
+            .inner
+            .docker_keychain_requests
+            .run(&request.request_id, (), || async move {
+                let registration = api.docker_contexts.ok_or_else(unavailable_keychain)?;
+                let verify = api.verify_keychain.ok_or_else(unavailable_keychain)?;
+                let _write = registration.write.lock().await;
+                let config = registration.config.clone();
+                let uid = api.inner.uid;
+                tokio::task::spawn_blocking(move || {
+                    verify().map_err(|_| unavailable_keychain())?;
+                    keychain::enable(&config, uid).map_err(keychain::status)
+                })
+                .await
+                .map_err(|_| Status::internal("the Docker configuration worker stopped"))?
+            })
+            .await?;
+        Ok(Response::new(EnableRegistryKeychainResponse { configured }))
+    }
+}
+
+impl TypedApi {
+    /// Enable the registry Keychain opt-in with a packaged credential helper verifier.
+    pub fn with_registry_keychain(
+        mut self,
+        verify: impl Fn() -> io::Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        self.verify_keychain = Some(Arc::new(verify));
+        self
+    }
+}
+
+fn unavailable_keychain() -> Status {
+    Status::failed_precondition("the bundled macOS credential helper is unavailable")
 }
 
 impl Registration {

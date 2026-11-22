@@ -98,7 +98,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 - **Depends on:** M3-04, M2-07
 - **Docs:** [06 Network modes](../06-networking.md#network-modes), [06 DNS](../06-networking.md#dns), [06 Container to host](../06-networking.md#container-to-host), V-07
 - **Do:** Verify the NAT attachment requirements (V-07). Implement reading the host resolver configuration and pushing DNS to the guest at boot and on network change, and the `host.docker.internal`, `gateway.docker.internal` and `host.marsa.internal` names.
-- **Deliver:** network manager NAT path, the `Network.Status` call.
+- **Deliver:** native NAT DNS and automatic Docker host aliases. M4-18 owns the shared `Network.Status` call and verification of the user-space resolver.
 - **Accept when:**
   - A container can pull from a public registry and resolve names.
   - A container reaches a service listening on the Mac through `host.docker.internal`.
@@ -146,7 +146,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-12 Registry credentials
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-03, M4-16
 - **Docs:** [11 Registry credentials](../11-security.md#registry-credentials)
 - **Do:** Offer to set the keychain credential helper as the Docker CLI credential store, never overwriting an existing store. Confirm that no credential is written to disk in plain text or stored in the guest.
@@ -154,6 +154,8 @@ Q-08 governs where the optional administrator action is offered. Context registr
 - **Accept when:**
   - `docker login` stores the credential in the keychain.
   - An existing `credsStore` or `credHelpers` entry is left untouched.
+
+**Verification.** A signed daemon fixture in a private Docker configuration applied the opt-in, preserved the selected context and refused to change a configured store. The pinned macOS Docker CLI and Keychain helper stored and retrieved one generated credential using a local Engine API fixture. The client configuration had no credential field, and the disposable Keychain item was removed and verified absent.
 
 ### M4-13 SSH agent forwarding for builds
 
@@ -215,3 +217,25 @@ Q-08 governs where the optional administrator action is offered. Context registr
   - An authorized container can use an explicitly chosen host agent with a disposable test key.
   - An unapproved container and a guest-initiated connection without a current grant cannot use the agent.
   - Revocation closes active streams and rejects subsequent connections. Host private key bytes stay on the host.
+
+### M4-18 Qualify fallback DNS recovery and expose network status
+
+- **Status:** done
+- **Depends on:** M2-07, M3-12, M3-14, M3-15, M5-01
+- **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 DNS](../06-networking.md#dns)
+- **Do:** Verify live scoped resolver changes through the existing user-space DNS gateway. Expose the configured and active attachment, current guest IPv4 and gateway, and available connectivity reason through the authenticated typed API. Keep native NAT and Docker host aliases in M4-08.
+- **Deliver:** `Network.Status`, typed client access, and a signed packaged-runtime DNS test.
+- **Accept when:**
+  - An authenticated caller can read the configured mode while the engine is stopped. While it is running, the result reports the active mode, available connectivity reason, and separately observed IPv4 and gateway. A stopped guest has no stale addresses.
+  - A signed packaged user-space VM resolves a controlled macOS-scoped name from existing default-bridge and custom-network containers. Both containers observe a changed scoped answer without restart, and the Docker API remains available.
+  - The existing registry TLS and host-security checks still pass. The live test uses disposable DNS records and leaves host networking and firewall settings alone.
+
+- **Evidence:** On macOS 27.2.1, the signed packaged runtime returned the current user-space guest and gateway addresses through `Network.Status`. Existing default-bridge and custom-network containers saw the macOS local-only DNS answer change from `192.0.2.64` to `192.0.2.65` with unchanged startup timestamps. The signed registry pull with TLS verification and the helper's loopback-isolation fixture also passed.
+
+With the pinned Docker CLI on `PATH` and the built guest and network-helper paths set for the [packaged runtime tests](../../crates/marsad/tests/packaged_runtime.rs), run:
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+  fallback_dns::scoped_dns_updates_reach_existing_containers_without_restart \
+  -- --exact --ignored --nocapture --test-threads=1
+```

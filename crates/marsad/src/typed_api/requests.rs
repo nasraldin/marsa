@@ -93,7 +93,7 @@ impl<I, R> Entries<I, R> {
     }
 }
 
-fn request_id(value: &str) -> Result<String, Status> {
+pub(super) fn request_id(value: &str) -> Result<String, Status> {
     if value.len() != 36
         || !value.bytes().enumerate().all(|(index, byte)| match index {
             8 | 13 | 18 | 23 => byte == b'-',

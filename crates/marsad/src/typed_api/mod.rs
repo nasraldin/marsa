@@ -6,7 +6,9 @@ mod docker_discovery;
 mod engine;
 mod events;
 mod meta;
+mod network;
 mod requests;
+mod reset;
 mod settings;
 mod shares;
 mod stats;
@@ -21,7 +23,8 @@ use marsa_proto::host::v1::{
     CollectDiagnosticsResponse, EnsureDockerContextResponse, diagnostics_server::DiagnosticsServer,
     disk_server::DiskServer, docker_discovery_server::DockerDiscoveryServer,
     engine_server::EngineServer, events_server::EventsServer, meta_server::MetaServer,
-    settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
+    network_server::NetworkServer, settings_server::SettingsServer, shares_server::SharesServer,
+    stats_server::StatsServer,
 };
 use marsa_share::SharePolicy;
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
@@ -50,6 +53,7 @@ pub struct TypedApi {
     supervisor: Option<Supervisor>,
     capabilities: Option<Capabilities>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
+    verify_keychain: Option<docker_discovery::VerifyKeychain>,
 }
 
 struct Shared {
@@ -59,11 +63,13 @@ struct Shared {
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
+    settings_reset: reset::SettingsReset,
     share_policy: SharePolicy,
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
     remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
     docker_context_requests: requests::Cache<(), EnsureDockerContextResponse>,
+    docker_keychain_requests: requests::Cache<(), bool>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
 }
@@ -86,16 +92,19 @@ impl TypedApi {
                 engine_requests: requests::Cache::new(),
                 settings_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
+                settings_reset: reset::SettingsReset::new(),
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
                 docker_context_requests: requests::Cache::new(),
+                docker_keychain_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
                 closing,
             }),
             supervisor: None,
             capabilities: None,
             docker_contexts: None,
+            verify_keychain: None,
         })
     }
 
@@ -209,6 +218,7 @@ impl TypedApi {
             )
             .add_service(EventsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .add_service(StatsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
+            .add_service(NetworkServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 stop.await;
                 self.inner.closing.send_replace(true);

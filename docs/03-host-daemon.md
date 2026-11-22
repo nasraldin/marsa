@@ -187,7 +187,7 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 
 | Service | Methods (summary) |
 |---|---|
-| `Engine` | `Status`, `Start`, `Stop`, `Restart`, `Reset` (factory reset with confirmation token) |
+| `Engine` | `Status`, `Start`, `Stop`, `Restart`, `Reset` (settings and factory modes with distinct confirmation types) |
 | `Settings` | `Get`, `Update`, `Watch` |
 | `Shares` | `List`, `Add`, `Remove` |
 | `DockerDiscovery` | `GetEndpoint` and explicit `EnsureContext` |
@@ -201,6 +201,8 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 | `AgentOps` | Engine operations performed on behalf of MCP clients. Every call names the client, passes through the policy engine and is written to the audit log. `marsad` executes the operation against dockerd itself; the MCP server never touches the Docker socket |
 | `Meta` | `Version`, `Capabilities` |
 
+`Network.Status` returns the current configured mode and, for an active guest, the actual attachment and any boot-time connectivity reason. Guest and gateway addresses come from the backend's latest observation. Callers can use `MarsaClient::network()` to query this status. The status call does not start the engine.
+
 API rules:
 
 - Versioned package (`marsa.v1`). Additive changes only within a major version.
@@ -208,6 +210,16 @@ API rules:
 - `Events.Subscribe` takes a snapshot and its cursor together, then sends subsequent events in sequence order. A slow client whose buffer has filled reconnects for a new snapshot.
 - Engine lifecycle and settings update RPCs deduplicate retries by UUID for a bounded period within the daemon process. Stop can cancel a pending start. A restart with the same UUID joins or replays its earlier result.
 - The daemon accepts engine lifecycle commands when a VM runtime is attached. Stats and guest health reflect observations from the current guest session.
+
+For a settings reset, send `PrepareSettingsReset` with a fresh request UUID.
+After the user confirms, send `ResetSettings` with the returned token and a
+separate request UUID. The owner-only API allows one outstanding settings
+challenge, which expires after 60 seconds and is invalidated by a settings
+revision or configuration member change. Retrying the original confirmation
+UUID and payload replays its result without applying the reset again. The
+daemon persists the defaults atomically, then publishes the new settings
+revision. Settings reset leaves the VM disk and grants intact. Factory
+preparation and confirmation are tracked in M9-18.
 
 Clients use `marsa_client::DaemonEndpoint::discover()` to locate the current
 user's socket. The client checks the private socket and its kernel-reported

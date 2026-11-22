@@ -1,5 +1,7 @@
 //! Run the Unix daemon and keep its transport and files scoped to the current user.
 
+#[cfg(test)]
+mod crash_tests;
 mod files;
 mod logging;
 #[cfg(target_os = "macos")]
@@ -79,10 +81,13 @@ fn configure_packaged_runtime(
     };
     let package = std::sync::Arc::new(package);
     let docker_bundle = package.clone();
+    let keychain_bundle = package.clone();
     let docker_config = std::env::var_os("DOCKER_CONFIG")
         .filter(|override_path| !override_path.is_empty())
         .map_or_else(|| home.join(".docker"), std::path::PathBuf::from);
-    let api = api.with_docker_contexts(docker_config, move || docker_bundle.docker_cli());
+    let api = api
+        .with_docker_contexts(docker_config, move || docker_bundle.docker_cli())
+        .with_registry_keychain(move || keychain_bundle.verify_registry_keychain());
     let config = SupervisorConfig {
         // A fresh default disk can spend about 26 seconds in the guest blank
         // check and initialization before DHCP and the control agent start.
