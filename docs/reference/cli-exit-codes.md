@@ -28,6 +28,11 @@ command requires confirmation when run non-interactively. `disk cleanup
 --dry-run` is a preview. When invoking shell completion with `--json`,
 read the script from the response's `script` field.
 
+`marsa disk usage --json` reports the sparse image's allocated bytes and
+logical capacity under `host`. The `guest` field is `null` until the
+daemon has a current filesystem observation. `categories` lists the
+breakdown supplied by the daemon.
+
 `marsa logs --follow --json` writes newline-delimited JSON, with one response
 per log record. In the record, `message` contains a safe classification of
 the source log and `at_unix_millis` is zero when wall-clock time is unavailable.

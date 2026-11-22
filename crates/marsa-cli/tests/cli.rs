@@ -200,6 +200,33 @@ fn env_quotes_the_socket_for_a_shell_and_reports_json_without_a_daemon() {
 }
 
 #[test]
+#[cfg(unix)]
+fn disk_usage_does_not_report_success_when_the_daemon_cannot_be_reached() {
+    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+        .args(["disk", "usage", "--json"])
+        .env("HOME", "/")
+        .output()
+        .expect("launch marsa");
+    assert_eq!(result.status.code(), Some(4));
+    let body: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(body["code"], "home_unavailable");
+}
+
+#[test]
+fn unsupported_cleanup_and_reclaim_report_nonzero() {
+    for arguments in [
+        &["disk", "cleanup", "--dry-run", "--json"][..],
+        &["disk", "cleanup", "--yes", "--json"],
+        &["disk", "reclaim", "--json"],
+    ] {
+        let result = marsa(arguments);
+        assert_eq!(result.status.code(), Some(1));
+        let body: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(body["code"], "not_available");
+    }
+}
+
+#[test]
 fn unavailable_message_preserves_localized_text_and_english_json() {
     for (locale, expected) in [
         ("en_US.UTF-8", "This command is not available yet.\n"),
