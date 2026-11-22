@@ -10,12 +10,13 @@ use std::{
     time::Duration,
 };
 
+use marsa_proto::guest::DOCKER_API_PORT;
 use marsa_vm::{
     Capabilities, DiskSpec, Hypervisor, NetworkSpec, Vm, VmError, VmSpec, VsockStream, async_trait,
     fake::{AgentStep, FakeHypervisor, FakeScenario},
 };
 use tokio::{
-    io::AsyncReadExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     sync::broadcast,
     time::{advance, timeout},
 };
@@ -142,6 +143,37 @@ async fn transition(
     let event = timeout(STEP * 50, stream.recv()).await.unwrap().unwrap();
     assert_eq!((event.previous, event.current), (previous, current));
     event
+}
+
+#[tokio::test]
+async fn opens_the_docker_port_only_while_the_guest_is_ready() {
+    let guest = ready().with_agent(
+        DOCKER_API_PORT,
+        vec![
+            AgentStep::Expect(b"GET /version".to_vec()),
+            AgentStep::Send(b"fixture engine".to_vec()),
+        ],
+    );
+    let (supervisor, created) = create(config(), "/fixture/console.log".into(), guest, None);
+    assert_eq!(
+        supervisor.connect_docker().await.err().unwrap().kind(),
+        io::ErrorKind::NotConnected
+    );
+    assert_eq!(created.load(Ordering::SeqCst), 0);
+    supervisor.ensure_ready().await.unwrap();
+    for _ in 0..2 {
+        let mut docker = supervisor.connect_docker().await.unwrap();
+        docker.write_all(b"GET /version").await.unwrap();
+        let mut response = Vec::new();
+        docker.read_to_end(&mut response).await.unwrap();
+        assert_eq!(response, b"fixture engine");
+    }
+    assert_eq!(created.load(Ordering::SeqCst), 1);
+    supervisor.stop().await.unwrap();
+    assert_eq!(
+        supervisor.connect_docker().await.err().unwrap().kind(),
+        io::ErrorKind::NotConnected
+    );
 }
 
 #[tokio::test(start_paused = true)]

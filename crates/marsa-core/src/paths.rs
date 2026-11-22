@@ -93,6 +93,11 @@ impl MarsaPaths {
         self.logs_dir().join("marsad.log")
     }
 
+    /// Private directory containing locally created support archives.
+    pub fn diagnostics_dir(&self) -> PathBuf {
+        self.root.join("diagnostics")
+    }
+
     /// Directory for persistent application state.
     pub fn state_dir(&self) -> PathBuf {
         self.root.join("state")
@@ -124,4 +129,20 @@ pub fn validate_directory(path: &Path) -> Result<(), PathError> {
         return Err(PathError::InvalidDirectory);
     }
     Ok(())
+}
+
+/// Checks the basename shape of a dated daemon JSONL log.
+pub fn is_daemon_log_name(name: &str) -> bool {
+    let date = name
+        .strip_prefix("marsad.")
+        .and_then(|name| name.strip_suffix(".jsonl"));
+    let Some(date) = date else { return false };
+    date.len() == 10
+        && date.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 4 | 7) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit()
+            }
+        })
 }

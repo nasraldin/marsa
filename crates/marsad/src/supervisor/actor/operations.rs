@@ -1,9 +1,11 @@
 //! Implement the actor's state transitions for requests, deadlines, and boot completion.
 
-use std::{sync::Arc, time::Duration};
+use std::{io, sync::Arc, time::Duration};
 
-use marsa_vm::Vm;
+use marsa_proto::guest::DOCKER_API_PORT;
+use marsa_vm::{Vm, VsockStream};
 use tokio::{
+    sync::oneshot,
     task::JoinError,
     time::{Instant, timeout},
 };
@@ -21,6 +23,10 @@ impl Actor {
         let (reply, result) = match command {
             Command::EnsureReady(reply) => {
                 self.ensure_ready(reply);
+                return;
+            }
+            Command::ConnectDocker(reply) => {
+                self.connect_docker(reply).await;
                 return;
             }
             Command::Stop(reply) => (reply, self.stop().await),
@@ -49,6 +55,23 @@ impl Actor {
                 self.container_count(count);
                 (reply, Ok(()))
             }
+        };
+        let _ = reply.send(result);
+    }
+
+    async fn connect_docker(&mut self, mut reply: oneshot::Sender<io::Result<VsockStream>>) {
+        let result = match self.guest.as_ref().map(|guest| guest.vm.as_ref()) {
+            Some(vm) if matches!(self.state(), State::Ready | State::Idle) => {
+                tokio::select! {
+                    biased;
+                    () = reply.closed() => return,
+                    // Keep an unresponsive backend from holding up lifecycle commands.
+                    result = timeout(Duration::from_secs(2), vm.connect_vsock(DOCKER_API_PORT)) => {
+                        result.map_err(io::Error::from).and_then(|stream| stream.map_err(io::Error::other))
+                    }
+                }
+            }
+            _ => Err(io::ErrorKind::NotConnected.into()),
         };
         let _ = reply.send(result);
     }

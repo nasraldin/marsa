@@ -3,7 +3,7 @@
 use std::{io, net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 
 use marsa_proto::guest::v1::EgressStage;
-use marsa_vm::{Hypervisor, Vm, VmError, VmSpec, async_trait};
+use marsa_vm::{Hypervisor, Vm, VmError, VmSpec, VsockStream, async_trait};
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
@@ -309,6 +309,16 @@ impl Supervisor {
     /// Wait for the shared activation attempt to make the engine ready.
     pub async fn ensure_ready(&self) -> Result<(), SupervisorError> {
         self.request(actor::Command::EnsureReady).await
+    }
+
+    /// Open one Docker API stream to the already-ready guest.
+    pub async fn connect_docker(&self) -> io::Result<VsockStream> {
+        let (reply, result) = oneshot::channel();
+        self.commands
+            .send(actor::Command::ConnectDocker(reply))
+            .await
+            .map_err(|_| io::ErrorKind::NotConnected)?;
+        result.await.map_err(|_| io::ErrorKind::NotConnected)?
     }
 
     /// Stop the guest and cancel any retry or pending activation.

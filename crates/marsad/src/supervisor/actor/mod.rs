@@ -1,8 +1,8 @@
 //! Serialize lifecycle decisions while VM startup and guest readiness run independently.
 
-use std::{future::pending, sync::Arc, time::Duration};
+use std::{future::pending, io, sync::Arc, time::Duration};
 
-use marsa_vm::Vm;
+use marsa_vm::{Vm, VsockStream};
 use tokio::{
     sync::{broadcast, mpsc, oneshot, watch},
     task::{JoinError, JoinHandle},
@@ -23,6 +23,7 @@ pub(super) type Reply = oneshot::Sender<Result<(), SupervisorError>>;
 
 pub(super) enum Command {
     EnsureReady(Reply),
+    ConnectDocker(oneshot::Sender<io::Result<VsockStream>>),
     Stop(Reply),
     Restart(Reply),
     Pause(Reply),

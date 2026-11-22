@@ -46,13 +46,14 @@ pub(super) fn run() -> Result<(), DaemonError> {
     let vm_settings = settings.vm.clone();
     let api = TypedApi::new(paths.clone(), uid, settings)?;
     let _logging = logging::initialize(&paths, uid)?;
-    let socket = instance.publish(&paths, uid)?;
+    let (socket, docker) = instance.publish(&paths, uid)?;
     let serving = runtime.block_on(async {
         let socket = tokio::net::UnixListener::from_std(socket)?;
+        let docker = tokio::net::UnixListener::from_std(docker)?;
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         let api = configure_packaged_runtime(api, paths, uid, vm_settings, &home)?;
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
-        serve(socket, api, signals).await
+        serve(socket, docker, api, uid, signals).await
     });
     let cleanup = instance.cleanup();
     serving?;
@@ -121,7 +122,9 @@ pub(super) fn login(action: &std::ffi::OsStr) -> io::Result<()> {
 
 async fn serve(
     listener: tokio::net::UnixListener,
+    docker: tokio::net::UnixListener,
     api: TypedApi,
+    uid: u32,
     signals: Signals,
 ) -> Result<(), DaemonError> {
     let (shutdown, stop) = oneshot::channel();
@@ -129,14 +132,25 @@ async fn serve(
         let _ = stop.await;
     });
     tokio::pin!(server);
-    tokio::select! {
-        result = &mut server => result?,
-        signal = signals.wait() => {
-            tracing::info!(signal, "daemon shutdown requested");
-            let _ = shutdown.send(());
-            timeout(SHUTDOWN_TIMEOUT, &mut server).await??;
+    let relay = {
+        let docker_api = api.clone();
+        let proxy = marsa_dockerproxy::serve(docker, uid, move || {
+            let api = docker_api.clone();
+            async move { api.connect_docker().await }
+        });
+        tokio::pin!(proxy);
+        tokio::select! {
+            result = &mut server => return result.map_err(Into::into),
+            result = &mut proxy => result,
+            signal = signals.wait() => {
+                tracing::info!(signal, "daemon shutdown requested");
+                Ok(())
+            }
         }
-    }
+    };
+    let _ = shutdown.send(());
+    timeout(SHUTDOWN_TIMEOUT, &mut server).await??;
+    relay?;
     Ok(())
 }
 
