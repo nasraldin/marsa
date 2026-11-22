@@ -3,11 +3,12 @@
 use std::{
     collections::VecDeque,
     io,
-    path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use marsa_proto::host::v1::{BindApproval, BindApprovalList};
+use marsa_share::Allowlist;
 
 const MAX_PENDING: usize = 32;
 const MAX_PROMPT_PATHS: usize = 16;
@@ -21,21 +22,24 @@ pub(super) struct Pending {
 
 struct Prompt {
     wire: BindApproval,
+    roots: Arc<Allowlist>,
     expiry: Instant,
+    visible: bool,
 }
 
 impl Pending {
     pub(super) fn enqueue(
         &mut self,
-        mut paths: Vec<PathBuf>,
+        roots: Arc<Allowlist>,
         now: Instant,
         unix_ms: i64,
     ) -> io::Result<Option<String>> {
-        let mut paths: Vec<_> = paths
-            .drain(..)
-            .map(|path| path.into_os_string().into_string())
-            .collect::<Result<_, _>>()
-            .map_err(|_| io::ErrorKind::InvalidData)?;
+        let mut paths: Vec<_> = roots
+            .roots()
+            .iter()
+            .map(|path| path.to_str().map(str::to_owned))
+            .collect::<Option<_>>()
+            .ok_or(io::ErrorKind::InvalidData)?;
         paths.sort_unstable();
         paths.dedup();
         if paths.is_empty()
@@ -62,20 +66,32 @@ impl Pending {
             wire: BindApproval {
                 id: id.clone(),
                 directories: paths,
-                expires_at_unix_millis: unix_ms.saturating_add(120_000),
+                expires_at_unix_millis: unix_ms.saturating_add(LIFETIME.as_secs() as i64 * 1000),
             },
+            roots,
             expiry: now + LIFETIME,
+            visible: true,
         });
         Ok(Some(id))
     }
 
-    pub(super) fn take(&mut self, id: &str, now: Instant) -> Option<BindApproval> {
-        self.prune(now);
-        let index = self
-            .entries
+    pub(super) fn get(&self, id: &str, now: Instant) -> Option<Arc<Allowlist>> {
+        self.entries
             .iter()
-            .position(|prompt| prompt.wire.id == id)?;
-        self.entries.remove(index).map(|prompt| prompt.wire)
+            .find(|prompt| prompt.wire.id == id && now < prompt.expiry && prompt.visible)
+            .map(|prompt| prompt.roots.clone())
+    }
+
+    pub(super) fn finish(&mut self, id: &str, denied: bool) {
+        let Some(index) = self.entries.iter().position(|prompt| prompt.wire.id == id) else {
+            return;
+        };
+        if denied {
+            // Keep a short-lived record so retries do not create repeated prompts.
+            self.entries[index].visible = false;
+        } else {
+            self.entries.remove(index);
+        }
     }
 
     pub(super) fn expire(&mut self, id: &str, now: Instant) -> bool {
@@ -90,7 +106,7 @@ impl Pending {
             approvals: self
                 .entries
                 .iter()
-                .filter(|prompt| now < prompt.expiry)
+                .filter(|prompt| now < prompt.expiry && prompt.visible)
                 .map(|prompt| prompt.wire.clone())
                 .collect(),
         }

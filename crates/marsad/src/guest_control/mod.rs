@@ -119,7 +119,12 @@ pub struct GuestControl {
     events: observations::EventBus,
     clock: fn() -> SystemTime,
     agent_connect_timeout: Duration,
-    bind_policy: Option<bind_authorization::Policy>,
+    bind_policy: Option<Arc<dyn BindPolicy>>,
+}
+
+#[async_trait]
+pub(crate) trait BindPolicy: Send + Sync {
+    async fn authorize(&self, sources: Vec<String>) -> Option<&'static str>;
 }
 
 impl Default for GuestControl {
@@ -135,8 +140,8 @@ impl Default for GuestControl {
 }
 
 impl GuestControl {
-    pub(crate) fn authorize_binds(mut self, policy: bind_authorization::Policy) -> Self {
-        self.bind_policy = Some(policy);
+    pub(crate) fn authorize_binds(mut self, policy: impl BindPolicy + 'static) -> Self {
+        self.bind_policy = Some(Arc::new(policy));
         self
     }
 

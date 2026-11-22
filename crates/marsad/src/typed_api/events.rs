@@ -12,9 +12,9 @@ use futures_util::{Stream, stream};
 use marsa_core::settings::{NetworkMode, Settings, VmBackend};
 use marsa_proto::guest::v1::EgressStage;
 use marsa_proto::host::v1::{
-    BindApproval, DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus,
-    NetworkMode as WireMode, NetworkStatus, SettingsChanged, SettingsSnapshot, SubscribeRequest,
-    VmStatsSample, daemon_event::Body, events_server::Events,
+    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, NetworkMode as WireMode,
+    NetworkStatus, SettingsChanged, SettingsSnapshot, SubscribeRequest, VmStatsSample,
+    daemon_event::Body, events_server::Events,
 };
 use marsa_vm::NetworkSpec;
 use tokio::sync::{broadcast, watch};
@@ -39,6 +39,7 @@ struct StateAtCursor {
     bind_prompts: bind_prompts::Pending,
     once_staged: Vec<PathBuf>,
     once_active: Vec<PathBuf>,
+    mounted_binds: Option<Arc<marsa_share::Allowlist>>,
     settings: Settings,
     settings_snapshot: SettingsSnapshot,
     stats: Option<VmStatsSample>,
@@ -68,6 +69,7 @@ impl Bus {
             bind_prompts: bind_prompts::Pending::default(),
             once_staged: Vec::new(),
             once_active: Vec::new(),
+            mounted_binds: None,
             settings,
             settings_snapshot: SettingsSnapshot {
                 settings_toml: initial_toml,
@@ -103,6 +105,7 @@ impl Bus {
             State::Stopped | State::Stopping | State::Failed
         ) {
             state.once_active.clear();
+            state.mounted_binds = None;
         }
         state.engine = engine::from_transition(&state.engine.backend, transition, health);
         let status = state.engine.clone();
@@ -169,31 +172,41 @@ impl Bus {
         Ok(())
     }
 
-    pub(super) fn activate_once(&self, paths: &[PathBuf]) {
+    pub(super) fn activate_binds(&self, mounted: Arc<marsa_share::Allowlist>, paths: &[PathBuf]) {
         let mut state = self.lock();
+        state.mounted_binds = Some(mounted);
         state.once_active = paths.to_vec();
         state.once_staged.retain(|staged| !paths.contains(staged));
     }
 
-    pub(super) fn bind_configuration(&self) -> (Vec<PathBuf>, Settings, u64) {
+    pub(super) fn bind_configuration(&self) -> Option<super::bind_policy::Mounted> {
         let state = self.lock();
-        let roots = state
-            .startup
-            .shares
-            .iter()
-            .filter(|path| state.settings.shares.contains(path))
-            .chain(&state.once_active)
-            .cloned()
-            .collect();
-        (
-            roots,
-            state.settings.clone(),
-            state.settings_snapshot.revision,
-        )
+        if !state.binds_are_live() {
+            return None;
+        }
+        let mut approved = state.settings.shares.clone();
+        approved.extend(state.once_active.iter().cloned());
+        Some(super::bind_policy::Mounted {
+            allowlist: state.mounted_binds.clone()?,
+            approved,
+            language: state.settings.ui.language,
+            revision: state.settings_snapshot.revision,
+        })
     }
 
-    pub(super) fn bind_prompt(&self, paths: Vec<PathBuf>) -> io::Result<Option<String>> {
+    pub(super) fn bindings_current(&self, mounted: &super::bind_policy::Mounted) -> bool {
+        self.lock().matches_binding(mounted)
+    }
+
+    pub(super) fn bind_prompt(
+        &self,
+        mounted: &super::bind_policy::Mounted,
+        paths: Arc<marsa_share::Allowlist>,
+    ) -> io::Result<Option<String>> {
         let mut state = self.lock();
+        if !state.matches_binding(mounted) {
+            return Ok(None);
+        }
         let current = Instant::now();
         let id = state.bind_prompts.enqueue(paths, current, now())?;
         if id.is_some() {
@@ -212,13 +225,16 @@ impl Bus {
         }
     }
 
-    pub(super) fn resolve_bind_prompt(&self, id: &str) -> Option<BindApproval> {
+    pub(super) fn pending_bind(&self, id: &str) -> Option<Arc<marsa_share::Allowlist>> {
+        self.lock().bind_prompts.get(id, Instant::now())
+    }
+
+    pub(super) fn finish_bind_prompt(&self, id: &str, denied: bool) {
         let mut state = self.lock();
         let current = Instant::now();
-        let approval = state.bind_prompts.take(id, current)?;
+        state.bind_prompts.finish(id, denied);
         let remaining = state.bind_prompts.list(current);
         state.publish(Body::BindApprovals(remaining));
-        Some(approval)
     }
 
     pub(super) fn settings_snapshot(&self) -> SettingsSnapshot {
@@ -292,6 +308,20 @@ impl Bus {
 }
 
 impl StateAtCursor {
+    fn binds_are_live(&self) -> bool {
+        use marsa_proto::host::v1::EngineState;
+        matches!(self.engine.state(), EngineState::Ready | EngineState::Idle)
+    }
+
+    fn matches_binding(&self, mounted: &super::bind_policy::Mounted) -> bool {
+        self.binds_are_live()
+            && self.settings_snapshot.revision == mounted.revision
+            && self
+                .mounted_binds
+                .as_ref()
+                .is_some_and(|active| Arc::ptr_eq(active, &mounted.allowlist))
+    }
+
     fn accepts_guest(&self) -> bool {
         use marsa_proto::host::v1::EngineState as Wire;
         matches!(

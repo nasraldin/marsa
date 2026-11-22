@@ -209,14 +209,35 @@ impl Allowlist {
         &self.roots
     }
 
+    /// Reject approval if any recorded directory has moved, changed identity or become protected.
+    pub fn verify_roots(&self) -> Result<(), ShareError> {
+        for (root, identity) in self.roots.iter().zip(&self.identities) {
+            let current = self.policy.directory(root)?;
+            if current.path != *root || current.identity() != *identity {
+                return Err(ShareError::NotAllowed);
+            }
+        }
+        Ok(())
+    }
+
     /// Check an existing bind source and return its canonical path for the consumer to use.
     pub fn authorize(&self, source: &Path) -> Result<PathBuf, ShareError> {
+        self.authorize_if(source, |_| true)
+    }
+
+    /// Check a bind against previously resolved root identities still approved by the caller.
+    pub fn authorize_if(
+        &self,
+        source: &Path,
+        approved: impl Fn(&Path) -> bool,
+    ) -> Result<PathBuf, ShareError> {
         let (resolved, file_type) = self.policy.check(source)?;
         if !file_type.is_dir() && !file_type.is_file() {
             return Err(ShareError::UnsupportedSource);
         }
         for (root, identity) in self.roots.iter().zip(&self.identities) {
-            if resolved.ancestry.iter().any(|(found, _)| found == identity)
+            if approved(root)
+                && resolved.ancestry.iter().any(|(found, _)| found == identity)
                 && root.canonicalize().is_ok_and(|current| current == *root)
                 && root
                     .metadata()

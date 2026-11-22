@@ -10,16 +10,14 @@ use marsa_proto::guest::{
 use marsa_vm::{Vm, VsockStream};
 use tokio::{io::AsyncReadExt, task::JoinHandle, time::timeout};
 
-use super::{GuestControlError, wire};
+use super::{BindPolicy, GuestControlError, wire};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const FRAME_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub(crate) type Policy = Arc<dyn Fn(Vec<String>) -> Option<&'static str> + Send + Sync>;
-
 pub(super) async fn connect(
     vm: &dyn Vm,
-    policy: Policy,
+    policy: Arc<dyn BindPolicy>,
 ) -> Result<JoinHandle<()>, GuestControlError> {
     let stream = timeout(CONNECT_TIMEOUT, wire::open(vm, BIND_AUTHORIZATION_PORT))
         .await
@@ -29,7 +27,10 @@ pub(super) async fn connect(
     }))
 }
 
-async fn serve(mut stream: VsockStream, policy: Policy) -> Result<(), GuestControlError> {
+async fn serve(
+    mut stream: VsockStream,
+    policy: Arc<dyn BindPolicy>,
+) -> Result<(), GuestControlError> {
     let mut expected = 1_u64;
     loop {
         let mut header = [0_u8; 4];
@@ -47,10 +48,7 @@ async fn serve(mut stream: VsockStream, policy: Policy) -> Result<(), GuestContr
         if request.request_id != expected {
             return Err(GuestControlError::Sequence("unexpected bind request ID"));
         }
-        let policy = policy.clone();
-        let denial = tokio::task::spawn_blocking(move || policy(request.sources))
-            .await
-            .map_err(|_| GuestControlError::Sequence("bind policy worker stopped"))?;
+        let denial = policy.authorize(request.sources).await;
         let decision = if denial.is_some() {
             BindAuthorizationDecision::Deny
         } else {

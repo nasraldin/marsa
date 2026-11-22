@@ -33,6 +33,8 @@ use tonic::{
 };
 use tower::service_fn;
 
+#[path = "packaged_runtime/bind_shares.rs"]
+mod bind_shares;
 #[path = "packaged_runtime/support.rs"]
 mod support;
 use support::{
