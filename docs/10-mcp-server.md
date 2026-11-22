@@ -13,7 +13,7 @@ Because the Docker socket is equivalent to root over the VM and every shared fol
 
 ## Protocol version
 
-MCP published the stable `2026-07-28` specification. The official Rust SDK's current stable release is `rmcp` 3.11.0 as of 2026-11-22 and supports both that revision and `2025-11-25`. M8-04 validates and pins the SDK when the stdio transport is implemented. The daemon's policy evaluates typed operations independently of the transport. [MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28/), [Rust SDK release](https://github.com/modelcontextprotocol/rust-sdk/releases/tag/rmcp-v3.11.0)
+The local stdio server implements MCP `2026-07-28` and the `2025-11-25` compatibility handshake. M8-04 tested the official Rust SDK `rmcp` 3.11.0 with only the server and stdio features. Its required dependencies include `chrono` 0.4.45, which fails the workspace maintenance policy under RUSTSEC-2026-0543. Marsa uses its existing Tokio and Serde dependencies for this bounded stdio transport. [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28), [Pinned SDK release](https://github.com/modelcontextprotocol/rust-sdk/releases/tag/rmcp-v3.11.0), [RustSec advisory](https://rustsec.org/advisories/RUSTSEC-2026-0543.html)
 
 ## Architecture
 
@@ -46,7 +46,8 @@ flowchart LR
     api --> audit
 ```
 
-- `marsa mcp` runs the server on stdio, which is how most MCP clients launch local servers.
+- Configure a trusted local MCP host to launch `marsa-mcp --client-id ID --project /absolute/project`. The launch configuration supplies the identity and project. Protocol metadata can describe the peer but cannot change the registered identity. The bridge registers with the owner-only local daemon, then uses a restricted `AgentOps` capability for every read. M8-07 owns the `marsa mcp` wrapper.
+- Standard output carries one JSON-RPC message per line. The bridge accepts a maximum incoming message size of 64 KiB and eight in-flight read calls. The daemon permits eight concurrent Docker reads across sessions.
 - **Proposed:** an optional local HTTP transport bound to loopback with a per-client token, for clients that need it. Off by default.
 - The MCP server holds no privileges of its own. Every call goes through `marsad`'s policy engine.
 
@@ -124,6 +125,10 @@ sequenceDiagram
 | `remove_container`, `remove_image`, `remove_network` | Destroy | Removal |
 | `remove_volume`, `compose_down_volumes`, `prune` | Destroy | Data-destroying removal |
 | `add_share` | Host-affecting | Request a new shared folder |
+
+M8-04 advertises engine status, container and image list and inspect, bounded container logs and stats, and network and volume lists. Read tools observe the local Docker engine. Project registration scopes the client identity and any future grants. M8-11 adds Compose and disk read tools when their providers are available.
+
+List tools return live pages of up to 50 items using an opaque cursor. Container and image inspection accepts full IDs obtained from list results. Logs accept a full container ID, a tail size up to 200 and an optional timestamp cursor for an earlier page. Logs and stats report truncation when a response exceeds the daemon's byte budget. Results mark workload data as untrusted and carry it in a separate data field.
 
 Tool rules:
 

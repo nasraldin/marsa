@@ -4,6 +4,7 @@ mod attempt;
 mod audit;
 mod engine;
 pub(super) mod queue;
+mod reads;
 mod sessions;
 
 use std::{
@@ -41,6 +42,7 @@ pub(super) struct State {
     decisions: requests::Cache<(String, Outcome), DecisionResponse>,
     revoke: requests::Cache<String, RevokeGrantResponse>,
     grant_admin: tokio::sync::Mutex<()>,
+    reads: tokio::sync::Semaphore,
 }
 
 impl State {
@@ -53,6 +55,7 @@ impl State {
             decisions: requests::Cache::new(),
             revoke: requests::Cache::new(),
             grant_admin: tokio::sync::Mutex::new(()),
+            reads: tokio::sync::Semaphore::new(8),
         }
     }
 }
@@ -61,6 +64,7 @@ impl State {
 enum Prepared {
     EngineStatus,
     StopContainer(String),
+    DockerRead(reads::Read),
 }
 
 impl Prepared {
@@ -91,7 +95,7 @@ impl Prepared {
                         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
                 .then_some(Self::StopContainer(id))
             }
-            _ => None,
+            _ => reads::Read::parse(operation, args).map(Self::DockerRead),
         }
     }
 
@@ -99,6 +103,7 @@ impl Prepared {
         match self {
             Self::EngineStatus => AgentOperation::EngineStatus,
             Self::StopContainer(_) => AgentOperation::StopContainer,
+            Self::DockerRead(read) => read.operation(),
         }
     }
 
@@ -106,12 +111,13 @@ impl Prepared {
         match self {
             Self::EngineStatus => AuditArguments::Empty,
             Self::StopContainer(_) => AuditArguments::ContainerTargetRedacted,
+            Self::DockerRead(read) => read.audit_arguments(),
         }
     }
 
     fn details(&self) -> (String, Vec<AffectedResource>) {
         match self {
-            Self::EngineStatus => ("{}".into(), Vec::new()),
+            Self::EngineStatus | Self::DockerRead(_) => ("{}".into(), Vec::new()),
             Self::StopContainer(id) => (
                 json!({"container_id": id}).to_string(),
                 vec![AffectedResource {
@@ -336,6 +342,34 @@ impl TypedApi {
             Prepared::EngineStatus => {
                 let status = self.inner.events.engine_status();
                 output(json!({"state":status.state().as_str_name(), "backend":status.backend}))
+            }
+            Prepared::DockerRead(query) => {
+                let Ok(_permit) = self.inner.agents.reads.try_acquire() else {
+                    return self.operation_error(
+                        "read_busy",
+                        "Too many Docker reads are in progress.",
+                        "هناك قراءات كثيرة جارية في دوكر.",
+                        None,
+                    );
+                };
+                match query.run(self).await {
+                    Ok(output) => AgentOperationResponse {
+                        result: Some(WireResult::Output(output)),
+                    },
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => self
+                        .operation_error(
+                            "not_found",
+                            "The Docker resource was not found.",
+                            "لم يُعثر على مورد دوكر.",
+                            None,
+                        ),
+                    Err(_) => self.operation_error(
+                        "engine_error",
+                        "Docker could not complete this read.",
+                        "تعذّر على دوكر إكمال هذه القراءة.",
+                        None,
+                    ),
+                }
             }
             Prepared::StopContainer(id) => match engine::stop_container(
                 self,

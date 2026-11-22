@@ -6,7 +6,7 @@ use marsa_proto::host::v1::{
 };
 use tonic::{Request, Response, Status};
 
-use super::{Prepared, TypedApi, audit};
+use super::{Prepared, TypedApi, audit, reads};
 
 #[tonic::async_trait]
 impl AgentOps for TypedApi {
@@ -73,7 +73,10 @@ impl TypedApi {
             ));
         }
         let operation = request.operation();
-        if operation != AgentOperation::EngineStatus && operation != AgentOperation::StopContainer {
+        if operation != AgentOperation::EngineStatus
+            && operation != AgentOperation::StopContainer
+            && !reads::Read::supports(operation)
+        {
             return Ok(self.operation_error(
                 "unsupported_operation",
                 "This agent operation is unavailable.",

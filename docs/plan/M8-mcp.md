@@ -48,7 +48,7 @@ The active filesystem grants used to enforce binds are supplied by M4-06. M8-10 
 
 ### M8-04 MCP server and read tools
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M8-02, M5-01
 - **Docs:** [10 Tools](../10-mcp-server.md#tools), [10 Architecture](../10-mcp-server.md#architecture)
 - **Do:** Implement `marsa-mcp` on stdio using `marsa-client` only. Identify the client at connection. Implement engine status and the direct Docker container, image, network and volume read tools with JSON Schema arguments, bounded outputs with paging, and structured errors. M8-11 owns Compose and disk-specific queries.
@@ -57,6 +57,8 @@ The active filesystem grants used to enforce binds are supplied by M4-06. M8-10 
   - A standard MCP client can list and call every advertised read tool against an authenticated local agent session.
   - Log and stats outputs are capped and say when they are truncated.
   - The crate has no dependency on the Docker socket or VM crates.
+
+The official `rmcp` 3.11.0 server and stdio build failed the workspace dependency policy because its required `chrono` dependency is unmaintained. The bounded stdio transport uses the existing Tokio and Serde dependencies. [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html)
 
 ### M8-05 Operate tools
 
