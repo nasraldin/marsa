@@ -16,7 +16,7 @@ flowchart TB
         legacy["Tools hard-coded to<br/>/var/run/docker.sock"]
     end
 
-    ctx["Docker context 'marsa'<br/>(created and selected by Marsa)"]
+    ctx["Docker context 'marsa'<br/>(registered on request)"]
     env["DOCKER_HOST<br/>(optional, via marsa env)"]
     link["/var/run/docker.sock symlink<br/>(opt-in, needs admin once)"]
     sock[("~/.marsa/run/docker.sock")]
@@ -31,11 +31,32 @@ flowchart TB
 
 | Mechanism | Default | Notes |
 |---|---|---|
-| Docker context `marsa` | Created at first run and made current, after asking if another context is active | The clean, standard way; no privileges needed |
-| `DOCKER_HOST` | Not set automatically | `marsa env` prints the export line for shells and CI |
-| `/var/run/docker.sock` | Off | An opt-in setting creates the symlink with a one-time administrator prompt. Needed only for tools that ignore contexts. This is the only action in Marsa that asks for administrator rights |
+| Docker context `marsa` | Registered on request | Use `docker --context marsa` for one command or explicitly run `docker context use marsa` to change your current context |
+| `DOCKER_HOST` | Set by the caller | Use `unix://$HOME/.marsa/run/docker.sock` with clients that take an endpoint. The host API supplies the exact value for `marsa env` |
+| `/var/run/docker.sock` | Off | The optional administrator action is tracked in M4-04. Q-08 governs where it is offered |
 
-**Verify:** which popular tools still ignore Docker contexts (historically some SDK-based tools did) and document the recommended setting for each.
+### Client discovery
+
+Docker CLI 29.10.0 accepts `--context marsa` and `DOCKER_CONTEXT=marsa`. In Docker CLI, `DOCKER_CONTEXT` takes precedence over the `DOCKER_HOST` environment variable and the saved current context. Use one selector in a given tool environment. [Docker CLI reference](https://docs.docker.com/reference/cli/docker/).
+
+| Client checked | How to target Marsa |
+|---|---|
+| Docker CLI and Compose plugin | Run `docker --context marsa …` or `docker --context marsa compose …`. [Docker CLI reference](https://docs.docker.com/reference/cli/docker/), [Compose reference](https://docs.docker.com/reference/cli/docker/compose/) |
+| Buildx | The default builder follows the Docker context. Explicitly selected builders can use another backend. [Docker builders](https://docs.docker.com/build/builders/) |
+| VS Code Dev Containers | Set `containers.environment.DOCKER_CONTEXT` to `marsa` with the Container Tools extension. Dev Containers uses the current context without Container Tools. [VS Code Dev Containers](https://code.visualstudio.com/remote/advancedcontainers/develop-remote-host#_connect-using-docker-contexts) |
+| JetBrains Docker integration | Set the Engine API URL to the Marsa `unix://` endpoint in the Docker connection settings. [JetBrains Docker connection settings](https://www.jetbrains.com/help/idea/settings-docker.html) |
+| Testcontainers for Java 2.0.5 | Set `DOCKER_HOST` to the Marsa endpoint. The environment strategy reads the host directly. [Java provider source](https://github.com/testcontainers/testcontainers-java/blob/2.0.5/core/src/main/java/org/testcontainers/dockerclient/EnvironmentAndSystemPropertyClientProviderStrategy.java) |
+| Testcontainers for Node.js 12.2.2 | Set `DOCKER_HOST` to the Marsa endpoint. The runtime configuration reads the host directly. [Node.js configuration source](https://github.com/testcontainers/testcontainers-node/blob/v12.2.2/packages/testcontainers/src/container-runtime/strategies/utils/config.ts) |
+| Testcontainers for Go 0.45.0 | Set `DOCKER_HOST` to the Marsa endpoint. Its context-based lookup uses a Go context value. [Go host discovery source](https://github.com/testcontainers/testcontainers-go/blob/v0.45.0/internal/core/docker_host.go) |
+| Testcontainers for Python 4.15.0 | Select the Marsa context or set `DOCKER_HOST` explicitly. The library checks `DOCKER_HOST` before looking up the Docker CLI context. [Python host discovery source](https://github.com/testcontainers/testcontainers-python/blob/testcontainers-v4.15.0/src/testcontainers/core/docker_client.py#L483-L508) |
+
+For a tool that only reads the Docker host, set it in that tool's environment.
+
+```sh
+export DOCKER_HOST="unix://$HOME/.marsa/run/docker.sock"
+```
+
+The daemon's authenticated `DockerDiscovery.GetEndpoint` call returns the exact socket path, `DOCKER_HOST` value, and context name. `EnsureContext` runs the verified bundled CLI against a private staging directory, then installs only its generated `marsa` metadata. The complete context directory is published in one exclusive rename. It uses the absolute `DOCKER_CONFIG` configured for the daemon or the daemon's `$HOME/.docker`. It preserves existing selection and stops if the name is occupied by another configuration. [Pinned metadata layout](https://github.com/docker/cli/blob/v29.10.0/cli/context/store/metadatastore.go).
 
 ## Bundled upstream binaries
 
@@ -79,6 +100,13 @@ printf '{"cliPluginsExtraDirs":["%s/bin/cli-plugins"]}\n' "$staged" > "$config/c
 "$staged/bin/docker-credential-osxkeychain" version
 rm "$config/config.json"
 rmdir "$config"
+```
+
+To verify context registration with the staged CLI, run the signed fixture. It uses a temporary home and Docker configuration.
+
+```sh
+MARSA_TEST_DOCKER_CLI="$staged/bin/docker" cargo test --locked -p marsad \
+  --test lifecycle pinned_cli_sees_the_context_and_retains_user_selection -- --ignored
 ```
 
 The staged executables retain their upstream bytes until app signing.
