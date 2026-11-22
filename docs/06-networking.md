@@ -182,16 +182,16 @@ The agent updates the guest hosts file and supplies Docker’s configured host g
 
 ```mermaid
 flowchart LR
-    c["Container"] --> ed["Docker embedded DNS<br/>127.0.0.11"]
-    ed --> gr["Guest resolver config<br/>(written by marsa-agent)"]
-    gr -->|nat mode| hd["Host DNS via NAT gateway"]
-    gr -->|userspace mode| ud["Stack's DNS forwarder"]
+    c["Container"] --> ed["Default bridge resolver or Docker embedded DNS"]
+    ed --> gr["Guest resolver address"]
+    gr -->|native NAT, planned| hd["Host DNS via NAT gateway"]
+    gr -->|userspace, via DHCP| ud["User-space DNS forwarder"]
     hd --> up["Upstream resolvers,<br/>including VPN split DNS"]
     ud --> up
 ```
 
-- `marsad` reads the host's resolver configuration and pushes it to the agent at boot and on every network change.
-- Split DNS from VPNs must keep working. In `userspace` mode the host resolver is used directly, which honours it.
+- In `userspace` mode, DHCP gives the guest a stable DNS gateway at `192.168.127.1`. The helper asks the macOS system resolver for each forwarded query. Changes to a scoped answer take effect without replacing the guest's DNS server address. Docker's default bridge uses the guest resolver address and custom networks forward external DNS through Docker's embedded resolver. [Apple DNS guidance](https://developer.apple.com/documentation/technotes/tn3151-choosing-the-right-networking-api#DNS) · [Docker DNS behavior](https://docs.docker.com/engine/network/#dns-services)
+- In native NAT mode, [M4-08](plan/M4-docker-integration.md#m4-08-nat-networking-dns-and-host-names) owns host resolver configuration at boot and on network changes. Test that VPN split DNS and Wi-Fi recovery work with existing containers.
 
 ## Proxies and certificates
 

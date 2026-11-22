@@ -3,7 +3,7 @@
 use std::{io, net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 
 use marsa_proto::guest::v1::EgressStage;
-use marsa_vm::{Hypervisor, Vm, VmError, VmSpec, async_trait};
+use marsa_vm::{Hypervisor, NetworkInfo, Vm, VmError, VmSpec, async_trait};
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
@@ -393,6 +393,18 @@ impl Supervisor {
     ) -> Result<(), SupervisorError> {
         self.request(|reply| actor::Command::IdlePolicy(stop, timeout, reply))
             .await
+    }
+
+    /// Read the active attachment and the latest separately observed guest network facts.
+    pub(crate) async fn active_network(
+        &self,
+    ) -> Result<Option<(BootNetwork, Option<NetworkInfo>)>, SupervisorError> {
+        let (reply, result) = oneshot::channel();
+        self.commands
+            .send(actor::Command::Network(reply))
+            .await
+            .map_err(|_| SupervisorError::Closed)?;
+        result.await.map_err(|_| SupervisorError::Closed)
     }
 
     /// Read the current state, even if lifecycle events were missed.
