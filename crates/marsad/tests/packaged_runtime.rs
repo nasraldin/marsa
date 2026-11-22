@@ -34,6 +34,8 @@ use tonic::{
 };
 use tower::service_fn;
 
+#[path = "packaged_runtime/disk_schema.rs"]
+mod disk_schema;
 #[path = "packaged_runtime/recovery.rs"]
 mod recovery;
 #[path = "packaged_runtime/support.rs"]
@@ -444,3 +446,10 @@ fn has_backup_exclusion(path: &Path) -> bool {
 }
 #[path = "packaged_runtime/on_demand.rs"]
 mod on_demand;
+
+#[path = "packaged_runtime/daemon_proxy.rs"]
+mod daemon_proxy;
+#[path = "packaged_runtime/fallback_dns.rs"]
+mod fallback_dns;
+#[path = "packaged_runtime/ssh_build.rs"]
+mod ssh_build;

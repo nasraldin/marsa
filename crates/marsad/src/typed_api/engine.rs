@@ -100,8 +100,8 @@ impl Engine for TypedApi {
         &self,
         request: Request<ResetRequest>,
     ) -> Result<Response<ResetResponse>, Status> {
-        self.authorize(request)?;
-        Err(Status::unimplemented("engine reset is not available"))
+        let request = self.authorize(request)?;
+        self.engine_reset(request).await.map(Response::new)
     }
 }
 
@@ -144,6 +144,7 @@ pub(super) fn stage_name(stage: BootStage) -> &'static str {
         BootStage::Create => "create",
         BootStage::Start => "start",
         BootStage::Handshake => "handshake",
+        BootStage::DataDisk => "data_disk",
         BootStage::Network => "network",
         BootStage::Engine => "engine",
         BootStage::Running => "running",

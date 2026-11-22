@@ -182,16 +182,16 @@ The agent updates the guest hosts file and supplies Docker’s configured host g
 
 ```mermaid
 flowchart LR
-    c["Container"] --> ed["Docker embedded DNS<br/>127.0.0.11"]
-    ed --> gr["Guest resolver config<br/>(written by marsa-agent)"]
-    gr -->|nat mode| hd["Host DNS via NAT gateway"]
-    gr -->|userspace mode| ud["Stack's DNS forwarder"]
+    c["Container"] --> ed["Default bridge resolver or Docker embedded DNS"]
+    ed --> gr["Guest resolver address"]
+    gr -->|native NAT, planned| hd["Host DNS via NAT gateway"]
+    gr -->|userspace, via DHCP| ud["User-space DNS forwarder"]
     hd --> up["Upstream resolvers,<br/>including VPN split DNS"]
     ud --> up
 ```
 
-- `marsad` reads the host's resolver configuration and pushes it to the agent at boot and on every network change.
-- Split DNS from VPNs must keep working. In `userspace` mode the host resolver is used directly, which honours it.
+- In `userspace` mode, DHCP gives the guest a stable DNS gateway at `192.168.127.1`. The helper asks the macOS system resolver for each forwarded query. Changes to a scoped answer take effect without replacing the guest's DNS server address. Docker's default bridge uses the guest resolver address and custom networks forward external DNS through Docker's embedded resolver. [Apple DNS guidance](https://developer.apple.com/documentation/technotes/tn3151-choosing-the-right-networking-api#DNS) · [Docker DNS behavior](https://docs.docker.com/engine/network/#dns-services)
+- In native NAT mode, [M4-08](plan/M4-docker-integration.md#m4-08-nat-networking-dns-and-host-names) owns host resolver configuration at boot and on network changes. Test that VPN split DNS and Wi-Fi recovery work with existing containers.
 
 ## Proxies and certificates
 
@@ -199,10 +199,13 @@ Corporate networks were identified in planning as a top reason Docker alternativ
 
 | Need | Design |
 |---|---|
-| HTTP and HTTPS proxy | `marsad` sends system or manual settings. The agent stages the Docker configuration before the engine starts and reports restart requirements on later changes. M4-15 integrates a controlled restart. |
+| HTTP and HTTPS proxy | The guest agent can configure dockerd before startup. M4-20 provisions the last approved credential-free manual proxy on the user-space attachment. M4-21 owns approval, restart and rollback for this policy. M4-15 extends the transaction to the full network policy. |
 | Custom CA certificates | `marsad` exports the certificates the user trusts in the macOS keychain and the agent installs them into the guest trust store before dockerd starts |
 | Registry mirrors and insecure registries | Exposed in settings and written to the engine configuration |
 | Proxy for containers | Optional injection of proxy variables into containers, off by default |
+
+Saving a manual proxy setting records a draft. Ordinary VM boots use the last approved
+proxy. While that proxy is active, a draft change to the attachment also remains pending.
 
 ## IPv6
 
@@ -210,7 +213,7 @@ Corporate networks were identified in planning as a top reason Docker alternativ
 
 ## Sleep, wake and network change
 
-- On wake and on network change, `marsad` re-pushes DNS and proxy settings, re-runs the mode probe and re-validates listeners.
+- On wake and on network change, `marsad` refreshes DNS, re-runs the mode probe and re-validates listeners. The current daemon proxy remains in effect until an approved activation.
 - Long-lived connections that died during sleep are closed cleanly so clients reconnect.
 
 ## Test matrix

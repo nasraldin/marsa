@@ -5,15 +5,32 @@ use std::io::{self, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
+use marsa_core::disk_schema::{TooNew, VERSION};
 use nix::fcntl::{self, AtFlags, OFlag};
 use nix::sys::stat::Mode;
 use nix::unistd::linkat;
 
 const SCHEMA_FILE: &str = "schema-version";
-const SCHEMA_VERSION: u32 = 1;
 
 /// Check the stored schema or initialize it on a pristine data volume.
 pub(super) fn check_or_create(path: &Path) -> io::Result<()> {
+    if read_version(path)? {
+        Ok(())
+    } else {
+        initialize_schema(path)
+    }
+}
+
+/// Verify an existing filesystem before journal replay, repairs or writable mounting.
+pub(super) fn verify_existing(path: &Path) -> io::Result<()> {
+    if read_version(path)? {
+        Ok(())
+    } else {
+        require_pristine(path)
+    }
+}
+
+fn read_version(path: &Path) -> io::Result<bool> {
     let schema = path.join(SCHEMA_FILE);
     match OpenOptions::new()
         .read(true)
@@ -29,14 +46,15 @@ pub(super) fn check_or_create(path: &Path) -> io::Result<()> {
                 ));
             }
             file.take(12).read_to_end(&mut version)?;
-            check_schema(&version)
+            check_schema(&version)?;
+            Ok(true)
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => initialize_schema(path),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(error),
     }
 }
 
-fn initialize_schema(path: &Path) -> io::Result<()> {
+fn require_pristine(path: &Path) -> io::Result<()> {
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         if entry.file_name() != "lost+found"
@@ -49,6 +67,11 @@ fn initialize_schema(path: &Path) -> io::Result<()> {
             ));
         }
     }
+    Ok(())
+}
+
+fn initialize_schema(path: &Path) -> io::Result<()> {
+    require_pristine(path)?;
     // Publish a fully written marker without an observable empty file or a
     // leftover temporary path after a forced shutdown during initialization.
     let dir = File::open(path)?;
@@ -57,7 +80,7 @@ fn initialize_schema(path: &Path) -> io::Result<()> {
         OFlag::O_TMPFILE | OFlag::O_WRONLY | OFlag::O_CLOEXEC,
         Mode::S_IRUSR | Mode::S_IWUSR,
     )?);
-    writeln!(file, "{SCHEMA_VERSION}")?;
+    writeln!(file, "{VERSION}")?;
     file.sync_all()?;
     linkat(&file, "", &dir, SCHEMA_FILE, AtFlags::AT_EMPTY_PATH)?;
     dir.sync_all()
@@ -75,12 +98,13 @@ fn check_schema(version: &[u8]) -> io::Result<()> {
         .and_then(|digits| std::str::from_utf8(digits).ok())
         .and_then(|digits| digits.parse::<u32>().ok());
     match valid_version {
-        Some(SCHEMA_VERSION) => Ok(()),
+        Some(VERSION) => Ok(()),
         Some(version) => Err(io::Error::new(
             io::ErrorKind::Unsupported,
-            format!(
-                "data disk schema version {version} is newer than supported version {SCHEMA_VERSION}"
-            ),
+            TooNew {
+                found: version,
+                supported: VERSION,
+            },
         )),
         None => Err(io::Error::new(
             io::ErrorKind::InvalidData,
