@@ -45,18 +45,17 @@ The Apple silicon dependency audit of GPUI Kit and gpui-component 0.10.0 with GP
   - The lint catches a deliberate left or right usage in a test fixture.
   - Technical text inside an Arabic row renders left-to-right.
 
-### M6-04 Translations
+### M6-04 GUI translations and locale formatting
 
-- **Status:** todo
-- **Depends on:** M6-01
+- **Status:** blocked (M6-01 GPUI dependency qualification)
+- **Depends on:** M6-01, M6-12
 - **Docs:** [08 Internationalisation](../08-gui.md#internationalisation), V-10
-- **Do:** Verify how gpui-component localises its own strings and whether Fluent can sit beside it (V-10). Implement the translation system with `en-US` and `ar`, CLDR plural rules, locale-aware date, time and size formatting with Western digits, live language switching, and a build-time completeness check. Create `locales/GLOSSARY.md` for technical terms.
-- **Deliver:** i18n module in `marsa-ui`, `locales/en-US/`, `locales/ar/`, the completeness check, an updated V-10 entry.
+- **Do:** Integrate the Fluent catalogs with the component layer. Verify how gpui-component localises its own strings and how they coexist with Fluent (V-10). Implement locale-aware date, time and size formatting with Western digits and live language switching. Create `locales/GLOSSARY.md` for technical terms and arrange Arabic terminology review.
+- **Deliver:** GUI i18n integration in `marsa-ui`, an updated V-10 entry, locale formatting and switching tests.
 - **Accept when:**
-  - All six Arabic plural categories are exercised by a test string.
-  - A key missing from either locale fails the build.
   - Switching language at runtime updates text and direction without a restart.
   - gpui-component's built-in strings appear in the selected language.
+  - Dates, times and sizes follow the selected locale and use Western digits.
 
 ### M6-05 Core components
 
@@ -146,3 +145,15 @@ The tray stays in the daemon and runs with the GUI closed.
   - Finishing onboarding leaves a working `docker` CLI with the `marsa` context.
   - No folder is shared without the user choosing it.
   - The flow can be completed by keyboard only.
+
+### M6-12 Shared Fluent catalogs and typed keys
+
+- **Status:** in progress
+- **Depends on:** M0-01, M5-02
+- **Docs:** [08 Internationalisation](../08-gui.md#internationalisation), [13 Definition of done](../13-testing-and-benchmarks.md#definition-of-done-for-any-task)
+- **Do:** Add framework-independent Fluent catalogs for English (US) and Arabic. Validate both catalogs at build time and generate typed keys. Use a key for an existing CLI message. Exercise all six Arabic plural categories in test catalogs using the same parser and runtime as production.
+- **Deliver:** `marsa-l10n`, `locales/en-US/`, `locales/ar/`, and tests.
+- **Accept when:**
+  - A missing key, mismatched argument or invalid catalog fails build validation.
+  - All six Arabic plural categories are exercised in a Fluent fixture.
+  - The migrated CLI message preserves existing English and Arabic output and JSON behavior.
