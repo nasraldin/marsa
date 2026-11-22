@@ -141,7 +141,7 @@ marsa network status|mode       Show or pin the network mode
 marsa logs [--follow]           Daemon and guest logs
 marsa diagnose                  Collect a diagnostics bundle
 marsa update check|apply        Updates
-marsa mcp                       Run the MCP server on stdio
+marsa mcp --client-id ID --project /absolute/project   Run the MCP server on stdio
 marsa agents list|approve|deny|revoke   Agent permissions
 marsa reset [--factory]         Reset settings or wipe the data disk (typed confirmation)
 marsa version                   Versions of every component
@@ -150,8 +150,16 @@ marsa completion <shell>        Shell completions
 
 CLI rules:
 
-- Every command supports `--json` for scripts and agents, with a stable schema.
+- Management commands support `--json` for scripts with a stable schema. `marsa mcp` reserves standard output for MCP messages and rejects `--json`.
 - [Exit codes and JSON response shapes](reference/cli-exit-codes.md) are stable.
 - Human output is localised (English and Arabic); `--json` output is not.
 - Destructive commands require an explicit flag or a typed confirmation, and never run destructively when stdin is not a terminal unless `--yes` is given.
 - `marsa` starts `marsad` if it is not running.
+
+### Agent access from the terminal
+
+Configure a trusted local MCP client to launch `marsa mcp --client-id ID --project /absolute/project`. The CLI runs the matching `marsa-mcp` installed beside it. The client ID and project path are launch settings. The daemon issues the restricted capability to the bridge at startup and keeps it out of the command arguments.
+
+Run `marsa agents list` to see client registrations, active grants and pending requests. `marsa agents approve REQUEST` displays the queued operation, project, arguments with sensitive values redacted and affected resources. Enter `yes` in an English terminal or `نعم` in an Arabic terminal to approve that request once. The same review applies with `--yes`. A request may expire while the prompt is open.
+
+Use `marsa agents deny REQUEST` to deny a pending request. `marsa agents revoke GRANT` displays the grant and prompts before revocation. `marsa agents revoke GRANT --yes` is the explicit non-interactive form.

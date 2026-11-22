@@ -148,3 +148,35 @@ fn double_dash_keeps_json_literal_out_of_global_flags() {
     assert_eq!(result.status.code(), Some(1));
     assert_eq!(result.stderr, b"This command is not available yet.\n");
 }
+
+#[test]
+fn agent_approval_requires_terminal_review_even_with_yes() {
+    let result = marsa(&["agents", "approve", "fixture-id", "--yes", "--json"]);
+    assert_eq!(result.status.code(), Some(3));
+    assert!(result.stderr.is_empty());
+    let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(response["code"], "confirmation_required");
+}
+
+#[test]
+fn mcp_requires_a_client_and_project_and_reserves_stdout_for_protocol() {
+    for args in [
+        &["mcp"][..],
+        &["mcp", "--client-id", "fixture"],
+        &["mcp", "--client-id", "fixture", "--project", "relative"],
+    ] {
+        let result = marsa(args);
+        assert_eq!(result.status.code(), Some(2), "{args:?}");
+        assert!(result.stdout.is_empty());
+    }
+    let result = marsa(&[
+        "mcp",
+        "--client-id",
+        "fixture",
+        "--project",
+        "/tmp",
+        "--json",
+    ]);
+    // A configured launcher may print one JSON error for this rejected combination.
+    assert_eq!(result.status.code(), Some(2));
+}

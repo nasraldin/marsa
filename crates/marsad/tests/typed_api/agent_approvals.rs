@@ -1,5 +1,8 @@
 //! Exercise delegated operations and owner decisions over separate Unix transports.
 
+#[path = "cli_acceptance.rs"]
+mod cli_acceptance;
+
 use super::*;
 use marsa_proto::host::v1::{
     AgentOperation, AgentOperationRequest, AgentOperationResponse, ApproveRequest, AuditApprover,
@@ -21,6 +24,10 @@ struct AgentFixture {
 
 impl AgentFixture {
     async fn new() -> Self {
+        Self::with_name("Fixture agent").await
+    }
+
+    async fn with_name(client_name: &str) -> Self {
         let inspect_body = format!(r#"{{"Id":"{TARGET}"}}"#);
         let fixture = Fixture::with_docker(
             vec![AgentStep::Send(b"HR".to_vec())],
@@ -59,7 +66,7 @@ impl AgentFixture {
         let session = AgentsClient::new(fixture.channel.clone())
             .open_session(OpenAgentSessionRequest {
                 client_id: "fixture-agent".into(),
-                client_name: "Fixture agent".into(),
+                client_name: client_name.into(),
                 project_path: project.display().to_string(),
                 request_id: action(41).request_id,
             })
@@ -522,4 +529,58 @@ async fn a_disconnected_agent_call_still_has_one_terminal_record() {
         AuditArguments::ContainerTargetRedacted
     );
     assert_eq!(completed[0].approver(), AuditApprover::LocalOwner);
+}
+
+#[tokio::test]
+async fn client_list_exposes_only_unexpired_owner_registrations() {
+    use marsa_proto::host::v1::ListAgentClientsRequest;
+
+    let fixture = AgentFixture::new().await;
+    let mut owner = fixture.owner();
+    owner
+        .open_session(OpenAgentSessionRequest {
+            client_id: "fixture-agent".into(),
+            client_name: "Fixture agent".into(),
+            project_path: fixture.project.clone(),
+            request_id: action(60).request_id,
+        })
+        .await
+        .unwrap();
+    let list = owner
+        .list_clients(ListAgentClientsRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(list.clients.len(), 1);
+    assert_eq!(list.clients[0].client_id, "fixture-agent");
+    assert_eq!(list.clients[0].client_name, "Fixture agent");
+    assert_eq!(list.clients[0].project_path, fixture.project);
+    assert_eq!(
+        owner
+            .list_clients(fixture.auth(tonic::Request::new(ListAgentClientsRequest {})))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied
+    );
+    assert_eq!(
+        AgentsClient::new(fixture.restricted.clone())
+            .list_clients(ListAgentClientsRequest {})
+            .await
+            .unwrap_err()
+            .code(),
+        Code::Unimplemented
+    );
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(12 * 60 * 60 + 1)).await;
+    tokio::time::resume();
+    assert!(
+        owner
+            .list_clients(ListAgentClientsRequest {})
+            .await
+            .unwrap()
+            .into_inner()
+            .clients
+            .is_empty()
+    );
 }

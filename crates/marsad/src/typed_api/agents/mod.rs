@@ -17,9 +17,10 @@ use marsa_core::settings::Language;
 use marsa_proto::host::v1::{
     AffectedResource, AgentOperation, AgentOperationError, AgentOperationResponse, AgentOutput,
     ApproveRequest, AuditArguments, AuditDecision, DecisionResponse, DenyRequest,
-    ListAgentAuditRequest, ListAgentAuditResponse, ListGrantsRequest, ListGrantsResponse,
-    ListPendingApprovalsRequest, ListPendingApprovalsResponse, OpenAgentSessionRequest,
-    OpenAgentSessionResponse, PendingApproval, RevokeGrantRequest, RevokeGrantResponse,
+    ListAgentAuditRequest, ListAgentAuditResponse, ListAgentClientsRequest,
+    ListAgentClientsResponse, ListGrantsRequest, ListGrantsResponse, ListPendingApprovalsRequest,
+    ListPendingApprovalsResponse, OpenAgentSessionRequest, OpenAgentSessionResponse,
+    PendingApproval, RevokeGrantRequest, RevokeGrantResponse,
     agent_operation_response::Result as WireResult, agents_server::Agents,
 };
 use serde::Deserialize;
@@ -192,6 +193,15 @@ impl Agents for TypedApi {
             })
             .await?;
         Ok(Response::new(result))
+    }
+
+    async fn list_clients(
+        &self,
+        request: Request<ListAgentClientsRequest>,
+    ) -> Result<Response<ListAgentClientsResponse>, Status> {
+        self.owner_request(request)?;
+        let clients = self.inner.agents.sessions.list()?;
+        Ok(Response::new(ListAgentClientsResponse { clients }))
     }
 
     async fn list_pending_approvals(

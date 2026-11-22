@@ -4,7 +4,9 @@
   "oneOf": [
     { "$ref": "#/$defs/help" },
     { "$ref": "#/$defs/completion" },
-    { "$ref": "#/$defs/error" }
+    { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/agents" },
+    { "$ref": "#/$defs/agent_decision" }
   ],
   "$defs": {
     "help": {
@@ -35,8 +37,101 @@
       "properties": {
         "schema_version": { "const": 1 },
         "kind": { "const": "error" },
-        "code": { "enum": ["confirmation_required", "invalid_invocation", "not_available"] },
+        "code": { "enum": ["confirmation_required", "confirmation_declined", "invalid_invocation", "not_available", "daemon_unavailable", "agent_request_failed", "agent_approval_missing", "agent_grant_missing", "mcp_unavailable"] },
         "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "data"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "agents" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["clients", "grants", "pending_requests"],
+          "properties": {
+            "clients": { "type": "array", "items": { "$ref": "#/$defs/agent_client" } },
+            "grants": { "type": "array", "items": { "$ref": "#/$defs/agent_grant" } },
+            "pending_requests": { "type": "array", "items": { "$ref": "#/$defs/agent_approval" } }
+          }
+        }
+      }
+    },
+    "agent_client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client_id", "client_name", "project_path"],
+      "properties": {
+        "client_id": { "type": "string" },
+        "client_name": { "type": "string" },
+        "project_path": { "type": "string" }
+      }
+    },
+    "agent_grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "client_id", "project_path", "operation", "expires_at_unix_millis"],
+      "properties": {
+        "id": { "type": "string" },
+        "client_id": { "type": "string" },
+        "project_path": { "type": "string" },
+        "operation": { "type": "string" },
+        "expires_at_unix_millis": { "type": "integer" }
+      }
+    },
+    "agent_approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "client_id", "client_name", "project_path", "operation", "tier", "redacted_arguments", "affected", "expires_at_unix_millis", "can_grant_for_project"],
+      "properties": {
+        "id": { "type": "string" },
+        "client_id": { "type": "string" },
+        "client_name": { "type": "string" },
+        "project_path": { "type": "string" },
+        "operation": { "type": "string" },
+        "tier": { "type": "string" },
+        "redacted_arguments": { "type": "object" },
+        "affected": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "name", "size_bytes", "related_containers"],
+            "properties": {
+              "kind": { "type": "string" },
+              "name": { "type": "string" },
+              "size_bytes": { "type": ["integer", "null"] },
+              "related_containers": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "expires_at_unix_millis": { "type": "integer" },
+        "can_grant_for_project": { "type": "boolean" }
+      }
+    },
+    "agent_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "data"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "agent_decision" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decision"],
+          "properties": {
+            "decision": { "enum": ["approved", "denied", "revoked"] },
+            "approval_id": { "type": "string" },
+            "grant_id": { "type": "string" }
+          },
+          "if": { "properties": { "decision": { "const": "revoked" } } },
+          "then": { "required": ["grant_id"], "not": { "required": ["approval_id"] } },
+          "else": { "required": ["approval_id"], "not": { "required": ["grant_id"] } }
+        }
       }
     }
   }

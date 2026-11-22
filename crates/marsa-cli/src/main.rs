@@ -1,6 +1,10 @@
 //! Marsa command-line interface and stable response handling.
 
+#[cfg(unix)]
+mod agents;
 mod command;
+#[cfg(unix)]
+mod platform;
 
 use std::{
     env,
@@ -11,18 +15,31 @@ use std::{
 
 use clap::{ArgMatches, error::ErrorKind};
 use clap_complete::Shell;
+#[cfg(unix)]
+use serde_json::Value;
 use serde_json::json;
 
 use command::{Language, build};
-
-// Operations are wired to this library by the subsequent CLI tasks.
-use marsa_client as _;
 
 #[derive(Clone, Copy)]
 enum Failure {
     Unavailable,
     Usage,
     Confirmation,
+    #[cfg(unix)]
+    DaemonUnavailable,
+    #[cfg(unix)]
+    AgentRequestFailed,
+    #[cfg(unix)]
+    AgentApprovalMissing,
+    #[cfg(unix)]
+    AgentGrantMissing,
+    #[cfg(unix)]
+    AgentReviewRequired,
+    #[cfg(unix)]
+    AgentReviewDeclined,
+    #[cfg(unix)]
+    McpUnavailable,
 }
 
 impl Failure {
@@ -31,6 +48,14 @@ impl Failure {
             Self::Unavailable => 1,
             Self::Usage => 2,
             Self::Confirmation => 3,
+            #[cfg(unix)]
+            Self::AgentReviewRequired | Self::AgentReviewDeclined => 3,
+            #[cfg(unix)]
+            Self::DaemonUnavailable
+            | Self::AgentRequestFailed
+            | Self::AgentApprovalMissing
+            | Self::AgentGrantMissing
+            | Self::McpUnavailable => 1,
         }
     }
 
@@ -39,6 +64,20 @@ impl Failure {
             Self::Unavailable => "not_available",
             Self::Usage => "invalid_invocation",
             Self::Confirmation => "confirmation_required",
+            #[cfg(unix)]
+            Self::DaemonUnavailable => "daemon_unavailable",
+            #[cfg(unix)]
+            Self::AgentRequestFailed => "agent_request_failed",
+            #[cfg(unix)]
+            Self::AgentApprovalMissing => "agent_approval_missing",
+            #[cfg(unix)]
+            Self::AgentGrantMissing => "agent_grant_missing",
+            #[cfg(unix)]
+            Self::AgentReviewRequired => "confirmation_required",
+            #[cfg(unix)]
+            Self::AgentReviewDeclined => "confirmation_declined",
+            #[cfg(unix)]
+            Self::McpUnavailable => "mcp_unavailable",
         }
     }
 
@@ -56,14 +95,57 @@ impl Failure {
                 "This operation requires --yes when run non-interactively.",
                 "تتطلب هذه العملية الخيار --yes عند تشغيلها دون تفاعل.",
             ),
+            #[cfg(unix)]
+            Self::DaemonUnavailable => language.text(
+                "Could not connect to the local Marsa daemon.",
+                "تعذّر الاتصال بخادم مرسى المحلي.",
+            ),
+            #[cfg(unix)]
+            Self::AgentRequestFailed => language.text(
+                "Marsa could not complete the agent command.",
+                "تعذّر على مرسى إكمال أمر الوكيل.",
+            ),
+            #[cfg(unix)]
+            Self::AgentApprovalMissing => language.text(
+                "No pending approval matches that ID.",
+                "لا توجد موافقة معلّقة تطابق هذا المعرّف.",
+            ),
+            #[cfg(unix)]
+            Self::AgentGrantMissing => language.text(
+                "No active grant matches that ID.",
+                "لا يوجد إذن نشط يطابق هذا المعرّف.",
+            ),
+            #[cfg(unix)]
+            Self::AgentReviewRequired => language.text(
+                "Approving an agent request requires reviewing and confirming it in a terminal.",
+                "تتطلب الموافقة على طلب الوكيل مراجعته وتأكيده في الطرفية.",
+            ),
+            #[cfg(unix)]
+            Self::AgentReviewDeclined => {
+                language.text("The confirmation was declined.", "تم رفض التأكيد.")
+            }
+            #[cfg(unix)]
+            Self::McpUnavailable => language.text(
+                "Could not start marsa-mcp beside the Marsa CLI.",
+                "تعذّر تشغيل marsa-mcp بجانب واجهة سطر أوامر مرسى.",
+            ),
         }
     }
 }
 
 enum Outcome {
     Help(String),
-    Completion { shell: Shell, script: String },
+    Completion {
+        shell: Shell,
+        script: String,
+    },
     Failure(Failure),
+    #[cfg(unix)]
+    Success {
+        kind: &'static str,
+        text: String,
+        data: Value,
+    },
 }
 
 fn main() -> ExitCode {
@@ -79,7 +161,7 @@ fn main() -> ExitCode {
         Language::current()
     };
     let interactive = io::stdin().is_terminal() && !json;
-    let outcome = execute(args, language, interactive);
+    let outcome = execute(args, language, interactive, json);
     match render(outcome, language, json) {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
@@ -92,7 +174,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn execute(args: Vec<OsString>, language: Language, interactive: bool) -> Outcome {
+fn execute(args: Vec<OsString>, language: Language, interactive: bool, _json: bool) -> Outcome {
     let mut cli = build(language);
     if args.len() == 1 || args.len() == 2 && args[1] == "--json" {
         return Outcome::Help(cli.render_help().to_string());
@@ -110,10 +192,14 @@ fn execute(args: Vec<OsString>, language: Language, interactive: bool) -> Outcom
     if destructive(name, args) && !interactive && !matches.get_flag("yes") {
         return Outcome::Failure(Failure::Confirmation);
     }
-    if name == "completion" {
-        return completions(args);
+    match name {
+        "completion" => completions(args),
+        #[cfg(unix)]
+        "agents" => agents::run(args, Language::current(), matches.get_flag("yes")),
+        #[cfg(unix)]
+        "mcp" => Outcome::Failure(agents::mcp(args, _json)),
+        _ => Outcome::Failure(Failure::Unavailable),
     }
-    Outcome::Failure(Failure::Unavailable)
 }
 
 fn destructive(name: &str, args: &ArgMatches) -> bool {
@@ -150,6 +236,10 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
             Outcome::Completion { shell, script } => {
                 json!({"schema_version": 1, "kind": "completion", "shell": shell.to_string(), "script": script})
             }
+            #[cfg(unix)]
+            Outcome::Success { kind, data, .. } => {
+                json!({"schema_version": 1, "kind": kind, "data": data})
+            }
             Outcome::Failure(failure) => json!({
                 "schema_version": 1,
                 "kind": "error",
@@ -157,11 +247,16 @@ fn render(outcome: Outcome, language: Language, json_output: bool) -> io::Result
                 "message": failure.message(Language::English),
             }),
         };
+        let body = body.to_string();
+        #[cfg(unix)]
+        let body = agents::escape_terminal_controls(&body);
         writeln!(io::stdout().lock(), "{body}")?;
     } else {
         match outcome {
             Outcome::Help(text) => write!(io::stdout().lock(), "{text}")?,
             Outcome::Completion { script, .. } => write!(io::stdout().lock(), "{script}")?,
+            #[cfg(unix)]
+            Outcome::Success { text, .. } => write!(io::stdout().lock(), "{text}")?,
             Outcome::Failure(failure) => {
                 writeln!(io::stderr().lock(), "{}", failure.message(language))?
             }

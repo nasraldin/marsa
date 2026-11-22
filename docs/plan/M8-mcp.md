@@ -85,7 +85,7 @@ The official `rmcp` 3.11.0 server and stdio build failed the workspace dependenc
 
 ### M8-07 CLI commands for agents
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M8-04, M5-02
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
 - **Do:** Implement `marsa mcp` (run the server on stdio) and `marsa agents list|approve|deny|revoke`, so approvals work from a terminal with no GUI.
@@ -93,6 +93,8 @@ The official `rmcp` 3.11.0 server and stdio build failed the workspace dependenc
 - **Accept when:**
   - A pending approval can be answered from the CLI and the waiting agent call resumes.
   - `marsa agents list --json` shows clients, grants and pending requests.
+
+The local acceptance test runs the CLI and stdio bridge against an isolated daemon and fake Docker engine. It verifies JSON discovery, decline and approval in a pseudo-terminal, exact operation resumption, denial and revocation.
 
 ### M8-08 Untrusted-output handling and adversarial tests
 
