@@ -319,7 +319,11 @@ impl Actor {
         self.progress = None;
         match outcome {
             Ok(Outcome::Ready(mut guest)) => {
-                if let Some(applied) = guest.applied.take() {
+                // A maintenance candidate may be ready before its owner commits.
+                // Retain the callback until the candidate is accepted.
+                if !self.maintenance_candidate_pending()
+                    && let Some(applied) = guest.applied.take()
+                {
                     applied();
                 }
                 self.booting();

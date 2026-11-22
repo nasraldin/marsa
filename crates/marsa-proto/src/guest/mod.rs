@@ -1,9 +1,16 @@
 //! Bounded protobuf messages and version negotiation for guest control.
 
+mod bind_authorization;
 mod frame;
 mod network_facts;
 mod validation;
 
+pub use bind_authorization::{
+    BIND_AUTHORIZATION_PORT, BIND_AUTHORIZATION_VERSION, MAX_BIND_AUTHORIZATION_FRAME_BYTES,
+    MAX_BIND_AUTHORIZATION_SOURCES, bind_authorization_frame_length,
+    decode_bind_authorization_request, decode_bind_authorization_response,
+    encode_bind_authorization_request, encode_bind_authorization_response,
+};
 pub use frame::{decode_guest, decode_host, encode_guest, encode_host, frame_length};
 pub use network_facts::{
     NETWORK_FACTS_BYTES, NETWORK_FACTS_PORT, NetworkFacts, decode_network_facts,

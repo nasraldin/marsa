@@ -14,6 +14,7 @@ service Shares {
   rpc List(ListSharesRequest) returns (ListSharesResponse);
   rpc Add(AddShareRequest) returns (Share);
   rpc Remove(RemoveShareRequest) returns (RemoveShareResponse);
+  rpc ResolveBind(ResolveBindRequest) returns (ResolveBindResponse);
 }
 
 // Discover the private Docker endpoint and explicitly register a local context.
@@ -106,6 +107,35 @@ message RemoveShareRequest {
 }
 
 message RemoveShareResponse {
+  bool requires_restart = 1;
+}
+
+// Owner-only prompts for a Docker create request with an unshared bind source.
+message BindApprovalList {
+  repeated BindApproval approvals = 1;
+}
+
+message BindApproval {
+  string id = 1;
+  repeated string directories = 2;
+  int64 expires_at_unix_millis = 3;
+}
+
+enum BindApprovalDecision {
+  BIND_APPROVAL_DECISION_UNSPECIFIED = 0;
+  BIND_APPROVAL_DECISION_ONCE = 1;
+  BIND_APPROVAL_DECISION_PERSIST = 2;
+  BIND_APPROVAL_DECISION_DENY = 3;
+}
+
+message ResolveBindRequest {
+  string request_id = 1;
+  string approval_id = 2;
+  BindApprovalDecision decision = 3;
+}
+
+message ResolveBindResponse {
+  // Static backends require the confirmed share to be applied at the next boot.
   bool requires_restart = 1;
 }
 

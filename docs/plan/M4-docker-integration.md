@@ -67,15 +67,30 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-06 Attach shares and enforce bind-mount policy
 
-- **Status:** todo
-- **Depends on:** M4-05, M4-01, M3-04
+- **Status:** done
+- **Depends on:** M4-05, M4-01, M4-03, M3-16
 - **Docs:** [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
-- **Do:** Map allowlist entries to virtiofs shares mounted at identical paths in the guest. Inspect `POST /containers/create` in the proxy for bind mounts outside the allowlist and return a clear error with the fix; raise an approval event that the GUI and CLI can answer (once, always, deny). Handle adding a share with or without a VM restart according to backend capabilities. Implement whatever M1-04 found necessary for change notifications and ownership.
-- **Deliver:** share attachment, proxy inspection, approval event flow, a file-sharing compatibility test suite.
+- **Do:** Map allowlist entries to virtiofs shares at identical paths. Use the pinned Docker Engine authorization plugin for container-create checks and preserve the byte-transparent host proxy. Authorize each explicit bind source through the bounded VM policy channel. Expose owner approval actions for once, always and deny, with explicit restart on Apple VZ. Preserve the observed ownership behavior. M5-09 and M7-10 present the approvals. M4-19 qualifies the hot-reload workflow.
+- **Deliver:** share attachment, Docker authorization, typed approval events and decisions, and signed file-sharing tests.
 - **Accept when:**
   - `docker run -v <allowed path>:/x` works; an unlisted path is refused with an actionable message.
   - Files created in a container on a share are owned by the Mac user on the host.
-  - A file edit on the host triggers a watcher inside a container (hot reload test with a common dev server).
+  - One-session and persistent approvals take effect at restart. The session grant expires at the following stop and the persistent grant survives.
+  - The production ownership behavior and the supported change-notification workflow are documented. M4-19 owns the dev-server acceptance and final V-06 disposition.
+
+
+**Qualification.** The signed Apple silicon guest preserved raw HTTP 200 attach, HTTP 101 BuildKit upgrades and private SSH builds with the upstream authorization hook. The hook denied disallowed binds through fixed-length, chunked and native HTTP/2 REST, plus invalid or missing JSON. The product inspector caps container-create JSON at 1 MiB. The signed packaged tests verified Mac ownership, one-session expiry, persistent approval and the exact guest Docker socket mount. With authorization enabled, Docker preserved BuildKit, interactive terminals, log following and attach. A 2,215,736,832-byte Docker save caused zero observed daemon resident-memory growth over 405 samples.
+
+### M4-19 Qualify host edits in a container development server
+
+- **Status:** todo
+- **Depends on:** M4-06, M4-03
+- **Docs:** [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
+- **Do:** Test an upstream development server that relies on file-change events in the signed default Apple virtualization runtime. Use scoped Compose Watch sync to writable container storage. Record limitations for development servers using direct virtiofs binds.
+- **Deliver:** repeatable Tier 2 development server fixture and user documentation.
+- **Accept when:**
+  - Editing host source triggers hot reload in a running container, including a common editor's atomic save.
+  - The test confirms only selected development files reach the container.
   - V-06 is resolved in the docs.
 
 ### M4-07 Data disk management
@@ -172,7 +187,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-14 Conformance suite (gate G4)
 
 - **Status:** todo
-- **Depends on:** M4-02, M4-06, M4-07, M4-09, M4-10, M4-11, M4-12, M4-13
+- **Depends on:** M4-02, M4-06, M4-07, M4-09, M4-10, M4-11, M4-12, M4-13, M4-19
 - **Docs:** [09 Compatibility checklist](../09-cli-and-docker-compat.md#compatibility-checklist), [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
 - **Do:** Build the automated conformance suite covering every line of the compatibility checklist with the real `docker` CLI and Compose, at least one Testcontainers suite per listed language, and a Dev Containers open-and-build check. Assert the documented intended differences return their explicit errors.
 - **Deliver:** `tests/conformance/`, wired into Tier 2.

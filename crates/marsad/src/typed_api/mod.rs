@@ -1,5 +1,7 @@
 //! Serve typed host APIs from one state and a composable VM supervisor.
 
+mod bind_policy;
+mod bind_prompts;
 mod diagnostics;
 mod disk;
 mod docker_discovery;
@@ -29,7 +31,7 @@ use marsa_proto::host::v1::{
     network_server::NetworkServer, settings_server::SettingsServer, shares_server::SharesServer,
     stats_server::StatsServer,
 };
-use marsa_share::SharePolicy;
+use marsa_share::{Allowlist, SharePolicy};
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
 use nix::unistd::{Uid, User};
 use tokio::{net::UnixListener, sync::watch};
@@ -80,6 +82,8 @@ struct Shared {
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
     remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
+    bind_resolutions: requests::Cache<(String, i32), marsa_proto::host::v1::ResolveBindResponse>,
+    bind_edit: tokio::sync::Mutex<()>,
     docker_context_requests: requests::Cache<(), EnsureDockerContextResponse>,
     docker_keychain_requests: requests::Cache<(), bool>,
     edit: tokio::sync::Mutex<()>,
@@ -112,6 +116,8 @@ impl TypedApi {
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
+                bind_resolutions: requests::Cache::new(),
+                bind_edit: tokio::sync::Mutex::new(()),
                 docker_context_requests: requests::Cache::new(),
                 docker_keychain_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
@@ -163,14 +169,24 @@ impl TypedApi {
         capabilities: Capabilities,
         control: GuestControl,
         config: SupervisorConfig,
-        prepare: impl Fn(&Settings) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> + Send + Sync + 'static,
+        prepare: impl Fn(&Settings, &SharePolicy) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)>
+        + Send
+        + Sync
+        + 'static,
     ) -> io::Result<Self> {
         let observations = self.inner.events.clone();
-        let control = Arc::new(control.observe_active(move |event| match event {
-            GuestEvent::Health(health) => engine::publish_health(&observations, health),
-            GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
-            GuestEvent::Port(_) => (),
-        }));
+        let control = Arc::new(
+            control
+                .observe_active(move |event| match event {
+                    GuestEvent::Health(health) => engine::publish_health(&observations, health),
+                    GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
+                    GuestEvent::Port(_) => (),
+                })
+                .authorize_binds(bind_policy::Policy::new(
+                    self.inner.events.clone(),
+                    self.inner.share_policy.clone(),
+                )),
+        );
         self.with_packaged_probe(capabilities, control, config, prepare)
             .await
     }
@@ -180,7 +196,10 @@ impl TypedApi {
         capabilities: Capabilities,
         control: Arc<dyn GuestProbe>,
         config: SupervisorConfig,
-        prepare: impl Fn(&Settings) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> + Send + Sync + 'static,
+        prepare: impl Fn(&Settings, &SharePolicy) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)>
+        + Send
+        + Sync
+        + 'static,
     ) -> io::Result<Self> {
         let paths = self.inner.paths.clone();
         let uid = self.inner.uid;
@@ -195,22 +214,35 @@ impl TypedApi {
         let proxy = Arc::new(proxy_policy::RuntimeProxy::new(proxy));
         self.proxy = Some(proxy.clone());
         let settings = events.clone();
+        let share_policy = self.inner.share_policy.clone();
         let preparation = Arc::new(move || {
-            let (desired, _) = settings.settings();
+            let (desired, once) = settings.boot_configuration();
             let (effective, reserved) = proxy.launch_settings(desired)?;
-            let (backend, mut spec) = prepare(&effective)?;
+            let mut startup = effective.clone();
+            startup.shares.extend(once.iter().cloned());
+            let (backend, mut spec) = prepare(&startup, &share_policy)?;
+            let mounted = Arc::new(
+                Allowlist::from_paths(
+                    share_policy.clone(),
+                    spec.shares.iter().map(|share| &share.host_path),
+                )
+                .map_err(io::Error::other)?,
+            );
             let automatic = select_network(&effective, &mut spec, backend.capabilities());
             let network_policy = proxy_policy::BootProxy::from_draft(&effective.network.proxy)?
                 .guest_configuration();
             let bus = settings.clone();
-            let applied: Option<crate::supervisor::launch::Applied> =
-                (!reserved).then(|| Arc::new(move || bus.runtime_applied(&effective)) as _);
             Ok(Launch {
                 backend,
                 spec,
                 selection: Selection::new(automatic),
                 network_policy,
-                applied,
+                applied: Some(Arc::new(move || {
+                    if !reserved {
+                        bus.runtime_applied(&effective);
+                    }
+                    bus.activate_binds(mounted.clone(), &once);
+                })),
             })
         });
         let supervisor = Supervisor::spawn_packaged(
