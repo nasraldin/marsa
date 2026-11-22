@@ -113,6 +113,7 @@ impl SystemView {
             .flex_col()
             .gap(px(Space::S16.pixels() + Space::S4.pixels()))
             .child(context)
+            .child(self.external_docker(screen, cx))
             .child(registry)
     }
 

@@ -11,6 +11,14 @@ use nix::unistd::geteuid;
 use tokio::{fs, net::UnixStream, process::Command};
 
 pub(super) async fn open_socket(path: PathBuf) -> io::Result<UnixStream> {
+    open_local_socket(path, 0o077).await
+}
+
+pub(super) async fn open_inventory_socket(path: PathBuf) -> io::Result<UnixStream> {
+    open_local_socket(path, 0o022).await
+}
+
+async fn open_local_socket(path: PathBuf, forbidden_parent_modes: u32) -> io::Result<UnixStream> {
     let parent = path
         .parent()
         .filter(|_| path.is_absolute())
@@ -22,7 +30,10 @@ pub(super) async fn open_socket(path: PathBuf) -> io::Result<UnixStream> {
         })?;
     let uid = geteuid().as_raw();
     let directory = fs::symlink_metadata(parent).await?;
-    if !directory.is_dir() || directory.uid() != uid || directory.mode() & 0o077 != 0 {
+    if !directory.is_dir()
+        || directory.uid() != uid
+        || directory.mode() & forbidden_parent_modes != 0
+    {
         return Err(unsafe_endpoint());
     }
     let metadata = fs::symlink_metadata(&path).await?;

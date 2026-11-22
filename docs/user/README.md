@@ -24,6 +24,8 @@ If you have no Docker command on your PATH, use the bundled client.
 
 The corresponding Marsa command is at `/Applications/Marsa.app/Contents/MacOS/marsa`. Run it as `marsa` in the examples below if you have already put it on your PATH. Run `marsa env` to see the shell export for Marsa’s private Docker socket. If your shell sets `DOCKER_CONTEXT`, it takes precedence over `DOCKER_HOST`.
 
+Under **Settings → Docker → Existing Docker engine**, Marsa scans for another local Docker engine and shows its containers and images. This inventory is read-only. Keep using that engine's Docker context to run its workloads. Marsa's workspace uses the Marsa engine and its own storage.
+
 The **Containers**, **Images**, **Volumes**, and **Networks** screens show resources from the connected engine. Docker Compose projects appear when Docker has containers with Compose labels. When the app asks you to choose a Compose file for an operation, select the file that belongs to the project. **Down** keeps named volumes by default. Removing the volumes requires typing the project name.
 
 ## Sharing folders

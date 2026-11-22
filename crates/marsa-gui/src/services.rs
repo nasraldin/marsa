@@ -174,6 +174,13 @@ impl Services {
         })
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn external_inventory(
+        &self,
+    ) -> Pending<Option<marsa_client::docker::ExternalInventory>> {
+        self.pending(async { Ok(marsa_client::docker::discover_external_inventory().await) })
+    }
+
     /// Dispatch a command on the worker and receive its completion separately from state updates.
     pub fn dispatch(&self, command: Command) -> PendingCommand {
         self.session.dispatch(command)

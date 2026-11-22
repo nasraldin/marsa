@@ -21,6 +21,9 @@ use tokio::time::timeout;
 
 use crate::{ClientError, docker_socket_path, platform};
 
+mod inventory;
+pub use inventory::{ExternalInventory, discover_external_inventory};
+
 pub use actions::{
     CreatedNetwork, ImageDetails, ImageId, ImageRemoval, NetworkRemoval, ResourceName,
     VolumeRemoval,
@@ -241,6 +244,7 @@ pub enum DockerError {
 #[derive(Debug, Clone)]
 pub struct DockerClient {
     socket: PathBuf,
+    inventory_only: bool,
 }
 
 impl DockerClient {
@@ -253,6 +257,7 @@ impl DockerClient {
     pub fn at(socket: impl Into<PathBuf>) -> Self {
         Self {
             socket: socket.into(),
+            inventory_only: false,
         }
     }
 
@@ -361,17 +366,34 @@ impl DockerClient {
             return Err(ClientError::Root.into());
         }
         timeout(REQUEST_TIMEOUT, async {
-            let socket = platform::open_socket(self.socket.clone())
-                .await
-                .map_err(DockerError::Socket)?;
+            let socket = if self.inventory_only {
+                if method != Method::GET
+                    || !matches!(path, "/containers/json?all=true" | "/images/json?all=true")
+                {
+                    return Err(DockerError::Socket(
+                        std::io::ErrorKind::PermissionDenied.into(),
+                    ));
+                }
+                platform::open_inventory_socket(self.socket.clone()).await
+            } else {
+                platform::open_socket(self.socket.clone()).await
+            }
+            .map_err(DockerError::Socket)?;
             let (mut sender, connection) = http1::Builder::new()
                 .max_buf_size(16 * 1024)
                 .handshake(TokioIo::new(socket))
                 .await?;
             let task = stream::ConnectionTask::new(tokio::spawn(connection).abort_handle());
+            // These two inventory routes are available directly on the external daemon.
+            // The fixed Marsa API version may be newer than that daemon supports.
+            let uri = if self.inventory_only {
+                path.to_owned()
+            } else {
+                format!("{API_PREFIX}{path}")
+            };
             let mut request = Request::builder()
                 .method(method.clone())
-                .uri(format!("{API_PREFIX}{path}"))
+                .uri(uri)
                 .header(header::HOST, "docker")
                 .header(header::CONNECTION, "close");
             if !payload.is_empty() {

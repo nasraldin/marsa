@@ -1,6 +1,7 @@
 //! Versioned preferences and owner controls.
 
 mod accents;
+mod external_docker;
 mod integrations;
 mod login;
 mod proxy;
@@ -141,6 +142,9 @@ impl SystemView {
                         }
                         if tab == SettingsTab::Updates {
                             this.load_update_status(cx);
+                        }
+                        if tab == SettingsTab::Docker {
+                            this.refresh_external_inventory(cx);
                         }
                         if tab == SettingsTab::About {
                             this.load_version(cx);
