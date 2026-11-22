@@ -146,7 +146,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 
 ### M3-11 Power and network watcher
 
-- **Status:** todo
+- **Status:** blocked (manual system sleep and wake measurement pending)
 - **Depends on:** M3-07, M3-16
 - **Docs:** [03 Sleep, wake and network changes](../03-host-daemon.md#sleep-wake-and-network-changes)
 - **Do:** Subscribe to host sleep, wake and network-change notifications. Pause on sleep, resume on wake, push the current time to the agent, and publish events. Network-change handling here only emits the event; M4 consumes it.
@@ -154,6 +154,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 - **Accept when:**
   - After a real sleep and wake, the guest clock is within one second of the host (Tier 2 or manual test recorded).
   - The sequence is covered by tests with injected events.
+- **Evidence:** Injected sleep and wake, startup races, manual pause ownership, and daemon event ordering passed. On Apple silicon, the entitled harness registered native notifications and measured 2.762 ms of preflight skew with the user-space attachment. After incorporating the bind-approval event, a second entitled preflight measured 32.791 ms. The two-minute manual measurement window opened at 03:43 and ended before the recorded 03:47 host sleep. A real sleep and wake measurement is still required.
 
 ### M3-12 Compose the packaged VM runtime
 

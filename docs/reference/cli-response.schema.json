@@ -9,6 +9,7 @@
     { "$ref": "#/$defs/bind_resolution" },
     { "$ref": "#/$defs/disk_usage" },
     { "$ref": "#/$defs/network_status" },
+    { "$ref": "#/$defs/network_mode" },
     { "$ref": "#/$defs/settings" },
     { "$ref": "#/$defs/setting" },
     { "$ref": "#/$defs/shares" },
@@ -100,6 +101,18 @@
             }
           }
         }
+      }
+    },
+    "network_mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "configured_mode", "active_mode", "restart_pending"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "network_mode" },
+        "configured_mode": { "enum": ["auto", "nat", "userspace", null] },
+        "active_mode": { "enum": ["nat", "userspace", null] },
+        "restart_pending": { "type": ["boolean", "null"] }
       }
     },
     "network_status": {

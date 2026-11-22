@@ -276,7 +276,10 @@ static ROOT: Spec = command(
                 leaf("status", ("Show network status", "اعرض حالة الشبكة")),
                 command(
                     "mode",
-                    ("Show or set the network mode", "اعرض وضع الشبكة أو اضبطه"),
+                    (
+                        "Show or save the network mode for the next start",
+                        "اعرض وضع الشبكة أو احفظه لبدء التشغيل التالي",
+                    ),
                     &[value(
                         "mode",
                         "MODE",
