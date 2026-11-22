@@ -18,10 +18,10 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-02 Fuzz targets
 
-- **Status:** todo
-- **Depends on:** M3-07, M4-01
+- **Status:** in progress
+- **Depends on:** M3-07, M10-03
 - **Docs:** [11 Process hardening on the host](../11-security.md#process-hardening-on-the-host)
-- **Do:** Add fuzz targets for the guest control-protocol decoder, the Docker create-request inspector, the settings parser and the update manifest parser (once M10-03 defines it). Run them on a schedule in CI with a corpus kept in the repository.
+- **Do:** Add fuzz targets for the guest control-protocol decoder, the settings parser and the update manifest parser. Run them on a schedule in CI with a corpus kept in the repository. M9-15 adds the Docker create-request inspector after M4-06 implements it.
 - **Deliver:** `fuzz/` targets and a scheduled workflow.
 - **Accept when:**
   - Each target runs for a fixed budget in CI without crashes.
@@ -119,7 +119,7 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 ### M9-11 Security review (gate G6)
 
 - **Status:** todo
-- **Depends on:** M9-01, M9-02, M8-08
+- **Depends on:** M9-01, M9-02, M9-15, M8-08
 - **Docs:** [11 Security](../11-security.md)
 - **Do:** Prepare a review package (threat model, architecture, test results), complete an internal review against every threat, and arrange an independent review before release. Finalise `SECURITY.md` and the vulnerability response process, including advisory monitoring.
 - **Deliver:** review report, resolved or accepted findings recorded, finalised `SECURITY.md`.
@@ -149,3 +149,14 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
   - An authenticated caller can explicitly create one local archive and receive its path even when the engine is stopped.
   - The archive contains the approved logs and diagnostic state without planted secrets, environment values, or raw settings.
   - Retrying the same request ID returns the existing archive path without creating another archive.
+
+### M9-15 Fuzz the Docker create-request inspector
+
+- **Status:** todo
+- **Depends on:** M4-06, M9-02
+- **Docs:** [11 Process hardening on the host](../11-security.md#process-hardening-on-the-host), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements)
+- **Do:** Exercise the production Docker create-request inspector with a committed corpus of representative and malformed request bodies. Check that malformed or unsupported inputs cannot bypass the bind-mount policy.
+- **Deliver:** An inspector target and corpus in `fuzz/`, wired into the scheduled workflow.
+- **Accept when:**
+  - The target runs for a fixed budget in CI without crashes.
+  - Any crash found is fixed and its input added as a regression test.
