@@ -48,6 +48,7 @@ async fn restart_recovers_every_supervisor_state() {
         assert_eq!(first.wait().await.unwrap().signal(), Some(9), "{state:?}");
         assert!(paths.daemon_socket().exists());
         assert!(paths.docker_socket().exists());
+        assert!(paths.agent_socket().exists());
         assert_eq!(
             fs::read_to_string(paths.daemon_pid_file()).unwrap().trim(),
             first_pid.to_string()
@@ -61,6 +62,7 @@ async fn restart_recovers_every_supervisor_state() {
             replacement_pid.to_string()
         );
         drop(UnixStream::connect(paths.docker_socket()).await.unwrap());
+        drop(UnixStream::connect(paths.agent_socket()).await.unwrap());
 
         kill(
             Pid::from_raw(replacement_pid.try_into().unwrap()),
@@ -77,6 +79,7 @@ async fn restart_recovers_every_supervisor_state() {
         );
         assert!(!paths.daemon_socket().exists());
         assert!(!paths.docker_socket().exists());
+        assert!(!paths.agent_socket().exists());
         assert!(!paths.daemon_pid_file().exists());
     }
 }
@@ -178,10 +181,11 @@ async fn crash_fixture() {
                 maximum_backoff: HOLD,
             },
         );
-    let (socket, docker) = instance.publish(&paths, uid).unwrap();
+    let (socket, docker, agent) = instance.publish(&paths, uid).unwrap();
     let server = serve(
         UnixListener::from_std(socket).unwrap(),
         UnixListener::from_std(docker).unwrap(),
+        UnixListener::from_std(agent).unwrap(),
         api,
         uid,
         Signals::register().unwrap(),

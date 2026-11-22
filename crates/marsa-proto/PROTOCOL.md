@@ -51,6 +51,10 @@ guest, restores settings defaults, clears grants and installs a fresh sparse
 data disk. An interrupted transaction is resolved before the daemon serves
 either socket.
 
+Host API minor 6 adds the separate owner Agents service and capability-scoped
+AgentOps endpoint. They negotiate through the daemon and keep owner approval
+authentication separate from delegated agent sessions.
+
 `Events.Subscribe` emits a snapshot before live updates on each connection.
 The daemon takes that snapshot at an event cursor and then emits events after
 that cursor in order. Sequence numbers are scoped to the stream ID of the
@@ -74,6 +78,17 @@ API 1.1 adds `SettingsSnapshot.restart_required` and
 ignore both fields. Missing fields have the protobuf defaults of `false` and
 unspecified health. VM stats are live observations of the active guest.
 The stream starts with a sample only when the daemon has observed one.
+
+API 1.5 adds `Network.PrepareProxyActivation` and `Network.ActivateProxy`.
+Clients read the current settings revision, request a preview, and show every
+reported potential interruption before asking the owner to approve. Apply
+only after approval using the preview token, the same settings revision and a
+fresh request UUID. The token expires after 90 seconds and is single-use.
+Replay a disconnected request with the same UUID and fields to obtain the
+original result. A changed VM lifecycle or settings revision invalidates the
+preview. Result enums report failed stop, start or persistence and whether the
+prior policy or engine was recovered. Treat approval tokens and proxy URLs as
+sensitive.
 
 Agent requests identify an
 allowlisted operation and use that operation's existing JSON Schema for its

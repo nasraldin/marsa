@@ -10,14 +10,25 @@ use super::*;
 const FIXTURE: &str = "MARSA_FACTORY_STORAGE_FIXTURE";
 const CUT: &str = "MARSA_FACTORY_STORAGE_CUT";
 const ROLLBACK: &str = "MARSA_FACTORY_STORAGE_ROLLBACK";
-const ORIGINAL: [&[u8]; 3] = [b"original settings", b"old disk", b"old grants"];
+const ORIGINAL: [&[u8]; MEMBERS.len()] = [
+    b"original settings",
+    b"old disk",
+    b"old grants",
+    b"old proxy policy",
+];
 const DEFAULT_CONFIG: &str = "schema_version = 1\n";
 
 fn uid() -> u32 {
     nix::unistd::geteuid().as_raw()
 }
 
-fn fixture(mask: u32) -> (tempfile::TempDir, MarsaPaths, [Option<Inode>; 3]) {
+fn fixture(
+    mask: u32,
+) -> (
+    tempfile::TempDir,
+    MarsaPaths,
+    [Option<Inode>; MEMBERS.len()],
+) {
     let scratch = tempfile::tempdir().unwrap();
     let paths = MarsaPaths::from_root(scratch.path()).unwrap();
     for dir in [paths.root().to_owned(), paths.vm_dir(), paths.state_dir()] {
@@ -26,7 +37,7 @@ fn fixture(mask: u32) -> (tempfile::TempDir, MarsaPaths, [Option<Inode>; 3]) {
     }
     fs::write(paths.root().join("unrelated"), b"untouched").unwrap();
     let layout = Layout::open(&paths, uid()).unwrap();
-    let mut original = [None; 3];
+    let mut original = [None; MEMBERS.len()];
     for (index, member) in MEMBERS.into_iter().enumerate() {
         if mask & (1 << index) != 0 {
             let mut file = layout
@@ -69,29 +80,43 @@ fn kill_at(paths: &MarsaPaths, cut: u32, rollback: bool) {
 
 #[test]
 fn every_install_commit_and_cleanup_boundary_recovers_one_generation() {
-    for mask in 0_u32..8 {
-        for cut in 0..10 + mask.count_ones() {
+    for mask in 0_u32..16 {
+        for cut in 0..12 + mask.count_ones() {
             let (_scratch, paths, original) = fixture(mask);
             kill_at(&paths, cut, false);
 
             recover(&paths, uid()).unwrap();
             recover(&paths, uid()).unwrap();
-            assert_generation(&paths, original, cut >= 8);
+            assert_generation(&paths, original, cut >= 10);
         }
     }
 }
 
 #[test]
 fn rollback_can_itself_be_interrupted_and_retried() {
-    for mask in 0_u32..8 {
+    for mask in 0_u32..16 {
         for cut in 0..3 + mask.count_ones() {
             let (_scratch, paths, original) = fixture(mask);
-            kill_at(&paths, 7, false);
+            kill_at(&paths, 9, false);
             kill_at(&paths, cut, true);
             recover(&paths, uid()).unwrap();
             assert_generation(&paths, original, false);
         }
     }
+}
+
+#[test]
+fn version_one_journal_recovers_the_original_members_and_leaves_proxy_untouched() {
+    let (_scratch, paths, original) = fixture(15);
+    // Only the three members from the original journal have moved by this cut.
+    kill_at(&paths, 7, false);
+    let manifest = paths.root().join(ACTIVE).join(MANIFEST);
+    let mut journal: Journal = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    journal.version = 1;
+    journal.members.truncate(3);
+    fs::write(manifest, serde_json::to_vec(&journal).unwrap()).unwrap();
+    recover(&paths, uid()).unwrap();
+    assert_generation(&paths, original, false);
 }
 
 #[test]
@@ -114,7 +139,7 @@ fn staging_recovery_refuses_a_redirected_member() {
 #[test]
 fn unexpected_recovery_member_is_neither_removed_nor_overwritten() {
     let (_scratch, paths, _) = fixture(7);
-    kill_at(&paths, 7, false);
+    kill_at(&paths, 9, false);
     fs::remove_file(paths.config_file()).unwrap();
     fs::write(paths.config_file(), b"unrelated replacement").unwrap();
     assert!(recover(&paths, uid()).is_err());
@@ -188,7 +213,11 @@ fn fault_child() {
     panic!("fixture did not reach requested interruption boundary");
 }
 
-fn assert_generation(paths: &MarsaPaths, original: [Option<Inode>; 3], committed: bool) {
+fn assert_generation(
+    paths: &MarsaPaths,
+    original: [Option<Inode>; MEMBERS.len()],
+    committed: bool,
+) {
     let layout = Layout::open(paths, uid()).unwrap();
     for (index, member) in MEMBERS.into_iter().enumerate() {
         let live = layout.directory(member);
@@ -207,7 +236,7 @@ fn assert_generation(paths: &MarsaPaths, original: [Option<Inode>; 3], committed
                     assert!(metadata.blocks() * 512 < metadata.len());
                     assert_ne!(Some(Inode::identify(&metadata).unwrap()), original[index]);
                 }
-                Member::Grants => assert!(file.is_none()),
+                Member::Grants | Member::ProxyPolicy => assert!(file.is_none()),
             }
         } else if let Some(identity) = original[index] {
             let file = file.unwrap();

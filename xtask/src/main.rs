@@ -3,6 +3,7 @@
 mod guest;
 #[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
 mod release_resources;
+mod release_signature;
 mod upstream;
 
 use std::env;
@@ -60,6 +61,11 @@ const COMMANDS: &[Subcommand] = &[
         action: Action::Deferred,
     },
     Subcommand {
+        name: "verify-signature",
+        description: "Verify Developer ID and Hardened Runtime before notarization",
+        action: Action::Deferred,
+    },
+    Subcommand {
         name: "package",
         description: "Build the installer and update archive (pending)",
         action: Action::Deferred,
@@ -96,6 +102,12 @@ fn main() -> ExitCode {
             eprintln!("Release resource staging requires macOS or GNU/Linux.");
             return ExitCode::FAILURE;
         }
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "verify-signature")
+    {
+        return release_signature::run(&arguments[1..]);
     }
     match arguments.as_slice() {
         [] => print_help(),

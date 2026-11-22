@@ -28,6 +28,11 @@ command requires confirmation when run non-interactively. `disk cleanup
 --dry-run` is a preview. When invoking shell completion with `--json`,
 read the script from the response's `script` field.
 
+`marsa disk usage --json` reports the sparse image's allocated bytes and
+logical capacity under `host`. The `guest` field is `null` until the
+daemon has a current filesystem observation. `categories` lists the
+breakdown supplied by the daemon.
+
 `marsa logs --follow --json` writes newline-delimited JSON, with one response
 per log record. In the record, `message` contains a safe classification of
 the source log and `at_unix_millis` is zero when wall-clock time is unavailable.
@@ -38,3 +43,12 @@ observation. The CPU field is cumulative VM CPU busy time in nanoseconds.
 settings revision as a decimal string. `marsa config set KEY VALUE` accepts a
 TOML value or a bare string. A rejected settings or shared-folder mutation
 returns `request_rejected` with exit status 1 and the daemon's explanation.
+
+`marsa network status --json` reports the configured and active network modes.
+The guest and gateway fields are IPv4 strings when observed. When the VM is
+stopped, the active mode and both addresses are `null`.
+
+`marsa share approvals --json` shows exact requested directories and expiry
+times. `marsa share resolve ID once|always|deny --json` reports whether the
+owner needs to restart the VM before retrying Docker. A request that cannot be
+resolved returns `bind_resolution_failed` with exit status 1.

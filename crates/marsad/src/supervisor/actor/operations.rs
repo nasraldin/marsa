@@ -29,10 +29,11 @@ impl Actor {
                 self.reserve_maintenance(expected, release, reply);
                 return;
             }
-            Command::MaintenanceStart(id, reply) => {
-                self.maintenance_start(id, reply);
+            Command::MaintenanceStart(id, discard, reply) => {
+                self.maintenance_start(id, discard, reply);
                 return;
             }
+            Command::MaintenanceKeep(id, reply) => (reply, self.maintenance_keep(id)),
             Command::MaintenanceStop(id, reply) => {
                 let result = if self.maintenance_owns(id) && !reply.is_closed() {
                     self.stop().await
@@ -318,7 +319,11 @@ impl Actor {
         self.progress = None;
         match outcome {
             Ok(Outcome::Ready(mut guest)) => {
-                if let Some(applied) = guest.applied.take() {
+                // A maintenance candidate may be ready before its owner commits.
+                // Retain the callback until the candidate is accepted.
+                if !self.maintenance_candidate_pending()
+                    && let Some(applied) = guest.applied.take()
+                {
                     applied();
                 }
                 self.booting();

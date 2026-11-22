@@ -236,6 +236,9 @@ impl TypedApi {
                 return Err(recovery_required());
             }
         }
+        if let Some(proxy) = &self.proxy {
+            proxy.replace_approved(super::proxy_policy::BootProxy::default());
+        }
         let idle_applied = if let Some(supervisor) = &self.supervisor {
             supervisor
                 .set_idle_policy(
@@ -251,6 +254,7 @@ impl TypedApi {
             .events
             .update_settings(settings, document, next_revision, idle_applied);
         self.inner.events.reset_bind_approvals();
+        self.inner.events.publish_grants(Default::default());
         drop(permit);
         Ok(ResetResponse {
             result: Some(ResetResult::Completed(ResetCompleted {})),

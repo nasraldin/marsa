@@ -21,13 +21,14 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 ### M10-02 Signing and notarization pipeline
 
 - **Status:** todo
-- **Depends on:** M10-01, M3-10
+- **Depends on:** M10-01, M3-10, M10-14
 - **Docs:** [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization), Q-04
-- **Do:** Complete `cargo xtask sign`: sign every binary inside-out with hardened runtime and per-binary entitlements, re-sign bundled upstream binaries, notarize, staple, and verify with Gatekeeper tooling. Credentials come only from the release environment.
+- **Do:** Complete `cargo xtask sign`. Sign every binary inside-out with a secure timestamp, hardened runtime and per-binary entitlements. Re-sign bundled upstream binaries. Verify the final submission artifact in private staging without concurrent writers, bind verification to its SHA-256, and confirm the digest before submitting the same artifact. Notarize, staple, and verify with Gatekeeper tooling. Credentials come only from the release environment.
 - **Deliver:** the signing step, entitlements files.
 - **Accept when:**
   - The stapled app opens on a clean Mac without warnings and boots the VM.
   - A verification step in CI fails if any binary is unsigned or lacks hardened runtime.
+  - A release with a missing secure timestamp or a changed submission digest fails before submission.
 
 ### M10-03 Updater design and manifest format
 
@@ -156,3 +157,15 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 - **Accept when:**
   - The native icon contains the platform size and scale variants with the intended small and tiny cuts.
   - macOS reads the icon from a bundle's resource directory. The verified asset does not require the installed app, a signing identity, or a system-setting change.
+
+### M10-14 Validate release signatures before notarization
+
+- **Status:** done
+- **Depends on:** M0-01
+- **Docs:** [12 App bundle layout](../12-build-release-update.md#app-bundle-layout), [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization)
+- **Do:** Add a macOS release verification command for the documented arm64 VZ bundle. Require an explicit trusted Team ID, verify the app and every Mach-O with Apple tools, and check hardened runtime and the expected role entitlements.
+- **Deliver:** A reusable `cargo xtask` verification command and isolated negative fixtures.
+- **Accept when:**
+  - The verifier checks the expected app ID and native roles, including Mach-O files under resources.
+  - A valid hardened ad-hoc fixture fails the Developer ID requirement.
+  - M10-02 retains the production signing, notarization, stapling, Gatekeeper, and clean-Mac acceptance.

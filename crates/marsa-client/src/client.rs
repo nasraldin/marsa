@@ -9,7 +9,7 @@ use std::{
 };
 
 use hyper_util::rt::TokioIo;
-use marsa_proto::host::{API_MAJOR, API_MINOR, socket_path};
+use marsa_proto::host::{AGENT_SOCKET_NAME, API_MAJOR, API_MINOR, socket_path};
 use nix::unistd::geteuid;
 use thiserror::Error;
 use tokio::{
@@ -17,19 +17,22 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tonic::{
-    Code, Status,
+    Code, Request, Status,
+    metadata::{Ascii, MetadataValue},
     transport::{Channel, Endpoint},
 };
 use tower::service_fn;
 
 use crate::{
     api::{
-        VersionRequest, VersionResponse, agent_ops_client::AgentOpsClient,
-        agents_client::AgentsClient, diagnostics_client::DiagnosticsClient,
-        disk_client::DiskClient, docker_discovery_client::DockerDiscoveryClient,
-        engine_client::EngineClient, events_client::EventsClient, meta_client::MetaClient,
-        network_client::NetworkClient, settings_client::SettingsClient,
-        shares_client::SharesClient, stats_client::StatsClient, updates_client::UpdatesClient,
+        AgentOperation, AgentOperationRequest, AgentOperationResponse, OpenAgentSessionRequest,
+        OpenAgentSessionResponse, VersionRequest, VersionResponse,
+        agent_ops_client::AgentOpsClient, agents_client::AgentsClient,
+        diagnostics_client::DiagnosticsClient, disk_client::DiskClient,
+        docker_discovery_client::DockerDiscoveryClient, engine_client::EngineClient,
+        events_client::EventsClient, meta_client::MetaClient, network_client::NetworkClient,
+        settings_client::SettingsClient, shares_client::SharesClient, stats_client::StatsClient,
+        updates_client::UpdatesClient,
     },
     events::EventSubscription,
     platform,
@@ -285,12 +288,92 @@ impl MarsaClient {
         updates: UpdatesClient => "Access application update RPCs.",
         diagnostics: DiagnosticsClient => "Access logs and diagnostic bundles.",
         agents: AgentsClient => "Access agent approvals and grants.",
-        agent_ops: AgentOpsClient => "Access policy-checked agent operations.",
     }
 
     /// Create a subscription that returns snapshots and ordered events across restarts.
     pub fn subscribe_events(&self) -> EventSubscription {
         EventSubscription::new(self.daemon.clone(), self.events())
+    }
+}
+
+/// A capability-scoped connection that can submit agent operations.
+#[derive(Clone)]
+pub struct AgentClient {
+    operations: AgentOpsClient<Channel>,
+    authorization: MetadataValue<Ascii>,
+    client_id: String,
+    project: String,
+}
+
+impl MarsaClient {
+    /// Register an agent from the trusted owner connection and open its restricted endpoint.
+    pub async fn delegate_agent(
+        &self,
+        request: OpenAgentSessionRequest,
+    ) -> Result<AgentClient, ClientError> {
+        let client_id = request.client_id.clone();
+        let session = self.agents().open_session(request).await?.into_inner();
+        AgentClient::connect_at(
+            self.daemon.socket.with_file_name(AGENT_SOCKET_NAME),
+            client_id,
+            session,
+        )
+        .await
+    }
+}
+
+impl AgentClient {
+    /// Open the owner-checked local endpoint using a previously issued delegation.
+    pub async fn connect_at(
+        socket: PathBuf,
+        client_id: String,
+        session: OpenAgentSessionResponse,
+    ) -> Result<Self, ClientError> {
+        if geteuid().is_root() {
+            return Err(ClientError::Root);
+        }
+        if session.token.len() != 64 || !session.token.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(Status::unauthenticated("invalid agent session capability").into());
+        }
+        let mut authorization: MetadataValue<Ascii> =
+            format!("Bearer {}", session.token)
+                .parse()
+                .map_err(|_| Status::unauthenticated("invalid agent session capability"))?;
+        authorization.set_sensitive(true);
+        let channel = Endpoint::from_static("http://localhost")
+            .connect_timeout(RPC_DEADLINE)
+            .connect_with_connector(service_fn(move |_| {
+                let socket = socket.clone();
+                async move { platform::open_socket(socket).await.map(TokioIo::new) }
+            }))
+            .await?;
+        Ok(Self {
+            operations: AgentOpsClient::new(channel),
+            authorization,
+            client_id,
+            project: session.project_path,
+        })
+    }
+
+    /// Execute a typed operation with the registered client and project scope.
+    pub async fn execute(
+        &mut self,
+        request_id: String,
+        operation: AgentOperation,
+        arguments_json: String,
+    ) -> Result<AgentOperationResponse, ClientError> {
+        let mut request = Request::new(AgentOperationRequest {
+            request_id,
+            client_id: self.client_id.clone(),
+            project_path: self.project.clone(),
+            operation: operation.into(),
+            arguments_json,
+        });
+        request
+            .metadata_mut()
+            .insert("authorization", self.authorization.clone());
+        Ok(self.operations.execute(request).await?.into_inner())
     }
 }
 

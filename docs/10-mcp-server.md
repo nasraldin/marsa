@@ -96,7 +96,12 @@ sequenceDiagram
 ```
 
 - Requests time out (default a few minutes) and return a clear "not approved" result so the agent can continue or ask the user in its own interface.
-- If no GUI is open, the notification appears through the tray item and `marsa agents approve` works from a terminal.
+- If no GUI is open, the tray and CLI are planned owner clients for the same approval API.
+- The owner-only daemon socket serves `Agents.OpenSession` and approval decisions. A trusted local owner client registers the agent and project, then delegates a 12-hour capability to the restricted `agent.sock` endpoint. The agent capability authenticates `AgentOps` and has no owner permissions. Do not give an agent the owner connection or raw Docker socket.
+- This protects against an agent using only its delegated operations. Local processes running with the unrestricted owner's Unix access are inside the trusted host boundary. The daemon does not attest physical user presence. The owner GUI or CLI is responsible for collecting the user's decision.
+- M8-02 implements scoped engine status and the owner approval queue. Container mutations require an engine provider that can bind execution to the immutable target reviewed by the owner.
+- The pinned Docker stop endpoint resolves the target again when applying the operation and may interpret a missing full ID as a name. A prior inspect cannot guarantee the stop targets the reviewed container. [Moby stop handler](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/stop.go#L25-L39), [Moby target resolution](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/container.go#L37-L53)
+- M8-10 enables requests that create bind mounts after the agent and active host share checks are integrated. Until then, the daemon refuses container creation through `AgentOps`.
 
 ## Tools
 
@@ -140,7 +145,8 @@ Logs, exec output, image labels and container names are data from the workload. 
 - Each MCP client is identified at first connection (name reported by the client, plus the launching process where it can be determined) and shown to the user.
 - Grants are stored per client and per project directory in `~/.marsa/state/grants.json`, visible and revocable in Settings and with `marsa agents`.
 - An approval can grant one ordinary Operate action for the authenticated client and the project directory. The daemon binds it to the canonical path and filesystem identity. Reusing the path for a different directory requires a new grant.
-- Grants expire after 30 days of disuse. An operation that actually uses a grant renews it. Factory reset clears the grants.
+- Grants expire after 30 days of disuse. An operation that actually uses a grant renews it. Factory reset clears the grants and publishes an empty grant list. Grant reads and revocation return an unavailable result while a factory reset is in progress or storage recovery is required.
+- Factory reset leaves current read-only sessions subject to their original expiry and project identity checks. These sessions can query engine status. They carry no grant-based authority to mutate workloads.
 - The daemon stores the versioned grant document with owner-only permissions and replaces it atomically. If the file is malformed or unsafe, the daemon treats it as unavailable for authorizing an operation.
 
 ## Audit log

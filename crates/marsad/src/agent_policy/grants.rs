@@ -77,6 +77,10 @@ impl GrantScope {
         })
     }
 
+    pub(crate) fn project(&self) -> &str {
+        &self.project
+    }
+
     fn validate(&self) -> bool {
         valid_id(&self.client_id) && valid_path(&self.project)
     }
