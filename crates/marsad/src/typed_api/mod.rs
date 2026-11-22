@@ -17,6 +17,7 @@ mod proxy_policy;
 mod requests;
 mod reset;
 mod settings;
+mod settings_feedback;
 mod shares;
 mod stats;
 

@@ -9,6 +9,7 @@ use marsa_client::{
         DiskCategory, DiskReclaimRequest, DiskUsageRequest, DiskUsageResponse, PrunePreviewRequest,
         PrunePreviewResponse,
     },
+    l10n::keys,
 };
 use serde_json::{Value, json};
 
@@ -38,19 +39,22 @@ pub(super) async fn reclaim(language: Language) -> Result<Outcome, Failure> {
         .into_inner();
     let usage = result.usage.ok_or(Failure::Reclaim)?;
     let (usage, details) = report(&usage, language);
-    let host = language.text(
-        "Host space reclaimed (bytes)",
-        "المساحة المستردة على المضيف (بايت)",
+    let host = language.message(
+        keys::CLI_DISK_RECLAIM_HOST,
+        &[(
+            "bytes",
+            &language.technical(&result.host_reclaimed_bytes.to_string()),
+        )],
     );
-    let guest = language.text(
-        "Guest space submitted for discard (bytes)",
-        "المساحة التي طلب الضيف تحريرها (بايت)",
+    let guest = language.message(
+        keys::CLI_DISK_RECLAIM_GUEST,
+        &[(
+            "bytes",
+            &language.technical(&result.guest_trimmed_bytes.to_string()),
+        )],
     );
     Ok(Outcome::Data {
-        text: format!(
-            "{host} {}\n{guest} {}\n{details}",
-            result.host_reclaimed_bytes, result.guest_trimmed_bytes
-        ),
+        text: format!("{host}\n{guest}\n{details}"),
         document: json!({
             "schema_version": 1,
             "kind": "disk_reclaim",
@@ -92,9 +96,8 @@ pub(super) async fn preview_cleanup(
 }
 
 fn cleanup_report(preview: &PrunePreviewResponse, language: Language) -> Outcome {
-    let heading = language.text("Read-only cleanup preview", "معاينة التنظيف للقراءة فقط");
-    let unavailable = language.text("estimate unavailable", "التقدير غير متاح");
-    let bytes = language.text("bytes", "بايت");
+    let heading = language.label(keys::CLI_DISK_PREVIEW_HEADING);
+    let unavailable = language.label(keys::CLI_DISK_PREVIEW_ESTIMATE_UNAVAILABLE);
     let mut text = format!("{heading}\n");
     let mut last = None;
     let mut candidates = Vec::with_capacity(preview.candidates.len());
@@ -109,10 +112,23 @@ fn cleanup_report(preview: &PrunePreviewResponse, language: Language) -> Outcome
         } else {
             format!("{} ({})", row.name, row.id)
         };
-        let estimate = row
-            .size_bytes
-            .map_or_else(|| unavailable.to_owned(), |size| format!("{size} {bytes}"));
-        let _ = writeln!(text, "  {name}  {estimate}");
+        let estimate = row.size_bytes.map_or_else(
+            || unavailable.to_owned(),
+            |size| {
+                language.message(
+                    keys::CLI_DISK_PREVIEW_BYTES,
+                    &[("size", &language.technical(&size.to_string()))],
+                )
+            },
+        );
+        let item = language.message(
+            keys::CLI_DISK_PREVIEW_ITEM,
+            &[
+                ("name", &language.technical(&name)),
+                ("estimate", &estimate),
+            ],
+        );
+        let _ = writeln!(text, "  {item}");
         candidates.push(json!({
             "category": category_key(category),
             "id": row.id,
@@ -125,17 +141,20 @@ fn cleanup_report(preview: &PrunePreviewResponse, language: Language) -> Outcome
         .iter()
         .filter_map(|value| DiskCategory::try_from(*value).ok())
         .map(|category| {
-            let label = category_name(category, language);
-            let missing = language.text("inventory unavailable", "قائمة الموارد غير متاحة");
-            let _ = writeln!(text, "{label}  {missing}");
+            let row = language.message(
+                keys::CLI_DISK_PREVIEW_MISSING_INVENTORY,
+                &[("category", category_name(category, language))],
+            );
+            let _ = writeln!(text, "{row}");
             category_key(category)
         })
         .collect();
-    let total = language.text("Estimated guest bytes", "إجمالي البايتات المقدّر في الضيف");
-    let estimate = preview
-        .estimated_reclaimable_bytes
-        .map_or_else(|| unavailable.to_owned(), |size| size.to_string());
-    let _ = writeln!(text, "{total}  {estimate}");
+    let estimate = preview.estimated_reclaimable_bytes.map_or_else(
+        || unavailable.to_owned(),
+        |size| language.technical(&size.to_string()),
+    );
+    let total = language.message(keys::CLI_DISK_PREVIEW_TOTAL, &[("estimate", &estimate)]);
+    let _ = writeln!(text, "{total}");
     Outcome::Data {
         text,
         document: json!({
@@ -169,41 +188,27 @@ fn connection_failure(error: ClientError) -> Failure {
 }
 
 fn report(usage: &DiskUsageResponse, language: Language) -> (Value, String) {
-    let allocated = language.text(
-        "Host allocation (bytes)",
-        "المساحة المخصّصة على المضيف (بايت)",
-    );
-    let capacity = language.text(
-        "Host image capacity (bytes)",
-        "سعة صورة القرص على المضيف (بايت)",
-    );
+    let row = |key, bytes: u64| {
+        language.message(key, &[("bytes", &language.technical(&bytes.to_string()))])
+    };
     let mut text = format!(
-        "{allocated} {}\n{capacity} {}\n",
-        usage.host_allocated_bytes, usage.host_capacity_bytes,
+        "{}\n{}\n",
+        row(keys::CLI_DISK_HOST_ALLOCATION, usage.host_allocated_bytes),
+        row(keys::CLI_DISK_HOST_CAPACITY, usage.host_capacity_bytes),
     );
     let guest = if usage.guest_usage_available {
-        let used = language.text(
-            "Guest filesystem used (bytes)",
-            "المساحة المستخدمة في نظام ملفات الضيف (بايت)",
-        );
-        let capacity = language.text(
-            "Guest filesystem capacity (bytes)",
-            "سعة نظام ملفات الضيف (بايت)",
-        );
         let _ = writeln!(
             text,
-            "{used} {}\n{capacity} {}",
-            usage.guest_used_bytes, usage.guest_capacity_bytes
+            "{}\n{}",
+            row(keys::CLI_DISK_GUEST_USED, usage.guest_used_bytes),
+            row(keys::CLI_DISK_GUEST_CAPACITY, usage.guest_capacity_bytes),
         );
         Some(json!({
             "used_bytes": usage.guest_used_bytes,
             "capacity_bytes": usage.guest_capacity_bytes,
         }))
     } else {
-        let unavailable = language.text(
-            "Guest filesystem usage is unavailable",
-            "استخدام نظام ملفات الضيف غير متاح",
-        );
+        let unavailable = language.label(keys::CLI_DISK_GUEST_UNAVAILABLE);
         let _ = writeln!(text, "{unavailable}");
         None
     };
@@ -212,14 +217,18 @@ fn report(usage: &DiskUsageResponse, language: Language) -> (Value, String) {
         .iter()
         .map(|item| {
             let category = item.category();
-            let label = category_name(category, language);
-            let used = language.text("used bytes", "بايت مستخدم");
-            let reclaimable = language.text("reclaimable bytes", "بايت قابل للاسترداد");
-            let _ = writeln!(
-                text,
-                "{label} {} {used}, {} {reclaimable}",
-                item.used_bytes, item.reclaimable_bytes
+            let message = language.message(
+                keys::CLI_DISK_CATEGORY_USAGE,
+                &[
+                    ("category", category_name(category, language)),
+                    ("used", &language.technical(&item.used_bytes.to_string())),
+                    (
+                        "reclaimable",
+                        &language.technical(&item.reclaimable_bytes.to_string()),
+                    ),
+                ],
             );
+            let _ = writeln!(text, "{message}");
             json!({
                 "category": category_key(category),
                 "used_bytes": item.used_bytes,
@@ -251,12 +260,12 @@ fn category_key(category: DiskCategory) -> String {
 
 fn category_name(category: DiskCategory, language: Language) -> &'static str {
     match category {
-        DiskCategory::Containers => language.text("Containers", "الحاويات"),
-        DiskCategory::Images => language.text("Images", "الصور"),
-        DiskCategory::Volumes => language.text("Volumes", "وحدات التخزين"),
-        DiskCategory::Networks => language.text("Networks", "الشبكات"),
-        DiskCategory::BuildCache => language.text("Build cache", "ذاكرة البناء المؤقتة"),
-        DiskCategory::Unspecified => language.text("Other disk usage", "استخدامات القرص الأخرى"),
+        DiskCategory::Containers => language.label(keys::CLI_DISK_CONTAINERS),
+        DiskCategory::Images => language.label(keys::CLI_DISK_IMAGES),
+        DiskCategory::Volumes => language.label(keys::CLI_DISK_VOLUMES),
+        DiskCategory::Networks => language.label(keys::CLI_DISK_NETWORKS),
+        DiskCategory::BuildCache => language.label(keys::CLI_DISK_BUILD_CACHE),
+        DiskCategory::Unspecified => language.label(keys::CLI_DISK_OTHER),
     }
 }
 

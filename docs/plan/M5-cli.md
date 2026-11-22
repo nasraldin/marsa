@@ -80,7 +80,7 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 
 ### M5-07 CLI localisation
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M5-03, M6-12
 - **Docs:** [08 Internationalisation](../08-gui.md#internationalisation)
 - **Do:** Localise human-readable CLI output in English and Arabic using the shared translation system, following the system language with an override flag and environment variable. Keep `--json`, command names and flags in English. Isolate technical values as left-to-right in Arabic output.
@@ -88,6 +88,7 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 - **Accept when:**
   - Every CLI message has both translations (build fails otherwise).
   - Arabic output with embedded container names and paths reads correctly in a terminal that supports bidirectional text, and remains unambiguous in one that does not.
+- **Evidence:** Both catalogs validate at build time. CLI fixtures cover locale precedence, confirmations, English JSON, and raw redirected output. A disposable daemon and pseudo-terminal verified safe TOML display and Arabic share and settings rejections. FriBidi verified directional rendering of an isolated mixed-script path. An older daemon retained its diagnostic in human output while JSON stayed English.
 
 ### M5-08 Preview unused guest storage
 

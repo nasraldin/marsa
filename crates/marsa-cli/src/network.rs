@@ -5,6 +5,7 @@ use std::{fmt::Write as _, net::Ipv4Addr};
 use marsa_client::{
     DaemonEndpoint, MarsaClient,
     api::{NetworkMode, NetworkStatus, NetworkStatusRequest, SetNetworkModeRequest},
+    l10n::keys,
 };
 use serde_json::json;
 
@@ -65,15 +66,9 @@ fn parse_mode(value: &str) -> Result<NetworkMode, Failure> {
 fn report_mode(status: &NetworkStatus, language: Language) -> Outcome {
     let mut text = mode_lines(status, language);
     let pending = match status.restart_pending {
-        Some(true) => language.text(
-            "Restart pending. The saved mode will take effect on the next start.",
-            "إعادة التشغيل معلّقة. سيسري الوضع المحفوظ عند بدء التشغيل التالي.",
-        ),
-        Some(false) => language.text("No restart is pending.", "لا توجد إعادة تشغيل معلّقة."),
-        None => language.text(
-            "Restart status is unknown.",
-            "حالة إعادة التشغيل غير معروفة.",
-        ),
+        Some(true) => language.label(keys::CLI_NETWORK_RESTART_PENDING),
+        Some(false) => language.label(keys::CLI_NETWORK_RESTART_CURRENT),
+        None => language.label(keys::CLI_NETWORK_RESTART_UNKNOWN),
     };
     let _ = writeln!(text, "{pending}");
     Outcome::Data {
@@ -103,23 +98,31 @@ fn report(status: &NetworkStatus, language: Language) -> Outcome {
     if let Some(reason) = reason {
         let _ = writeln!(
             text,
-            "{} \u{2068}{}\u{2069}",
-            language.text("Connectivity check", "فحص الاتصال"),
-            reason.escape_debug()
+            "{}",
+            language.message(
+                keys::CLI_NETWORK_CONNECTIVITY,
+                &[("value", &language.technical(reason))]
+            )
         );
     }
     if let Some(guest) = guest {
         let _ = writeln!(
             text,
-            "{} \u{2068}{guest}\u{2069}",
-            language.text("Guest IPv4", "عنوان IPv4 للضيف")
+            "{}",
+            language.message(
+                keys::CLI_NETWORK_GUEST_ADDRESS,
+                &[("value", &language.technical(&guest.to_string()))]
+            )
         );
     }
     if let Some(gateway) = gateway {
         let _ = writeln!(
             text,
-            "{} \u{2068}{gateway}\u{2069}",
-            language.text("Gateway IPv4", "عنوان IPv4 للبوابة")
+            "{}",
+            language.message(
+                keys::CLI_NETWORK_GATEWAY_ADDRESS,
+                &[("value", &language.technical(&gateway.to_string()))]
+            )
         );
     }
     Outcome::Data {
@@ -138,11 +141,15 @@ fn report(status: &NetworkStatus, language: Language) -> Outcome {
 
 fn mode_lines(status: &NetworkStatus, language: Language) -> String {
     format!(
-        "{} {}\n{} {}\n",
-        language.text("Configured mode", "الوضع المضبوط"),
-        mode_text(status.configured_mode(), language),
-        language.text("Active mode", "الوضع النشط"),
-        mode_text(status.active_mode(), language),
+        "{}\n{}\n",
+        language.message(
+            keys::CLI_NETWORK_CONFIGURED_MODE,
+            &[("mode", mode_text(status.configured_mode(), language))]
+        ),
+        language.message(
+            keys::CLI_NETWORK_ACTIVE_MODE,
+            &[("mode", mode_text(status.active_mode(), language))]
+        ),
     )
 }
 
@@ -161,10 +168,10 @@ fn mode_id(mode: NetworkMode) -> Option<&'static str> {
 
 fn mode_text(mode: NetworkMode, language: Language) -> &'static str {
     match mode {
-        NetworkMode::Auto => language.text("Automatic", "تلقائي"),
-        NetworkMode::Nat => language.text("Native NAT", "NAT الأصلي"),
-        NetworkMode::Userspace => language.text("User-space", "وضع المستخدم"),
-        NetworkMode::Unspecified => language.text("Unavailable", "غير متاح"),
+        NetworkMode::Auto => language.label(keys::CLI_NETWORK_AUTOMATIC),
+        NetworkMode::Nat => language.label(keys::CLI_NETWORK_NAT),
+        NetworkMode::Userspace => language.label(keys::CLI_NETWORK_USERSPACE),
+        NetworkMode::Unspecified => language.label(keys::CLI_NETWORK_UNAVAILABLE),
     }
 }
 

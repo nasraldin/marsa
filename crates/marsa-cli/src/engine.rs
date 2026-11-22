@@ -14,6 +14,7 @@ use marsa_client::{
         LogEntry, LogsRequest, VmStatsRequest, VmStatsSample, daemon_event::Body,
     },
     docker_socket_path,
+    l10n::{MessageKey, keys},
 };
 use serde_json::{Value, json};
 
@@ -62,7 +63,7 @@ impl Command {
             Self::Status => status(&client, language).await,
             Self::Version => Ok(version(&client, language)),
             Self::Lifecycle(action) => lifecycle(&client, action, language, machine).await,
-            Self::Logs { follow } => logs(&client, follow, machine).await,
+            Self::Logs { follow } => logs(&client, language, follow, machine).await,
         }
     }
 }
@@ -117,22 +118,24 @@ async fn status(client: &MarsaClient, language: Language) -> Result<Outcome, Fai
     let mut text = engine_text(language, &engine);
     text.push_str(&versions_text(client, language));
     if let Some(stats) = &resources {
-        let cpu = language.text(
-            "Cumulative CPU time (ns)",
-            "وقت المعالج التراكمي (نانوثانية)",
-        );
-        let memory = language.text("Memory (bytes)", "الذاكرة (بايت)");
-        let disk = language.text("Guest disk (bytes)", "قرص النظام الضيف (بايت)");
-        let _ = writeln!(text, "{cpu} {}", stats.cpu_busy_nanos);
         let _ = writeln!(
             text,
-            "{memory} {}/{}",
-            stats.memory_used_bytes, stats.memory_total_bytes
-        );
-        let _ = writeln!(
-            text,
-            "{disk} {}/{}",
-            stats.disk_used_bytes, stats.disk_total_bytes
+            "{}\n{}\n{}",
+            technical_row(
+                language,
+                keys::CLI_ENGINE_CPU_TIME,
+                &stats.cpu_busy_nanos.to_string()
+            ),
+            technical_row(
+                language,
+                keys::CLI_ENGINE_MEMORY,
+                &format!("{}/{}", stats.memory_used_bytes, stats.memory_total_bytes)
+            ),
+            technical_row(
+                language,
+                keys::CLI_ENGINE_DISK,
+                &format!("{}/{}", stats.disk_used_bytes, stats.disk_total_bytes)
+            ),
         );
     }
     Ok(Outcome::Data {
@@ -187,18 +190,30 @@ fn versions_data(client: &MarsaClient) -> Value {
 
 fn versions_text(client: &MarsaClient, language: Language) -> String {
     let version = client.version();
-    let cli = language.text("Marsa CLI", "سطر أوامر مرسى");
-    let daemon = language.text("Marsa daemon", "خادم مرسى");
-    let api = language.text("Daemon API", "واجهة الخادم");
     let mut text = format!(
-        "{cli} {}\n{daemon} {}\n{api} {}.{}\n",
-        env!("CARGO_PKG_VERSION"),
-        version.daemon_version,
-        version.api_major,
-        client.api_minor(),
+        "{}\n{}\n{}\n",
+        technical_row(
+            language,
+            keys::CLI_ENGINE_CLI_VERSION,
+            env!("CARGO_PKG_VERSION")
+        ),
+        technical_row(
+            language,
+            keys::CLI_ENGINE_DAEMON_VERSION,
+            &version.daemon_version
+        ),
+        technical_row(
+            language,
+            keys::CLI_ENGINE_API_VERSION,
+            &format!("{}.{}", version.api_major, client.api_minor())
+        ),
     );
     for component in &version.components {
-        let _ = writeln!(text, "{} {}", component.name, component.version);
+        let _ = writeln!(
+            text,
+            "{}",
+            language.technical(&format!("{} {}", component.name, component.version))
+        );
     }
     text
 }
@@ -228,9 +243,9 @@ impl Action {
 
     fn progress(self, language: Language) -> &'static str {
         match self {
-            Self::Start => language.text("Starting the engine…", "جارٍ تشغيل المحرك…"),
-            Self::Stop => language.text("Stopping the engine…", "جارٍ إيقاف المحرك…"),
-            Self::Restart => language.text("Restarting the engine…", "جارٍ إعادة تشغيل المحرك…"),
+            Self::Start => language.label(keys::CLI_ENGINE_STARTING_ENGINE),
+            Self::Stop => language.label(keys::CLI_ENGINE_STOPPING_ENGINE),
+            Self::Restart => language.label(keys::CLI_ENGINE_RESTARTING_ENGINE),
         }
     }
 }
@@ -332,44 +347,54 @@ fn engine_data(engine: &EngineStatus) -> Value {
 }
 
 fn engine_text(language: Language, engine: &EngineStatus) -> String {
-    let state = language.text("Engine state", "حالة المحرك");
-    let backend = language.text("VM backend", "واجهة تشغيل الآلة الافتراضية");
-    let health = language.text("Guest engine health", "سلامة محرك النظام الضيف");
     format!(
-        "{state} {}\n{backend} {}\n{health} {}\n",
-        state_name(language, engine.state()),
-        engine.backend,
-        health_name(language, engine.guest_health()),
+        "{}\n{}\n{}\n",
+        language.message(
+            keys::CLI_ENGINE_STATE,
+            &[("state", state_name(language, engine.state()))]
+        ),
+        technical_row(language, keys::CLI_ENGINE_BACKEND, &engine.backend),
+        language.message(
+            keys::CLI_ENGINE_GUEST_HEALTH,
+            &[("state", health_name(language, engine.guest_health()))]
+        ),
     )
+}
+
+fn technical_row(language: Language, key: MessageKey, value: &str) -> String {
+    language.message(key, &[("value", &language.technical(value))])
 }
 
 fn state_name(language: Language, state: EngineState) -> &'static str {
     match state {
-        EngineState::Stopped => language.text("Stopped", "متوقف"),
-        EngineState::Starting => language.text("Starting", "جارٍ التشغيل"),
-        EngineState::Booting => {
-            language.text("Booting the virtual machine", "جارٍ إقلاع الآلة الافتراضية")
-        }
-        EngineState::Ready => language.text("Ready", "جاهز"),
-        EngineState::Idle => language.text("Idle", "خامل"),
-        EngineState::Paused => language.text("Paused", "متوقف مؤقتًا"),
-        EngineState::Stopping => language.text("Stopping", "جارٍ الإيقاف"),
-        EngineState::Failed => language.text("Failed", "فشل"),
-        EngineState::Unspecified => language.text("Unknown", "غير معروف"),
+        EngineState::Stopped => language.label(keys::CLI_ENGINE_STATE_STOPPED),
+        EngineState::Starting => language.label(keys::CLI_ENGINE_STATE_STARTING),
+        EngineState::Booting => language.label(keys::CLI_ENGINE_STATE_BOOTING),
+        EngineState::Ready => language.label(keys::CLI_ENGINE_STATE_READY),
+        EngineState::Idle => language.label(keys::CLI_ENGINE_STATE_IDLE),
+        EngineState::Paused => language.label(keys::CLI_ENGINE_STATE_PAUSED),
+        EngineState::Stopping => language.label(keys::CLI_ENGINE_STATE_STOPPING),
+        EngineState::Failed => language.label(keys::CLI_ENGINE_STATE_FAILED),
+        EngineState::Unspecified => language.label(keys::CLI_ENGINE_STATE_UNKNOWN),
     }
 }
 
 fn health_name(language: Language, state: EngineHealthState) -> &'static str {
     match state {
-        EngineHealthState::Starting => language.text("Starting", "جارٍ التشغيل"),
-        EngineHealthState::Ready => language.text("Ready", "جاهز"),
-        EngineHealthState::Unhealthy => language.text("Unhealthy", "غير سليم"),
-        EngineHealthState::Restarting => language.text("Restarting", "جارٍ إعادة التشغيل"),
-        EngineHealthState::Unspecified => language.text("Unknown", "غير معروف"),
+        EngineHealthState::Starting => language.label(keys::CLI_ENGINE_STATE_STARTING),
+        EngineHealthState::Ready => language.label(keys::CLI_ENGINE_STATE_READY),
+        EngineHealthState::Unhealthy => language.label(keys::CLI_ENGINE_HEALTH_UNHEALTHY),
+        EngineHealthState::Restarting => language.label(keys::CLI_ENGINE_HEALTH_RESTARTING),
+        EngineHealthState::Unspecified => language.label(keys::CLI_ENGINE_STATE_UNKNOWN),
     }
 }
 
-async fn logs(client: &MarsaClient, follow: bool, machine: bool) -> Result<Outcome, Failure> {
+async fn logs(
+    client: &MarsaClient,
+    language: Language,
+    follow: bool,
+    machine: bool,
+) -> Result<Outcome, Failure> {
     let mut stream = client
         .diagnostics()
         .logs(LogsRequest {
@@ -382,7 +407,7 @@ async fn logs(client: &MarsaClient, follow: bool, machine: bool) -> Result<Outco
     let mut text = String::new();
     let mut entries = Vec::new();
     while let Some(entry) = stream.message().await.map_err(|_| Failure::Operation)? {
-        let line = log_text(&entry);
+        let line = log_text(&entry, language);
         if follow {
             let result = if machine {
                 let record =
@@ -415,11 +440,12 @@ async fn logs(client: &MarsaClient, follow: bool, machine: bool) -> Result<Outco
     })
 }
 
-fn log_text(entry: &LogEntry) -> String {
-    format!(
-        "{} {} {} {}\n",
+fn log_text(entry: &LogEntry, language: Language) -> String {
+    let row = format!(
+        "{} {} {} {}",
         entry.at_unix_millis, entry.component, entry.level, entry.message
-    )
+    );
+    format!("{}\n", language.technical(&row))
 }
 
 fn log_data(entry: &LogEntry) -> Value {
@@ -429,4 +455,28 @@ fn log_data(entry: &LogEntry) -> Value {
         "level": entry.level,
         "message": entry.message,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn localizes_the_complete_engine_row_without_modifying_protocol_values() {
+        let engine = EngineStatus {
+            state: EngineState::Ready.into(),
+            guest_health: EngineHealthState::Ready.into(),
+            backend: "fixture\u{202e}".into(),
+            ..Default::default()
+        };
+        let english = engine_text(Language::English, &engine);
+        assert!(english.starts_with("Engine state Ready\n"));
+        assert!(english.contains("VM backend fixture\\u{202e}"));
+        assert!(!english.contains('\u{2066}'));
+        let arabic = engine_text(Language::Arabic, &engine);
+        assert!(arabic.starts_with("حالة المحرك جاهز\n"));
+        assert!(arabic.contains("\u{2066}fixture\\u{202e}\u{2069}"));
+        assert!(!arabic.contains('\u{2068}'));
+        assert_eq!(engine_data(&engine)["backend"], "fixture\u{202e}");
+    }
 }

@@ -9,6 +9,7 @@ use marsa_client::{
         CollectDiagnosticsRequest, ConfirmFactoryReset, PrepareFactoryReset, PrepareSettingsReset,
         ResetRequest, ResetSettings, reset_request::Action, reset_response::Result as ResetResult,
     },
+    l10n::keys,
 };
 use serde_json::json;
 
@@ -44,10 +45,13 @@ async fn diagnose(language: Language) -> Result<Outcome, Failure> {
     if path.is_empty() {
         return Err(Failure::Operation);
     }
-    let label = language.text("Diagnostics archive created at", "أُنشئ أرشيف التشخيص في");
+    let message = language.message(
+        keys::CLI_MAINTENANCE_DIAGNOSE_PATH,
+        &[("path", &language.technical(&path))],
+    );
     Ok(Outcome::Data {
         document: json!({"schema_version": 1, "kind": "diagnose", "bundle_path": path}),
-        text: format!("{label} {path}\n"),
+        text: format!("{message}\n"),
     })
 }
 
@@ -83,12 +87,12 @@ async fn reset(factory: bool, language: Language, yes: bool) -> Result<Outcome, 
     let (scope, message) = if factory {
         (
             "factory",
-            language.text("Factory reset completed.", "اكتملت إعادة ضبط المصنع."),
+            language.label(keys::CLI_MAINTENANCE_FACTORY_RESET_COMPLETED),
         )
     } else {
         (
             "settings",
-            language.text("Marsa settings reset.", "أُعيد ضبط إعدادات مرسى."),
+            language.label(keys::CLI_MAINTENANCE_SETTINGS_RESET_COMPLETED),
         )
     };
     Ok(Outcome::Data {
@@ -133,23 +137,15 @@ fn confirm(
     input: impl BufRead,
     mut output: impl Write,
 ) -> Result<(), Failure> {
-    let (phrase, prompt) = if factory {
-        (
-            "FACTORY RESET",
-            language.text(
-                "This erases Marsa settings and VM data. Type FACTORY RESET to continue.",
-                "سيؤدي هذا إلى مسح إعدادات مرسى وبيانات الآلة الافتراضية. اكتب FACTORY RESET للمتابعة.",
-            ),
-        )
+    let (phrase, key) = if factory {
+        ("FACTORY RESET", keys::CLI_MAINTENANCE_FACTORY_RESET_PROMPT)
     } else {
         (
             "RESET SETTINGS",
-            language.text(
-                "This resets Marsa settings. Type RESET SETTINGS to continue.",
-                "سيؤدي هذا إلى إعادة ضبط إعدادات مرسى. اكتب RESET SETTINGS للمتابعة.",
-            ),
+            keys::CLI_MAINTENANCE_SETTINGS_RESET_PROMPT,
         )
     };
+    let prompt = language.message(key, &[("phrase", &language.technical(phrase))]);
     writeln!(output, "{prompt}").map_err(|_| Failure::Operation)?;
     output.flush().map_err(|_| Failure::Operation)?;
     let mut line = String::new();

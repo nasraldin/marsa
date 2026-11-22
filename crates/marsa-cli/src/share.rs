@@ -6,6 +6,7 @@ use clap::ArgMatches;
 use marsa_client::{
     DaemonEndpoint, MarsaClient,
     api::{BindApprovalDecision, ResolveBindRequest, daemon_event::Body},
+    l10n::keys,
 };
 use serde_json::{Value, json};
 
@@ -87,12 +88,9 @@ impl Command<'_> {
                     .map_err(|_| Failure::BindResolution)?
                     .into_inner();
                 let status = if result.requires_restart {
-                    language.text(
-                        "Share approved. Run marsa restart when your workloads can stop, then retry the Docker command.",
-                        "تمت الموافقة. شغّل marsa restart عندما يمكن إيقاف حمولات العمل، ثم أعد أمر Docker.",
-                    )
+                    language.label(keys::CLI_SHARE_BIND_APPROVED)
                 } else {
-                    language.text("Bind request denied.", "تم رفض طلب الوصل.")
+                    language.label(keys::CLI_SHARE_BIND_DENIED)
                 };
                 Ok(Outcome::Data {
                     document: json!({
@@ -121,18 +119,14 @@ async fn list(client: &MarsaClient, language: Language) -> Result<Outcome, Failu
         .approvals;
     let mut text = String::new();
     if approvals.is_empty() {
-        let _ = writeln!(
-            text,
-            "{}",
-            language.text("No pending bind approvals.", "لا توجد طلبات موافقة معلّقة."),
-        );
+        let _ = writeln!(text, "{}", language.label(keys::CLI_SHARE_NO_APPROVALS),);
     }
     let mut records = Vec::<Value>::with_capacity(approvals.len());
     for approval in approvals {
-        let _ = writeln!(text, "{}", approval.id);
+        let _ = writeln!(text, "{}", language.technical(&approval.id));
         for directory in &approval.directories {
             // Escape bidi override and terminal controls in user-supplied file names.
-            let _ = writeln!(text, "  \u{2068}{}\u{2069}", directory.escape_debug());
+            let _ = writeln!(text, "  {}", language.technical(directory));
         }
         records.push(json!({
             "id": approval.id,

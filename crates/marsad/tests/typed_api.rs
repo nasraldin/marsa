@@ -459,6 +459,58 @@ async fn collects_one_private_archive_and_omits_secrets() {
 }
 
 #[tokio::test]
+async fn configuration_rejections_carry_safe_typed_details() {
+    use marsa_proto::host::v1::{ConfigurationIssue, configuration_issue::Reason};
+
+    let fixture = Fixture::new(vec![]).await;
+    let mut settings = SettingsClient::new(fixture.channel.clone());
+    let snapshot = settings
+        .get(GetSettingsRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    for (index, document, reason, field) in [
+        (
+            1,
+            "[vm]\ncpus = 0",
+            Reason::SettingsInvalidCpus,
+            Some("vm.cpus"),
+        ),
+        (
+            2,
+            "[network.proxy]\nhttps = 'http://secret-marker@proxy.invalid'",
+            Reason::SettingsInvalidProxy,
+            Some("network.proxy.https"),
+        ),
+        (3, "[broken\nsecret-marker", Reason::SettingsToml, None),
+    ] {
+        let error = settings
+            .update(UpdateSettingsRequest {
+                request_id: format!("90000000-0000-4000-8000-{index:012}"),
+                expected_revision: snapshot.revision,
+                settings_toml: document.into(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), Code::InvalidArgument);
+        let issue = ConfigurationIssue::from_status(&error).unwrap();
+        assert_eq!(issue.reason(), reason);
+        assert_eq!(issue.field.as_deref(), field);
+        assert!(!error.message().contains("secret-marker"));
+        assert!(!format!("{issue:?}").contains("secret-marker"));
+        if reason == Reason::SettingsToml {
+            assert!(issue.line.is_some() && issue.column.is_some());
+        }
+    }
+    let saved = settings
+        .get(GetSettingsRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(saved, snapshot);
+}
+
+#[tokio::test]
 async fn shares_validate_canonical_paths_and_share_settings_revisions() {
     let fixture = Fixture::new(Vec::new()).await;
     let mut shares = SharesClient::new(fixture.channel.clone());
@@ -482,10 +534,14 @@ async fn shares_validate_canonical_paths_and_share_settings_revisions() {
         ..Default::default()
     };
     for (id, path) in [(1, root.root()), (2, root.root().parent().unwrap())] {
+        let error = shares.add(add(id, path)).await.unwrap_err();
+        assert_eq!(error.code(), Code::PermissionDenied);
+        let issue = marsa_proto::host::v1::ConfigurationIssue::from_status(&error).unwrap();
         assert_eq!(
-            shares.add(add(id, path)).await.unwrap_err().code(),
-            Code::PermissionDenied
+            issue.reason(),
+            marsa_proto::host::v1::configuration_issue::Reason::ShareProtected
         );
+        assert!(issue.field.is_none());
     }
     let document = Settings::from_toml(&snapshot.settings_toml).unwrap();
     let mut unsafe_document = document.clone();

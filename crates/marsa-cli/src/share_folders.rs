@@ -5,15 +5,17 @@ use std::fmt::Write as _;
 use clap::ArgMatches;
 use marsa_client::{
     DaemonEndpoint,
-    api::{AddShareRequest, ListSharesRequest, RemoveShareRequest, Share},
+    api::{AddShareRequest, ConfigurationIssue, ListSharesRequest, RemoveShareRequest, Share},
+    l10n::keys,
 };
 use serde_json::json;
 
 use crate::{
     Failure, Outcome,
     command::Language,
+    configuration_feedback::rejection,
     engine::{connection_failure, request_id},
-    settings::{rejection, saved},
+    settings::saved,
 };
 
 pub(super) async fn run(args: &ArgMatches, language: Language) -> Option<Outcome> {
@@ -40,18 +42,21 @@ async fn apply(name: &str, args: &ArgMatches, language: Language) -> Result<Outc
             let response = shares.list(ListSharesRequest {}).await;
             let entries = match response {
                 Ok(response) => response.into_inner().shares,
-                Err(error) => return Ok(rejection(language, error.message())),
+                Err(error) => {
+                    return Ok(rejection(
+                        language,
+                        ConfigurationIssue::from_status(&error),
+                        (client.api_minor() < ConfigurationIssue::API_MINOR)
+                            .then(|| error.message()),
+                    ));
+                }
             };
             let mut text = String::new();
             if entries.is_empty() {
-                let _ = writeln!(
-                    text,
-                    "{}",
-                    language.text("No shared folders.", "لا توجد مجلدات مشتركة.")
-                );
+                let _ = writeln!(text, "{}", language.label(keys::CLI_SHARE_FOLDERS_EMPTY));
             }
             for entry in &entries {
-                let _ = writeln!(text, "\u{2068}{}\u{2069}", entry.host_path.escape_debug());
+                let _ = writeln!(text, "{}", language.technical(&entry.host_path));
             }
             Ok(Outcome::Data {
                 text,
@@ -81,7 +86,11 @@ async fn apply(name: &str, args: &ArgMatches, language: Language) -> Result<Outc
                         document: json!({"schema_version": 1, "kind": "share_added", "share": share_json(&share)}),
                     })
                 }
-                Err(error) => Ok(rejection(language, error.message())),
+                Err(error) => Ok(rejection(
+                    language,
+                    ConfigurationIssue::from_status(&error),
+                    (client.api_minor() < ConfigurationIssue::API_MINOR).then(|| error.message()),
+                )),
             }
         }
         "remove" => {
@@ -103,7 +112,11 @@ async fn apply(name: &str, args: &ArgMatches, language: Language) -> Result<Outc
                         }),
                     })
                 }
-                Err(error) => Ok(rejection(language, error.message())),
+                Err(error) => Ok(rejection(
+                    language,
+                    ConfigurationIssue::from_status(&error),
+                    (client.api_minor() < ConfigurationIssue::API_MINOR).then(|| error.message()),
+                )),
             }
         }
         _ => Err(Failure::Usage),

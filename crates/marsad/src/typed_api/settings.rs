@@ -71,7 +71,7 @@ impl TypedApi {
         let (snapshot, ()) = self
             .edit_settings(Some(expected), move |current, policy| {
                 let mut desired = Document::from_toml(&text)
-                    .map_err(|error| Status::invalid_argument(error.to_string()))?;
+                    .map_err(super::settings_feedback::settings_status)?;
                 if desired.shares != current.shares {
                     desired.shares = Allowlist::from_paths(policy.clone(), &desired.shares)
                         .map_err(super::shares::policy_status)?
@@ -117,7 +117,9 @@ impl TypedApi {
         let (prior, once) = self.inner.events.boot_configuration();
         let snapshot = self.inner.events.settings_snapshot();
         if expected.is_some_and(|revision| revision != snapshot.revision) {
-            return Err(Status::aborted(
+            return Err(super::settings_feedback::reason(
+                tonic::Code::Aborted,
+                marsa_proto::host::v1::configuration_issue::Reason::SettingsStale,
                 "settings revision changed; load the latest settings",
             ));
         }
@@ -136,7 +138,9 @@ impl TypedApi {
                 && settings.network.mode != NetworkMode::Userspace
                 && proxy.is_some_and(|runtime| runtime.has_approved_proxy())
             {
-                return Err(Status::failed_precondition(
+                return Err(super::settings_feedback::reason(
+                    tonic::Code::FailedPrecondition,
+                    marsa_proto::host::v1::configuration_issue::Reason::SettingsProxyEnabled,
                     "disable the approved daemon proxy before changing network mode",
                 ));
             }
@@ -152,7 +156,7 @@ impl TypedApi {
             }
             let text = settings
                 .to_toml()
-                .map_err(|error| Status::invalid_argument(error.to_string()))?;
+                .map_err(super::settings_feedback::settings_status)?;
             storage::persist(&root, uid, &text, prepared.as_ref()).map_err(
                 |error| match error {
                     WriteError::Changed => Status::aborted(error.to_string()),

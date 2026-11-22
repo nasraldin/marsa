@@ -79,6 +79,13 @@ must match the current revision. Read it again after reconnecting to a
 different daemon process. The daemon publishes a new revision only after the
 replacement has committed. `Settings.Watch` starts with the current settings.
 
+Host API minor 10 adds optional ConfigurationIssue details to rejected
+settings updates and share operations. The status code and legacy message
+keep their existing meanings. The details encode a reason and, where
+relevant, a setting key, document position, size limit, or schema version.
+They carry no configuration values, credentials, or paths. Clients can
+localize recognized reasons and use the legacy message with older daemons.
+
 Host API minor 7 implements `Network.SetMode` for the explicit auto, NAT and
 user-space enum values.
 It persists a single-field settings edit. A successful response reports the
