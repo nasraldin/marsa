@@ -80,8 +80,8 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 
 ### M5-07 CLI localisation
 
-- **Status:** todo
-- **Depends on:** M5-03, M6-04
+- **Status:** in progress
+- **Depends on:** M5-03, M6-12
 - **Docs:** [08 Internationalisation](../08-gui.md#internationalisation)
 - **Do:** Localise human-readable CLI output in English and Arabic using the shared translation system, following the system language with an override flag and environment variable. Keep `--json`, command names and flags in English. Isolate technical values as left-to-right in Arabic output.
 - **Deliver:** CLI strings in `locales/`, tests.
