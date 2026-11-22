@@ -1,5 +1,5 @@
 use gpui::{App, Context, Pixels, Subscription, Task, px};
-use instant::Duration;
+use web_time::Duration;
 use web_time::Instant;
 
 static INTERVAL: Duration = Duration::from_millis(500);

@@ -11,14 +11,14 @@ pub(super) mod macos;
 #[cfg(target_os = "macos")]
 use macos as platform;
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "windows-desktop"))]
 mod winrt;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "windows-desktop"))]
 use winrt as platform;
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", all(target_os = "windows", feature = "windows-desktop"))))]
 mod unsupported;
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", all(target_os = "windows", feature = "windows-desktop"))))]
 use unsupported as platform;
 
 /// The operating system's speech recognizer.

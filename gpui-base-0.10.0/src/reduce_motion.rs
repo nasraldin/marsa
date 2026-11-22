@@ -165,7 +165,7 @@ mod platform {
     pub(super) fn follow(_cx: &mut App) {}
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "windows-desktop"))]
 mod platform {
     use gpui::App;
     use windows::Win32::{
@@ -194,7 +194,7 @@ mod platform {
     pub(super) fn follow(_cx: &mut App) {}
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "linux-desktop"))]
 mod platform {
     use ashpd::desktop::settings::{ReducedMotion, Settings};
     use futures::StreamExt as _;
@@ -224,7 +224,11 @@ mod platform {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(
+    target_os = "macos",
+    all(target_os = "windows", feature = "windows-desktop"),
+    all(target_os = "linux", feature = "linux-desktop")
+)))]
 mod platform {
     use gpui::App;
 

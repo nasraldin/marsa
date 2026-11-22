@@ -169,11 +169,7 @@ impl InputBaseState<EditorMode> {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let external = location
-            .target_uri
-            .scheme()
-            .map(|s| s.as_str() == "https" || s.as_str() == "http")
-            == Some(true);
+        let external = matches!(location.target_uri.scheme_str(), Some("https" | "http"));
 
         // Give the host a chance to show the document first (window/showDocument),
         // e.g. to open virtual/external documents (stdlib docs) in an app window.

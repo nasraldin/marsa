@@ -600,7 +600,7 @@ where
 
 macro_rules! color_method {
     ($color:tt, $scale:tt) => {
-        paste::paste! {
+        pastey::paste! {
             #[inline]
             #[allow(unused)]
             pub fn [<$color _ $scale>]() -> Hsla {
@@ -616,7 +616,7 @@ macro_rules! color_method {
 
 macro_rules! color_methods {
     ($color:tt) => {
-        paste::paste! {
+        pastey::paste! {
             /// Get color by scale number.
             ///
             /// The possible scale numbers are:

@@ -2,11 +2,11 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use gpui::{App, ElementId, Entity, Path, Pixels, Point, Window};
 
-/// A tessellated path reused across frames while its shape is unchanged.
+/// A prepared path reused across frames while its shape is unchanged.
 ///
 /// A chart repaints on every frame it is on screen — a scrolling list moves
-/// it — and tessellating its strokes (Catmull-Rom curves, dashes) is the bulk
-/// of that work, while the vertices only depend on the projected points
+/// it — and converting its strokes to filled curves (Catmull-Rom curves, dashes) is the bulk
+/// of that work, while the curves only depend on the projected points
 /// relative to the chart's origin. A plot keeps one cache per shape and paints
 /// through [`Line::paint_cached`](super::shape::Line::paint_cached) or
 /// [`Area::paint_cached`](super::shape::Area::paint_cached): the path is built
@@ -16,7 +16,7 @@ use gpui::{App, ElementId, Entity, Path, Pixels, Point, Window};
 pub struct PathCache {
     key: Option<u64>,
     /// Built relative to a zero origin.
-    path: Option<Path<Pixels>>,
+    path: Option<Path>,
 }
 
 impl PathCache {
@@ -26,30 +26,19 @@ impl PathCache {
         &mut self,
         key: u64,
         origin: Point<Pixels>,
-        build: impl FnOnce() -> Option<Path<Pixels>>,
-    ) -> Option<Path<Pixels>> {
+        build: impl FnOnce() -> Option<Path>,
+    ) -> Option<Path> {
         if self.key != Some(key) {
             self.path = build();
             self.key = Some(key);
         }
-        self.path.as_ref().map(|path| translated(path, origin))
+        self.path.as_ref().map(|path| path.clone().translated(origin))
     }
 
     /// Whether the last [`Self::get`] reused the path built by an earlier one.
     pub fn is_warm(&self) -> bool {
         self.key.is_some()
     }
-}
-
-/// `path` moved by `offset`. A finished path is only its bounds and vertices;
-/// the builder cursor it keeps is not read again.
-fn translated(path: &Path<Pixels>, offset: Point<Pixels>) -> Path<Pixels> {
-    let mut path = path.clone();
-    path.bounds.origin = path.bounds.origin + offset;
-    for vertex in &mut path.vertices {
-        vertex.xy_position = vertex.xy_position + offset;
-    }
-    path
 }
 
 /// The [`PathCache`]s of a plot that is rebuilt on every render, kept in the
@@ -136,7 +125,7 @@ mod tests {
     use super::*;
     use gpui::{PathBuilder, point, px};
 
-    fn diagonal() -> Option<Path<Pixels>> {
+    fn diagonal() -> Option<Path> {
         let mut builder = PathBuilder::stroke(px(2.));
         builder.move_to(point(px(0.), px(0.)));
         builder.line_to(point(px(10.), px(10.)));
@@ -144,30 +133,22 @@ mod tests {
     }
 
     #[test]
-    fn builds_once_per_key_and_moves_to_each_origin() {
+    fn builds_once_per_key() {
         let mut cache = PathCache::default();
         let mut builds = 0;
-        let first = cache
+        let _first = cache
             .get(1, point(px(100.), px(50.)), || {
                 builds += 1;
                 diagonal()
             })
             .unwrap();
-        let second = cache
+        let _second = cache
             .get(1, point(px(200.), px(50.)), || {
                 builds += 1;
                 diagonal()
             })
             .unwrap();
         assert_eq!(builds, 1);
-        assert_eq!(first.vertices.len(), second.vertices.len());
-        for (a, b) in first.vertices.iter().zip(&second.vertices) {
-            assert_eq!(b.xy_position.x - a.xy_position.x, px(100.));
-            assert_eq!(b.xy_position.y, a.xy_position.y);
-            assert_eq!(a.st_position, b.st_position);
-        }
-        assert_eq!(second.bounds.origin.x - first.bounds.origin.x, px(100.));
-        assert_eq!(first.bounds.size, second.bounds.size);
 
         cache.get(2, point(px(0.), px(0.)), || {
             builds += 1;

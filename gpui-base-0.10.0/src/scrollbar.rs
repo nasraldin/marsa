@@ -1,6 +1,6 @@
 use std::{cell::Cell, ops::Deref, panic::Location, rc::Rc};
 
-use instant::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 use crate::{
     AxisExt,
@@ -1164,15 +1164,6 @@ impl Scrollbar {
     }
 }
 
-#[cfg(not(feature = "gpui-fast"))]
-impl gpui::IntoElement for Scrollbar {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
 #[doc(hidden)]
 pub struct PrepaintState {
     hitbox: Hitbox,
@@ -1626,7 +1617,7 @@ impl Element for Scrollbar {
 
                     window.set_cursor_style(CursorStyle::default(), &state.bar_hitbox);
 
-                    window.paint_layer(hitbox_bounds, |cx| {
+                    window.paint_layer(|cx| {
                         cx.paint_quad(fill(painted_bounds, painted_track_bg));
 
                         cx.paint_quad(PaintQuad {
@@ -2786,13 +2777,6 @@ mod tests {
         struct Probe {
             scrollbar: Scrollbar,
             painted: Rc<Cell<Bounds<Pixels>>>,
-        }
-        #[cfg(not(feature = "gpui-fast"))]
-        impl gpui::IntoElement for Probe {
-            type Element = Self;
-            fn into_element(self) -> Self {
-                self
-            }
         }
         impl Element for Probe {
             type RequestLayoutState = ();

@@ -210,6 +210,8 @@ pub use theme_tokens::{
     ColorTokens, RadiusTokens, SemanticThemeTokens, ShadowTokens, SpacingTokens, TextStyleToken,
     TypographyTokens,
 };
+/// Civil date and time types used by the calendar and time field APIs.
+pub use jiff::civil::{Date as CivilDate, DateTime as CivilDateTime, Time as CivilTime, Weekday};
 pub use time_field::{
     HourCycle, TimeField, TimeFieldEvent, TimeFieldSegment, TimeFieldSegmentState, TimeFieldState,
     TimePrecision, TimeSegment,

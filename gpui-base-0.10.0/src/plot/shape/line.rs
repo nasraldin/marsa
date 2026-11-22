@@ -163,7 +163,7 @@ impl<T> Line<T> {
     }
 
     /// The stroke through `dots`.
-    fn build_path(&self, dots: &[Point<Pixels>]) -> Option<Path<Pixels>> {
+    fn build_path(&self, dots: &[Point<Pixels>]) -> Option<Path> {
         let mut builder = PathBuilder::stroke(self.stroke_width);
 
         if dots.is_empty() {
@@ -213,7 +213,7 @@ impl<T> Line<T> {
         builder.build().ok()
     }
 
-    fn path(&self, bounds: &Bounds<Pixels>) -> (Option<Path<Pixels>>, Vec<PaintQuad>) {
+    fn path(&self, bounds: &Bounds<Pixels>) -> (Option<Path>, Vec<PaintQuad>) {
         let (dots, paint_dots) = self.dots(bounds.origin);
         (self.build_path(&dots), paint_dots)
     }

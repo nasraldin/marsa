@@ -37,6 +37,7 @@ repository = "https://github.com/longbridge/gpui-kit"
 resolver = "2"
 
 [features]
+web-assets = ["dep:reqwest", "dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
 gpui-fast = ["dep:gpui-fast"]
 
 [lib]
@@ -63,7 +64,7 @@ path = "tests/icons.rs"
 version = "1"
 
 [dependencies.gpui]
-version = "=0.3.12"
+version = "=0.3.13"
 package = "gpui-pre"
 
 [dependencies.gpui-fast]
@@ -86,7 +87,7 @@ features = [
 package = "gpui-fast-platform"
 
 [dev-dependencies.gpui_platform]
-version = "=0.3.12"
+version = "=0.3.13"
 features = [
     "font-kit",
     "x11",
@@ -98,11 +99,11 @@ package = "gpui-pre-platform"
 [target.'cfg(not(target_family = "wasm"))'.dependencies.rust-embed]
 version = "8.7.2"
 features = [
-    "interpolate-folder-path",
     "include-exclude",
 ]
 
 [target.'cfg(target_family = "wasm")'.dependencies.reqwest]
+optional = true
 version = "=0.12.15"
 features = [
     "charset",
@@ -117,9 +118,11 @@ default-features = false
 package = "gpui-pre-reqwest"
 
 [target.'cfg(target_family = "wasm")'.dependencies.wasm-bindgen]
+optional = true
 version = "0.2"
 
 [target.'cfg(target_family = "wasm")'.dependencies.wasm-bindgen-futures]
+optional = true
 version = "0.4"
 
 [lints.clippy]

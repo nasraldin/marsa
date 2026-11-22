@@ -5,7 +5,7 @@ use gpui::{
 
 use crate::{Icon, IconName, Sizable, Size};
 
-use instant::Instant;
+use web_time::Instant;
 
 use super::{SpeechState, level::LEVEL_INTERVAL, waveform::capsule};
 

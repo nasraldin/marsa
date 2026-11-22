@@ -9,7 +9,7 @@ use html5ever::{
     Attribute, ParseOpts, QualName, parse_document,
     tendril::{Tendril, TendrilSink, fmt::UTF8},
 };
-use markup5ever_rcdom::{Node, NodeData, RcDom};
+use super::html_tree::{HtmlTree, Node, NodeData};
 
 /// Defines the minify trait.
 #[allow(dead_code)]
@@ -178,7 +178,7 @@ where
     #[inline]
     #[allow(dead_code)]
     pub fn minify<R: io::Read>(&mut self, mut r: &mut R) -> io::Result<()> {
-        let dom = parse_document(RcDom::default(), ParseOpts::default())
+        let dom = parse_document(HtmlTree::default(), ParseOpts::default())
             .from_utf8()
             .read_from(&mut r)?;
 
@@ -441,7 +441,7 @@ where
                 let omit_end = ctx.next_element().map_or(true, |node| {
                     if let NodeData::Element { name, .. } = &node.data {
                         matches!(
-                            name.local.as_ref().to_ascii_lowercase().as_str(),
+                            name.local.to_ascii_lowercase().as_str(),
                             "address"
                                 | "article"
                                 | "aside"
@@ -509,12 +509,12 @@ where
     fn write_qualified_name(&mut self, name: &QualName) -> io::Result<()> {
         if let Some(prefix) = &name.prefix {
             self.w
-                .write_all(prefix.as_ref().to_ascii_lowercase().as_bytes())?;
+                .write_all(prefix.to_ascii_lowercase().as_bytes())?;
             self.w.write_all(b":")?;
         }
 
         self.w
-            .write_all(name.local.as_ref().to_ascii_lowercase().as_bytes())
+            .write_all(name.local.to_ascii_lowercase().as_bytes())
     }
 
     fn write_start_tag(&mut self, name: &QualName, attrs: &[Attribute]) -> io::Result<()> {

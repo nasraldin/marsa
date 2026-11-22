@@ -34,17 +34,20 @@ pub use icon::{IconName, IconNamed};
 #[cfg(not(target_family = "wasm"))]
 mod native_assets;
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", not(feature = "web-assets")))]
+compile_error!("GPUI Kit web assets require the web-assets feature");
+
+#[cfg(all(target_family = "wasm", feature = "web-assets"))]
 mod wasm_assets;
 
 #[cfg(not(target_family = "wasm"))]
 pub use native_assets::{AllAssets, Assets};
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", feature = "web-assets"))]
 pub use wasm_assets::Assets;
 
 /// On WASM, the complete catalog uses the same on-demand CDN source.
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", feature = "web-assets"))]
 pub use wasm_assets::Assets as AllAssets;
 
 // Public only so exported macros can resolve dependencies in downstream crates,

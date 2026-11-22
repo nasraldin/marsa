@@ -1,4 +1,4 @@
-use chrono::Weekday;
+use super::Weekday;
 use gpui::{
     App, ElementId, Entity, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     SharedString, StyleRefinement, Styled, Window, prelude::FluentBuilder as _, px,
@@ -52,7 +52,7 @@ impl Calendar {
             state: state.clone(),
             style: StyleRefinement::default(),
             number_of_months: 1,
-            first_day_of_week: Weekday::Sun,
+            first_day_of_week: Weekday::Sunday,
         }
     }
     pub fn number_of_months(mut self, count: usize) -> Self {
@@ -229,12 +229,12 @@ fn end_chevron(cx: &App) -> IconName {
 #[cfg(test)]
 mod tests {
     use super::{CalendarItemKind, Date, uses_compact_text};
-    use chrono::NaiveDate;
+    use super::super::CivilDate;
 
     #[test]
     fn date_display_is_stable() {
         assert_eq!(
-            Date::Single(Some(NaiveDate::from_ymd_opt(2024, 8, 3).unwrap())).to_string(),
+            Date::Single(Some(CivilDate::new(2024, 8, 3).unwrap())).to_string(),
             "2024-08-03"
         );
         assert_eq!(Date::Single(None).to_string(), "nil");

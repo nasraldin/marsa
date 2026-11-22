@@ -7,7 +7,7 @@ use std::sync::Arc;
 use gpui::{DefiniteLength, Hsla, SharedString, px, relative};
 use html5ever::tendril::TendrilSink;
 use html5ever::{LocalName, ParseOpts, local_name, parse_document};
-use markup5ever_rcdom::{Node, NodeData, RcDom};
+use super::html_tree::{HtmlTree, Node, NodeData};
 
 use crate::text::document::ParsedDocument;
 use crate::text::node::{
@@ -100,8 +100,8 @@ pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument
     let bytes = cleanup_html(&source);
     let mut cursor = std::io::Cursor::new(bytes);
     // Ref
-    // https://github.com/servo/html5ever/blob/main/rcdom/examples/print-rcdom.rs
-    let dom = parse_document(RcDom::default(), opts)
+    // https://docs.rs/html5ever/latest/html5ever/fn.parse_document.html
+    let dom = parse_document(HtmlTree::default(), opts)
         .from_utf8()
         .read_from(&mut cursor)
         .map_err(|e| SharedString::from(format!("{:?}", e)))?;
@@ -727,9 +727,9 @@ fn parse_node(
                 span: None,
             })
         }
-        NodeData::Doctype { .. }
+        NodeData::Doctype
         | NodeData::Comment { .. }
-        | NodeData::ProcessingInstruction { .. } => None,
+        | NodeData::ProcessingInstruction => None,
     }
 }
 

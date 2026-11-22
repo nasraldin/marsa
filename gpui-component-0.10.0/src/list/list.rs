@@ -1,4 +1,4 @@
-use instant::Duration;
+use web_time::Duration;
 use std::{cell::Cell, ops::Range, rc::Rc};
 
 use crate::actions::{Cancel, Confirm, SelectDown, SelectUp};

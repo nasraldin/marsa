@@ -183,7 +183,7 @@ impl SpeechState {
 
     /// How far past the waveform's trailing edge the newest level sits at
     /// `now`, in levels; see `LevelMeter::lead_at`.
-    pub(super) fn level_lead_at(&self, now: instant::Instant) -> Option<f32> {
+    pub(super) fn level_lead_at(&self, now: web_time::Instant) -> Option<f32> {
         self.meter.lead_at(now)
     }
 
@@ -191,7 +191,7 @@ impl SpeechState {
     /// `now`. The surface is simulated rather than derived from the levels, so
     /// it lives here, with the levels that drive it, and the waveform advances
     /// it once per frame; nothing else reads it, so this does not notify.
-    pub(super) fn advance_surface(&mut self, now: instant::Instant, width: Pixels) {
+    pub(super) fn advance_surface(&mut self, now: web_time::Instant, width: Pixels) {
         self.surfaces.advance(now, width.as_f32(), &self.meter);
     }
 

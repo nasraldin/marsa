@@ -4,7 +4,7 @@ use gpui::{
     RenderOnce, SharedString, StyleRefinement, Styled, StyledText, TextAlign, Window, WrapBoundary,
     div, point, px, size,
 };
-use instant::Duration;
+use web_time::Duration;
 
 use crate::{ActiveTheme as _, Colorize as _, StyledExt as _};
 
@@ -278,7 +278,7 @@ impl ShimmerGlyphs {
         let text_align = window.text_style().text_align;
         let mut line_origin = bounds.origin;
 
-        window.paint_layer(bounds, |window| {
+        window.paint_layer(|window| {
             for wrapped_line in layout.line_layouts() {
                 let line = &wrapped_line.unwrapped_layout;
                 let baseline_offset = point(
@@ -354,15 +354,6 @@ impl ShimmerGlyphs {
                 line_origin.y += wrapped_line.size(line_height).height;
             }
         });
-    }
-}
-
-#[cfg(not(feature = "gpui-fast"))]
-impl IntoElement for ShimmerGlyphs {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 
