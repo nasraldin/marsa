@@ -21,7 +21,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 ### M10-02 Signing and notarization pipeline
 
 - **Status:** todo
-- **Depends on:** M10-01, M3-10
+- **Depends on:** M10-01, M3-10, M10-14
 - **Docs:** [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization), Q-04
 - **Do:** Complete `cargo xtask sign`: sign every binary inside-out with hardened runtime and per-binary entitlements, re-sign bundled upstream binaries, notarize, staple, and verify with Gatekeeper tooling. Credentials come only from the release environment.
 - **Deliver:** the signing step, entitlements files.
@@ -131,3 +131,15 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 - **Accept when:**
   - The candidate graph is evaluated for licences, advisories, and dependency bans using the normal workspace lockfile and strict checks.
   - The evaluation records which options remain eligible for release integration and why. The production graph and update trust policy are unchanged.
+
+### M10-14 Validate release signatures before notarization
+
+- **Status:** in progress
+- **Depends on:** M0-01
+- **Docs:** [12 App bundle layout](../12-build-release-update.md#app-bundle-layout), [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization)
+- **Do:** Add a macOS release verification command for the documented arm64 VZ bundle. Require an explicit trusted Team ID, verify the app and every Mach-O with Apple tools, and check hardened runtime and the expected role entitlements.
+- **Deliver:** A reusable `cargo xtask` verification command and isolated negative fixtures.
+- **Accept when:**
+  - The verifier checks the expected app ID and native roles, including Mach-O files under resources.
+  - A valid hardened ad-hoc fixture fails the Developer ID requirement.
+  - M10-02 retains the production signing, notarization, stapling, Gatekeeper, and clean-Mac acceptance.
