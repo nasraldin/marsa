@@ -5,12 +5,9 @@ use marsa_ui::{
     ColorToken,
     gpui::{
         Context, Div, FontWeight, InteractiveElement, ParentElement, StatefulInteractiveElement,
-        Styled, div, img, px, svg,
+        Styled, div, img, prelude::FluentBuilder, px, svg,
     },
-    gpui_component::{
-        IconName,
-        button::{Button, ButtonVariants},
-    },
+    gpui_component::button::{Button, ButtonVariants},
 };
 
 use crate::screens::common::{align, color, row};
@@ -21,7 +18,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
     let locale = desktop.locale;
     let palette = desktop.palette;
     let foreground = color(palette, ColorToken::TextMuted);
-    let width = if desktop.collapsed { 56. } else { 216. };
+    let width = if desktop.collapsed { 78. } else { 216. };
     let collapse_label = if desktop.collapsed {
         gui::GUI_DESKTOP_EXPAND_SIDEBAR.text(locale)
     } else {
@@ -34,7 +31,10 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         .bg(color(palette, ColorToken::GlassControl))
         .accessibility_label(collapse_label)
         .tooltip(collapse_label)
-        .child(IconName::PanelLeft)
+        .child(marsa_ui::direction::sidebar_toggle(
+            locale,
+            desktop.collapsed,
+        ))
         .on_click(cx.listener(|desktop, _, _, cx| {
             desktop.collapsed = !desktop.collapsed;
             cx.notify();
@@ -101,6 +101,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                     item.child(
                         row(locale)
                             .w_full()
+                            .when(desktop.collapsed, |row| row.justify_center())
                             .gap_2()
                             .text_size(px(13.))
                             .text_color(icon_color)
@@ -118,11 +119,17 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
     }
     let engine = desktop.engine();
     let footer = if desktop.collapsed {
-        div().child(
+        row(locale).justify_center().child(
             Button::new("sidebar-engine-state")
                 .ghost()
                 .tooltip(status::text(locale, engine))
-                .child(svg().path("icons/server.svg").size(px(17.)))
+                .accessibility_label(status::text(locale, engine))
+                .child(
+                    svg()
+                        .path("icons/server.svg")
+                        .size(px(17.))
+                        .text_color(foreground),
+                )
                 .on_click(cx.listener(|desktop, _, _, cx| desktop.navigate(Route::Machine, cx))),
         )
     } else {
@@ -165,8 +172,23 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         .border_1()
         .border_color(color(palette, ColorToken::GlassEdge))
         .bg(color(palette, ColorToken::GlassRail))
-        .child(row(locale).h(px(40.)).justify_end().child(collapse))
-        .child(row(locale).px_2().pb_3().child(brand))
+        .child(if desktop.collapsed {
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .pt(px(36.))
+                .gap_2()
+                .child(collapse)
+                .child(brand)
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(row(locale).h(px(40.)).justify_end().child(collapse))
+                .child(row(locale).px_2().pb_3().child(brand))
+        })
         .child(navigation)
         .child(footer)
 }

@@ -53,12 +53,24 @@ pub fn align_to_start(element: Div, locale: Locale) -> Div {
 }
 
 /// Position the native macOS controls in the workspace's leading sidebar.
-pub fn position_window_controls(window: &Window, locale: Locale) {
+pub fn position_window_controls(window: &Window, locale: Locale, compact: bool) {
+    let padding = if compact { 14. } else { 24. };
     let inset = match locale {
-        Locale::EnglishUs => px(24.),
-        Locale::Arabic => window.viewport_size().width - px(82.),
+        Locale::EnglishUs => px(padding),
+        Locale::Arabic => window.viewport_size().width - px(padding + 58.),
     };
     window.set_traffic_light_position(point(inset, px(32.)));
+}
+
+/// Return the sidebar toggle glyph for the current reading direction and state.
+pub fn sidebar_toggle(locale: Locale, compact: bool) -> gpui_component::IconName {
+    use gpui_component::IconName;
+    match (locale, compact) {
+        (Locale::EnglishUs, true) => IconName::PanelLeftOpen,
+        (Locale::EnglishUs, false) => IconName::PanelLeftClose,
+        (Locale::Arabic, true) => IconName::PanelRightOpen,
+        (Locale::Arabic, false) => IconName::PanelRightClose,
+    }
 }
 
 /// Return the sidebar-to-content launch arrow for the current reading direction.

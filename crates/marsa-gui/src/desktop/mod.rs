@@ -1,5 +1,6 @@
 //! Native workspace, window commands and screen routing.
 
+mod background;
 mod navigation;
 mod onboarding;
 mod palette;
@@ -15,9 +16,9 @@ use marsa_ui::{
     ColorToken, Locale, Palette,
     gpui::{
         self, App, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-        KeyBinding, ObjectFit, ParentElement, Pixels, Render, ScrollHandle,
-        StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, WeakFocusHandle,
-        Window, WindowAppearance, actions, div, img, px, svg,
+        KeyBinding, ParentElement, Pixels, Render, ScrollHandle, StatefulInteractiveElement,
+        Styled, Subscription, Task, WeakFocusHandle, Window, WindowAppearance, actions, div, px,
+        svg,
     },
     gpui_component::{
         IconName,
@@ -71,7 +72,7 @@ pub(crate) struct Desktop {
     palette: Palette,
     themed_palette: Option<(Palette, Locale)>,
     container_locale: Locale,
-    controls_layout: Option<(Locale, Pixels)>,
+    controls_layout: Option<(Locale, Pixels, bool)>,
     appearance_preference: Theme,
     accent: AccentColor,
     state: AppState,
@@ -243,10 +244,10 @@ impl Desktop {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let controls_layout = (self.locale, window.viewport_size().width);
+        let controls_layout = (self.locale, window.viewport_size().width, self.collapsed);
         if self.controls_layout != Some(controls_layout) {
             self.controls_layout = Some(controls_layout);
-            marsa_ui::direction::position_window_controls(window, self.locale);
+            marsa_ui::direction::position_window_controls(window, self.locale, self.collapsed);
         }
         let palette = palette_for(window, self.appearance_preference).with_accent(self.accent);
         if self.themed_palette != Some((palette, self.locale)) {
@@ -416,17 +417,7 @@ impl Render for Desktop {
             .size_full()
             .relative()
             .bg(color(palette, ColorToken::BgCanvas))
-            .child(
-                img(if palette.is_dark() {
-                    "marsa/workspace-dark.png"
-                } else {
-                    "marsa/workspace-light.png"
-                })
-                .object_fit(ObjectFit::Fill)
-                .absolute()
-                .inset_0()
-                .size_full(),
-            )
+            .child(background::render(palette, self.accent))
             .text_color(color(palette, ColorToken::TextPrimary))
             .child(if self.onboarding.is_some() {
                 self.setup_view(cx).into_any_element()

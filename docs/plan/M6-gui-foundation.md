@@ -160,6 +160,11 @@ complete.
   - The command palette can run every registered action and is searchable in both languages.
   - The engine indicator reflects daemon events live.
 
+Compact navigation keeps centered route icons and reserves room for macOS
+window controls. The toggle mirrors with the reading direction. The workspace
+glow and rail use the same active accent as the controls.
+
+
 ### M6-10 Tray item
 
 - **Status:** blocked (packaged VM runtime, GUI executable and approval event producer pending)

@@ -171,6 +171,27 @@ impl Palette {
                         tint
                     };
                 }
+                ColorToken::GlassRail => {
+                    return if dark {
+                        mix_rgb(0x192337, bright.0, 11)
+                    } else {
+                        mix_rgb(0xfbfdff, tint.0, 65)
+                    };
+                }
+                ColorToken::GlassControl => {
+                    return if dark {
+                        mix_rgb(0x192337, bright.0, 16)
+                    } else {
+                        mix_rgb(0xfbfdff, tint.0, 40)
+                    };
+                }
+                ColorToken::GlassEdge => {
+                    return if dark {
+                        mix_rgb(0x192337, bright.0, 42)
+                    } else {
+                        mix_rgb(0xd5e1f0, deep.0, 22)
+                    };
+                }
                 _ => {}
             }
         }
