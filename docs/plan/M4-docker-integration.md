@@ -41,17 +41,17 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - A wrong checksum fails the step.
   - The binaries run and report the pinned versions.
 
-### M4-04 Docker context, `DOCKER_HOST` and the optional socket symlink
+### M4-04 Optional Docker socket symlink
 
-- **Status:** todo
-- **Depends on:** M4-01, M4-03
-- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), V-12, Q-08
-- **Do:** Create and maintain the `marsa` Docker context without touching other contexts; ask before switching the current context if another is active. Provide the data for `marsa env`. Implement the opt-in `/var/run/docker.sock` symlink as a single, auditable administrator action with a matching removal. Research which common tools ignore contexts (V-12) and document the recommended setting for each.
-- **Deliver:** context management in `marsad`, the symlink helper, a compatibility note in [09](../09-cli-and-docker-compat.md).
+- **Status:** blocked (owner decision Q-08)
+- **Depends on:** M4-01
+- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), Q-08
+- **Do:** Implement the opt-in `/var/run/docker.sock` symlink as a single, auditable administrator action with a matching removal.
+- **Deliver:** the symlink helper.
 - **Accept when:**
-  - Other contexts and an existing `config.json` are never modified beyond adding the `marsa` context (tested with fixtures).
   - Creating and removing the symlink leaves no other change on the system.
-  - V-12 is resolved in the docs.
+
+Q-08 governs where the optional administrator action is offered. Context registration and environment discovery have their own task, M4-16.
 
 ### M4-05 Shared-folder allowlist
 
@@ -98,7 +98,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 - **Depends on:** M3-04, M2-07
 - **Docs:** [06 Network modes](../06-networking.md#network-modes), [06 DNS](../06-networking.md#dns), [06 Container to host](../06-networking.md#container-to-host), V-07
 - **Do:** Verify the NAT attachment requirements (V-07). Implement reading the host resolver configuration and pushing DNS to the guest at boot and on network change, and the `host.docker.internal`, `gateway.docker.internal` and `host.marsa.internal` names.
-- **Deliver:** network manager NAT path, the `Network.Status` call.
+- **Deliver:** native NAT DNS and automatic Docker host aliases. M4-18 owns the shared `Network.Status` call and verification of the user-space resolver.
 - **Accept when:**
   - A container can pull from a public registry and resolve names.
   - A container reaches a service listening on the Mac through `host.docker.internal`.
@@ -136,9 +136,9 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 ### M4-11 Proxy settings and CA certificate import
 
 - **Status:** todo
-- **Depends on:** M4-08
+- **Depends on:** M4-08, M4-21
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates)
-- **Do:** Read system proxy settings and manual overrides and push them to the guest. Export the certificates the user trusts from the macOS keychain and push them before the engine starts and on change. Add settings for registry mirrors and insecure registries.
+- **Do:** Read system proxy settings and manual overrides and use the approved activation from M4-21. Export the certificates the user trusts from the macOS keychain and push them before the engine starts and on change. Add settings for registry mirrors and insecure registries.
 - **Deliver:** proxy and certificate handling on the host side.
 - **Accept when:**
   - Behind a test proxy with TLS interception, `docker pull` succeeds after the proxy's CA is trusted in the keychain.
@@ -146,14 +146,16 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-12 Registry credentials
 
-- **Status:** todo
-- **Depends on:** M4-03, M4-04
+- **Status:** done
+- **Depends on:** M4-03, M4-16
 - **Docs:** [11 Registry credentials](../11-security.md#registry-credentials)
 - **Do:** Offer to set the keychain credential helper as the Docker CLI credential store, never overwriting an existing store. Confirm that no credential is written to disk in plain text or stored in the guest.
 - **Deliver:** credential-store setup logic and tests with config fixtures.
 - **Accept when:**
   - `docker login` stores the credential in the keychain.
   - An existing `credsStore` or `credHelpers` entry is left untouched.
+
+**Verification.** A signed daemon fixture in a private Docker configuration applied the opt-in, preserved the selected context and refused to change a configured store. The pinned macOS Docker CLI and Keychain helper stored and retrieved one generated credential using a local Engine API fixture. The client configuration had no credential field, and the disposable Keychain item was removed and verified absent.
 
 ### M4-13 SSH agent forwarding for builds
 
@@ -182,9 +184,9 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 ### M4-15 Apply staged Docker engine configuration
 
 - **Status:** todo
-- **Depends on:** M2-07, M3-06, M4-08
+- **Depends on:** M2-07, M3-06, M4-08, M4-11, M4-21
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
-- **Do:** Connect staged proxy, trust and gateway changes to a controlled engine restart. Validate the requested config, coordinate admission of new engine requests and preserve active workloads where Docker supports it. Require explicit user approval when the action can stop running workloads.
+- **Do:** Extend controlled engine restart from M4-21 to the full proxy, trust and gateway policy, including M4-08 native networking and automatic Docker aliases. Validate the requested config, coordinate admission of new engine requests and preserve active workloads where Docker supports it. Require explicit user approval when the action can stop running workloads.
 - **Deliver:** daemon and guest restart coordination with end-to-end tests.
 - **Accept when:**
   - Valid staged proxy settings take effect for registry and BuildKit requests after the coordinated restart.
@@ -192,6 +194,17 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - Active workloads are preserved, or the action reports the impact and requires explicit approval before stopping them.
   - A failed engine restart reports the failure and restores the last working configuration.
 
+### M4-16 Docker context and endpoint discovery
+
+- **Status:** done
+- **Depends on:** M4-01, M4-03
+- **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), V-12
+- **Do:** Register the `marsa` context with the bundled upstream Docker CLI. Preserve current context selection and let users select Marsa explicitly. Expose the Docker socket and endpoint for `marsa env` through the authenticated host API. Verify common client discovery behavior.
+- **Deliver:** typed backend context and endpoint service, isolated integration tests, and the client compatibility note.
+- **Accept when:**
+  - Explicit context registration is repeatable, preserves other contexts and the existing `config.json`, and refuses to overwrite an unrelated `marsa` context.
+  - The bundled upstream CLI sees the registered context and the host API returns the correct `DOCKER_HOST` data.
+  - V-12 is resolved in the docs.
 
 ### M4-17 Explicit SSH agent access for containers
 
@@ -204,3 +217,60 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
   - An authorized container can use an explicitly chosen host agent with a disposable test key.
   - An unapproved container and a guest-initiated connection without a current grant cannot use the agent.
   - Revocation closes active streams and rejects subsequent connections. Host private key bytes stay on the host.
+
+### M4-18 Qualify fallback DNS recovery and expose network status
+
+- **Status:** done
+- **Depends on:** M2-07, M3-12, M3-14, M3-15, M5-01
+- **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 DNS](../06-networking.md#dns)
+- **Do:** Verify live scoped resolver changes through the existing user-space DNS gateway. Expose the configured and active attachment, current guest IPv4 and gateway, and available connectivity reason through the authenticated typed API. Keep native NAT and Docker host aliases in M4-08.
+- **Deliver:** `Network.Status`, typed client access, and a signed packaged-runtime DNS test.
+- **Accept when:**
+  - An authenticated caller can read the configured mode while the engine is stopped. While it is running, the result reports the active mode, available connectivity reason, and separately observed IPv4 and gateway. A stopped guest has no stale addresses.
+  - A signed packaged user-space VM resolves a controlled macOS-scoped name from existing default-bridge and custom-network containers. Both containers observe a changed scoped answer without restart, and the Docker API remains available.
+  - The existing registry TLS and host-security checks still pass. The live test uses disposable DNS records and leaves host networking and firewall settings alone.
+
+- **Evidence:** On macOS 27.2.1, the signed packaged runtime returned the current user-space guest and gateway addresses through `Network.Status`. Existing default-bridge and custom-network containers saw the macOS local-only DNS answer change from `192.0.2.64` to `192.0.2.65` with unchanged startup timestamps. The signed registry pull with TLS verification and the helper's loopback-isolation fixture also passed.
+
+With the pinned Docker CLI on `PATH` and the built guest and network-helper paths set for the [packaged runtime tests](../../crates/marsad/tests/packaged_runtime.rs), run:
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+  fallback_dns::scoped_dns_updates_reach_existing_containers_without_restart \
+  -- --exact --ignored --nocapture --test-threads=1
+```
+
+### M4-20 Provision approved manual daemon proxy at guest startup
+
+- **Status:** done
+- **Depends on:** M2-07, M3-06, M3-12, M4-18
+- **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
+- **Do:** Prepare a credential-free HTTP/HTTPS daemon proxy policy from private last-known-good state on the explicitly selected user-space attachment. Hand it to the negotiated control session before releasing Docker on a cold boot. A Settings.Update only edits the draft. The runtime preserves absent/default policy behavior and fails closed for an incompatible guest or attachment.
+- **Deliver:** Packaged daemon boot provisioning and regression tests. M4-21 owns the approved activation action and writes its successful policy to the private state.
+- **Accept when:**
+  - Default startup and reconnect still work. A draft edit is durable and leaves both the live and next ordinary boot policy unchanged.
+  - A packaged guest receives the validated policy before StartEngine. Rejected policy or unsupported startup deferral prevents the engine from being released.
+  - A signed packaged-runtime fixture reads back the approved daemon proxy, including on a subsequent cold boot. This check uses no external service and makes no registry or BuildKit routing claim. M4-21 owns signed destination evidence.
+
+- **Evidence:** On macOS 27.2.1, the signed packaged fixture passed in 51.20 seconds with Docker Engine 29.10.0. The running engine returned both approved settings from [its info endpoint](https://github.com/moby/moby/blob/docker-v29.10.0/api/types/system/info.go). A draft saved through the settings RPC left the running engine and its next cold boot on the same approved settings and data disk. The draft remained pending, and neither endpoint appeared in daemon or guest console logs. Protocol tests also cover rejected configuration and a guest without startup deferral.
+
+With built guest and network-helper paths set for the [packaged runtime tests](../../crates/marsad/tests/packaged_runtime.rs), run:
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+  daemon_proxy::approved_proxy_survives_cold_boots_and_draft_edits \
+  -- --exact --ignored --nocapture --test-threads=1
+```
+
+### M4-21 Activate staged manual daemon proxy with approval and rollback
+
+- **Status:** todo
+- **Depends on:** M4-20
+- **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
+- **Do:** Expose an authenticated preview and explicit revision-bound activation for manual daemon proxy on the pinned user-space attachment. Coordinate engine admission and any approved workload interruption. Retain the previous working policy until the candidate succeeds, and restore it after a failed candidate. Persist successful activation separately from the desired draft.
+- **Deliver:** Controlled activation, durable last-known-good state, and signed end-to-end tests using a controlled reachable proxy destination.
+- **Accept when:**
+  - A valid approved proxy carries actual registry and default Docker-driver BuildKit requests. The signed test confirms routing through the approved proxy.
+  - Draft edits persist without interrupting workloads, and ordinary boot/retry never activates an unapproved draft.
+  - The user sees the potential impact before granting approval. Stale approvals and racing starts or connects cannot apply or use a candidate out of order.
+  - A failed candidate leaves the draft pending, reports failure, and restores the last working configuration on the same data disk. Cancellation and daemon recovery preserve the last working policy.

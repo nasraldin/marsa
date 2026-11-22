@@ -10,15 +10,16 @@ use marsa_proto::{
     guest::v1 as guest,
     host::v1::{
         AddShareRequest, CapabilitiesRequest, DaemonEvent, EngineActionRequest, EngineHealthState,
-        EngineState, EngineStatusRequest, GetSettingsRequest, ListSharesRequest,
-        RemoveShareRequest, SubscribeRequest, UpdateSettingsRequest, VmStatsRequest,
-        WatchSettingsRequest, daemon_event::Body, engine_client::EngineClient,
-        events_client::EventsClient, meta_client::MetaClient, settings_client::SettingsClient,
-        shares_client::SharesClient, stats_client::StatsClient,
+        EngineState, EngineStatusRequest, GetSettingsRequest, ListSharesRequest, NetworkMode,
+        NetworkStatusRequest, RemoveShareRequest, SubscribeRequest, UpdateSettingsRequest,
+        VmStatsRequest, WatchSettingsRequest, daemon_event::Body, engine_client::EngineClient,
+        events_client::EventsClient, meta_client::MetaClient, network_client::NetworkClient,
+        network_server::Network, settings_client::SettingsClient, shares_client::SharesClient,
+        stats_client::StatsClient,
     },
 };
 use marsa_vm::{
-    DiskSpec, NetworkSpec, Vm, VmSpec, VsockStream, async_trait,
+    DiskSpec, NetworkInfo, NetworkSpec, Vm, VmSpec, VsockStream, async_trait,
     fake::{AgentStep, FakeHypervisor, FakeScenario},
 };
 use marsad::{
@@ -33,7 +34,7 @@ use tokio::{
     time::timeout,
 };
 use tonic::{
-    Code, Streaming,
+    Code, Request, Streaming,
     transport::{Channel, Endpoint},
 };
 use tower::service_fn;
@@ -117,6 +118,65 @@ async fn restart_has_one_activation_and_lifecycle_events_follow_the_same_cursor(
     assert_eq!(
         next(&mut fixture.events().await).await.sequence,
         cleared.sequence
+    );
+}
+
+#[tokio::test]
+async fn network_status_requires_the_socket_peer_identity() {
+    let fixture = Fixture::new(Vec::new()).await;
+    let request = Request::new(NetworkStatusRequest {});
+    assert_eq!(
+        Network::status(&fixture.api, request)
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied
+    );
+}
+
+#[tokio::test]
+async fn network_status_reports_current_guest_facts_and_clears_them_on_stop() {
+    let fixture = Fixture::with_network_info(
+        vec![AgentStep::Send(b"HR".to_vec())],
+        Some(NetworkInfo {
+            address: "192.0.2.2".parse().unwrap(),
+            gateway: Some("192.0.2.1".parse().unwrap()),
+        }),
+    )
+    .await;
+    let mut network = NetworkClient::new(fixture.channel.clone());
+    let mut engine = EngineClient::new(fixture.channel.clone());
+    let stopped = network
+        .status(NetworkStatusRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(stopped.configured_mode(), NetworkMode::Auto);
+    assert_eq!(stopped.active_mode(), NetworkMode::Unspecified);
+    assert_eq!(stopped.guest_address, None);
+    assert_eq!(stopped.gateway_address, None);
+    assert_eq!(stopped.reason, None);
+
+    engine.start(action(1)).await.unwrap();
+    let running = network
+        .status(NetworkStatusRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(running.configured_mode(), NetworkMode::Auto);
+    assert_eq!(running.active_mode(), NetworkMode::Nat);
+    assert_eq!(running.guest_address.as_deref(), Some("192.0.2.2"));
+    assert_eq!(running.gateway_address.as_deref(), Some("192.0.2.1"));
+    assert_eq!(running.reason.as_deref(), Some("probe_unavailable"));
+
+    engine.stop(action(2)).await.unwrap();
+    assert_eq!(
+        network
+            .status(NetworkStatusRequest {})
+            .await
+            .unwrap()
+            .into_inner(),
+        stopped
     );
 }
 
@@ -491,6 +551,40 @@ async fn shares_validate_canonical_paths_and_share_settings_revisions() {
     );
 }
 
+#[tokio::test]
+async fn discovers_the_endpoint_without_registering_a_context() {
+    use marsa_proto::host::v1::{
+        GetDockerEndpointRequest, docker_discovery_client::DockerDiscoveryClient,
+        docker_discovery_server::DockerDiscovery,
+    };
+    let fixture = Fixture::new(Vec::new()).await;
+    let paths = MarsaPaths::from_home(fixture.home.path()).unwrap();
+    assert_eq!(
+        fixture
+            .api
+            .get_endpoint(tonic::Request::new(GetDockerEndpointRequest {}))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied
+    );
+    let endpoint = DockerDiscoveryClient::new(fixture.channel.clone())
+        .get_endpoint(GetDockerEndpointRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        endpoint.socket_path,
+        paths.docker_socket().to_str().unwrap()
+    );
+    assert_eq!(
+        endpoint.docker_host,
+        format!("unix://{}", endpoint.socket_path)
+    );
+    assert_eq!(endpoint.context_name, "marsa");
+    assert!(!fixture.home.path().join(".docker").exists());
+}
+
 struct Fixture {
     api: TypedApi,
     supervisor: Supervisor,
@@ -501,6 +595,14 @@ struct Fixture {
 
 impl Fixture {
     async fn new(steps: Vec<AgentStep>) -> Self {
+        Self::with_network_info(steps, None).await
+    }
+
+    async fn with_network_info(steps: Vec<AgentStep>, info: Option<NetworkInfo>) -> Self {
+        let mut scenario = FakeScenario::default().with_agent(5000, steps);
+        if let Some(info) = info {
+            scenario = scenario.with_network_info(info);
+        }
         let home = TempDir::new_in("/tmp").unwrap();
         let paths = MarsaPaths::from_home(home.path()).unwrap();
         std::fs::create_dir(paths.root()).unwrap();
@@ -509,9 +611,7 @@ impl Fixture {
         let api =
             TypedApi::new(paths, nix::unistd::geteuid().as_raw(), Settings::default()).unwrap();
         let (api, supervisor) = api.with_engine(
-            Arc::new(FakeHypervisor::new(
-                FakeScenario::default().with_agent(5000, steps),
-            )),
+            Arc::new(FakeHypervisor::new(scenario)),
             Arc::new(FixtureProbe),
             VmSpec {
                 cpus: 2,
@@ -723,3 +823,5 @@ async fn next_log(
         .unwrap()
         .unwrap()
 }
+#[path = "typed_api/settings_reset.rs"]
+mod settings_reset;

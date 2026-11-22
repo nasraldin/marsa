@@ -81,6 +81,10 @@ impl Bus {
         self.lock().engine.backend = name.into();
     }
 
+    pub(super) fn configured_network_mode(&self) -> NetworkMode {
+        self.lock().settings.network.mode
+    }
+
     pub(super) fn engine_status(&self) -> EngineStatus {
         self.lock().engine.clone()
     }
@@ -332,7 +336,7 @@ fn restart_changed(applied: &Settings, desired: &Settings) -> bool {
         || applied.network != desired.network
 }
 
-fn mode(value: NetworkMode) -> WireMode {
+pub(super) fn mode(value: NetworkMode) -> WireMode {
     match value {
         NetworkMode::Auto => WireMode::Auto,
         NetworkMode::Nat => WireMode::Nat,
@@ -340,7 +344,7 @@ fn mode(value: NetworkMode) -> WireMode {
     }
 }
 
-fn network_status(configured: NetworkMode, network: BootNetwork) -> NetworkStatus {
+pub(super) fn network_status(configured: NetworkMode, network: BootNetwork) -> NetworkStatus {
     let active = match network.active {
         NetworkSpec::Nat => WireMode::Nat,
         NetworkSpec::Userspace => WireMode::Userspace,

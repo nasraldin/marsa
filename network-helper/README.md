@@ -63,9 +63,12 @@ go version -m target/network-helper/marsa-net-helper
 govulncheck -mode=binary -show verbose target/network-helper/marsa-net-helper
 ```
 
-The fixture checks readiness and shutdown, Ethernet framing, DHCP, rejected
-loopback access, a local-only DNS name, and explicit refusal for an unsupported
-query. The Go tests cover blocked metadata and local addresses and one scoped
+The helper receives Ethernet on an inherited Unix datagram socket. A separate
+inherited Unix stream carries its readiness response and stays open for the
+life of the daemon. The helper exits when the daemon endpoint closes, including
+after `SIGKILL`. The fixture checks this path while the Ethernet peer is still
+open, along with framing, DHCP, loopback isolation, local DNS, and rejection of
+unsupported DNS queries. The Go tests cover blocked metadata and local addresses and one scoped
 resolver call per allowed DNS request.
 
 ## Licence and advisory evidence

@@ -33,7 +33,7 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 ### M5-03 Engine commands
 
 - **Status:** done
-- **Depends on:** M5-02, M9-13
+- **Depends on:** M5-02, M4-16, M9-13
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
 - **Do:** Implement `status`, `start`, `stop`, `restart`, `version`, `logs` (with `--follow`) and `env`. Complete the diagnostic service’s bounded, sanitized log stream.
 - **Deliver:** command implementations and tests.
@@ -69,11 +69,11 @@ Design: [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli).
 - **Status:** todo
 - **Depends on:** M5-02, M9-13
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
-- **Do:** Implement `diagnose` and `reset` (settings only, and `--factory` with typed confirmation) as clients of the daemon calls delivered in M9-13 and M9-08. Until the reset service is available, report that status with a non-zero exit code.
+- **Do:** Implement `diagnose` and `reset` (settings only, and `--factory` with typed confirmation) as clients of the daemon calls delivered in M9-13, M9-17 and M9-18. Until the reset service is available, report that status with a non-zero exit code.
 - **Deliver:** command implementations.
 - **Accept when:**
   - `reset --factory` cannot proceed without the typed confirmation or `--yes`.
-  - `marsa diagnose` reports the path returned by M9-13. Verify diagnostic actions end to end in M9-07 and reset end to end in M9-08.
+  - `marsa diagnose` reports the path returned by M9-13. Verify diagnostic actions end to end in M9-07 and settings reset in M9-17 and factory reset in M9-18.
 
 ### M5-07 CLI localisation
 
