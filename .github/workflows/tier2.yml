@@ -49,6 +49,8 @@ jobs:
           test -x "$bundle/bin/docker"
           test -x "$bundle/bin/cli-plugins/docker-buildx"
           export PATH="$bundle/bin:$bundle/bin/cli-plugins:$PATH"
+          MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked -p marsa-cli
+          export MARSA_TEST_CLI="$PWD/target/debug/marsa"
           export MARSA_VZ_GUEST_DIR="$PWD/target/guest"
           export MARSA_VZ_NETWORK_HELPER="$PWD/target/network-helper/marsa-net-helper"
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \

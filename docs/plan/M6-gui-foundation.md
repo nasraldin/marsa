@@ -21,17 +21,38 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 
 The Apple silicon dependency audit of GPUI Kit and gpui-component 0.10.0 with GPUI 0.3.12 reported five RustSec unmaintained dependencies (`instant`, `paste`, `ttf-parser`, `rustybuzz` and `chrono`), two MPL-2.0 dependencies outside the current allowlist (`cbindgen` and `option-ext`), and 21 duplicate-version groups. Kit and its components require several of these crates directly. The audit added the exact tested Kit version in an isolated worktree and ran `cargo deny --target aarch64-apple-darwin --locked check`. Resume with a maintained, policy-compliant GPUI dependency graph and re-run the input and lifecycle qualification for its pins. See [D-023](../15-decisions.md#d-023-choose-gpui-for-the-desktop).
 
+Requalification on 2026-11-22 resolved the published [GPUI Kit 0.10.0](https://docs.rs/crate/gpui-kit/0.10.0) with only its `component` feature, and a separate graph using [gpui-pre 0.3.13](https://docs.rs/crate/gpui-pre/0.3.13) and [gpui-pre-platform 0.3.13](https://docs.rs/crate/gpui-pre-platform/0.3.13) with the macOS `font-kit` feature. Each resolved in a separate workspace copy and was checked with the existing `deny.toml` using `cargo deny --locked check` and `cargo deny --target aarch64-apple-darwin --locked check`.
+
+| Resolved graph | Apple silicon duplicate groups | Apple silicon unmaintained crates | Apple silicon disallowed licences |
+|---|---:|---:|---:|
+| GPUI Kit with components | 21 | 5 | 2 |
+| GPUI with its font-enabled platform crate | 17 | 3 | 2 |
+
+Both Apple silicon graphs include the unmaintained `chrono`, `rustybuzz` and `ttf-parser` and the disallowed MPL-2.0 dependencies `cbindgen` and `option-ext`. The target-filtered run also reports two unmatched skips for existing non-Apple dependencies. Both unfiltered workspace runs independently fail the dependency policy. Neither candidate is eligible to enter the production workspace.
+
 ### M6-02 Design tokens, themes and fonts
 
 - **Status:** todo
-- **Depends on:** M6-01
-- **Docs:** [08 Design tokens](../08-gui.md#design-tokens), [08 Themes](../08-gui.md#themes), V-16
-- **Do:** Define semantic tokens for colour, typography, spacing, radius, elevation and motion, each with light and dark values. Implement live theme switching and following the system appearance. Verify font licences (V-16) and bundle the Latin, Arabic and monospace faces. Add a contrast test for text and status colours in both themes.
-- **Deliver:** token definitions and theme provider in `marsa-ui`, bundled fonts with licences, an updated V-16 entry.
+- **Depends on:** M6-01, M6-13
+- **Docs:** [08 Design tokens](../08-gui.md#design-tokens), [08 Themes](../08-gui.md#themes)
+- **Do:** Define semantic tokens for colour, typography, spacing, radius, elevation and motion, each with light and dark values. Implement live theme switching and following the system appearance. Register and use the verified bundled font assets from M6-13. Add a contrast test for text and status colours in both themes.
+- **Deliver:** token definitions and theme provider and font registration in `marsa-ui`.
 - **Accept when:**
   - Switching the system appearance changes the app live when the setting is `system`.
   - The contrast test passes WCAG AA for every text and status token pair.
   - No colour literal exists outside the token definitions (lint or test).
+
+### M6-13 Qualify and stage the Figma typography assets
+
+- **Status:** done
+- **Depends on:** M0-01
+- **Docs:** [08 Design tokens](../08-gui.md#design-tokens), V-16
+- **Do:** Identify the fonts and weights from the Figma Foundations styles. Verify their redistribution licences and exact released native font files. Stage the files and provenance independently of GPUI registration.
+- **Deliver:** pinned original native fonts, upstream licence notice, provenance and checksums.
+- **Accept when:**
+  - Each checked-in file matches the pinned upstream release and carries its redistributable licence.
+  - Latin and Arabic styles cover regular, medium and semibold. Monospace covers technical Latin text. Arabic joins in an offline shaping check.
+  - Font registration, application rendering and four-variant visual checks stay in the GUI tasks.
 
 ### M6-03 Direction layer
 

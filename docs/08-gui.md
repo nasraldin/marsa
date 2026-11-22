@@ -126,7 +126,7 @@ Everything visual goes through `marsa-ui`. Screens never use raw colours, raw pi
 | Spacing | 4-point scale | Used for padding, gaps, row heights |
 | Radius, elevation, motion | Small fixed scales | Motion respects the system "reduce motion" setting |
 
-**Proposed fonts:** a bundled Arabic UI font (IBM Plex Sans Arabic or Noto Sans Arabic) so Arabic looks identical everywhere, paired with a matching Latin face, and a monospace face with good Arabic fallback for mixed log lines. **Verify** licences (both candidates are open-licensed) before bundling.
+The Figma Foundations use IBM Plex Sans and IBM Plex Mono. Use the script-specific IBM Plex Sans Arabic face for Arabic text and mixed-script fallback. The [pinned font assets](../assets/fonts/README.md) include regular, medium and semibold Sans and Sans Arabic and regular Mono. The native files ship with their shared SIL Open Font License 1.1 notice. See [D-032](15-decisions.md#d-032-use-ibm-plex-for-desktop-typography).
 
 ### Themes
 
