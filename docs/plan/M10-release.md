@@ -9,9 +9,9 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 ### M10-01 App bundle assembly
 
 - **Status:** todo
-- **Depends on:** M2-09, M4-03, M6-09, M10-13
+- **Depends on:** M6-09, M10-12, M10-13
 - **Docs:** [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
-- **Do:** Implement `cargo xtask bundle`: assemble `Marsa.app` with the host binaries, the guest image and manifest, the upstream binaries, locales, fonts, the launch agent definition, `Info.plist`, icons and third-party licences.
+- **Do:** Implement `cargo xtask bundle`: assemble `Marsa.app` with the host binaries, the verified guest and upstream resources from M10-12, locales, fonts, the launch agent definition, `Info.plist`, icons and third-party licences.
 - **Deliver:** the bundle step and `packaging/macos/`.
 - **Accept when:**
   - The bundle launches from any location and finds its resources.
@@ -132,6 +132,20 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 - **Accept when:**
   - The candidate graph is evaluated for licences, advisories, and dependency bans using the normal workspace lockfile and strict checks.
   - The evaluation records which options remain eligible for release integration and why. The production graph and update trust policy are unchanged.
+
+### M10-12 Stage verified release resources
+
+- **Status:** done
+- **Depends on:** M2-09, M4-03
+- **Docs:** [12 App bundle layout](../12-build-release-update.md#app-bundle-layout), [11 Updates and supply chain](../11-security.md#updates-and-supply-chain)
+- **Do:** Add an unsigned resource stage for M10-01. Accept a three-file guest handoff and a guest manifest SHA-256 supplied independently by the trusted builder. Check the manifest, staged guest bytes and pinned component metadata. Fetch upstream binaries through M4-03 and generate their SBOM input from verified supplier bytes.
+- **Deliver:** `cargo xtask stage-release-resources` with a task-local output containing `Resources/guest`, `Resources/bin`, and `upstream-sbom-input.json`. M10-01 owns app assembly and M10-08 owns the combined notices and SBOM.
+- **Accept when:**
+  - A real pinned guest and the four official macOS ARM64 Docker artifacts stage in the expected structure.
+  - Changed guest or supplier bytes, a manifest that mismatches the trusted build record, unexpected names, symlinks and special files are rejected.
+  - A failure leaves no partial output at the requested path. Publication is atomic and never replaces an existing entry.
+
+- **Verified:** An Apple silicon staging run used the pinned Linux 7.3.5, Alpine 3.24.4 and Docker Engine 29.10.0 guest from source commit `800ec032618fda0005bec8de722115e24d9ffae1`. All three guest files matched their inputs byte-for-byte. The four verified official downloads were Docker CLI 29.10.0, Compose 5.8.0, Buildx 0.39.1 and the macOS keychain helper 0.9.13. Their installed SHA-256 digests matched the generated SBOM input. Tests cover guest and supplier corruption, unexpected and nonregular entries, and an output created between preflight and publication.
 
 ### M10-13 Prepare the native Harbor app icon
 
