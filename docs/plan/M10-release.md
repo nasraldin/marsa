@@ -23,11 +23,12 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 - **Status:** todo
 - **Depends on:** M10-01, M3-10, M10-14
 - **Docs:** [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization), Q-04
-- **Do:** Complete `cargo xtask sign`: sign every binary inside-out with hardened runtime and per-binary entitlements, re-sign bundled upstream binaries, notarize, staple, and verify with Gatekeeper tooling. Credentials come only from the release environment.
+- **Do:** Complete `cargo xtask sign`. Sign every binary inside-out with a secure timestamp, hardened runtime and per-binary entitlements. Re-sign bundled upstream binaries. Verify the final submission artifact in private staging without concurrent writers, bind verification to its SHA-256, and confirm the digest before submitting the same artifact. Notarize, staple, and verify with Gatekeeper tooling. Credentials come only from the release environment.
 - **Deliver:** the signing step, entitlements files.
 - **Accept when:**
   - The stapled app opens on a clean Mac without warnings and boots the VM.
   - A verification step in CI fails if any binary is unsigned or lacks hardened runtime.
+  - A release with a missing secure timestamp or a changed submission digest fails before submission.
 
 ### M10-03 Updater design and manifest format
 
