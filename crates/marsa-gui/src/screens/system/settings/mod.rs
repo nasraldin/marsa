@@ -1,6 +1,7 @@
 //! Versioned preferences and owner controls.
 
 mod accents;
+mod compose_template;
 mod external_docker;
 mod integrations;
 mod login;
@@ -50,6 +51,7 @@ pub(super) enum SettingsTab {
     Notifications,
     Agents,
     Updates,
+    ComposeTemplate,
     About,
 }
 
@@ -65,6 +67,7 @@ impl SettingsTab {
             Self::Notifications => "icons/bell.svg",
             Self::Agents => "icons/shield-check.svg",
             Self::Updates => "icons/refresh-cw.svg",
+            Self::ComposeTemplate => "icons/layout-template.svg",
             Self::About => "icons/info.svg",
         }
     }
@@ -81,6 +84,7 @@ impl SettingsTab {
             Self::Agents => ("Agents", "الوكلاء"),
             Self::Updates => ("Updates", "التحديثات"),
             Self::About => ("About", "حول"),
+            Self::ComposeTemplate => return gui::GUI_COMPOSE_TEMPLATE_TITLE.text(locale),
         };
         copy(locale, en, ar)
     }
@@ -164,6 +168,7 @@ impl SystemView {
             SettingsTab::Notifications => self.notification_settings(screen, cx),
             SettingsTab::Agents => self.agent_settings(screen, cx),
             SettingsTab::Updates => self.updates(screen, cx),
+            SettingsTab::ComposeTemplate => self.compose_template_settings(screen, cx),
             SettingsTab::About => self.about(screen, cx),
         };
         let layout = if compact {

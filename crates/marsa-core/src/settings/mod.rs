@@ -7,7 +7,7 @@ mod vm;
 pub use network::{NetworkMode, NetworkSettings, ProxySettings};
 pub use preferences::{
     AccentColor, AgentSettings, Language, NotificationSettings, OperateApproval, TelemetrySettings,
-    Theme, UiSettings, UpdateChannel, UpdateSettings,
+    Theme, UiSettings, UpdateChannel, UpdateSettings, valid_compose_template,
 };
 pub use vm::{DiskSettings, VmBackend, VmSettings};
 
@@ -102,6 +102,17 @@ impl Settings {
         self.vm.validate()?;
         self.disk.validate()?;
         self.network.validate()?;
+        if self
+            .ui
+            .compose_template
+            .as_deref()
+            .is_some_and(|value| !valid_compose_template(value))
+        {
+            return Err(SettingsError::invalid(
+                "ui.compose_template",
+                "must be nonblank, at most 16 KiB, and contain no NUL bytes",
+            ));
+        }
         if self
             .shares
             .iter()

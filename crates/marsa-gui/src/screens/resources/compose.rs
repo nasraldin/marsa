@@ -4,7 +4,9 @@ use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
 use std::{collections::VecDeque, sync::Arc};
 
-use marsa_client::compose::{ComposeCommand, ComposeOperation, ComposeOutput, ComposeSource};
+use marsa_client::compose::{
+    ComposeCommand, ComposeError, ComposeOperation, ComposeOutput, ComposeSource,
+};
 use marsa_ui::{
     ColorToken, Locale,
     gpui::{Context, Div, ParentElement, PathPromptOptions, Styled, div, px},
@@ -22,6 +24,7 @@ const MAX_OUTPUT_LINES: usize = 256;
 const MAX_OUTPUT_BYTES: usize = 2048;
 
 pub(super) enum Invocation {
+    Create(String),
     Standard(ComposeOperation),
     RemoveVolumes(String),
 }
@@ -42,17 +45,23 @@ impl ResourcesView {
     ) {
         let (invocation, endpoint) = action;
         let external = endpoint.is_some();
-        let chosen_file = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
+        let creating = matches!(invocation, Invocation::Create(_));
+        let prompt = if creating {
+            gui::GUI_COMPOSE_CHOOSE_PROJECT_FOLDER
+        } else {
+            gui::GUI_DESKTOP_CHOOSE_COMPOSE_FILE
+        };
+        let chosen_path = cx.prompt_for_paths(PathPromptOptions {
+            files: !creating,
+            directories: creating,
             multiple: false,
-            prompt: Some(gui::GUI_DESKTOP_CHOOSE_COMPOSE_FILE.text(locale).into()),
+            prompt: Some(prompt.text(locale).into()),
         });
         self.busy = Some(ResourceKind::Compose);
         self.outcome = None;
         self.compose_output = None;
         self.operation = Some(cx.spawn(async move |view, cx| {
-            let path = match chosen_file.await {
+            let path = match chosen_path.await {
                 Ok(Ok(paths)) => paths.and_then(|paths| paths.into_iter().next()),
                 _ => {
                     finish(&view, cx, Some(Outcome::Rejected));
@@ -64,6 +73,19 @@ impl ResourcesView {
                 return;
             };
             let command = match invocation {
+                Invocation::Create(yaml) => {
+                    let project = project.clone();
+                    let mut result = service.pending(async move {
+                        Ok(ComposeCommand::for_new_file(&path, project, yaml).await)
+                    });
+                    match result.result().await {
+                        Some(Ok(command)) => command,
+                        _ => {
+                            finish(&view, cx, Some(Outcome::ComposeFileWriteFailed));
+                            return;
+                        }
+                    }
+                }
                 Invocation::Standard(operation) => {
                     ComposeCommand::for_selected_file(path, project.clone(), operation)
                 }
@@ -75,9 +97,21 @@ impl ResourcesView {
                     )
                 }
             };
-            let Ok(command) = command else {
-                finish(&view, cx, Some(Outcome::Rejected));
-                return;
+            let command = match command {
+                Ok(command) => command,
+                Err(ComposeError::ExistingProjectFile) => {
+                    finish(&view, cx, Some(Outcome::ComposeFileExists));
+                    return;
+                }
+                Err(_) => {
+                    let failure = if creating {
+                        Outcome::ComposeFileWriteFailed
+                    } else {
+                        Outcome::Rejected
+                    };
+                    finish(&view, cx, Some(failure));
+                    return;
+                }
             };
             if view
                 .update(cx, |view, cx| {
@@ -94,7 +128,12 @@ impl ResourcesView {
             let mut stream = service.compose(command, endpoint);
             while let Some(batch) = stream.next().await {
                 let Ok(lines) = batch else {
-                    finish(&view, cx, Some(Outcome::Rejected));
+                    let failure = if creating {
+                        Outcome::ComposeFileKept
+                    } else {
+                        Outcome::Rejected
+                    };
+                    finish(&view, cx, Some(failure));
                     return;
                 };
                 let result = view.update(cx, |view, cx| {

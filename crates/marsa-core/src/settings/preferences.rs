@@ -55,7 +55,15 @@ impl AccentColor {
     }
 }
 
-/// Desktop app appearance and language settings.
+/// Maximum UTF-8 byte length of a saved Compose template.
+pub const MAX_COMPOSE_TEMPLATE_BYTES: usize = 16 * 1024;
+
+/// Check that a Compose draft fits in desktop settings and does not contain NUL.
+pub fn valid_compose_template(value: &str) -> bool {
+    value.len() <= MAX_COMPOSE_TEMPLATE_BYTES && !value.trim().is_empty() && !value.contains('\0')
+}
+
+/// Desktop app appearance, language and workflow settings.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct UiSettings {
@@ -71,6 +79,9 @@ pub struct UiSettings {
     pub setup_complete: bool,
     /// macOS notification preferences for each event category.
     pub notifications: NotificationSettings,
+    /// User-authored Compose YAML used when starting a new stack.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compose_template: Option<String>,
 }
 
 /// Desktop notifications are opt-in and independent of in-window state.

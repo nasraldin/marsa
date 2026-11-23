@@ -220,6 +220,12 @@ flowchart LR
 
 Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
 
+The Compose workspace can deploy an existing YAML file or start a new stack from
+the template saved in Settings. Review the initial YAML before choosing the
+project directory. Marsa creates `compose.yaml` there and deploys it to the
+Docker environment shown in the dialog. If deployment fails, the file remains
+in the project directory for editing and retry.
+
 ## Feature priorities
 
 From the planning whiteboard.

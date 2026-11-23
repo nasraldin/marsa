@@ -344,11 +344,11 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Status:** todo
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
-- **Do:** Manage registries, Git repositories and credentials, and supported deploy-time secret providers. Add a configurable Compose template and reusable container configuration sets.
+- **Do:** Manage registries, Git repositories and credentials, and supported deploy-time secret providers. Add reusable container configuration sets.
 - **Deliver:** Settings connected to the image pull and push, container creation, and Compose deploy workflows.
 - **Accept when:**
   - Registry and Git connection tests use the configured credentials. Deployment resolves secrets without exposing stored credentials in logs or inspection output.
-  - A new stack uses the saved template. Applying a named configuration set fills the container form and permits overrides before creation.
+  - Applying a named configuration set fills the container form and permits overrides before creation.
 
 ### M7-23 Configure scanning, jobs, and desktop metadata
 
@@ -360,3 +360,14 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Accept when:**
   - Scanner settings affect a scan, maintenance schedules affect subsequent runs, and scan retention and cache cleanup report their outcomes.
   - Log buffer, timestamp, and download settings take effect in resource views. About shows actual version, release notes, and dependency information.
+
+### M7-24 Compose template and new stack creation
+
+- **Status:** in progress
+- **Depends on:** M7-19
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Let users save or restore the default Compose template in Settings. Use the template when creating a new stack in an explicitly chosen project directory.
+- **Deliver:** A persistent template editor, a new-stack creation flow, and deployment using the selected Docker environment.
+- **Accept when:**
+  - A saved template survives relaunch. Restoring the built-in template has an explicit action.
+  - A new stack opens with the saved template. Creating a Compose file keeps any existing file intact and deployment uses the environment selected when the flow began.

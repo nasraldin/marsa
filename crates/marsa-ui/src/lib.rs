@@ -27,6 +27,6 @@ pub use {
 pub mod preferences {
     pub use marsa_core::settings::{
         AccentColor, Language, NetworkMode, NotificationSettings, OperateApproval, Settings, Theme,
-        UpdateChannel, VmBackend,
+        UpdateChannel, VmBackend, valid_compose_template,
     };
 }

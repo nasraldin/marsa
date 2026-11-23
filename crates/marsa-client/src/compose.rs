@@ -1,6 +1,10 @@
 //! Scoped Compose processes using a deliberately selected local project file.
 
-use std::{io, path::PathBuf, process::Stdio};
+use std::{
+    io::{self, Write as _},
+    path::{Path, PathBuf},
+    process::Stdio,
+};
 
 use nix::unistd::geteuid;
 use thiserror::Error;
@@ -14,6 +18,22 @@ use crate::{ClientError, docker::ExternalEndpoint, docker_socket_path, platform}
 mod relay;
 
 const MAX_OUTPUT_LINE: usize = 64 * 1024;
+const PROJECT_FILE: &str = "compose.yaml";
+
+/// Starter YAML used when the desktop owner has not set a Compose template.
+pub const DEFAULT_TEMPLATE: &str = "services:\n  app:\n    image: nginx:alpine\n";
+
+/// Check the project name before offering a deployment.
+pub fn valid_project_name(project: &str) -> bool {
+    (1..=255).contains(&project.len())
+        && project
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        && project.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
+        })
+}
 
 /// Lifecycle operation executed through the bundled Compose binary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,13 +73,7 @@ impl ComposeCommand {
         {
             return Err(ComposeError::File);
         }
-        let first = project.as_bytes().first();
-        if project.len() > 255
-            || !first.is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-            || !project.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
-            })
-        {
+        if !valid_project_name(&project) {
             return Err(ComposeError::Project);
         }
         Ok(Self {
@@ -68,6 +82,32 @@ impl ComposeCommand {
             operation,
             remove_volumes: false,
         })
+    }
+
+    /// Publish the reviewed YAML in an owner-selected project directory and prepare its deployment.
+    ///
+    /// An existing `compose.yaml`, including a symlink, is preserved. The new file
+    /// remains available to edit and deploy again if Compose cannot start the stack.
+    pub async fn for_new_file(
+        directory: &Path,
+        project: impl Into<String>,
+        yaml: impl Into<String>,
+    ) -> Result<Self, ComposeError> {
+        if geteuid().is_root() {
+            return Err(ClientError::Root.into());
+        }
+        let mut command =
+            Self::for_selected_file(directory.join(PROJECT_FILE), project, ComposeOperation::Up)?;
+        let directory = directory.to_path_buf();
+        let yaml = yaml.into();
+        if yaml.trim().is_empty() || yaml.contains('\0') {
+            return Err(ComposeError::InvalidTemplate);
+        }
+
+        command.file = tokio::task::spawn_blocking(move || publish_project_file(&directory, &yaml))
+            .await
+            .map_err(|error| ComposeError::Io(io::Error::other(error)))??;
+        Ok(command)
     }
 
     /// Authorize removing project volumes only after the exact project name was typed.
@@ -198,6 +238,24 @@ impl ComposeCommand {
     }
 }
 
+fn publish_project_file(directory: &Path, yaml: &str) -> Result<PathBuf, ComposeError> {
+    let directory = directory.canonicalize().map_err(ComposeError::Io)?;
+    let destination = directory.join(PROJECT_FILE);
+    let mut temporary = tempfile::NamedTempFile::new_in(directory).map_err(ComposeError::Io)?;
+    temporary
+        .write_all(yaml.as_bytes())
+        .map_err(ComposeError::Io)?;
+    temporary.as_file().sync_all().map_err(ComposeError::Io)?;
+    temporary.persist_noclobber(&destination).map_err(|error| {
+        if error.error.kind() == io::ErrorKind::AlreadyExists {
+            ComposeError::ExistingProjectFile
+        } else {
+            ComposeError::Io(error.error)
+        }
+    })?;
+    Ok(destination)
+}
+
 /// Which pipe provided a piece of Compose output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComposeSource {
@@ -296,6 +354,12 @@ pub enum ComposeError {
     /// The project file is not an absolute path to a YAML file.
     #[error("expected a local Compose YAML file")]
     File,
+    /// The requested destination already has a Compose file or directory.
+    #[error("compose.yaml is already present in the project directory")]
+    ExistingProjectFile,
+    /// The new Compose content is blank or contains a NUL byte.
+    #[error("invalid Compose template")]
+    InvalidTemplate,
     /// Docker Compose project names are restricted to lowercase letters, numbers and separators.
     #[error("invalid Compose project name")]
     Project,
@@ -320,4 +384,56 @@ pub enum ComposeError {
     /// The executable returned failure after its output was delivered.
     #[error("Compose failed: {0}")]
     Exit(std::process::ExitStatus),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const YAML: &str = "services:\n  web:\n    image: nginx:alpine\n";
+
+    #[tokio::test]
+    async fn create_prepares_exact_bytes_and_keeps_original_project_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let command = ComposeCommand::for_new_file(directory.path(), "hello-stack", YAML)
+            .await
+            .unwrap();
+        let path = directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("compose.yaml");
+        assert_eq!(command.file, path);
+        assert_eq!(command.project, "hello-stack");
+        assert_eq!(command.operation, ComposeOperation::Up);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), YAML);
+
+        let error = ComposeCommand::for_new_file(directory.path(), "hello-stack", "services: {}\n")
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ComposeError::ExistingProjectFile));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), YAML);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn create_never_replaces_a_symlink_or_writes_for_an_invalid_project() {
+        let directory = tempfile::tempdir().unwrap();
+        let invalid = ComposeCommand::for_new_file(directory.path(), "bad/name", YAML)
+            .await
+            .unwrap_err();
+        assert!(matches!(invalid, ComposeError::Project));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+
+        let target = directory.path().join("original");
+        std::fs::write(&target, "original").unwrap();
+        let path = directory.path().join("compose.yaml");
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        let existing = ComposeCommand::for_new_file(directory.path(), "hello-stack", YAML)
+            .await
+            .unwrap_err();
+        assert!(matches!(existing, ComposeError::ExistingProjectFile));
+        assert!(path.is_symlink());
+        assert_eq!(std::fs::read_to_string(target).unwrap(), "original");
+    }
 }

@@ -168,3 +168,30 @@ fn non_utf8_share_paths_are_rejected_before_serialization() {
         })
     ));
 }
+
+#[test]
+fn compose_template_round_trips_and_can_be_restored() {
+    let mut settings = Settings::from_toml("schema_version = 1\n").unwrap();
+    assert_eq!(settings.ui.compose_template, None);
+    let source = "services:\n  app:\n    image: nginx:alpine\n# قالب المشروع\n";
+    settings.ui.compose_template = Some(source.to_owned());
+    let mut reloaded = Settings::from_toml(&settings.to_toml().unwrap()).unwrap();
+    assert_eq!(reloaded.ui.compose_template.as_deref(), Some(source));
+    reloaded.ui.compose_template = None;
+    assert!(!reloaded.to_toml().unwrap().contains("compose_template"));
+}
+
+#[test]
+fn compose_template_rejects_blank_oversized_and_nul_input() {
+    let mut settings = Settings::default();
+    for invalid in ["  \n".to_owned(), "a\0b".to_owned(), "a".repeat(16_385)] {
+        settings.ui.compose_template = Some(invalid);
+        assert!(matches!(
+            settings.to_toml(),
+            Err(SettingsError::InvalidValue {
+                field: "ui.compose_template",
+                ..
+            })
+        ));
+    }
+}

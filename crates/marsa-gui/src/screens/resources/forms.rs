@@ -1,6 +1,7 @@
 //! Safe confirmations and inputs for resource actions.
 
 use crate::screens::common::message;
+use marsa_client::compose::valid_project_name;
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken, Locale,
@@ -9,8 +10,9 @@ use marsa_ui::{
         Disableable, WindowExt,
         button::{Button, ButtonVariants},
         checkbox::Checkbox,
-        input::InputState,
+        input::{Editor, EditorState, InputEvent, InputState},
     },
+    preferences::valid_compose_template,
     tokens::{
         scale::{Radius, Space},
         typography::Role,
@@ -37,6 +39,9 @@ pub(super) enum FormKind {
         id: String,
         name: String,
         attach: bool,
+    },
+    CreateStack {
+        template: String,
     },
     DeployStack,
     Run {
@@ -83,7 +88,7 @@ impl FormKind {
                 ResourceKind::Images
             }
             Self::NetworkMembership { .. } => ResourceKind::Networks,
-            Self::DeployStack => ResourceKind::Compose,
+            Self::CreateStack { .. } | Self::DeployStack => ResourceKind::Compose,
             Self::Pull | Self::Run { .. } | Self::RemoveImage { .. } | Self::TagImage { .. } => {
                 ResourceKind::Images
             }
@@ -106,6 +111,7 @@ impl FormKind {
             Self::NetworkMembership { attach: false, .. } => {
                 gui::GUI_DESKTOP_DETACH_CONTAINER.text(locale)
             }
+            Self::CreateStack { .. } => gui::GUI_COMPOSE_NEW_STACK.text(locale),
             Self::DeployStack => gui::GUI_DESKTOP_DEPLOY_STACK.text(locale),
             Self::Pull => gui::GUI_DESKTOP_PULL_IMAGE.text(locale),
             Self::Run { .. } => gui::GUI_DESKTOP_RUN_IMAGE.text(locale),
@@ -132,7 +138,7 @@ impl FormKind {
                 Some(reference)
             }
             Self::NetworkMembership { name, .. } => Some(name),
-            Self::ImportImage | Self::DeployStack => None,
+            Self::ImportImage | Self::CreateStack { .. } | Self::DeployStack => None,
             Self::Run { reference, .. }
             | Self::RemoveImage { reference, .. }
             | Self::TagImage { reference, .. } => Some(reference),
@@ -146,7 +152,9 @@ impl FormKind {
 
     fn placeholder(&self, locale: Locale) -> Option<&'static str> {
         match self {
-            Self::DeployStack => Some(gui::GUI_DESKTOP_STACK_NAME.text(locale)),
+            Self::CreateStack { .. } | Self::DeployStack => {
+                Some(gui::GUI_DESKTOP_STACK_NAME.text(locale))
+            }
             Self::NetworkMembership { .. } => Some(gui::GUI_DESKTOP_NETWORK_CONTAINER.text(locale)),
             Self::Pull => Some(gui::GUI_DESKTOP_IMAGE_REFERENCE.text(locale)),
             Self::TagImage { .. } => Some(gui::GUI_DESKTOP_TARGET_IMAGE_TAG.text(locale)),
@@ -199,6 +207,10 @@ pub(crate) enum ResourceRequest {
         container: marsa_client::docker::ContainerId,
         attach: bool,
     },
+    CreateStack {
+        project: String,
+        yaml: String,
+    },
     DeployStack(String),
     Run {
         id: String,
@@ -232,6 +244,7 @@ pub(super) struct Form {
     pub kind: FormKind,
     source: Option<super::ResourceSource>,
     input: Option<Entity<InputState>>,
+    compose_editor: Option<Entity<EditorState>>,
     force: bool,
 }
 
@@ -252,10 +265,19 @@ impl Form {
             .detach();
             input
         });
+        let compose_editor = if let FormKind::CreateStack { template } = &kind {
+            let editor = cx.new(|cx| EditorState::new(window, cx).default_value(template.clone()));
+            cx.subscribe(&editor, |_, _, _: &InputEvent, cx| cx.refresh_windows())
+                .detach();
+            Some(editor)
+        } else {
+            None
+        };
         Self {
             kind,
             source,
             input,
+            compose_editor,
             force: false,
         }
     }
@@ -269,6 +291,17 @@ impl Form {
         let trimmed = value.trim();
         let nonempty = || (!trimmed.is_empty()).then_some(trimmed);
         Some(match &self.kind {
+            FormKind::CreateStack { .. } => {
+                let project = nonempty()?.to_owned();
+                let yaml = self.compose_editor.as_ref()?.read(cx).value();
+                if !valid_project_name(&project) || !valid_compose_template(&yaml) {
+                    return None;
+                }
+                ResourceRequest::CreateStack {
+                    project,
+                    yaml: yaml.to_string(),
+                }
+            }
             FormKind::DeployStack => ResourceRequest::DeployStack(nonempty()?.to_owned()),
             FormKind::ImportImage => ResourceRequest::ImportImage,
             FormKind::PushImage { id, reference } => ResourceRequest::PushImage {
@@ -349,7 +382,12 @@ impl Form {
         view: &Entity<ResourcesView>,
         cx: &App,
     ) -> Div {
-        let title = self.kind.title(screen.locale);
+        let creating = matches!(self.kind, FormKind::CreateStack { .. });
+        let title = if creating {
+            gui::GUI_COMPOSE_CREATE_AND_DEPLOY.text(screen.locale)
+        } else {
+            self.kind.title(screen.locale)
+        };
         let mut form = div().flex().flex_col().gap(px(Space::S12.pixels()));
         form = form.child(
             logical_row(screen.locale).child(crate::screens::external_inventory::source_badge(
@@ -430,7 +468,11 @@ impl Form {
                 Role::Body,
                 message(
                     screen.locale,
-                    gui::GUI_DESKTOP_CHOOSE_THE_COMPOSE_FILE_FOR_THIS_PROJECT_AFTER_CONFIRMING,
+                    if creating {
+                        gui::GUI_COMPOSE_NEW_STACK_HELP
+                    } else {
+                        gui::GUI_DESKTOP_CHOOSE_THE_COMPOSE_FILE_FOR_THIS_PROJECT_AFTER_CONFIRMING
+                    },
                 ),
             ));
         }
@@ -440,6 +482,35 @@ impl Form {
                 control = control.aria_label(placeholder);
             }
             form = form.child(control);
+        }
+        if let Some(editor) = &self.compose_editor {
+            let invalid_project = self.input.as_ref().is_some_and(|input| {
+                let value = input.read(cx).value();
+                !value.trim().is_empty() && !valid_project_name(value.trim())
+            });
+            let invalid_yaml = !valid_compose_template(editor.read(cx).value().as_ref());
+            form = form
+                .children(invalid_project.then(|| {
+                    text(
+                        screen,
+                        Role::Small,
+                        gui::GUI_COMPOSE_PROJECT_NAME_HELP.text(screen.locale),
+                    )
+                    .text_color(tone(screen, ColorToken::StatusWarning))
+                }))
+                .child(
+                    Editor::new(editor)
+                        .h(px(224.))
+                        .aria_label(gui::GUI_COMPOSE_YAML.text(screen.locale)),
+                )
+                .children(invalid_yaml.then(|| {
+                    text(
+                        screen,
+                        Role::Small,
+                        gui::GUI_COMPOSE_TEMPLATE_INVALID.text(screen.locale),
+                    )
+                    .text_color(tone(screen, ColorToken::StatusWarning))
+                }));
         }
         let cancel = view.clone();
         let submit = view.clone();

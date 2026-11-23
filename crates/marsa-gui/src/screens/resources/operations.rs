@@ -35,6 +35,9 @@ pub(super) enum Outcome {
     Rejected,
     Unavailable,
     ImageCreated,
+    ComposeFileExists,
+    ComposeFileWriteFailed,
+    ComposeFileKept,
     UnsupportedImagePlatform,
     Cancelled,
 }
@@ -176,6 +179,16 @@ impl ResourcesView {
         let request = match request {
             ResourceRequest::Pull(reference) => {
                 self.pull(reference, endpoint, service, cx);
+                return;
+            }
+            ResourceRequest::CreateStack { project, yaml } => {
+                self.run_compose(
+                    project,
+                    (Invocation::Create(yaml), endpoint),
+                    service,
+                    locale,
+                    cx,
+                );
                 return;
             }
             ResourceRequest::DeployStack(project) | ResourceRequest::ComposeUp(project) => {
@@ -392,6 +405,18 @@ impl ResourcesView {
                     screen.locale,
                     gui::GUI_DESKTOP_THE_CONTAINER_WAS_CREATED_BUT_DOCKER_COULD_NOT_START_IT,
                 ),
+                Tone::Warning,
+            ),
+            Outcome::ComposeFileExists => (
+                message(screen.locale, gui::GUI_COMPOSE_FILE_EXISTS),
+                Tone::Warning,
+            ),
+            Outcome::ComposeFileWriteFailed => (
+                message(screen.locale, gui::GUI_COMPOSE_FILE_WRITE_FAILED),
+                Tone::Error,
+            ),
+            Outcome::ComposeFileKept => (
+                message(screen.locale, gui::GUI_COMPOSE_FILE_KEPT),
                 Tone::Warning,
             ),
             Outcome::UnsupportedImagePlatform => (

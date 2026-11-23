@@ -114,7 +114,8 @@ impl Desktop {
         let environment = cx.new(|_| Environment::load());
         let _context_subscription = cx.observe(&environment, |this, environment, cx| {
             environment.read(cx).save();
-            this.resources.update(cx, |view, _| view.leave());
+            this.resources
+                .update(cx, |view, _| view.switch_environment());
             this.palette_index = 0;
             this.system
                 .update(cx, |view, cx| view.refresh_external_inventory(cx));
@@ -483,6 +484,7 @@ impl Render for Desktop {
                         &self.resources,
                         &self.external_inventory,
                         &self.environment,
+                        self.system.read(cx).compose_template(),
                         cx,
                     )
                     .into_any_element()

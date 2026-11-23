@@ -67,7 +67,7 @@ impl ResourceKind {
             Self::Images => Some(FormKind::Pull),
             Self::Volumes => Some(FormKind::CreateVolume),
             Self::Networks => Some(FormKind::CreateNetwork),
-            Self::Compose => Some(FormKind::DeployStack),
+            Self::Compose => None,
         }
     }
 }
@@ -193,6 +193,16 @@ impl ResourcesView {
         self.volume_scanning = false;
     }
 
+    /// Clear the old resource selection while retaining an open, pinned stack draft.
+    pub(crate) fn switch_environment(&mut self) {
+        let draft = self
+            .form
+            .take()
+            .filter(|form| matches!(form.kind, FormKind::CreateStack { .. }));
+        self.leave();
+        self.form = draft;
+    }
+
     fn open_form(
         &mut self,
         action: (FormKind, Option<ResourceSource>),
@@ -238,6 +248,7 @@ pub(crate) fn render(
     view: &Entity<ResourcesView>,
     external: &[Arc<ExternalWorkspace>],
     environment: &Entity<Environment>,
+    compose_template: Option<&str>,
     cx: &App,
 ) -> Div {
     let data = view.read(cx);
@@ -272,6 +283,26 @@ pub(crate) fn render(
             active_source.clone(),
             available,
         ));
+    }
+    if kind == ResourceKind::Compose {
+        let available = available && data.busy.is_none();
+        toolbar = toolbar
+            .child(primary_action(
+                screen,
+                view,
+                FormKind::CreateStack {
+                    template: compose_template.unwrap_or_default().to_owned(),
+                },
+                active_source.clone(),
+                available && compose_template.is_some(),
+            ))
+            .child(primary_action(
+                screen,
+                view,
+                FormKind::DeployStack,
+                active_source.clone(),
+                available,
+            ));
     }
     if kind == ResourceKind::Images {
         toolbar = toolbar.child(primary_action(
@@ -441,11 +472,15 @@ fn primary_action(
     let button = Button::new(marsa_ui::gpui::SharedString::from(format!(
         "primary-resource-action:{title}"
     )))
-    .primary()
     .h(px(Space::S36.pixels()))
     .rounded(px(Radius::R8.pixels()))
     .label(title)
     .disabled(service.is_none() || !available);
+    let button = if matches!(action, FormKind::DeployStack) {
+        button.outline()
+    } else {
+        button.primary()
+    };
     button
         .on_click(move |_, window, cx| {
             if let (true, Some(service)) = (available, &service) {

@@ -164,6 +164,18 @@ impl SystemView {
             })
     }
 
+    /// Return the saved Compose template, or the built-in one if settings are available.
+    pub(crate) fn compose_template(&self) -> Option<&str> {
+        let (settings, _) = self.settings.as_ref()?;
+        Some(
+            settings
+                .ui
+                .compose_template
+                .as_deref()
+                .unwrap_or(marsa_client::compose::DEFAULT_TEMPLATE),
+        )
+    }
+
     /// Select the Docker settings tab and update the detected engine list.
     pub(crate) fn select_docker_settings(&mut self, cx: &mut Context<Self>) {
         self.settings_tab = SettingsTab::Environments;
