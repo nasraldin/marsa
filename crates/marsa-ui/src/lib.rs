@@ -16,7 +16,7 @@ mod assets;
 #[cfg(target_os = "macos")]
 pub use {
     gpui,
-    gpui_base::FocusTrapElement,
+    gpui_base::{DialogClose, FocusTrapElement},
     gpui_component,
     marsa_l10n::{Locale, TextKey, keys as gui_keys},
     platform::{run, show_workspace},

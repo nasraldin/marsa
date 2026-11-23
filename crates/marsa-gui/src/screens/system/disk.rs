@@ -1,6 +1,5 @@
 //! Storage accounting, exact cleanup inventory and explicit space reclaim.
 
-use marsa_ui::gpui_component::scroll::ScrollableElement as _;
 use marsa_ui::tokens::typography::ui_size;
 
 use marsa_client::api::{
@@ -9,7 +8,7 @@ use marsa_client::api::{
 };
 use marsa_ui::{
     ColorToken, Locale, Palette,
-    gpui::{Context, Div, FontWeight, InteractiveElement, ParentElement, Styled, Window, div, px},
+    gpui::{Context, Div, FontWeight, ParentElement, Styled, Window, div, px},
     gpui_component::{
         Disableable, Sizable, WindowExt,
         button::{Button, ButtonVariants},
@@ -20,14 +19,17 @@ use marsa_ui::{
 
 use crate::{
     desktop::Route,
-    screens::common::{ScreenContext, align, color, message, panel, row},
+    screens::common::{
+        ScreenContext, align, color, dialog_actions, dialog_frame, dialog_heading, message, panel,
+        row,
+    },
 };
 
 pub(super) use crate::screens::common::disk_bytes as bytes;
 
 use super::{
     SystemView,
-    machine::{dialog_title, mono, muted, system_icon, title_text},
+    machine::{mono, muted, system_icon, title_text},
 };
 
 const CLEANUP: [DiskCategory; 4] = [
@@ -129,10 +131,12 @@ impl SystemView {
             .iter()
             .all(|candidate| candidate.category() != DiskCategory::Volumes);
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .centered()
-                .width(px(680.))
-                .title(dialog_title(gui::GUI_SYSTEM_DISK_REVIEW.text(locale)))
+            dialog_frame(dialog, 680.)
+                .title(dialog_heading(
+                    locale,
+                    palette,
+                    gui::GUI_SYSTEM_DISK_REVIEW.text(locale),
+                ))
                 .child(
                     align(div().flex().flex_col().gap_4(), locale)
                         .child(muted(
@@ -147,9 +151,6 @@ impl SystemView {
                         ))
                         .child(
                             div()
-                                .id("reviewed-disk-targets")
-                                .max_h(px(292.))
-                                .overflow_y_scrollbar()
                                 .rounded(px(8.))
                                 .px_4()
                                 .py_2()
@@ -193,7 +194,7 @@ impl SystemView {
                         ),
                 )
                 .footer(
-                    row(locale).justify_end().child(
+                    dialog_actions(locale, palette).child(
                         Button::new("close-cleanup-review")
                             .outline()
                             .small()

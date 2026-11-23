@@ -1,7 +1,5 @@
 //! Manage the owner's reusable container configurations through revisioned settings.
 
-use marsa_ui::gpui_component::scroll::ScrollableElement as _;
-
 use std::{cell::Cell, rc::Rc};
 
 use marsa_client::docker::container_config::{ContainerConfigSet, MAX_CONFIG_SETS};
@@ -9,19 +7,21 @@ use marsa_ui::{
     ColorToken, Locale, Palette,
     direction::LogicalStyle as _,
     gpui::{
-        App, Context, Div, InteractiveElement as _, ParentElement as _, PromptButton, PromptLevel,
-        Styled as _, Window, div, px,
+        App, Context, Div, FontWeight, ParentElement as _, PromptButton, PromptLevel, Styled as _,
+        Window, div, px,
     },
     gpui_component::{
         Disableable as _, WindowExt as _,
         button::{Button, ButtonVariants as _},
     },
     gui_keys as gui,
-    tokens::typography::Role,
+    tokens::typography::{Role, ui_size},
 };
 
 use crate::screens::{
-    common::{ScreenContext, color, resource_input, row},
+    common::{
+        ScreenContext, color, dialog_actions, dialog_frame, dialog_heading, resource_input, row,
+    },
     config_options::{OptionsEditor, error_line, error_text, field},
 };
 
@@ -144,14 +144,9 @@ impl SystemView {
             Some(_) => gui::GUI_CONFIG_EDIT_SET,
             None => gui::GUI_CONFIG_ADD_SET,
         };
-        let name = field(
-            gui::GUI_CONFIG_NAME.text(locale),
-            old.as_ref().map_or("", |set| &set.name),
-            window,
-            cx,
-        );
+        let name = field("", old.as_ref().map_or("", |set| &set.name), window, cx);
         let description = field(
-            gui::GUI_CONFIG_DESCRIPTION.text(locale),
+            "",
             old.as_ref().map_or("", |set| &set.description),
             window,
             cx,
@@ -196,45 +191,65 @@ impl SystemView {
         window.open_dialog(cx, move |dialog, _, cx| {
             let submit_on_click = submit.clone();
             let submit_on_ok = submit.clone();
-            dialog
-                .centered()
-                .width(px(600.))
-                .title(title.text(locale))
-                .child(
+            let identity = row(locale).flex_wrap().items_start().gap_3().children(
+                [
+                    (gui::GUI_CONFIG_NAME, &name),
+                    (gui::GUI_CONFIG_DESCRIPTION, &description),
+                ]
+                .into_iter()
+                .map(|(key, input)| {
+                    let label = key.text(locale);
                     div()
-                        .id("config-set-editor")
-                        .max_h(px(460.))
-                        .overflow_y_scrollbar()
                         .flex()
                         .flex_col()
-                        .gap_3()
-                        .px_1()
+                        .flex_1()
+                        .min_w(px(190.))
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_size(ui_size(13.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(label),
+                        )
+                        .child(resource_input(input).aria_label(label))
+                }),
+            );
+            dialog_frame(dialog, 700.)
+                .title(dialog_heading(locale, palette, title.text(locale)))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_4()
                         .text_start(cx)
-                        .child(resource_input(&name))
-                        .child(resource_input(&description))
-                        .children(failed.get().map(|text| error_line(text, palette, cx)))
-                        .child(OptionsEditor::render(&draft, locale, palette, cx)),
+                        .child(identity)
+                        .child(OptionsEditor::render(&draft, locale, palette)),
                 )
                 .on_ok(move |_, window, cx| submit_on_ok(window, cx))
                 .footer(
-                    row(locale)
-                        .justify_row_end()
+                    div()
+                        .flex()
+                        .flex_col()
                         .gap_2()
+                        .children(failed.get().map(|text| error_line(text, palette, cx)))
                         .child(
-                            Button::new("cancel-config-set")
-                                .outline()
-                                .label(gui::GUI_DESKTOP_CANCEL.text(locale))
-                                .on_click(|_, window, cx| window.close_dialog(cx)),
-                        )
-                        .child(
-                            Button::new("save-config-set")
-                                .primary()
-                                .label(gui::GUI_CONFIG_SAVE_SET.text(locale))
-                                .on_click(move |_, window, cx| {
-                                    if submit_on_click(window, cx) {
-                                        window.close_dialog(cx);
-                                    }
-                                }),
+                            dialog_actions(locale, palette)
+                                .child(
+                                    Button::new("cancel-config-set")
+                                        .outline()
+                                        .label(gui::GUI_DESKTOP_CANCEL.text(locale))
+                                        .on_click(|_, window, cx| window.close_dialog(cx)),
+                                )
+                                .child(
+                                    Button::new("save-config-set")
+                                        .primary()
+                                        .label(gui::GUI_CONFIG_SAVE_SET.text(locale))
+                                        .on_click(move |_, window, cx| {
+                                            if submit_on_click(window, cx) {
+                                                window.close_dialog(cx);
+                                            }
+                                        }),
+                                ),
                         ),
                 )
         });

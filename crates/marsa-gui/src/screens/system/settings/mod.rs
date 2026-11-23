@@ -566,7 +566,7 @@ impl SystemView {
                 gui::GUI_DESKTOP_MANAGE_GRANTS_AND_REVIEW_REQUESTS_IN_ACTIVITY.text(locale),
             ))
             .child(
-                row(screen.locale).gap_2().children(
+                row(screen.locale).gap_2().flex_wrap().children(
                     [
                         (
                             OperateApproval::AlwaysAsk,
@@ -586,6 +586,7 @@ impl SystemView {
                         Button::new(("agent-approval", value as usize))
                             .outline()
                             .selected(preference == Some(value))
+                            .toggled(preference == Some(value))
                             .label(label)
                             .disabled(self.busy() || preference.is_none())
                             .on_click(cx.listener(move |this, _, _, cx| {

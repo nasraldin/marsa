@@ -22,7 +22,10 @@ use marsa_ui::{
 
 use crate::{
     desktop::status,
-    screens::common::{ScreenContext, align, color, message, panel, row, technical},
+    screens::common::{
+        ScreenContext, align, color, dialog_actions, dialog_frame, dialog_heading, message, panel,
+        row, technical,
+    },
     services::{Command, EngineAction},
 };
 
@@ -35,6 +38,7 @@ impl SystemView {
         &mut self,
         action: EngineAction,
         locale: Locale,
+        palette: Palette,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -64,20 +68,19 @@ impl SystemView {
         let view = cx.entity().downgrade();
         window.open_dialog(cx, move |dialog, _, _| {
             let view = view.clone();
-            dialog
-                .centered()
-                .width(px(570.))
+            dialog_frame(dialog, 570.)
                 .overlay_closable(false)
-                .title(dialog_title(title.text(locale)))
+                .title(dialog_heading(locale, palette, title.text(locale)))
                 .child(
-                    align(div().flex().flex_col().gap_5(), locale)
+                    align(div().flex().flex_col().gap_2().py_2(), locale)
                         .child(explanation.text(locale))
-                        .child(gui::GUI_SYSTEM_MACHINE_VOLUMES_STAY.text(locale)),
+                        .child(muted(
+                            palette,
+                            gui::GUI_SYSTEM_MACHINE_VOLUMES_STAY.text(locale),
+                        )),
                 )
                 .footer(
-                    row(locale)
-                        .justify_end()
-                        .gap_2()
+                    dialog_actions(locale, palette)
                         .child(cancel_button("cancel-machine-action", locale))
                         .child(
                             Button::new("confirm-machine-action")
@@ -209,7 +212,7 @@ impl SystemView {
                     .disabled(self.busy())
                     .label(key.text(locale))
                     .on_click(cx.listener(move |view, _, window, cx| {
-                        view.engine(action, locale, window, cx)
+                        view.engine(action, locale, palette, window, cx)
                     }));
                 if matches!(action, EngineAction::Start) {
                     button.primary()
@@ -424,49 +427,55 @@ impl SystemView {
             let view = view.clone();
             let cpu_for_save = cpus.clone();
             let memory_for_save = memory.clone();
-            let fields = align(div().flex().flex_col().gap_5(), locale)
+            let processors = gui::GUI_SYSTEM_MACHINE_PROCESSORS.text(locale);
+            let ram = gui::GUI_SYSTEM_MACHINE_MEMORY.text(locale);
+            let fields = align(div().flex().flex_col().gap_4(), locale)
                 .child(muted(
                     palette,
                     gui::GUI_SYSTEM_MACHINE_AFTER_NEXT_RESTART.text(locale),
                 ))
                 .child(
                     row(locale)
-                        .justify_between()
-                        .gap_4()
-                        .child(gui::GUI_SYSTEM_MACHINE_PROCESSORS.text(locale))
-                        .child(resource_menu(
-                            "machine-cpu-count",
-                            cpus.clone(),
-                            &cpu_choices,
-                            |cpu| format!("{cpu} vCPU"),
-                        )),
-                )
-                .child(
-                    row(locale)
-                        .justify_between()
-                        .gap_4()
-                        .child(gui::GUI_SYSTEM_MACHINE_MEMORY.text(locale))
-                        .child(resource_menu(
-                            "machine-memory-size",
-                            memory.clone(),
-                            &memory_choices,
-                            move |memory| {
-                                memory.map(bytes).unwrap_or_else(|| {
-                                    gui::GUI_DESKTOP_AUTOMATIC.text(locale).to_owned()
-                                })
-                            },
+                        .items_start()
+                        .flex_wrap()
+                        .gap_3()
+                        .child(resource_field(
+                            processors,
+                            resource_menu(
+                                "machine-cpu-count",
+                                processors,
+                                locale,
+                                cpus.clone(),
+                                &cpu_choices,
+                                |cpu| format!("{cpu} vCPU"),
+                            ),
+                        ))
+                        .child(resource_field(
+                            ram,
+                            resource_menu(
+                                "machine-memory-size",
+                                ram,
+                                locale,
+                                memory.clone(),
+                                &memory_choices,
+                                move |memory| {
+                                    memory.map(bytes).unwrap_or_else(|| {
+                                        gui::GUI_DESKTOP_AUTOMATIC.text(locale).to_owned()
+                                    })
+                                },
+                            ),
                         )),
                 );
-            dialog
-                .centered()
-                .width(px(576.))
+            dialog_frame(dialog, 576.)
                 .overlay_closable(false)
-                .title(dialog_title(gui::GUI_DESKTOP_EDIT_RESOURCES.text(locale)))
+                .title(dialog_heading(
+                    locale,
+                    palette,
+                    gui::GUI_DESKTOP_EDIT_RESOURCES.text(locale),
+                ))
                 .child(fields)
                 .footer(
-                    row(locale)
-                        .justify_end()
-                        .gap_2()
+                    dialog_actions(locale, palette)
                         .child(cancel_button("cancel-machine-resources", locale))
                         .child(
                             Button::new("confirm-machine-resources")
@@ -522,19 +531,18 @@ impl SystemView {
                     .filter(|line| !line.is_empty())
                 })
                 .collect::<Vec<_>>();
-            dialog
-                .centered()
-                .width(px(660.))
-                .title(dialog_title(gui::GUI_DESKTOP_BOOT_DIAGNOSTICS.text(locale)))
+            dialog_frame(dialog, 660.)
+                .title(dialog_heading(
+                    locale,
+                    palette,
+                    gui::GUI_DESKTOP_BOOT_DIAGNOSTICS.text(locale),
+                ))
                 .child(
                     align(div().flex().flex_col().gap_5(), locale)
                         .child(muted(palette, context.text(locale)))
                         .child(
                             div()
-                                .id("machine-startup-output")
-                                .overflow_y_scrollbar()
-                                .min_h(px(128.))
-                                .max_h(px(252.))
+                                .min_h(px(88.))
                                 .rounded(px(12.))
                                 .border_1()
                                 .border_color(color(palette, ColorToken::BorderSubtle))
@@ -553,9 +561,7 @@ impl SystemView {
                         ),
                 )
                 .footer(
-                    row(locale)
-                        .justify_end()
-                        .gap_2()
+                    dialog_actions(locale, palette)
                         .child(
                             Button::new("close-startup-details")
                                 .outline()
@@ -605,14 +611,6 @@ pub(super) fn title_text(text: &'static str) -> Div {
         .text_size(ui_size(16.))
         .line_height(ui_size(24.))
         .font_weight(FontWeight::MEDIUM)
-        .child(text)
-}
-
-pub(super) fn dialog_title(text: &'static str) -> Div {
-    div()
-        .text_size(ui_size(27.))
-        .line_height(ui_size(36.))
-        .font_weight(FontWeight::SEMIBOLD)
         .child(text)
 }
 
@@ -683,18 +681,43 @@ fn cancel_button(id: &'static str, locale: Locale) -> Button {
         .on_click(|_, window, cx| window.close_dialog(cx))
 }
 
+fn resource_field(label: &'static str, input: impl IntoElement) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w(px(170.))
+        .gap_1()
+        .child(
+            div()
+                .text_size(ui_size(13.))
+                .font_weight(FontWeight::MEDIUM)
+                .child(label),
+        )
+        .child(input)
+}
+
 fn resource_menu<T: Copy + Eq + 'static>(
     id: &'static str,
+    title: &'static str,
+    locale: Locale,
     value: Rc<Cell<T>>,
     choices: &[T],
     label: impl Fn(T) -> String + Clone + 'static,
 ) -> impl IntoElement {
-    let current = value.get();
+    let current = label(value.get());
     let choices = choices.to_vec();
     Button::new(id)
         .outline()
-        .icon(IconName::ChevronDown)
-        .label(label(current))
+        .accessibility_label(format!("{title} · {current}"))
+        .child(
+            row(locale)
+                .w_full()
+                .justify_between()
+                .gap_2()
+                .child(current)
+                .child(Icon::new(IconName::ChevronDown).size(px(14.))),
+        )
         .dropdown_menu(move |menu, _, _| {
             choices.iter().fold(menu, |menu, &choice| {
                 let value = value.clone();

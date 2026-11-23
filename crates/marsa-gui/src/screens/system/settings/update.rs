@@ -8,7 +8,7 @@ use marsa_client::{
     },
 };
 use marsa_ui::{
-    Locale,
+    ColorToken, Locale,
     gpui::{Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window, div},
     gpui_component::{
         Disableable, Selectable,
@@ -17,11 +17,15 @@ use marsa_ui::{
     },
     gui_keys as gui,
     preferences::UpdateChannel,
+    tokens::typography::Role,
 };
 
-use super::super::{SystemView, disk::bytes, machine::title_text};
+use super::{
+    super::{SystemView, disk::bytes},
+    settings_card, settings_text,
+};
 use crate::{
-    screens::common::{ScreenContext, message, panel, row, technical},
+    screens::common::{ScreenContext, color, message, row, technical},
     services::ServiceError,
 };
 
@@ -101,26 +105,47 @@ impl SystemView {
         let version = status
             .and_then(|status| status.available_version.as_deref())
             .filter(|version| valid_version(version));
-        panel(screen)
-            .child(title_text(gui::GUI_DESKTOP_UPDATES.text(locale)))
+        let preferences = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .pt_3()
+            .border_t_1()
+            .border_color(color(screen.palette, ColorToken::BorderSubtle))
             .child(
-                row(locale).gap_2().children(
-                    [
-                        (UpdateChannel::Stable, gui::GUI_DESKTOP_STABLE),
-                        (UpdateChannel::Beta, gui::GUI_DESKTOP_BETA),
-                    ]
-                    .into_iter()
-                    .map(|(value, key)| {
-                        Button::new(("release-channel", value as usize))
-                            .outline()
-                            .selected(channel == Some(value))
-                            .label(key.text(locale))
-                            .disabled(self.busy() || !configured)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.save_settings(|settings| settings.updates.channel = value, cx);
-                            }))
-                    }),
-                ),
+                row(locale)
+                    .gap_2()
+                    .flex_wrap()
+                    .justify_between()
+                    .child(settings_text(
+                        screen,
+                        Role::Label,
+                        gui::GUI_UPDATE_RELEASE_CHANNEL.text(locale),
+                        ColorToken::TextPrimary,
+                    ))
+                    .child(
+                        row(locale).gap_2().children(
+                            [
+                                (UpdateChannel::Stable, gui::GUI_DESKTOP_STABLE),
+                                (UpdateChannel::Beta, gui::GUI_DESKTOP_BETA),
+                            ]
+                            .into_iter()
+                            .map(|(value, key)| {
+                                Button::new(("release-channel", value as usize))
+                                    .outline()
+                                    .selected(channel == Some(value))
+                                    .toggled(channel == Some(value))
+                                    .label(key.text(locale))
+                                    .disabled(self.busy() || !configured)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.save_settings(
+                                            |settings| settings.updates.channel = value,
+                                            cx,
+                                        );
+                                    }))
+                            }),
+                        ),
+                    ),
             )
             .child(
                 Checkbox::new("automatic-update-checks")
@@ -130,7 +155,14 @@ impl SystemView {
                     .on_click(cx.listener(|this, selected: &bool, _, cx| {
                         this.save_settings(|settings| settings.updates.auto_check = *selected, cx);
                     })),
-            )
+            );
+        settings_card(screen)
+            .child(settings_text(
+                screen,
+                Role::Lead,
+                gui::GUI_DESKTOP_UPDATES.text(locale),
+                ColorToken::TextPrimary,
+            ))
             .children(status.map(|status| summary(status, locale)))
             .children((!supported).then(|| {
                 message(
@@ -192,6 +224,7 @@ impl SystemView {
                         },
                     )),
             )
+            .child(preferences)
     }
 
     fn check_update(&mut self, cx: &mut Context<Self>) {

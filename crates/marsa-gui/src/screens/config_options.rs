@@ -9,15 +9,19 @@ use marsa_client::docker::container_config::{
 };
 use marsa_ui::{
     ColorToken, Locale, Palette,
-    direction::{LogicalStyle as _, row},
-    gpui::{App, AppContext as _, Div, Entity, ParentElement as _, Styled as _, Window, div},
+    direction::{LogicalStyle as _, row_for},
+    gpui::{
+        App, AppContext as _, Div, Entity, FontWeight, ParentElement as _, Styled as _, Window,
+        div, px,
+    },
     gpui_component::{
-        Disableable as _, IconName,
+        Disableable as _, Icon, IconName,
         button::{Button, ButtonVariants as _},
         input::{InputEvent, InputState},
         menu::{DropdownMenu as _, PopupMenuItem},
     },
     gui_keys as gui,
+    tokens::typography::ui_size,
 };
 
 use super::common::{color, resource_input};
@@ -222,102 +226,124 @@ impl OptionsEditor {
         Ok(options)
     }
 
-    pub(crate) fn render(draft: &DraftOptions, locale: Locale, palette: Palette, cx: &App) -> Div {
+    pub(crate) fn render(draft: &DraftOptions, locale: Locale, palette: Palette) -> Div {
         let contents = draft.borrow();
         let network = draft.clone();
         let restart = draft.clone();
+        let network_choice = choice(
+            "container-config-network",
+            locale,
+            gui::GUI_CONFIG_NETWORK.text(locale),
+            contents.network,
+            [
+                (
+                    ConfigNetwork::Default,
+                    gui::GUI_CONFIG_NETWORK_DEFAULT.text(locale),
+                ),
+                (
+                    ConfigNetwork::Bridge,
+                    gui::GUI_CONFIG_NETWORK_BRIDGE.text(locale),
+                ),
+                (
+                    ConfigNetwork::Disabled,
+                    gui::GUI_CONFIG_NETWORK_NONE.text(locale),
+                ),
+            ],
+            move |value| network.borrow_mut().network = value,
+        );
+        let restart_choice = choice(
+            "container-config-restart",
+            locale,
+            gui::GUI_CONFIG_RESTART.text(locale),
+            contents.restart,
+            [
+                (
+                    ConfigRestartPolicy::Never,
+                    gui::GUI_CONFIG_RESTART_NEVER.text(locale),
+                ),
+                (
+                    ConfigRestartPolicy::OnFailure,
+                    gui::GUI_CONFIG_RESTART_ON_FAILURE.text(locale),
+                ),
+                (
+                    ConfigRestartPolicy::Always,
+                    gui::GUI_CONFIG_RESTART_ALWAYS.text(locale),
+                ),
+                (
+                    ConfigRestartPolicy::UnlessStopped,
+                    gui::GUI_CONFIG_RESTART_UNLESS_STOPPED.text(locale),
+                ),
+            ],
+            move |value| restart.borrow_mut().restart = value,
+        );
         div()
             .flex()
             .flex_col()
-            .gap_3()
-            .child(caption(gui::GUI_CONFIG_NETWORK.text(locale), palette))
-            .child(choice(
-                "container-config-network",
-                gui::GUI_CONFIG_NETWORK.text(locale),
-                contents.network,
-                [
-                    (
-                        ConfigNetwork::Default,
-                        gui::GUI_CONFIG_NETWORK_DEFAULT.text(locale),
-                    ),
-                    (
-                        ConfigNetwork::Bridge,
-                        gui::GUI_CONFIG_NETWORK_BRIDGE.text(locale),
-                    ),
-                    (
-                        ConfigNetwork::Disabled,
-                        gui::GUI_CONFIG_NETWORK_NONE.text(locale),
-                    ),
-                ],
-                move |value| network.borrow_mut().network = value,
-            ))
-            .child(caption(gui::GUI_CONFIG_RESTART.text(locale), palette))
-            .child(choice(
-                "container-config-restart",
-                gui::GUI_CONFIG_RESTART.text(locale),
-                contents.restart,
-                [
-                    (
-                        ConfigRestartPolicy::Never,
-                        gui::GUI_CONFIG_RESTART_NEVER.text(locale),
-                    ),
-                    (
-                        ConfigRestartPolicy::OnFailure,
-                        gui::GUI_CONFIG_RESTART_ON_FAILURE.text(locale),
-                    ),
-                    (
-                        ConfigRestartPolicy::Always,
-                        gui::GUI_CONFIG_RESTART_ALWAYS.text(locale),
-                    ),
-                    (
-                        ConfigRestartPolicy::UnlessStopped,
-                        gui::GUI_CONFIG_RESTART_UNLESS_STOPPED.text(locale),
-                    ),
-                ],
-                move |value| restart.borrow_mut().restart = value,
-            ))
+            .gap_4()
+            .child(
+                row_for(locale)
+                    .flex_wrap()
+                    .gap_3()
+                    .child(labeled_choice(
+                        gui::GUI_CONFIG_NETWORK.text(locale),
+                        palette,
+                        network_choice,
+                    ))
+                    .child(labeled_choice(
+                        gui::GUI_CONFIG_RESTART.text(locale),
+                        palette,
+                        restart_choice,
+                    )),
+            )
             .children(Section::ALL.into_iter().map(|section| {
                 let index = section as usize;
                 let entries = &contents.entries[index];
                 let add = draft.clone();
+                let add_button = Button::new(("add-config-row", index))
+                    .outline()
+                    .label(section.add_label(locale))
+                    .disabled(entries.len() >= section.limit())
+                    .on_click(move |_, window, cx| {
+                        let mut add = add.borrow_mut();
+                        if add.entries[index].len() < section.limit() {
+                            add.entries[index].push(Entry::new(
+                                ["", ""],
+                                section,
+                                section.default_choice(),
+                                locale,
+                                window,
+                                cx,
+                            ));
+                            window.refresh();
+                        }
+                    });
                 div()
                     .flex()
                     .flex_col()
                     .gap_2()
                     .border_t_1()
                     .border_color(color(palette, ColorToken::BorderSubtle))
-                    .pt_2()
-                    .child(caption(section.title(locale), palette))
+                    .pt_3()
+                    .child(
+                        row_for(locale)
+                            .justify_between()
+                            .items_center()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(caption(section.title(locale), palette))
+                            .child(add_button),
+                    )
                     .children(matches!(section, Section::Ports).then(|| {
                         div()
-                            .text_xs()
+                            .text_size(ui_size(12.))
                             .text_color(color(palette, ColorToken::TextMuted))
                             .child(gui::GUI_CONFIG_PORT_HELP.text(locale))
                     }))
                     .children(
-                        entries.iter().enumerate().map(|(slot, entry)| {
-                            entry_row(entry, draft, section, slot, locale, cx)
-                        }),
-                    )
-                    .child(
-                        Button::new(("add-config-row", index))
-                            .outline()
-                            .label(section.add_label(locale))
-                            .disabled(entries.len() >= section.limit())
-                            .on_click(move |_, window, cx| {
-                                let mut add = add.borrow_mut();
-                                if add.entries[index].len() < section.limit() {
-                                    add.entries[index].push(Entry::new(
-                                        ["", ""],
-                                        section,
-                                        section.default_choice(),
-                                        locale,
-                                        window,
-                                        cx,
-                                    ));
-                                    window.refresh();
-                                }
-                            }),
+                        entries
+                            .iter()
+                            .enumerate()
+                            .map(|(slot, entry)| entry_row(entry, draft, section, slot, locale)),
                     )
             }))
     }
@@ -329,18 +355,18 @@ fn entry_row(
     section: Section,
     slot: usize,
     locale: Locale,
-    cx: &App,
 ) -> Div {
     let index = section as usize;
     let id = index * MAX_CONFIG_ROWS + slot;
     let remove = draft.clone();
-    let mut controls = row(cx).gap_2().flex_wrap().items_center();
+    let mut controls = row_for(locale).gap_2().flex_wrap().items_center();
     match entry.extra {
         Extra::Plain => {}
         Extra::Protocol(protocol) => {
             let draft = draft.clone();
             controls = controls.child(choice(
                 ("config-port-protocol", id),
+                locale,
                 gui::GUI_CONFIG_PROTOCOL.text(locale),
                 protocol,
                 [
@@ -360,6 +386,7 @@ fn entry_row(
             controls = controls
                 .child(choice(
                     ("config-mount-kind", id),
+                    locale,
                     gui::GUI_CONFIG_MOUNT_KIND.text(locale),
                     kind,
                     [
@@ -376,6 +403,7 @@ fn entry_row(
                 ))
                 .child(choice(
                     ("config-mount-access", id),
+                    locale,
                     gui::GUI_CONFIG_MOUNT_ACCESS.text(locale),
                     read_only,
                     [
@@ -395,7 +423,9 @@ fn entry_row(
     controls = controls.child(
         Button::new(("remove-config-row", id))
             .ghost()
-            .label(gui::GUI_CONFIG_REMOVE_ROW.text(locale))
+            .icon(IconName::Close)
+            .accessibility_label(gui::GUI_CONFIG_REMOVE_ROW.text(locale))
+            .tooltip(gui::GUI_CONFIG_REMOVE_ROW.text(locale))
             .on_click(move |_, window, _| {
                 let mut remove = remove.borrow_mut();
                 if slot < remove.entries[index].len() {
@@ -404,16 +434,22 @@ fn entry_row(
                 }
             }),
     );
-    div()
-        .flex()
-        .flex_col()
-        .gap_1()
+    row_for(locale)
+        .flex_wrap()
+        .items_center()
+        .gap_2()
         .child(
-            row(cx).gap_2().children(
+            row_for(locale).flex_1().min_w(px(220.)).gap_2().children(
                 entry
                     .inputs
                     .iter()
-                    .map(|input| div().min_w_0().flex_1().child(resource_input(input))),
+                    .zip(section.labels(locale))
+                    .map(|(input, label)| {
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .child(resource_input(input).aria_label(label))
+                    }),
             ),
         )
         .child(controls)
@@ -421,6 +457,7 @@ fn entry_row(
 
 fn choice<T: Copy + PartialEq + 'static, const N: usize>(
     id: impl Into<marsa_ui::gpui::ElementId>,
+    locale: Locale,
     title: &'static str,
     selected: T,
     choices: [(T, &'static str); N],
@@ -433,9 +470,15 @@ fn choice<T: Copy + PartialEq + 'static, const N: usize>(
     let change = Rc::new(change);
     Button::new(id)
         .outline()
-        .icon(IconName::ChevronDown)
-        .label(value)
-        .accessibility_label(title)
+        .accessibility_label(format!("{title} · {value}"))
+        .child(
+            row_for(locale)
+                .w_full()
+                .justify_between()
+                .gap_2()
+                .child(div().min_w_0().child(value))
+                .child(Icon::new(IconName::ChevronDown).size(px(14.))),
+        )
         .dropdown_menu(move |menu, _, _| {
             choices.into_iter().fold(menu, |menu, (choice, label)| {
                 let change = change.clone();
@@ -468,9 +511,25 @@ pub(crate) fn field(
     input
 }
 
+fn labeled_choice(
+    label: &'static str,
+    palette: Palette,
+    control: impl marsa_ui::gpui::IntoElement,
+) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w(px(170.))
+        .gap_1()
+        .child(caption(label, palette))
+        .child(control)
+}
+
 fn caption(text: &'static str, palette: Palette) -> Div {
     div()
-        .text_sm()
+        .text_size(ui_size(13.))
+        .font_weight(FontWeight::MEDIUM)
         .text_color(color(palette, ColorToken::TextPrimary))
         .child(text)
 }

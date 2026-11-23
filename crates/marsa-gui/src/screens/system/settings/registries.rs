@@ -4,10 +4,10 @@ use marsa_client::docker::{
     RegistryAddress, RegistryCredentials, RegistryEntry, RegistryError, RegistryStore,
 };
 use marsa_ui::{
-    ColorToken, Locale, TextKey,
+    ColorToken, Locale, Palette, TextKey,
     gpui::{
-        AppContext, Context, Div, Entity, ParentElement, PromptButton, PromptLevel, SharedString,
-        Styled, Task, Window, div, px,
+        AppContext, Context, Div, Entity, FontWeight, ParentElement, PromptButton, PromptLevel,
+        SharedString, Styled, Task, Window, div, px,
     },
     gpui_component::{
         Disableable, WindowExt,
@@ -15,10 +15,12 @@ use marsa_ui::{
         input::{Input, InputEvent, InputState},
     },
     gui_keys as gui,
-    tokens::typography::Role,
+    tokens::typography::{Role, ui_size},
 };
 
-use crate::screens::common::{ScreenContext, row, technical};
+use crate::screens::common::{
+    ScreenContext, color, dialog_actions, dialog_frame, dialog_heading, row, technical,
+};
 
 use super::{SystemView, settings_card, settings_heading, settings_text};
 
@@ -68,35 +70,51 @@ impl SystemView {
         let state = &self.registry_settings;
         let busy = state.task.is_some();
         let locale = screen.locale;
+        let palette = screen.palette;
         let available = self.services.is_some() && state.entries.is_some() && !busy;
         let hub = RegistryAddress::docker_hub();
         let entries = state.entries.as_deref().unwrap_or_default();
         settings_card(screen)
-            .child(settings_heading(
-                screen,
-                gui::GUI_REGISTRIES_TITLE.text(locale),
-                gui::GUI_REGISTRIES_HELP.text(locale),
-            ))
             .child(
                 row(locale)
-                    .gap_2()
+                    .items_start()
+                    .justify_between()
+                    .gap_3()
                     .flex_wrap()
                     .child(
-                        Button::new("add-registry")
-                            .primary()
-                            .label(gui::GUI_REGISTRIES_ADD.text(locale))
-                            .disabled(!available)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.registry_editor(None, None, locale, window, cx);
-                            })),
+                        settings_heading(
+                            screen,
+                            gui::GUI_REGISTRIES_TITLE.text(locale),
+                            gui::GUI_REGISTRIES_HELP.text(locale),
+                        )
+                        .flex_1()
+                        .min_w(px(225.)),
                     )
                     .child(
-                        Button::new("refresh-registries")
-                            .outline()
-                            .label(gui::GUI_REGISTRIES_REFRESH.text(locale))
-                            .disabled(busy || self.services.is_none())
-                            .loading(busy)
-                            .on_click(cx.listener(|this, _, _, cx| this.load_registries(cx))),
+                        row(locale)
+                            .gap_2()
+                            .flex_wrap()
+                            .child(
+                                Button::new("add-registry")
+                                    .primary()
+                                    .label(gui::GUI_REGISTRIES_ADD.text(locale))
+                                    .disabled(!available)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.registry_editor(
+                                            None, None, locale, palette, window, cx,
+                                        );
+                                    })),
+                            )
+                            .child(
+                                Button::new("refresh-registries")
+                                    .outline()
+                                    .label(gui::GUI_REGISTRIES_REFRESH.text(locale))
+                                    .disabled(busy || self.services.is_none())
+                                    .loading(busy)
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.load_registries(cx)),
+                                    ),
+                            ),
                     ),
             )
             .children(state.feedback.as_ref().map(|(feedback, error)| {
@@ -133,6 +151,7 @@ impl SystemView {
         address: Option<RegistryAddress>,
         current: Option<RegistryEntry>,
         locale: Locale,
+        palette: Palette,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -161,79 +180,97 @@ impl SystemView {
             let previous = current.clone();
             let username_field = username.clone();
             let secret_field = secret.clone();
-            dialog
-                .width(px(530.))
-                .overlay_closable(false)
-                .title(if address.is_none() {
-                    gui::GUI_REGISTRIES_ADD.text(locale)
-                } else {
-                    gui::GUI_REGISTRIES_CONFIGURE.text(locale)
-                })
+            let title = if address.is_none() {
+                gui::GUI_REGISTRIES_ADD
+            } else {
+                gui::GUI_REGISTRIES_CONFIGURE
+            };
+            let registry = div()
+                .flex()
+                .flex_col()
+                .gap_1()
                 .child(
                     div()
+                        .text_size(ui_size(13.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(gui::GUI_REGISTRIES_HOST.text(locale)),
+                )
+                .child(match address.as_ref() {
+                    Some(address) => Role::Mono
+                        .latin()
+                        .apply(div())
+                        .child(technical(address.as_str())),
+                    None => div()
                         .flex()
                         .flex_col()
-                        .gap_3()
-                        .children(address.as_ref().map(|address| technical(address.as_str())))
-                        .children(address.is_none().then(|| {
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap_1()
-                                .child(input_label(&host, gui::GUI_REGISTRIES_HOST.text(locale)))
-                                .child(gui::GUI_REGISTRIES_HOST_HELP.text(locale))
-                        }))
-                        .child(input_label(
-                            &username,
-                            gui::GUI_REGISTRIES_USERNAME.text(locale),
-                        ))
-                        .child(input_label(
-                            &secret,
-                            gui::GUI_REGISTRIES_SECRET.text(locale),
-                        ))
+                        .gap_1()
+                        .child(Input::new(&host).aria_label(gui::GUI_REGISTRIES_HOST.text(locale)))
                         .child(
-                            row(locale)
-                                .justify_end()
-                                .gap_2()
-                                .child(
-                                    Button::new("cancel-registry")
-                                        .outline()
-                                        .label(gui::GUI_DESKTOP_CANCEL.text(locale))
-                                        .on_click(|_, window, cx| window.close_dialog(cx)),
-                                )
-                                .child(
-                                    Button::new("save-registry")
-                                        .primary()
-                                        .label(gui::GUI_REGISTRIES_SAVE.text(locale))
-                                        .disabled(!valid_address || !valid_credential)
-                                        .on_click(move |_, window, cx| {
-                                            let Ok(address) = registry_address(
-                                                fixed_address.as_ref(),
-                                                &host_field.read(cx).value(),
-                                            ) else {
-                                                return;
-                                            };
-                                            let Ok(credential) = RegistryCredentials::new(
-                                                username_field.read(cx).value().to_string(),
-                                                secret_field.read(cx).value().to_string(),
-                                            ) else {
-                                                return;
-                                            };
-                                            let started = save.update(cx, |view, cx| {
-                                                view.registry_command(
-                                                    Command::Save(
-                                                        address.clone(),
-                                                        credential,
-                                                        previous.clone(),
-                                                    ),
-                                                    cx,
-                                                )
-                                            });
-                                            if matches!(started, Ok(true)) {
-                                                window.close_dialog(cx);
-                                            }
-                                        }),
-                                ),
+                            div()
+                                .text_size(ui_size(12.))
+                                .text_color(color(palette, ColorToken::TextMuted))
+                                .child(gui::GUI_REGISTRIES_HOST_HELP.text(locale)),
+                        ),
+                });
+            dialog_frame(dialog, 600.)
+                .overlay_closable(false)
+                .title(dialog_heading(locale, palette, title.text(locale)))
+                .child(
+                    div().flex().flex_col().gap_4().child(registry).child(
+                        row(locale)
+                            .flex_wrap()
+                            .items_start()
+                            .gap_3()
+                            .child(input_label(
+                                &username,
+                                gui::GUI_REGISTRIES_USERNAME.text(locale),
+                            ))
+                            .child(input_label(
+                                &secret,
+                                gui::GUI_REGISTRIES_SECRET.text(locale),
+                            )),
+                    ),
+                )
+                .footer(
+                    dialog_actions(locale, palette)
+                        .child(
+                            Button::new("cancel-registry")
+                                .outline()
+                                .label(gui::GUI_DESKTOP_CANCEL.text(locale))
+                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child(
+                            Button::new("save-registry")
+                                .primary()
+                                .label(gui::GUI_REGISTRIES_SAVE.text(locale))
+                                .disabled(!valid_address || !valid_credential)
+                                .on_click(move |_, window, cx| {
+                                    let Ok(address) = registry_address(
+                                        fixed_address.as_ref(),
+                                        &host_field.read(cx).value(),
+                                    ) else {
+                                        return;
+                                    };
+                                    let Ok(credential) = RegistryCredentials::new(
+                                        username_field.read(cx).value().to_string(),
+                                        secret_field.read(cx).value().to_string(),
+                                    ) else {
+                                        return;
+                                    };
+                                    let started = save.update(cx, |view, cx| {
+                                        view.registry_command(
+                                            Command::Save(
+                                                address.clone(),
+                                                credential,
+                                                previous.clone(),
+                                            ),
+                                            cx,
+                                        )
+                                    });
+                                    if matches!(started, Ok(true)) {
+                                        window.close_dialog(cx);
+                                    }
+                                }),
                         ),
                 )
         });
@@ -348,8 +385,15 @@ fn input_label(input: &Entity<InputState>, label: &'static str) -> Div {
     div()
         .flex()
         .flex_col()
+        .flex_1()
+        .min_w(px(200.))
         .gap_1()
-        .child(label)
+        .child(
+            div()
+                .text_size(ui_size(13.))
+                .font_weight(FontWeight::MEDIUM)
+                .child(label),
+        )
         .child(Input::new(input).aria_label(label))
 }
 
@@ -361,6 +405,7 @@ fn registry_row(
     cx: &mut Context<SystemView>,
 ) -> Div {
     let locale = screen.locale;
+    let palette = screen.palette;
     let configure = address.clone();
     let current = entry.cloned();
     row(locale)
@@ -420,6 +465,7 @@ fn registry_row(
                             Some(configure.clone()),
                             current.clone(),
                             locale,
+                            palette,
                             window,
                             cx,
                         );

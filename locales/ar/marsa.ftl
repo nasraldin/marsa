@@ -510,6 +510,7 @@ gui-desktop-virtual-machine-usage = استخدام الجهاز الافتراض
 
 ### Updates
 
+gui-update-release-channel = قناة الإصدار
 gui-update-auto-check = التحقّق من التحديثات تلقائيًا
 gui-update-loading = بانتظار خدمة التحديث.
 gui-update-retry-status = حالة التحديث غير متاحة. حاول مجددًا.
@@ -568,6 +569,7 @@ gui-desktop-open-containers = فتح الحاويات
 
 ### Overview
 
+gui-desktop-overview-waiting-engine = تظهر بيانات أعباء العمل والتخزين عندما يصبح المحرّك متاحًا.
 gui-desktop-overview-container-usage = الحاويات
 gui-desktop-overview-compose-projects = مشاريع Compose
 gui-desktop-overview-docker-disk = قرص Docker
@@ -954,7 +956,7 @@ gui-config-tcp = TCP
 gui-config-udp = UDP
 gui-config-mount-kind = نوع مصدر التركيب
 gui-config-mount-access = الوصول عبر التركيب
-gui-config-mount-source = اسم وحدة التخزين أو مسار مضيف المحرك
+gui-config-mount-source = مصدر التحميل
 gui-config-mount-target = مسار الحاوية
 gui-config-volume = وحدة تخزين مسمّاة
 gui-config-host = مسار على المضيف
@@ -1142,3 +1144,4 @@ gui-settings-ui-font-size-medium = متوسط
 gui-settings-ui-font-size-extra-large = كبير جدًا
 gui-settings-terminal-font-system = خط النظام أحادي العرض
 gui-workload-read-image-metadata = قراءة البيانات الوصفية للصورة
+gui-workload-target-environment = البيئة المستهدفة

@@ -35,7 +35,9 @@ use marsa_ui::{
 
 use crate::{
     screens::{
-        common::{ScreenContext, align, resource_input, row, technical},
+        common::{
+            ScreenContext, align, dialog_frame, dialog_heading, resource_input, row, technical,
+        },
         external_inventory::{Environment, ExternalWorkspace},
     },
     services::Services,
@@ -253,6 +255,11 @@ impl ResourcesView {
         let (kind, source) = action;
         let (locale, palette, display) = appearance;
         let title = kind.title(locale);
+        let width = if matches!(kind, FormKind::CreateStack { .. }) {
+            704.
+        } else {
+            536.
+        };
         let state = source.as_ref().map_or_else(
             || service.store().select(Clone::clone).current().clone(),
             |source| source.state.clone(),
@@ -267,16 +274,19 @@ impl ResourcesView {
                 state: &state,
                 services: Some(&service),
             };
-            let body = view
+            let form = view
                 .read(cx)
                 .form
                 .as_ref()
                 .map(|form| form.render(&screen, &view, cx));
-            dialog
-                .width(px(612.))
+            let dialog = dialog_frame(dialog, width)
                 .overlay_closable(false)
-                .title(text(&screen, Role::Section, title))
-                .children(body)
+                .title(dialog_heading(locale, palette, title))
+                .on_ok(|_, _, _| false);
+            match form {
+                Some((body, actions)) => dialog.child(body).footer(actions),
+                None => dialog,
+            }
         });
     }
 }
@@ -430,7 +440,10 @@ pub(crate) fn render(
                     Button::new("back-to-resource-list")
                         .ghost()
                         .label(message(screen.locale, kind.title()))
-                        .icon(IconName::ChevronLeft)
+                        .icon(match screen.locale {
+                            Locale::Arabic => IconName::ChevronRight,
+                            Locale::EnglishUs => IconName::ChevronLeft,
+                        })
                         .on_click(move |_, _, cx| {
                             back.update(cx, |view, cx| {
                                 view.close_details();
@@ -621,7 +634,7 @@ fn details(
     data: &ResourcesView,
 ) -> Div {
     let locale = screen.locale;
-    let actions = row
+    let (guarded, routine): (Vec<_>, Vec<_>) = row
         .actions(kind)
         .into_iter()
         .enumerate()
@@ -630,17 +643,17 @@ fn details(
             let appearance = (locale, screen.palette, screen.display);
             let service = screen.services.cloned();
             let source = row.source().cloned();
-            let button = Button::new(("resource-detail-action", index)).label(action.title(locale));
+            let guarded = action.destructive();
+            let button = Button::new(("resource-detail-action", index))
+                .h(px(Space::S36.pixels()))
+                .label(action.title(locale));
             let button = match action {
                 FormKind::Run { .. } | FormKind::ComposeUp { .. } => button.primary(),
-                FormKind::RemoveImage { .. }
-                | FormKind::RemoveVolume { .. }
-                | FormKind::RemoveNetwork { .. }
-                | FormKind::ComposeDown { volumes: true, .. } => button.danger(),
+                _ if guarded => button.danger(),
                 _ => button.outline(),
             };
-            button
-                .disabled(screen.services.is_none())
+            let button = button
+                .disabled(screen.services.is_none() || data.busy.is_some())
                 .on_click(move |_, window, cx| {
                     if let Some(service) = &service {
                         view.update(cx, |view, cx| {
@@ -653,50 +666,16 @@ fn details(
                             );
                         });
                     }
-                })
-        });
-    let mut detail = crate::screens::common::panel(screen)
-        .gap(px(Space::S12.pixels()))
-        .child(
-            logical_row(locale)
-                .gap(px(Space::S12.pixels()))
-                .child(resource_icon(screen, kind))
-                .children(row.source().map(|source| {
-                    crate::screens::external_inventory::source_badge(
-                        screen.palette,
-                        source.badge.clone(),
-                    )
-                }))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(text(screen, Role::Lead, row.display_name().to_owned()).truncate())
-                        .child(
-                            text(screen, Role::MonoSmall, row.id.clone())
-                                .text_color(tone(screen, ColorToken::TextMuted))
-                                .truncate(),
-                        ),
-                ),
-        )
-        .child(
-            logical_row(locale)
-                .gap(px(Space::S8.pixels()))
-                .flex_wrap()
-                .children(actions),
-        )
-        .children(row.details.iter().cloned().map(|(name, value)| {
-            logical_row(locale)
-                .justify_between()
-                .gap(px(Space::S12.pixels()))
-                .py(px(Space::S8.pixels()))
-                .border_t_1()
-                .border_color(tone(screen, ColorToken::BorderSubtle))
-                .child(
-                    text(screen, Role::Label, name).text_color(tone(screen, ColorToken::TextMuted)),
-                )
-                .child(text(screen, Role::Mono, value).min_w_0().truncate())
-        }));
+                });
+            (guarded, button)
+        })
+        .partition(|(guarded, _)| *guarded);
+    let has_routine =
+        !routine.is_empty() || (kind == ResourceKind::Compose && row.source().is_some());
+    let mut routine = logical_row(locale)
+        .gap(px(Space::S8.pixels()))
+        .flex_wrap()
+        .children(routine.into_iter().map(|(_, button)| button));
     if kind == ResourceKind::Compose
         && let Some(source) = row.source()
     {
@@ -729,6 +708,8 @@ fn details(
                 .collect::<Vec<_>>();
             let view = view.clone();
             Button::new(("external-compose-action", index))
+                .h(px(Space::S36.pixels()))
+                .outline()
                 .label(crate::screens::common::label(screen, en, ar))
                 .disabled(service.is_none() || data.busy.is_some() || members.is_empty())
                 .on_click(move |_, _, cx| {
@@ -745,13 +726,61 @@ fn details(
                     }
                 })
         });
-        detail = detail.child(
+        routine = routine.children(controls);
+    }
+    let toolbar = logical_row(locale)
+        .flex_wrap()
+        .gap(px(Space::S12.pixels()))
+        .items_center()
+        .justify_between()
+        .children(has_routine.then_some(routine))
+        .children((!guarded.is_empty()).then(|| {
             logical_row(locale)
                 .gap(px(Space::S8.pixels()))
                 .flex_wrap()
-                .children(controls),
-        );
-    }
+                .children(guarded.into_iter().map(|(_, button)| button))
+        }));
+    let mut detail = crate::screens::common::panel(screen)
+        .gap(px(Space::S16.pixels()))
+        .child(
+            logical_row(locale)
+                .items_start()
+                .gap(px(Space::S12.pixels()))
+                .child(resource_icon(screen, kind))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .gap(px(Space::S4.pixels()))
+                        .child(text(screen, Role::Lead, technical(row.display_name())))
+                        .children((row.id != row.display_name()).then(|| {
+                            text(screen, Role::MonoSmall, row.id.clone())
+                                .text_color(tone(screen, ColorToken::TextMuted))
+                        }))
+                        .children(row.source().map(|source| {
+                            text(screen, Role::Small, source.badge.clone())
+                                .text_color(tone(screen, ColorToken::TextMuted))
+                        })),
+                ),
+        )
+        .child(toolbar)
+        .children(row.details.iter().cloned().map(|(name, value)| {
+            logical_row(locale)
+                .items_start()
+                .gap(px(Space::S12.pixels()))
+                .py(px(Space::S8.pixels()))
+                .border_t_1()
+                .border_color(tone(screen, ColorToken::BorderSubtle))
+                .child(
+                    text(screen, Role::Label, name)
+                        .w(px(144.))
+                        .flex_shrink_0()
+                        .text_color(tone(screen, ColorToken::TextMuted)),
+                )
+                .child(text(screen, Role::Mono, value).flex_1().min_w_0())
+        }));
     if kind == ResourceKind::Images {
         let owner = view.clone();
         let service = screen.services.cloned();

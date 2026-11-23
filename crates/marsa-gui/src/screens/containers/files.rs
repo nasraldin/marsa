@@ -1,11 +1,14 @@
 //! An explicit path and destination for downloading from the pinned container.
 
-use std::path::Path;
+use std::{path::Path, rc::Rc};
 
 use marsa_client::docker::{ContainerFileFormat, ContainerPath};
 use marsa_ui::{
     ColorToken,
-    gpui::{AppContext as _, Context, Div, ParentElement as _, Styled as _, Window, div, px},
+    gpui::{
+        App, AppContext as _, Context, Div, FontWeight, ParentElement as _, Styled as _, Window,
+        div, px,
+    },
     gpui_component::{
         Disableable as _, WindowExt as _,
         button::{Button, ButtonVariants as _},
@@ -13,9 +16,16 @@ use marsa_ui::{
     },
     gui_keys as gui,
     preferences::DownloadFormat,
+    tokens::{scale::Space, typography::ui_size},
 };
 
-use crate::screens::common::{ScreenContext, color, panel, resource_input, row, technical};
+use crate::screens::{
+    common::{
+        ScreenContext, align, color, dialog_actions, dialog_frame, dialog_heading, panel,
+        resource_input, row, technical,
+    },
+    external_inventory::dialog_scope,
+};
 
 use super::{ContainerTarget, ContainerView};
 
@@ -78,10 +88,18 @@ impl ContainerView {
         }
         let prefer_raw = self.logs.settings().download_format == DownloadFormat::SingleFile;
         let locale = self.locale;
-        let source = target
+        let palette = self.palette;
+        let workspace = target
             .endpoint()
-            .and_then(|endpoint| self.workspace(endpoint))
-            .map_or_else(|| "Marsa".into(), |engine| technical(&engine.source));
+            .and_then(|endpoint| self.workspace(endpoint));
+        let source = workspace.map_or_else(|| "Marsa".into(), |engine| technical(&engine.source));
+        let container = workspace
+            .map_or(&self.state, |workspace| &workspace.state)
+            .container(target.id())
+            .map_or_else(
+                || technical(target.id().as_str()),
+                |entry| technical(super::name(entry)),
+            );
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("/etc/os-release"));
         cx.subscribe(&input, |_, _, _: &InputEvent, cx| cx.refresh_windows())
             .detach();
@@ -96,47 +114,90 @@ impl ContainerView {
                 .to_owned();
             let owner = owner.clone();
             let target = target.clone();
-            let label = gui::GUI_CONTAINER_DOWNLOAD_PATH.text(locale);
-            dialog.title(label).child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(source.clone())
-                    .child(gui::GUI_CONTAINER_DOWNLOAD_ABSOLUTE.text(locale))
-                    .child(resource_input(&input).aria_label(label))
-                    .child(
-                        row(locale)
-                            .gap_2()
-                            .justify_end()
-                            .child(
-                                Button::new("cancel-file-download")
-                                    .outline()
-                                    .label(gui::GUI_DESKTOP_CANCEL.text(locale))
-                                    .on_click(|_, window, cx| window.close_dialog(cx)),
-                            )
-                            .child(
-                                Button::new("confirm-file-download")
-                                    .primary()
-                                    .label(gui::GUI_CONTAINER_DOWNLOAD_CONTINUE.text(locale))
-                                    .disabled(validated.is_none())
-                                    .on_click(move |_, window, cx| {
-                                        if let Some(path) = validated.clone() {
-                                            let _ = owner.update(cx, |view, cx| {
-                                                view.download_file(
-                                                    target.clone(),
-                                                    path,
-                                                    name.clone(),
-                                                    prefer_raw,
-                                                    cx,
-                                                );
-                                            });
-                                            window.close_dialog(cx);
-                                        }
-                                    }),
-                            ),
-                    ),
-            )
+            let can_submit = validated.is_some();
+            let submit = Rc::new(move |cx: &mut App| {
+                let Some(path) = validated.clone() else {
+                    return false;
+                };
+                owner
+                    .update(cx, |view, cx| {
+                        view.download_file(target.clone(), path, name.clone(), prefer_raw, cx);
+                    })
+                    .is_ok()
+            });
+            let key_submit = submit.clone();
+            let title = gui::GUI_CONTAINER_DOWNLOAD_PATH.text(locale);
+            let path_label = gui::GUI_CONFIG_MOUNT_TARGET.text(locale);
+            let invalid = !raw_path.is_empty() && !can_submit;
+            let body = align(div().flex().flex_col().gap(px(Space::S16.pixels())), locale)
+                .child(dialog_scope(locale, palette, source.clone()))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(Space::S4.pixels()))
+                        .child(
+                            div()
+                                .text_size(ui_size(12.))
+                                .text_color(color(palette, ColorToken::TextMuted))
+                                .child(gui::GUI_DESKTOP_SELECTED_CONTAINER.text(locale)),
+                        )
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(container.clone()),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(Space::S4.pixels()))
+                        .child(
+                            div()
+                                .text_size(ui_size(13.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(path_label),
+                        )
+                        .child(resource_input(&input).aria_label(path_label))
+                        .child(
+                            div()
+                                .text_size(ui_size(12.))
+                                .text_color(color(
+                                    palette,
+                                    if invalid {
+                                        ColorToken::StatusError
+                                    } else {
+                                        ColorToken::TextMuted
+                                    },
+                                ))
+                                .child(gui::GUI_CONTAINER_DOWNLOAD_ABSOLUTE.text(locale)),
+                        ),
+                );
+            dialog_frame(dialog, 512.)
+                .title(dialog_heading(locale, palette, title))
+                .child(body)
+                .on_ok(move |_, _, cx| key_submit(cx))
+                .footer(
+                    dialog_actions(locale, palette)
+                        .child(
+                            Button::new("cancel-file-download")
+                                .outline()
+                                .label(gui::GUI_DESKTOP_CANCEL.text(locale))
+                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child(
+                            Button::new("confirm-file-download")
+                                .primary()
+                                .label(gui::GUI_CONTAINER_DOWNLOAD_CONTINUE.text(locale))
+                                .disabled(!can_submit)
+                                .on_click(move |_, window, cx| {
+                                    if submit(cx) {
+                                        window.close_dialog(cx);
+                                    }
+                                }),
+                        ),
+                )
         });
     }
 

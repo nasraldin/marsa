@@ -9,7 +9,7 @@ use marsa_ui::{
     ColorToken, TextKey,
     gpui::{
         AppContext as _, Context, Div, ElementId, Entity, ParentElement, PathPromptOptions,
-        PromptButton, PromptLevel, Styled, Subscription, Task, Window, div,
+        PromptButton, PromptLevel, Styled, Subscription, Task, Window, div, px,
     },
     gpui_component::{
         Disableable as _,
@@ -263,46 +263,47 @@ impl SystemView {
         cx: &Context<Self>,
     ) -> Div {
         let locale = screen.locale;
+        let fields = row(locale).flex_wrap().gap_3().children(
+            [
+                (gui::GUI_GIT_NAME, 150.),
+                (gui::GUI_GIT_URL, 220.),
+                (gui::GUI_GIT_BRANCH, 110.),
+            ]
+            .into_iter()
+            .zip(editor.fields.iter())
+            .map(|((key, width), field)| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(width))
+                    .gap_1()
+                    .child(settings_text(
+                        screen,
+                        Role::Label,
+                        key.text(locale),
+                        ColorToken::TextPrimary,
+                    ))
+                    .child(
+                        resource_input(field)
+                            .disabled(busy)
+                            .aria_label(key.text(locale)),
+                    )
+            }),
+        );
         div()
             .flex()
             .flex_col()
-            .gap_2()
+            .gap_3()
             .border_t_1()
             .border_color(color(screen.palette, ColorToken::BorderSubtle))
             .pt_3()
-            .children(
-                [gui::GUI_GIT_NAME, gui::GUI_GIT_URL, gui::GUI_GIT_BRANCH]
-                    .into_iter()
-                    .zip(editor.fields.iter())
-                    .map(|(key, field)| {
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(settings_text(
-                                screen,
-                                Role::Label,
-                                key.text(locale),
-                                ColorToken::TextPrimary,
-                            ))
-                            .child(
-                                resource_input(field)
-                                    .disabled(busy)
-                                    .aria_label(key.text(locale)),
-                            )
-                    }),
-            )
+            .child(fields)
             .child(
                 row(locale)
                     .flex_wrap()
+                    .justify_between()
                     .gap_2()
-                    .child(
-                        Button::new("git-editor-save")
-                            .primary()
-                            .label(gui::GUI_ENVIRONMENT_SAVE.text(locale))
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, _, cx| this.git_submit(false, cx))),
-                    )
                     .child(
                         Button::new("git-editor-test")
                             .outline()
@@ -311,15 +312,29 @@ impl SystemView {
                             .on_click(cx.listener(|this, _, _, cx| this.git_submit(true, cx))),
                     )
                     .child(
-                        Button::new("git-editor-cancel")
-                            .ghost()
-                            .label(gui::GUI_DESKTOP_CANCEL.text(locale))
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.git_sources.editor = None;
-                                this.git_sources.feedback = None;
-                                cx.notify();
-                            })),
+                        row(locale)
+                            .flex_wrap()
+                            .gap_2()
+                            .child(
+                                Button::new("git-editor-cancel")
+                                    .ghost()
+                                    .label(gui::GUI_DESKTOP_CANCEL.text(locale))
+                                    .disabled(busy)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.git_sources.editor = None;
+                                        this.git_sources.feedback = None;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("git-editor-save")
+                                    .primary()
+                                    .label(gui::GUI_ENVIRONMENT_SAVE.text(locale))
+                                    .disabled(busy)
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.git_submit(false, cx)),
+                                    ),
+                            ),
                     ),
             )
     }

@@ -301,6 +301,17 @@ impl Desktop {
                         ),
                     ),
             );
+        if !matches!(engine, Some(EngineState::Ready | EngineState::Idle)) {
+            let explanation = match (selection.includes_marsa(), engine) {
+                (true, Some(EngineState::Stopped)) => gui::GUI_SYSTEM_MACHINE_STOPPED_HINT,
+                (true, Some(EngineState::Failed)) => gui::GUI_DESKTOP_NOTIFICATION_ENGINE_BODY,
+                (false, Some(EngineState::Failed)) => gui::GUI_ENVIRONMENT_OFFLINE,
+                _ => gui::GUI_DESKTOP_OVERVIEW_WAITING_ENGINE,
+            };
+            return align(div().flex().flex_col().gap_4(), locale)
+                .child(identity)
+                .child(panel(screen).child(quiet(screen).child(explanation.text(locale))));
+        }
         let resources = row(locale).flex_wrap().gap_3().children(
             [
                 (Route::Images, data.and_then(|data| data.images)),
@@ -348,7 +359,7 @@ impl Desktop {
         );
         let wide = window.viewport_size().width >= px(if self.collapsed { 800. } else { 1000. });
         let columns = if wide {
-            row(locale).items_start()
+            row(locale).items_stretch()
         } else {
             div().flex().flex_col()
         };

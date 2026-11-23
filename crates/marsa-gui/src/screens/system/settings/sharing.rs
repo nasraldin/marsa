@@ -21,7 +21,9 @@ use marsa_ui::{
     },
 };
 
-use crate::screens::common::{ScreenContext, color, row, technical};
+use crate::screens::common::{
+    ScreenContext, color, dialog_actions, dialog_frame, dialog_heading, row, technical,
+};
 
 use super::{
     super::{Notice, SystemView},
@@ -96,7 +98,8 @@ impl SystemView {
                                     gui::GUI_DESKTOP_READ_AND_WRITE
                                 };
                                 row(locale)
-                                    .gap(px(Space::S16.pixels()))
+                                    .gap(px(Space::S12.pixels()))
+                                    .flex_wrap()
                                     .min_h(px(Space::S48.pixels() + Space::S8.pixels()))
                                     .border_t_1()
                                     .border_color(color(screen.palette, ColorToken::BorderSubtle))
@@ -119,7 +122,6 @@ impl SystemView {
                                     )
                                     .child(
                                         div()
-                                            .w(px(172.))
                                             .flex_shrink_0()
                                             .child(settings_text(
                                                 screen,
@@ -182,7 +184,7 @@ impl SystemView {
             .p(px(Space::S12.pixels()))
             .bg(color(screen.palette, ColorToken::StatusStartingBg))
             .child(settings_icon(screen, "icons/info.svg", 20., ColorToken::TextMuted))
-            .child(div().flex().flex_col().gap(px(Space::S4.pixels()))
+            .child(div().flex().flex_col().gap(px(Space::S4.pixels())).min_w_0().flex_1()
                 .child(settings_text(screen, Role::Label, gui::GUI_DESKTOP_PROTECTED_LOCATIONS.text(locale), ColorToken::StatusStarting))
                 .child(settings_text(screen, Role::Small,
                     gui::GUI_DESKTOP_CREDENTIAL_FOLDERS_ARE_ALWAYS_EXCLUDED_EVEN_WHEN_A_PARENT_FOLD.text(locale),
@@ -272,7 +274,6 @@ impl SystemView {
         let state = service.store().select(Clone::clone).current().clone();
         window.open_dialog(cx, move |dialog, _, cx| {
             let screen = ScreenContext { locale, palette, display, state: &state, services: Some(&service) };
-            let title = if locale == Locale::Arabic { Role::Title } else { Role::Section };
             let busy = view.upgrade().is_none_or(|view| view.read(cx).busy());
             let paths = div().flex().flex_col()
                 .gap(px(Space::S8.pixels()))
@@ -282,13 +283,11 @@ impl SystemView {
                 .border_color(color(palette, ColorToken::BorderSubtle))
                 .bg(color(palette, ColorToken::BgCode))
                 .children(approval.directories.iter().map(|path| {
-                    row(locale)
-                        .gap(px(Space::S16.pixels()))
+                    div().flex().flex_col().gap_1().min_w_0()
                         .child(settings_text(&screen, Role::Small,
-                            gui::GUI_DESKTOP_BIND_HOST_FOLDER.text(locale), ColorToken::TextMuted)
-                            .w(px(144.)).flex_shrink_0())
+                            gui::GUI_DESKTOP_BIND_HOST_FOLDER.text(locale), ColorToken::TextMuted))
                         .child(settings_text(&screen, Role::Mono, technical(path), ColorToken::TextPrimary)
-                            .flex_1().min_w_0())
+                            .min_w_0())
                 }));
             let explanation = row(locale)
                 .items_start()
@@ -319,29 +318,21 @@ impl SystemView {
                     });
                 if decision == BindApprovalDecision::Once { button.primary() } else { button.outline() }
             };
-            let actions = row(locale)
-                .justify_end()
-                .gap(px(Space::S8.pixels()))
-                .pt(px(Space::S16.pixels()))
-                .border_t_1()
-                .border_color(color(palette, ColorToken::BorderSubtle))
+            let actions = dialog_actions(locale, palette)
                 .child(action(BindApprovalDecision::Deny, gui::GUI_DESKTOP_DENY.text(locale)))
-                .children((locale == Locale::EnglishUs).then(|| div().flex_1()))
                 .child(action(BindApprovalDecision::Persist, gui::GUI_DESKTOP_BIND_SHARE_ALWAYS.text(locale)))
                 .child(action(BindApprovalDecision::Once, gui::GUI_DESKTOP_BIND_SHARE_ONCE.text(locale)));
-            dialog
-                .width(px(680.))
+            dialog_frame(dialog, 680.)
                 .overlay_closable(false)
-                .title(settings_text(&screen, title, gui::GUI_DESKTOP_SHARE_THIS_FOLDER.text(locale), ColorToken::TextPrimary))
-                .bg(color(palette, ColorToken::GlassRail))
-                .border_color(color(palette, ColorToken::GlassEdge))
-                .rounded(px(Radius::R16.pixels()))
+                .title(dialog_heading(
+                    locale, palette, gui::GUI_DESKTOP_SHARE_THIS_FOLDER.text(locale),
+                ))
                 .child(div().flex().flex_col().gap(px(Space::S16.pixels()))
                     .child(settings_text(&screen, Role::Body,
                         gui::GUI_DESKTOP_BIND_DIALOG_DESCRIPTION.text(locale), ColorToken::TextMuted))
                     .child(paths)
-                    .child(explanation)
-                    .child(actions))
+                    .child(explanation))
+                .footer(actions)
         });
     }
 

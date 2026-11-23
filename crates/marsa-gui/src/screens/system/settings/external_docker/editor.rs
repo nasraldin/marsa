@@ -1,7 +1,5 @@
 //! Render and collect the saved connection form.
 
-use marsa_ui::gpui_component::scroll::ScrollableElement as _;
-
 use std::{net::IpAddr, path::PathBuf, sync::Arc};
 
 use marsa_ui::gpui::Subscription;
@@ -12,8 +10,8 @@ use marsa_client::docker::{
 use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
     gpui::{
-        AppContext as _, Context, Div, Entity, InteractiveElement as _, ParentElement as _,
-        PathPromptOptions, Styled as _, Window, div, prelude::FluentBuilder as _, px,
+        AppContext as _, Context, Div, Entity, FontWeight, ParentElement as _, PathPromptOptions,
+        Styled as _, Window, div, prelude::FluentBuilder as _, px,
     },
     gpui_component::{
         Disableable as _, Icon, IconName, Selectable as _, WindowExt as _,
@@ -23,7 +21,7 @@ use marsa_ui::{
     },
     gui_keys as gui,
     preferences::EnvironmentIcon,
-    tokens::typography::Role,
+    tokens::typography::{Role, ui_size},
 };
 
 use super::{SystemView, feedback_text, security::Security, settings_text, vm::VmEditor};
@@ -99,7 +97,9 @@ impl Section {
         }
     }
 }
-use crate::screens::common::{ScreenContext, color, resource_input, row};
+use crate::screens::common::{
+    ScreenContext, align, color, dialog_actions, dialog_frame, resource_input, row,
+};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 #[repr(usize)]
@@ -513,10 +513,17 @@ impl SystemView {
         self.load_environment_vm(window, cx);
         let owner = cx.weak_entity();
         window.open_dialog(cx, move |dialog, window, cx| {
-            let (title, identity, busy, body, footer) = owner
+            let (title, identity, busy, tabs, body, footer) = owner
                 .update(cx, |this, cx| {
                     let Some(editor) = &this.environment_settings.editor else {
-                        return (gui::GUI_ENVIRONMENT_EDIT_TITLE, None, false, div(), div());
+                        return (
+                            gui::GUI_ENVIRONMENT_EDIT_TITLE,
+                            None,
+                            false,
+                            None,
+                            div(),
+                            div(),
+                        );
                     };
                     let screen = ScreenContext {
                         locale: appearance.locale,
@@ -535,13 +542,20 @@ impl SystemView {
                         || this.busy();
                     let identity = (!matches!(editor.target, EditorTarget::Add))
                         .then(|| this.editor_presentation(&editor.target).0);
-                    let height =
-                        (window.viewport_size().height - px(268.)).clamp(px(165.), px(535.));
-                    let body = this.environment_dialog_body(editor, &screen, height, cx);
+                    let (tabs, body) = this.environment_dialog_content(editor, &screen, cx);
                     let footer = this.environment_dialog_footer(editor, &screen, busy, cx);
-                    (title, identity, busy, body, footer)
+                    (title, identity, busy, tabs, body, footer)
                 })
-                .unwrap_or_else(|_| (gui::GUI_ENVIRONMENT_EDIT_TITLE, None, false, div(), div()));
+                .unwrap_or_else(|_| {
+                    (
+                        gui::GUI_ENVIRONMENT_EDIT_TITLE,
+                        None,
+                        false,
+                        None,
+                        div(),
+                        div(),
+                    )
+                });
             let locale = appearance.locale;
             let close = owner.clone();
             let close_button = owner.clone();
@@ -550,17 +564,29 @@ impl SystemView {
                 .items_center()
                 .justify_between()
                 .gap_3()
+                .pb_3()
+                .border_b_1()
+                .border_color(color(appearance.palette, ColorToken::BorderSubtle))
                 .child(
                     div()
                         .flex()
                         .flex_col()
                         .gap_1()
                         .min_w_0()
-                        .child(title.text(locale))
+                        .flex_1()
+                        .child(
+                            align(
+                                div()
+                                    .text_size(ui_size(20.))
+                                    .font_weight(FontWeight::SEMIBOLD),
+                                locale,
+                            )
+                            .text_color(color(appearance.palette, ColorToken::TextPrimary))
+                            .child(title.text(locale)),
+                        )
                         .children(identity.map(|name| {
-                            div()
+                            align(div().text_size(ui_size(12.)), locale)
                                 .truncate()
-                                .text_sm()
                                 .text_color(color(appearance.palette, ColorToken::TextMuted))
                                 .child(crate::screens::common::technical(&name))
                         })),
@@ -577,12 +603,17 @@ impl SystemView {
                             window.close_dialog(cx);
                         }),
                 );
-            dialog
-                .centered()
-                .width((window.viewport_size().width - px(56.)).min(px(840.)))
-                .bg(color(appearance.palette, ColorToken::BgElevated))
-                .border_color(color(appearance.palette, ColorToken::BorderSubtle))
-                .title(heading)
+            let height = (window.viewport_size().height - px(56.)).clamp(px(0.), px(700.));
+            dialog_frame(dialog, 820.)
+                .h(height)
+                .title(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .child(heading)
+                        .children(tabs),
+                )
                 .overlay_closable(false)
                 .close_button(false)
                 .keyboard(!busy)
@@ -601,13 +632,12 @@ impl SystemView {
         cx.notify();
     }
 
-    fn environment_dialog_body(
+    fn environment_dialog_content(
         &self,
         editor: &Editor,
         screen: &ScreenContext<'_>,
-        height: marsa_ui::gpui::Pixels,
         cx: &mut Context<Self>,
-    ) -> Div {
+    ) -> (Option<Div>, Div) {
         let locale = screen.locale;
         let builtin = matches!(editor.target, EditorTarget::Builtin);
         let mut sections = vec![Section::General];
@@ -625,9 +655,6 @@ impl SystemView {
         let tabs = row(locale)
             .gap_1()
             .flex_wrap()
-            .p_1()
-            .rounded(px(8.))
-            .bg(color(screen.palette, ColorToken::BgSidebar))
             .children(sections.iter().copied().map(|tab_section| {
                 Button::new(("environment-section", tab_section as usize))
                     .ghost()
@@ -656,34 +683,7 @@ impl SystemView {
             Section::Network => self.environment_vm(editor, true, screen, cx),
             Section::Security => self.environment_security(editor, screen, cx),
         };
-        div()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .children((sections.len() > 1).then_some(tabs))
-            .child(
-                div()
-                    .id(("environment-section-body", section as usize))
-                    .h(height)
-                    .px_4()
-                    .pb_2()
-                    .overflow_y_scrollbar()
-                    .child(page),
-            )
-            .children(self.environment_settings.task.is_some().then(|| {
-                settings_text(
-                    screen,
-                    Role::Small,
-                    gui::GUI_DESKTOP_WORKING.text(locale),
-                    ColorToken::TextMuted,
-                )
-            }))
-            .children(
-                self.environment_settings
-                    .feedback
-                    .as_ref()
-                    .map(|feedback| feedback_text(screen, feedback)),
-            )
+        ((sections.len() > 1).then_some(tabs), page)
     }
 
     fn environment_dialog_footer(
@@ -695,12 +695,8 @@ impl SystemView {
     ) -> Div {
         let locale = screen.locale;
         let editable = editor.target.editable_connection();
-        row(locale)
+        let connection = row(locale)
             .gap_2()
-            .w_full()
-            .pt_3()
-            .border_t_1()
-            .border_color(color(screen.palette, ColorToken::BorderSubtle))
             .flex_wrap()
             .children(
                 (editable
@@ -728,8 +724,10 @@ impl SystemView {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.confirm_environment_removal(id.clone(), locale, window, cx);
                     }))
-            }))
-            .child(div().flex_1())
+            }));
+        let commit = row(locale)
+            .gap_2()
+            .flex_wrap()
             .child(
                 Button::new("cancel-environment")
                     .outline()
@@ -759,7 +757,31 @@ impl SystemView {
                             this.environment_submit(false, window, cx)
                         }),
                     )
-            })
+            });
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .children(self.environment_settings.task.is_some().then(|| {
+                settings_text(
+                    screen,
+                    Role::Small,
+                    gui::GUI_DESKTOP_WORKING.text(locale),
+                    ColorToken::TextMuted,
+                )
+            }))
+            .children(
+                self.environment_settings
+                    .feedback
+                    .as_ref()
+                    .map(|feedback| feedback_text(screen, feedback)),
+            )
+            .child(
+                dialog_actions(locale, screen.palette)
+                    .justify_between()
+                    .child(connection)
+                    .child(commit),
+            )
     }
 
     fn environment_general(
@@ -946,6 +968,12 @@ impl SystemView {
                 ColorToken::TextPrimary,
             ))
             .child(picker)
+            .child(settings_text(
+                screen,
+                Role::Small,
+                hint.text(locale),
+                ColorToken::TextMuted,
+            ))
             .children(protocol)
             .child(input_field(
                 screen,
@@ -954,12 +982,6 @@ impl SystemView {
                 busy,
                 false,
                 cx,
-            ))
-            .child(settings_text(
-                screen,
-                Role::Small,
-                hint.text(locale),
-                ColorToken::TextMuted,
             ));
         if current == Transport::Unix {
             let choices = self

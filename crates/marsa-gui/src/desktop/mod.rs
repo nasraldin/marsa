@@ -368,8 +368,9 @@ impl Desktop {
         }
         self.palette_open = false;
         self.palette_previous_focus = None;
-        self.system
-            .update(cx, |view, cx| view.engine(action, self.locale, window, cx));
+        self.system.update(cx, |view, cx| {
+            view.engine(action, self.locale, self.palette, window, cx)
+        });
         cx.notify();
     }
 }

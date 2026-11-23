@@ -11,13 +11,19 @@ use marsa_ui::{
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{Context, InteractiveElement as _, ParentElement as _, Styled as _, Window, div, px},
     gpui_component::{
-        Disableable as _, Sizable as _, WindowExt as _,
+        Disableable as _, WindowExt as _,
         button::{Button, ButtonVariants as _},
         checkbox::Checkbox,
     },
 };
 
-use crate::services::Command;
+use crate::{
+    screens::{
+        common::{dialog_actions, dialog_frame, dialog_heading},
+        external_inventory::dialog_scope,
+    },
+    services::Command,
+};
 
 use super::{ContainerView, color, list, name};
 
@@ -49,7 +55,10 @@ pub(super) fn open(
         (Some(_), Some(inventory)) => &inventory.state,
         _ => return,
     };
-    let badge = inventory.map(|inventory| isolate_technical_text(&inventory.source));
+    let scope = inventory.map_or_else(
+        || "Marsa".into(),
+        |inventory| isolate_technical_text(&inventory.source),
+    );
     let targets: Rc<Vec<_>> = Rc::new(
         ids.into_iter()
             .filter_map(|id| {
@@ -158,21 +167,23 @@ pub(super) fn open(
             .bg(color(palette, ColorToken::BgCode))
             .border_1()
             .border_color(color(palette, ColorToken::BorderSubtle))
-            .children(targets.iter().map(|target| {
-                row(cx)
-                    .gap_3()
-                    .items_center()
-                    .px_2()
-                    .py_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .font_family("IBM Plex Mono")
-                            .truncate()
-                            .child(isolate_technical_text(&target.name)),
-                    )
-                    .child(list::state_pill(&target.state, palette, locale, cx))
+            .children(targets.iter().enumerate().map(|(index, target)| {
+                let item = row(cx).gap_3().items_center().px_2().py_2();
+                let item = if index == 0 {
+                    item
+                } else {
+                    item.border_t_1()
+                        .border_color(color(palette, ColorToken::BorderSubtle))
+                };
+                item.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .font_family("IBM Plex Mono")
+                        .whitespace_normal()
+                        .child(isolate_technical_text(&target.name)),
+                )
+                .child(list::state_pill(&target.state, palette, locale, cx))
             }));
         let description = if force_required {
             gui::GUI_DESKTOP_SOME_CONTAINERS_ARE_RUNNING_REVIEW_THE_LIST_BEFORE_YOU_CONTINU
@@ -185,18 +196,13 @@ pub(super) fn open(
             .flex_col()
             .gap_3()
             .text_start(cx)
+            .child(dialog_scope(locale, palette, scope.clone()))
             .child(
                 div()
                     .text_sm()
                     .text_color(color(palette, ColorToken::TextMuted))
                     .child(description),
             )
-            .children(badge.as_ref().map(|badge| {
-                row(cx).child(super::super::external_inventory::source_badge(
-                    palette,
-                    badge.clone(),
-                ))
-            }))
             .child(targets_list)
             .child(
                 div()
@@ -205,46 +211,50 @@ pub(super) fn open(
                     .child(gui::GUI_DESKTOP_NAMED_VOLUMES_ARE_KEPT.text(locale)),
             );
         if force_required {
-            content = content
-                .child(
-                    Checkbox::new("force-remove-containers")
-                        .checked(force.get())
-                        .label(gui::GUI_DESKTOP_FORCE_REMOVE_RUNNING_CONTAINERS.text(locale))
-                        .on_click(move |checked, window, _| {
-                            selected_force.set(*checked);
-                            window.refresh();
-                        }),
-                )
-                .child(
-                    div()
-                        .text_size(ui_size(12.))
-                        .text_color(color(palette, ColorToken::TextMuted))
-                        .child(
-                            gui::GUI_DESKTOP_STOPS_THE_AFFECTED_CONTAINERS_IMMEDIATELY.text(locale),
-                        ),
-                );
+            content = content.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .p_3()
+                    .rounded_md()
+                    .bg(color(palette, ColorToken::StatusWarningBg))
+                    .child(
+                        Checkbox::new("force-remove-containers")
+                            .checked(force.get())
+                            .label(gui::GUI_DESKTOP_FORCE_REMOVE_RUNNING_CONTAINERS.text(locale))
+                            .on_click(move |checked, window, _| {
+                                selected_force.set(*checked);
+                                window.refresh();
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui_size(12.))
+                            .text_color(color(palette, ColorToken::StatusWarning))
+                            .child(
+                                gui::GUI_DESKTOP_STOPS_THE_AFFECTED_CONTAINERS_IMMEDIATELY
+                                    .text(locale),
+                            ),
+                    ),
+            );
         }
-        dialog
-            .centered()
-            .width(px(610.))
-            .title(title.clone())
+        dialog_frame(dialog, 560.)
+            .overlay_closable(false)
+            .title(dialog_heading(locale, palette, title.clone()))
             .child(content)
             .on_ok(move |_, _, cx| submit(cx))
             .footer(
-                row(cx)
-                    .justify_row_end()
-                    .gap_2()
+                dialog_actions(locale, palette)
                     .child(
                         Button::new("cancel-container-removal")
                             .outline()
-                            .small()
                             .label(gui::GUI_DESKTOP_CANCEL.text(locale))
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
                         Button::new("confirm-container-removal")
                             .danger()
-                            .small()
                             .label(action.clone())
                             .disabled(force_required && !force.get())
                             .on_click(move |_, window, cx| {

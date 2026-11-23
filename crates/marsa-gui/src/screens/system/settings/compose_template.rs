@@ -2,7 +2,7 @@
 
 use marsa_client::compose::DEFAULT_TEMPLATE;
 use marsa_ui::{
-    ColorToken, Locale,
+    ColorToken, Locale, Palette,
     direction::{align_to_start, isolate_technical_text},
     gpui::{
         AppContext, Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window, div, px,
@@ -14,10 +14,15 @@ use marsa_ui::{
     },
     gui_keys as gui,
     preferences::valid_compose_template,
-    tokens::{scale::Space, typography::Role},
+    tokens::{
+        scale::Space,
+        typography::{Role, ui_size},
+    },
 };
 
-use crate::screens::common::{ScreenContext, color, row};
+use crate::screens::common::{
+    ScreenContext, color, dialog_actions, dialog_frame, dialog_heading, row,
+};
 
 use super::{Notice, SystemView, settings_card, settings_heading, settings_text};
 
@@ -28,6 +33,7 @@ impl SystemView {
         cx: &mut Context<Self>,
     ) -> Div {
         let locale = screen.locale;
+        let palette = screen.palette;
         let custom = self
             .settings
             .as_ref()
@@ -55,7 +61,7 @@ impl SystemView {
                                     .label(gui::GUI_COMPOSE_TEMPLATE_EDIT.text(locale))
                                     .disabled(busy)
                                     .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.edit_compose_template(locale, window, cx);
+                                        this.edit_compose_template(locale, palette, window, cx);
                                     })),
                             )
                             .child(
@@ -89,7 +95,13 @@ impl SystemView {
             }))
     }
 
-    fn edit_compose_template(&self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
+    fn edit_compose_template(
+        &self,
+        locale: Locale,
+        palette: Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(original) = self
             .compose_template()
             .filter(|_| !self.busy())
@@ -101,30 +113,37 @@ impl SystemView {
         cx.subscribe(&editor, |_, _, _: &InputEvent, cx| cx.refresh_windows())
             .detach();
         let view = cx.weak_entity();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let template = editor.read(cx).value();
             let valid = valid_compose_template(&template);
             let save = view.clone();
             let original_at_open = original.clone();
-            dialog
-                .width(px(620.))
+            let editor_height = (window.viewport_size().height * 0.51).clamp(px(180.), px(520.));
+            dialog_frame(dialog, 760.)
                 .overlay_closable(false)
-                .title(gui::GUI_COMPOSE_TEMPLATE_TITLE.text(locale))
+                .title(dialog_heading(
+                    locale,
+                    palette,
+                    gui::GUI_COMPOSE_TEMPLATE_TITLE.text(locale),
+                ))
                 .child(
+                    Editor::new(&editor)
+                        .h(editor_height)
+                        .aria_label(gui::GUI_COMPOSE_YAML.text(locale)),
+                )
+                .footer(
                     div()
                         .flex()
                         .flex_col()
-                        .gap_3()
+                        .gap_2()
+                        .children((!valid).then(|| {
+                            div()
+                                .text_size(ui_size(12.))
+                                .text_color(color(palette, ColorToken::StatusError))
+                                .child(gui::GUI_COMPOSE_TEMPLATE_INVALID.text(locale))
+                        }))
                         .child(
-                            Editor::new(&editor)
-                                .h(px(280.))
-                                .aria_label(gui::GUI_COMPOSE_YAML.text(locale)),
-                        )
-                        .children((!valid).then(|| gui::GUI_COMPOSE_TEMPLATE_INVALID.text(locale)))
-                        .child(
-                            row(locale)
-                                .gap_2()
-                                .justify_end()
+                            dialog_actions(locale, palette)
                                 .child(
                                     Button::new("cancel-compose-template-edit")
                                         .outline()

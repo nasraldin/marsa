@@ -200,21 +200,32 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
         .rounded(px(10.))
         .border_1()
         .border_color(color(palette, ColorToken::GlassEdge))
-        .bg(color(palette, ColorToken::GlassControl))
+        .bg(color(palette, ColorToken::BgElevated))
         .accessibility_label(description.clone())
         .tooltip(description);
-    let button = if desktop.collapsed {
-        button.h(px(36.)).child(
+    let (status_text, status_surface) = status::themes(engine);
+    let engine_icon = div()
+        .size(px(40.))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(9.))
+        .bg(color(palette, status_surface))
+        .child(
             svg()
-                .path("icons/server.svg")
-                .size(px(17.))
-                .text_color(color(palette, status::foreground(engine))),
-        )
+                .path("marsa/docker-engine.svg")
+                .size(px(30.))
+                .text_color(color(palette, status_text)),
+        );
+    let button = if desktop.collapsed {
+        button.h(px(52.)).p_0().child(engine_icon)
     } else {
-        button.h(px(52.)).px_2().child(
+        button.h(px(58.)).px_2().child(
             row(locale)
                 .w_full()
                 .gap_2()
+                .child(engine_icon)
                 .child(
                     align(div().min_w_0().flex_1().flex().flex_col().gap_1(), locale)
                         .child(
@@ -225,7 +236,13 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
                                 .text_color(color(palette, ColorToken::TextPrimary))
                                 .child(context),
                         )
-                        .child(status::inline_badge(locale, palette, engine, state_text)),
+                        .child(
+                            div()
+                                .truncate()
+                                .text_size(ui_size(12.))
+                                .text_color(color(palette, status_text))
+                                .child(state_text),
+                        ),
                 )
                 .child(
                     Icon::new(IconName::ChevronUp)

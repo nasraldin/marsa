@@ -10,8 +10,10 @@ use std::{
 
 use marsa_client::docker::{ExternalEndpoint, ExternalInventory, LimaSettings, VerifiedEngine};
 use marsa_ui::{
-    ColorToken, Palette,
-    gpui::{Div, ParentElement as _, SharedString, Styled as _, div, px},
+    ColorToken, Locale, Palette,
+    gpui::{Div, FontWeight, ParentElement as _, SharedString, Styled as _, div, px},
+    gui_keys as gui,
+    tokens::{scale::Space, typography::ui_size},
 };
 
 use crate::{
@@ -177,6 +179,34 @@ pub(super) fn source_badge(palette: Palette, value: SharedString) -> Div {
         .bg(color(palette, ColorToken::AccentSubtle))
         .text_color(color(palette, ColorToken::TextPrimary))
         .child(value)
+}
+
+/// Show the full pinned environment on an operation before the user confirms it.
+pub(super) fn dialog_scope(locale: Locale, palette: Palette, name: SharedString) -> Div {
+    super::common::align(
+        div()
+            .flex()
+            .flex_col()
+            .min_w_0()
+            .gap(px(Space::S4.pixels()))
+            .border_b_1()
+            .border_color(color(palette, ColorToken::BorderSubtle))
+            .pb(px(Space::S12.pixels())),
+        locale,
+    )
+    .child(
+        div()
+            .text_size(ui_size(12.))
+            .text_color(color(palette, ColorToken::TextMuted))
+            .child(gui::GUI_WORKLOAD_TARGET_ENVIRONMENT.text(locale)),
+    )
+    .child(
+        div()
+            .text_size(ui_size(14.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(color(palette, ColorToken::TextPrimary))
+            .child(name),
+    )
 }
 
 #[cfg(test)]

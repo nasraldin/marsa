@@ -1,7 +1,5 @@
 //! Launch a container from an existing image on the pinned environment.
 
-use marsa_ui::gpui_component::scroll::ScrollableElement as _;
-
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -16,8 +14,8 @@ use marsa_ui::{
     ColorToken, Locale,
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
-        App, Context, InteractiveElement as _, ParentElement as _, PromptButton, PromptLevel,
-        SharedString, Styled as _, WeakEntity, Window, div, px,
+        Anchor, App, Context, Div, FontWeight, IntoElement, ParentElement as _, PromptButton,
+        PromptLevel, SharedString, Styled as _, WeakEntity, Window, div, px,
     },
     gpui_component::{
         Disableable as _, IconName, WindowExt as _,
@@ -25,12 +23,14 @@ use marsa_ui::{
         menu::{DropdownMenu as _, PopupMenuItem},
     },
     gui_keys as gui,
+    tokens::{scale::Space, typography::ui_size},
 };
 
 use crate::{
     screens::{
-        common::resource_input,
+        common::{dialog_actions, dialog_frame, dialog_heading, resource_input},
         config_options::{OptionsEditor, error_line, error_text, field},
+        external_inventory::dialog_scope,
     },
     services::Services,
 };
@@ -163,6 +163,20 @@ impl Launch {
     }
 }
 
+fn create_field(label: &'static str, field: impl IntoElement) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(Space::S4.pixels()))
+        .child(
+            div()
+                .text_size(ui_size(13.))
+                .font_weight(FontWeight::MEDIUM)
+                .child(label),
+        )
+        .child(field)
+}
+
 pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<ContainerView>) {
     let Some(services) = view.services.clone() else {
         return;
@@ -193,7 +207,7 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
     let snapshot = source
         .as_ref()
         .map_or(&view.state, |workspace| &workspace.state);
-    let entries = snapshot
+    let mut entries = snapshot
         .images()
         .values()
         .filter_map(|entry| {
@@ -207,6 +221,7 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
             Some((id, isolate_technical_text(display)))
         })
         .collect::<Vec<_>>();
+    entries.sort_by(|(_, a), (_, b)| a.as_ref().cmp(b.as_ref()));
     let entries = Rc::new(entries);
     let selected = Rc::new(RefCell::new(None::<(ImageId, SharedString)>));
     let sets = Rc::new(view.config_sets.clone());
@@ -219,12 +234,7 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
     )));
     let show_options = Rc::new(Cell::new(false));
     let failed = Rc::new(Cell::new(None::<&'static str>));
-    let name = field(
-        gui::GUI_DESKTOP_CONTAINER_NAME_OPTIONAL.text(locale),
-        "",
-        window,
-        cx,
-    );
+    let name = field("", "", window, cx);
     let view = cx.entity().downgrade();
     let submit = {
         let selected = selected.clone();
@@ -270,58 +280,83 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
         let click_submit = submit.clone();
         let key_submit = submit.clone();
         let mut body = div()
-            .id("create-container-options")
-            .max_h(px(460.))
-            .overflow_y_scrollbar()
             .flex()
             .flex_col()
-            .gap_3()
-            .px_1()
+            .gap(px(Space::S16.pixels()))
             .text_start(cx)
-            .child(
-                row(cx).child(super::super::external_inventory::source_badge(
-                    palette,
-                    badge.clone(),
-                )),
-            );
+            .child(dialog_scope(locale, palette, badge.clone()));
         if entries.is_empty() {
-            body = body.child(gui::GUI_DESKTOP_CONTAINERS_NEED_IMAGE.text(locale));
+            body = body.child(
+                div()
+                    .text_size(ui_size(14.))
+                    .text_color(color(palette, ColorToken::TextMuted))
+                    .child(gui::GUI_DESKTOP_CONTAINERS_NEED_IMAGE.text(locale)),
+            );
         } else {
             let choices = entries.clone();
             let selection = selected.clone();
+            let selected_id = selected.borrow().as_ref().map(|(id, _)| id.clone());
+            let anchor = match locale {
+                Locale::Arabic => Anchor::TopRight,
+                Locale::EnglishUs => Anchor::TopLeft,
+            };
+            let image_label = gui::GUI_DESKTOP_IMAGE.text(locale);
             let label = selected
                 .borrow()
                 .as_ref()
                 .map(|(_, name)| name.clone())
                 .unwrap_or_else(|| gui::GUI_DESKTOP_CONTAINERS_CHOOSE_IMAGE.text(locale).into());
-            body = body
-                .child(
-                    Button::new("choose-new-container-image")
-                        .outline()
-                        .icon(IconName::ChevronDown)
-                        .label(label)
-                        .dropdown_menu(move |menu, _, _| {
-                            choices.iter().fold(menu, |menu, (id, name)| {
-                                let selection = selection.clone();
-                                let chosen = (id.clone(), name.clone());
-                                menu.item(PopupMenuItem::new(name.clone()).on_click(
-                                    move |_, window, _| {
+            let image_field = create_field(
+                image_label,
+                Button::new("choose-new-container-image")
+                    .outline()
+                    .w_full()
+                    .h(px(Space::S36.pixels()))
+                    .dropdown_caret(true)
+                    .accessibility_label(format!("{image_label} · {label}"))
+                    .label(label)
+                    .dropdown_menu_with_anchor(anchor, move |menu, window, _| {
+                        let menu = menu
+                            .max_h(window.viewport_size().height * 0.5)
+                            .scrollable(true);
+                        choices.iter().fold(menu, |menu, (id, name)| {
+                            let selection = selection.clone();
+                            let chosen = (id.clone(), name.clone());
+                            menu.item(
+                                PopupMenuItem::new(name.clone())
+                                    .checked(selected_id.as_ref() == Some(id))
+                                    .on_click(move |_, window, _| {
                                         *selection.borrow_mut() = Some(chosen.clone());
                                         window.refresh();
-                                    },
-                                ))
-                            })
-                        }),
-                )
-                .child(resource_input(&name));
-            if invalid {
-                body = body.child(
-                    div()
-                        .text_xs()
-                        .text_color(color(palette, ColorToken::StatusError))
-                        .child(gui::GUI_DESKTOP_CONTAINERS_INVALID_NAME.text(locale)),
+                                    }),
+                            )
+                        })
+                    }),
+            );
+            let name_label = gui::GUI_DESKTOP_CONTAINER_NAME_OPTIONAL.text(locale);
+            let identity = div()
+                .flex()
+                .flex_col()
+                .gap(px(Space::S12.pixels()))
+                .child(image_field)
+                .child(
+                    create_field(name_label, resource_input(&name).aria_label(name_label))
+                        .children(invalid.then(|| {
+                            div()
+                                .text_size(ui_size(12.))
+                                .text_color(color(palette, ColorToken::StatusError))
+                                .child(gui::GUI_DESKTOP_CONTAINERS_INVALID_NAME.text(locale))
+                        })),
                 );
-            }
+            body = body.child(identity);
+
+            let mut options_section = div()
+                .flex()
+                .flex_col()
+                .gap(px(Space::S12.pixels()))
+                .border_t_1()
+                .border_color(color(palette, ColorToken::BorderSubtle))
+                .pt(px(Space::S16.pixels()));
             let enable_options = show_options.clone();
             if !sets.is_empty() {
                 let current = set_index.get();
@@ -333,13 +368,20 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
                     .and_then(|index| sets.get(index))
                     .map(|set| isolate_technical_text(&set.name))
                     .unwrap_or_else(|| gui::GUI_CONFIG_CHOOSE_SET.text(locale).into());
-                body = body.child(
+                let set_label = gui::GUI_CONFIG_SETS.text(locale);
+                options_section = options_section.child(create_field(
+                    set_label,
                     Button::new("choose-container-config-set")
                         .outline()
+                        .w_full()
+                        .h(px(Space::S36.pixels()))
+                        .dropdown_caret(true)
+                        .accessibility_label(format!("{set_label} · {label}"))
                         .label(label)
-                        .icon(IconName::ChevronDown)
-                        .accessibility_label(gui::GUI_CONFIG_CHOOSE_SET.text(locale))
-                        .dropdown_menu(move |menu, _, _| {
+                        .dropdown_menu_with_anchor(anchor, move |menu, window, _| {
+                            let menu = menu
+                                .max_h(window.viewport_size().height * 0.5)
+                                .scrollable(true);
                             std::iter::once((None, gui::GUI_CONFIG_NO_SET.text(locale).into()))
                                 .chain(sets.iter().enumerate().map(|(index, set)| {
                                     (Some(index), isolate_technical_text(&set.name))
@@ -367,39 +409,47 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
                                     )
                                 })
                         }),
-                );
+                ));
             }
-            body = body
+            let expanded = show_options.get();
+            options_section = options_section
                 .child(
-                    Button::new("edit-container-options")
-                        .ghost()
-                        .label(if show_options.get() {
-                            gui::GUI_CONFIG_HIDE_OPTIONS.text(locale)
-                        } else {
-                            gui::GUI_CONFIG_EDIT_OPTIONS.text(locale)
-                        })
-                        .on_click(move |_, window, _| {
-                            enable_options.set(!enable_options.get());
-                            window.refresh();
-                        }),
+                    row(cx).child(
+                        Button::new("edit-container-options")
+                            .ghost()
+                            .icon(if expanded {
+                                IconName::ChevronUp
+                            } else {
+                                IconName::ChevronDown
+                            })
+                            .toggled(expanded)
+                            .label(if expanded {
+                                gui::GUI_CONFIG_HIDE_OPTIONS.text(locale)
+                            } else {
+                                gui::GUI_CONFIG_EDIT_OPTIONS.text(locale)
+                            })
+                            .on_click(move |_, window, _| {
+                                enable_options.set(!enable_options.get());
+                                window.refresh();
+                            }),
+                    ),
                 )
                 .children(failed.get().map(|text| error_line(text, palette, cx)))
                 .children(
-                    show_options
-                        .get()
-                        .then(|| OptionsEditor::render(&options.borrow(), locale, palette, cx)),
+                    expanded.then(|| OptionsEditor::render(&options.borrow(), locale, palette)),
                 );
+            body = body.child(options_section);
         }
-        dialog
-            .centered()
-            .width(px(600.))
-            .title(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
+        dialog_frame(dialog, 656.)
+            .title(dialog_heading(
+                locale,
+                palette,
+                gui::GUI_DESKTOP_NEW_CONTAINER.text(locale),
+            ))
             .child(body)
             .on_ok(move |_, window, cx| key_submit(window, cx))
             .footer(
-                row(cx)
-                    .justify_row_end()
-                    .gap_2()
+                dialog_actions(locale, palette)
                     .child(
                         Button::new("cancel-create-container")
                             .outline()

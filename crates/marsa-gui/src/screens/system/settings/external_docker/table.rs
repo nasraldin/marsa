@@ -317,6 +317,7 @@ impl SystemView {
         cx: &mut Context<Self>,
     ) -> Div {
         let locale = screen.locale;
+        let palette = screen.palette;
         let panel = &self.environment_settings;
         let workspace = target.workspace();
         let lima = workspace.and_then(|workspace| {
@@ -526,9 +527,9 @@ impl SystemView {
                     label.text(locale),
                 )
                 .disabled(disabled || self.busy())
-                .on_click(
-                    cx.listener(move |this, _, window, cx| this.engine(action, locale, window, cx)),
-                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.engine(action, locale, palette, window, cx)
+                }))
             }))
             .children(lima.and_then(|(instance, settings)| {
                 let (running, icon, label) = lima_next_action(settings)?;

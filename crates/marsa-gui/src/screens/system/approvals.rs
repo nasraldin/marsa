@@ -19,9 +19,11 @@ use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
 use super::{
     Notice, SystemView,
     disk::bytes,
-    machine::{dialog_title, mono, muted, system_icon},
+    machine::{mono, muted, system_icon},
 };
-use crate::screens::common::{ScreenContext, align, color, row};
+use crate::screens::common::{
+    ScreenContext, align, color, dialog_actions, dialog_frame, dialog_heading, row,
+};
 
 impl SystemView {
     pub(super) fn approval(
@@ -134,6 +136,7 @@ impl SystemView {
                 .child(
                     row(locale)
                         .justify_between()
+                        .flex_wrap()
                         .gap_3()
                         .child(approval_fact(
                             locale,
@@ -308,14 +311,12 @@ impl SystemView {
                         view.resolve_approval(allow_id.clone(), Some(false), cx)
                     });
                 });
-            dialog
-                .centered()
-                .width(px(680.))
+            dialog_frame(dialog, 680.)
                 .overlay_closable(false)
-                .title(dialog_title(title.text(locale)))
+                .title(dialog_heading(locale, palette, title.text(locale)))
                 .child(content)
                 .footer(
-                    row(locale)
+                    dialog_actions(locale, palette)
                         .justify_between()
                         .gap_3()
                         .child(
@@ -333,6 +334,8 @@ impl SystemView {
                         .child(
                             row(locale)
                                 .gap_2()
+                                .flex_wrap()
+                                .justify_end()
                                 .children(can_grant.then(|| {
                                     Button::new("save-reviewed-agent-grant")
                                         .outline()

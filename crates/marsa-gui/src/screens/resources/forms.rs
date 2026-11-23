@@ -1,11 +1,16 @@
 //! Safe confirmations and inputs for resource actions.
 
-use crate::screens::common::message;
+use crate::screens::{
+    common::{ScreenContext, dialog_actions, message},
+    external_inventory::dialog_scope,
+};
 use marsa_client::compose::valid_project_name;
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken, Locale,
-    gpui::{App, AppContext, Context, Div, Entity, ParentElement, Styled, Window, div, px},
+    gpui::{
+        App, AppContext, Context, Div, Entity, FontWeight, ParentElement, Styled, Window, div, px,
+    },
     gpui_component::{
         Disableable, WindowExt,
         button::{Button, ButtonVariants},
@@ -19,9 +24,7 @@ use marsa_ui::{
     },
 };
 
-use crate::screens::common::ScreenContext;
-
-use super::{ResourceKind, ResourcesView, logical_row, text, tone};
+use super::{ResourceKind, ResourcesView, text, tone};
 
 #[derive(Clone)]
 pub(super) enum FormKind {
@@ -150,14 +153,15 @@ impl FormKind {
         }
     }
 
-    fn placeholder(&self, locale: Locale) -> Option<&'static str> {
+    fn input_label(&self, locale: Locale) -> Option<&'static str> {
         match self {
             Self::CreateStack { .. } | Self::DeployStack => {
                 Some(gui::GUI_DESKTOP_STACK_NAME.text(locale))
             }
             Self::NetworkMembership { .. } => Some(gui::GUI_DESKTOP_NETWORK_CONTAINER.text(locale)),
-            Self::Pull => Some(gui::GUI_DESKTOP_IMAGE_REFERENCE.text(locale)),
-            Self::TagImage { .. } => Some(gui::GUI_DESKTOP_TARGET_IMAGE_TAG.text(locale)),
+            Self::Pull | Self::TagImage { .. } => {
+                Some(gui::GUI_DESKTOP_IMAGE_REFERENCE.text(locale))
+            }
             Self::Run { .. } => Some(gui::GUI_DESKTOP_CONTAINER_NAME_OPTIONAL.text(locale)),
             Self::CreateNetwork => Some(gui::GUI_DESKTOP_NETWORK_NAME.text(locale)),
             Self::CreateVolume => Some(gui::GUI_DESKTOP_VOLUME_NAME.text(locale)),
@@ -166,6 +170,19 @@ impl FormKind {
             }
             Self::ComposeDown { volumes: true, .. } => {
                 Some(gui::GUI_DESKTOP_TYPE_THE_PROJECT_NAME_TO_CONFIRM.text(locale))
+            }
+            _ => None,
+        }
+    }
+
+    fn help(&self) -> Option<marsa_ui::TextKey> {
+        match self {
+            Self::CreateStack { .. } => Some(gui::GUI_COMPOSE_NEW_STACK_HELP),
+            Self::DeployStack => {
+                Some(gui::GUI_DESKTOP_CHOOSE_THE_COMPOSE_FILE_FOR_THIS_PROJECT_AFTER_CONFIRMING)
+            }
+            Self::RemoveVolume { in_use: false, .. } | Self::ComposeDown { volumes: true, .. } => {
+                Some(gui::GUI_SYSTEM_ACTIVITY_DESTROY_EXPLANATION)
             }
             _ => None,
         }
@@ -180,7 +197,7 @@ impl FormKind {
         }
     }
 
-    fn destructive(&self) -> bool {
+    pub(super) fn destructive(&self) -> bool {
         matches!(
             self,
             Self::RemoveImage { .. }
@@ -256,8 +273,15 @@ impl Form {
         window: &mut Window,
         cx: &mut Context<ResourcesView>,
     ) -> Self {
-        let input = kind.placeholder(locale).map(|placeholder| {
-            let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
+        let input = kind.input_label(locale).map(|_| {
+            let input = cx.new(|cx| {
+                let state = InputState::new(window, cx);
+                if matches!(kind, FormKind::TagImage { .. }) {
+                    state.placeholder(gui::GUI_DESKTOP_TARGET_IMAGE_TAG.text(locale))
+                } else {
+                    state
+                }
+            });
             cx.subscribe(
                 &input,
                 |_, _, _: &marsa_ui::gpui_component::input::InputEvent, cx| cx.refresh_windows(),
@@ -381,22 +405,24 @@ impl Form {
         screen: &ScreenContext<'_>,
         view: &Entity<ResourcesView>,
         cx: &App,
-    ) -> Div {
+    ) -> (Div, Div) {
         let creating = matches!(self.kind, FormKind::CreateStack { .. });
         let title = if creating {
             gui::GUI_COMPOSE_CREATE_AND_DEPLOY.text(screen.locale)
         } else {
             self.kind.title(screen.locale)
         };
-        let mut form = div().flex().flex_col().gap(px(Space::S12.pixels()));
-        form = form.child(
-            logical_row(screen.locale).child(crate::screens::external_inventory::source_badge(
+        let mut form = div()
+            .flex()
+            .flex_col()
+            .gap(px(Space::S16.pixels()))
+            .child(dialog_scope(
+                screen.locale,
                 screen.palette,
                 self.source
                     .as_ref()
                     .map_or_else(|| "Marsa".into(), |source| source.badge.clone()),
-            )),
-        );
+            ));
         if let Some(target) = self.kind.target() {
             let affected = self.kind.users();
             form = form.child(
@@ -462,26 +488,21 @@ impl Form {
                     }),
             );
         }
-        if self.kind.page() == ResourceKind::Compose {
-            form = form.child(text(
-                screen,
-                Role::Body,
-                message(
-                    screen.locale,
-                    if creating {
-                        gui::GUI_COMPOSE_NEW_STACK_HELP
-                    } else {
-                        gui::GUI_DESKTOP_CHOOSE_THE_COMPOSE_FILE_FOR_THIS_PROJECT_AFTER_CONFIRMING
-                    },
-                ),
-            ));
-        }
-        if let Some(input) = &self.input {
-            let mut control = crate::screens::common::resource_input(input);
-            if let Some(placeholder) = self.kind.placeholder(screen.locale) {
-                control = control.aria_label(placeholder);
-            }
-            form = form.child(control);
+        form = form.children(self.kind.help().map(|key| {
+            text(screen, Role::Body, message(screen.locale, key))
+                .text_color(tone(screen, ColorToken::TextMuted))
+        }));
+        if let Some(input) = &self.input
+            && let Some(label) = self.kind.input_label(screen.locale)
+        {
+            form = form.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(Space::S4.pixels()))
+                    .child(text(screen, Role::Small, label).font_weight(FontWeight::MEDIUM))
+                    .child(crate::screens::common::resource_input(input).aria_label(label)),
+            );
         }
         if let Some(editor) = &self.compose_editor {
             let invalid_project = self.input.as_ref().is_some_and(|input| {
@@ -499,9 +520,23 @@ impl Form {
                     .text_color(tone(screen, ColorToken::StatusWarning))
                 }))
                 .child(
-                    Editor::new(editor)
-                        .h(px(224.))
-                        .aria_label(gui::GUI_COMPOSE_YAML.text(screen.locale)),
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(Space::S4.pixels()))
+                        .child(
+                            text(
+                                screen,
+                                Role::Small,
+                                gui::GUI_COMPOSE_YAML.text(screen.locale),
+                            )
+                            .font_weight(FontWeight::MEDIUM),
+                        )
+                        .child(
+                            Editor::new(editor)
+                                .h(px(224.))
+                                .aria_label(gui::GUI_COMPOSE_YAML.text(screen.locale)),
+                        ),
                 )
                 .children(invalid_yaml.then(|| {
                     text(
@@ -528,46 +563,68 @@ impl Form {
         } else {
             submit_button.primary()
         };
-        form.child(
-            logical_row(screen.locale)
-                .justify_end()
-                .gap(px(Space::S8.pixels()))
-                .border_t_1()
-                .border_color(tone(screen, ColorToken::BorderSubtle))
-                .pt(px(Space::S12.pixels()))
-                .child(
-                    Button::new("cancel-resource-action")
-                        .outline()
-                        .h(px(Space::S36.pixels()))
-                        .rounded(px(Radius::R8.pixels()))
-                        .label(message(screen.locale, gui::GUI_DESKTOP_CANCEL))
-                        .on_click(move |_, window, cx| {
-                            cancel.update(cx, |view, cx| {
-                                view.form = None;
-                                cx.refresh_windows();
-                            });
-                            window.close_dialog(cx);
-                        }),
-                )
-                .child(submit_button.on_click(move |_, window, cx| {
-                    let Some(service) = &service else { return };
-                    let request = submit.update(cx, |view, cx| {
-                        let form = view.form.as_ref()?;
-                        let request = (
-                            form.kind.page(),
-                            form.request(&snapshot, cx)?,
-                            form.source.as_ref().map(|source| source.endpoint.clone()),
-                        );
-                        view.form = None;
-                        Some(request)
-                    });
-                    if let Some((kind, request, endpoint)) = request {
-                        window.close_dialog(cx);
-                        submit.update(cx, |view, cx| {
-                            view.dispatch(kind, (request, endpoint), service.clone(), locale, cx)
+        let actions = dialog_actions(screen.locale, screen.palette)
+            .child(
+                Button::new("cancel-resource-action")
+                    .outline()
+                    .h(px(Space::S36.pixels()))
+                    .rounded(px(Radius::R8.pixels()))
+                    .label(message(screen.locale, gui::GUI_DESKTOP_CANCEL))
+                    .on_click(move |_, window, cx| {
+                        cancel.update(cx, |view, cx| {
+                            view.form = None;
+                            cx.refresh_windows();
                         });
-                    }
-                })),
-        )
+                        window.close_dialog(cx);
+                    }),
+            )
+            .child(submit_button.on_click(move |_, window, cx| {
+                let Some(service) = &service else { return };
+                let request = submit.update(cx, |view, cx| {
+                    let form = view.form.as_ref()?;
+                    let request = (
+                        form.kind.page(),
+                        form.request(&snapshot, cx)?,
+                        form.source.as_ref().map(|source| source.endpoint.clone()),
+                    );
+                    view.form = None;
+                    Some(request)
+                });
+                if let Some((kind, request, endpoint)) = request {
+                    window.close_dialog(cx);
+                    submit.update(cx, |view, cx| {
+                        view.dispatch(kind, (request, endpoint), service.clone(), locale, cx)
+                    });
+                }
+            }));
+        (form, actions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compose_help_distinguishes_deployment_from_lifecycle_and_volume_removal() {
+        assert_eq!(
+            FormKind::DeployStack.help(),
+            Some(gui::GUI_DESKTOP_CHOOSE_THE_COMPOSE_FILE_FOR_THIS_PROJECT_AFTER_CONFIRMING)
+        );
+        assert_eq!(
+            FormKind::ComposeRestart {
+                project: "demo".into()
+            }
+            .help(),
+            None
+        );
+        assert_eq!(
+            FormKind::ComposeDown {
+                project: "demo".into(),
+                volumes: true
+            }
+            .help(),
+            Some(gui::GUI_SYSTEM_ACTIVITY_DESTROY_EXPLANATION)
+        );
     }
 }

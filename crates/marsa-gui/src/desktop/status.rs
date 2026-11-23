@@ -42,7 +42,7 @@ pub(super) fn inline_badge(
     state: Option<EngineState>,
     label: &'static str,
 ) -> Div {
-    let foreground = color(palette, foreground(state));
+    let foreground = color(palette, themes(state).0);
     row(locale)
         .gap_2()
         .text_size(ui_size(12.))
@@ -55,10 +55,6 @@ pub(super) fn inline_badge(
                 .bg(foreground),
         )
         .child(div().min_w_0().truncate().child(label))
-}
-
-pub(super) fn foreground(state: Option<EngineState>) -> ColorToken {
-    themes(state).0
 }
 
 fn badge_with_text(
@@ -85,7 +81,7 @@ fn badge_with_text(
         .child(label)
 }
 
-fn themes(state: Option<EngineState>) -> (ColorToken, ColorToken) {
+pub(super) fn themes(state: Option<EngineState>) -> (ColorToken, ColorToken) {
     match state {
         Some(EngineState::Ready | EngineState::Idle) => {
             (ColorToken::StatusRunning, ColorToken::StatusRunningBg)

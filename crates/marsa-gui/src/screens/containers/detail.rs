@@ -6,7 +6,7 @@ use crate::screens::common::message;
 use marsa_client::docker::{ContainerAction, ContainerDetails, ContainerSummary};
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
-    ColorToken,
+    ColorToken, Locale,
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
         AnyElement, App, Context, Div, FontWeight, InteractiveElement as _, IntoElement,
@@ -96,7 +96,7 @@ pub(super) fn render(
                                 .typography(Role::Title)
                                 .apply(div())
                                 .min_w_0()
-                                .truncate()
+                                .text_start(cx)
                                 .child(isolate_technical_text(name(entry))),
                         )
                         .child(list::state_pill(
@@ -157,7 +157,13 @@ pub(super) fn render(
         Tab::Terminal => super::terminal::render(view, entry, &screen, window, cx),
         Tab::Inspect => inspect(view, entry, &view.inspection, &screen, cx).into_any_element(),
         Tab::Stats => stats::render(view, &screen, window, cx),
-        Tab::Files => super::files::render(view, &screen, cx).into_any_element(),
+        Tab::Files => div()
+            .id("container-files-scroll")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scrollbar()
+            .child(super::files::render(view, &screen, cx))
+            .into_any_element(),
     };
     let root = div()
         .flex()
@@ -171,7 +177,10 @@ pub(super) fn render(
                     .ghost()
                     .small()
                     .compact()
-                    .icon(IconName::ChevronLeft)
+                    .icon(match screen.locale {
+                        Locale::Arabic => IconName::ChevronRight,
+                        Locale::EnglishUs => IconName::ChevronLeft,
+                    })
                     .label(message(screen.locale, gui::GUI_DESKTOP_CONTAINERS))
                     .on_click(cx.listener(|view, _, _, cx| view.close_detail(cx))),
             ),

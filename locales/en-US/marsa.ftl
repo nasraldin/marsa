@@ -510,6 +510,7 @@ gui-desktop-virtual-machine-usage = Virtual machine usage
 
 ### Updates
 
+gui-update-release-channel = Release channel
 gui-update-auto-check = Check for updates automatically
 gui-update-loading = Waiting for the updater.
 gui-update-retry-status = Updater status is unavailable. Try again.
@@ -568,6 +569,7 @@ gui-desktop-open-containers = Open containers
 
 ### Overview
 
+gui-desktop-overview-waiting-engine = Workload and storage data will appear when the engine is available.
 gui-desktop-overview-container-usage = Containers
 gui-desktop-overview-compose-projects = Compose projects
 gui-desktop-overview-docker-disk = Docker disk
@@ -954,7 +956,7 @@ gui-config-tcp = TCP
 gui-config-udp = UDP
 gui-config-mount-kind = Mount source type
 gui-config-mount-access = Mount access
-gui-config-mount-source = Volume name or engine host path
+gui-config-mount-source = Mount source
 gui-config-mount-target = Container path
 gui-config-volume = Named volume
 gui-config-host = Host path
@@ -1142,3 +1144,4 @@ gui-settings-ui-font-size-medium = Medium
 gui-settings-ui-font-size-extra-large = Extra Large
 gui-settings-terminal-font-system = System Monospace
 gui-workload-read-image-metadata = Read image metadata
+gui-workload-target-environment = Target environment

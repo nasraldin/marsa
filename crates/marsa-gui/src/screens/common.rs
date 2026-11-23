@@ -4,13 +4,19 @@ use std::sync::Arc;
 
 use marsa_client::docker::LogTimestamp;
 use marsa_ui::{
-    ColorToken, Locale, Palette,
-    gpui::{App, Div, Entity, Hsla, SharedString, Styled, Window, div, px},
-    gpui_component::input::{Input, InputState},
+    ColorToken, DialogClose, Locale, Palette,
+    gpui::{
+        App, Div, Entity, FontWeight, Hsla, InteractiveElement, ParentElement, SharedString,
+        Styled, Window, div, px, svg,
+    },
+    gpui_component::{
+        dialog::Dialog,
+        input::{Input, InputState},
+    },
     preferences::{DisplaySettings, TimeFormat},
     tokens::{
         scale::Space,
-        typography::{Role, TypeStyle},
+        typography::{Role, TypeStyle, ui_size},
     },
 };
 
@@ -75,6 +81,71 @@ pub(crate) fn label(
 
 pub(crate) fn color(palette: Palette, token: ColorToken) -> Hsla {
     palette.color(token).into()
+}
+
+/// Give native dialogs consistent insets while letting the toolkit clamp to the window.
+pub(crate) fn dialog_frame(dialog: Dialog, width: f32) -> Dialog {
+    dialog
+        .centered()
+        .width(px(width))
+        .p(px(24.))
+        .gap_4()
+        .close_button(false)
+}
+
+/// Lay out a wrapping title and localized dismiss control in reading order.
+pub(crate) fn dialog_heading(
+    locale: Locale,
+    palette: Palette,
+    title: impl Into<SharedString>,
+) -> Div {
+    row(locale)
+        .w_full()
+        .items_start()
+        .gap_3()
+        .pb_3()
+        .border_b_1()
+        .border_color(color(palette, ColorToken::BorderSubtle))
+        .child(
+            align(div().flex_1().min_w_0(), locale)
+                .text_size(ui_size(21.))
+                .line_height(ui_size(28.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color(palette, ColorToken::TextPrimary))
+                .child(title.into()),
+        )
+        .child(DialogClose::new().trigger(move |button| {
+            let close = marsa_ui::gui_keys::GUI_DESKTOP_CLOSE.text(locale);
+            button
+                .size(px(30.))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .border_1()
+                .border_color(marsa_ui::gpui::transparent_black())
+                .focus_visible(|style| style.border_color(color(palette, ColorToken::AccentFocus)))
+                .hover(|style| style.bg(color(palette, ColorToken::GlassControl)))
+                .accessibility_label(close)
+                .child(
+                    svg()
+                        .path("icons/close.svg")
+                        .size(px(16.))
+                        .text_color(color(palette, ColorToken::TextMuted)),
+                )
+        }))
+}
+
+/// Keep the action band visible as the dialog body scrolls.
+pub(crate) fn dialog_actions(locale: Locale, palette: Palette) -> Div {
+    row(locale)
+        .flex_wrap()
+        .justify_end()
+        .gap_2()
+        .pt_3()
+        .border_t_1()
+        .border_color(color(palette, ColorToken::BorderSubtle))
 }
 
 pub(crate) fn panel(screen: &ScreenContext<'_>) -> Div {

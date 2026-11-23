@@ -7,6 +7,10 @@ use gpui_kit_assets::AllAssets;
 
 const MARSA_ASSETS: &[(&str, &[u8])] = &[
     (
+        "marsa/docker-engine.svg",
+        include_bytes!("../../../assets/ui/docker-engine.svg"),
+    ),
+    (
         "marsa/harbor.png",
         include_bytes!("../../../assets/ui/harbor.png"),
     ),
