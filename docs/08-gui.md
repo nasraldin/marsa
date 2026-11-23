@@ -231,6 +231,11 @@ and the versions of bundled Docker tools without opening a daemon connection.
 The connected local daemon reports its own version and the guest components.
 Available inventories and third-party notices open in Finder.
 
+Settings → Git Repositories saves named HTTPS repository branches. The branch
+test checks access and the checkout action creates a local copy in a selected
+folder. To deploy the checkout, review it and explicitly select its Compose
+file from the Compose page.
+
 ## Feature priorities
 
 From the planning whiteboard.

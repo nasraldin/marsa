@@ -89,6 +89,21 @@ See [07](07-file-sharing-and-storage.md#the-allowlist). Security-relevant points
 - `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS Keychain when that helper is on the Docker CLI's `PATH`. The authenticated opt-in adds `credsStore = osxkeychain` to the configured Docker client file only after the caller obtains consent. Existing `credsStore` and `credHelpers` entries remain untouched. If Docker already holds credentials in the file, log out before enabling Keychain and log in again afterwards. [Docker login](https://docs.docker.com/reference/cli/docker/login/), [pinned helper source](https://github.com/docker/docker-credential-helpers/blob/v0.9.13/osxkeychain/osxkeychain.go).
 - The engine in the guest receives credentials per pull or push from the CLI, as in standard Docker. Nothing is persisted in the guest.
 
+## Git sources
+
+Settings saves the repository name, HTTPS URL and branch in an owner-private
+file. The desktop runs the root-owned macOS `/usr/bin/git` in a fresh private
+directory with the environment cleared, system and global Git configuration
+disabled, HTTPS certificate checks enforced, redirects and other protocols
+disabled, and no hooks, templates or submodule checkout. Tested with Apple
+Git 2.54.0. [Git environment options](https://git-scm.com/docs/git/2.54.0) ·
+[Git configuration](https://git-scm.com/docs/git-config/2.54.0).
+
+The branch test reads advertised references. A checkout creates a fresh
+child directory of the owner-selected folder. Review files in the checkout
+before using the usual Compose picker to select its YAML and confirm the
+target engine.
+
 ## SSH agent access
 
 For builds, the Docker client selects the host agent and offers it through its own Buildx session. BuildKit makes the socket available to Dockerfile steps that request an SSH mount within that session. A build with an SSH grant can request signatures from the chosen agent for the lifetime of its session. The upstream provider permits signing without exporting private keys. Adding, removing and locking keys through the forwarded socket is refused by the upstream provider. [Pinned provider source](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).

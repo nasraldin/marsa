@@ -4,6 +4,7 @@ mod about;
 mod accents;
 mod compose_template;
 mod external_docker;
+mod git_sources;
 mod integrations;
 mod login;
 mod proxy;
@@ -38,6 +39,7 @@ use crate::screens::common::{ScreenContext, align, color, copy, panel, row};
 use super::{Notice, SystemView, machine::title_text, notifications::Kind};
 
 pub(super) use external_docker::EnvironmentSettings;
+pub(super) use git_sources::GitSources;
 pub(super) use resources::ResourceInputs;
 pub(super) use update::UpdatePanel;
 
@@ -49,6 +51,7 @@ pub(super) enum SettingsTab {
     Network,
     Docker,
     Environments,
+    GitSources,
     Notifications,
     Logs,
     Agents,
@@ -66,6 +69,7 @@ impl SettingsTab {
             Self::Network => "icons/network.svg",
             Self::Docker => "icons/container.svg",
             Self::Environments => "icons/server.svg",
+            Self::GitSources => "icons/folder-open.svg",
             Self::Notifications => "icons/bell.svg",
             Self::Logs => "icons/file-text.svg",
             Self::Agents => "icons/shield-check.svg",
@@ -83,6 +87,7 @@ impl SettingsTab {
             Self::Network => ("Network", "الشبكة"),
             Self::Docker => return gui::GUI_SETTINGS_DOCKER_INTEGRATION.text(locale),
             Self::Environments => return gui::GUI_SETTINGS_ENVIRONMENTS.text(locale),
+            Self::GitSources => return gui::GUI_GIT_SETTINGS.text(locale),
             Self::Notifications => return gui::GUI_SETTINGS_NOTIFICATIONS.text(locale),
             Self::Logs => return gui::GUI_DESKTOP_LOG_SETTINGS_TITLE.text(locale),
             Self::Agents => ("Agents", "الوكلاء"),
@@ -124,11 +129,13 @@ impl SystemView {
                     gui::GUI_SETTINGS_SECTION_INFRASTRUCTURE.text(locale),
                     &[
                         SettingsTab::Environments,
+                        SettingsTab::GitSources,
                         SettingsTab::Resources,
                         SettingsTab::Sharing,
                         SettingsTab::Network,
                         SettingsTab::Docker,
                         SettingsTab::ComposeTemplate,
+                        SettingsTab::GitSources,
                         SettingsTab::Agents,
                     ][..],
                 ),
@@ -171,6 +178,7 @@ impl SystemView {
             SettingsTab::Network => self.network(screen, cx),
             SettingsTab::Docker => self.docker(screen, cx),
             SettingsTab::Environments => self.external_docker(screen, cx),
+            SettingsTab::GitSources => self.git_sources(screen, cx),
             SettingsTab::Notifications => self.notification_settings(screen, cx),
             SettingsTab::Logs => self.log_settings_card(screen, cx),
             SettingsTab::Agents => self.agent_settings(screen, cx),
@@ -253,6 +261,7 @@ impl SystemView {
                 SettingsTab::Updates => this.load_update_status(cx),
                 SettingsTab::Environments => this.refresh_environments(cx),
                 SettingsTab::About => this.load_about(cx),
+                SettingsTab::GitSources => this.load_git_sources(cx),
                 SettingsTab::General => this.load_login(cx),
                 _ => {}
             }

@@ -48,9 +48,14 @@ pub fn request_id() -> std::io::Result<String> {
     Ok(id)
 }
 
+#[cfg(target_os = "macos")]
+pub mod git_sources;
+
 /// Login item configuration for the packaged macOS app.
 #[cfg(target_os = "macos")]
 pub mod login;
 
+#[cfg(all(test, target_os = "macos"))]
+mod git_sources_tests;
 #[cfg(all(test, unix))]
 mod release_tests;

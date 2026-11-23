@@ -44,7 +44,7 @@ use crate::{
 };
 
 pub(crate) use notifications::{NotificationDestination, Notifications, notification_destination};
-use settings::{EnvironmentSettings, ResourceInputs, SettingsTab};
+use settings::{EnvironmentSettings, GitSources, ResourceInputs, SettingsTab};
 
 pub(crate) struct OpenRoute(pub(crate) Route);
 
@@ -64,6 +64,7 @@ pub(crate) struct SystemView {
     external_inventory: crate::screens::external_inventory::Workspaces,
     external_inventory_task: Option<Task<()>>,
     environment_settings: EnvironmentSettings,
+    git_sources: GitSources,
     resource_inputs: ResourceInputs,
     version: Option<VersionResponse>,
     about_assets: Option<AboutAssets>,
@@ -128,6 +129,7 @@ impl SystemView {
             external_inventory: Arc::from([]),
             external_inventory_task: None,
             environment_settings: EnvironmentSettings::default(),
+            git_sources: GitSources::default(),
             resource_inputs: ResourceInputs::new(window, cx),
             version: None,
             about_assets: None,
@@ -260,6 +262,9 @@ impl SystemView {
                 self.load_update_status(cx)
             }
             Route::Settings if self.settings_tab == SettingsTab::About => self.load_about(cx),
+            Route::Settings if self.settings_tab == SettingsTab::GitSources => {
+                self.load_git_sources(cx)
+            }
             Route::Settings if self.settings_tab == SettingsTab::General => self.load_login(cx),
             Route::Activity => self.load_audit(cx),
             _ => {}

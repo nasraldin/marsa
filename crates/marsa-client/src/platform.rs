@@ -137,6 +137,23 @@ async fn daemon_path(executable: &Path) -> io::Result<PathBuf> {
     Err(unsafe_daemon())
 }
 
+#[cfg(target_os = "macos")]
+pub(super) async fn system_git() -> io::Result<PathBuf> {
+    if geteuid().is_root() {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    let path = PathBuf::from("/usr/bin/git");
+    let binary = fs::symlink_metadata(&path).await?;
+    if !binary.is_file()
+        || binary.uid() != 0
+        || binary.mode() & 0o111 == 0
+        || binary.mode() & 0o6022 != 0
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(path)
+}
+
 pub(super) async fn bundled_compose() -> io::Result<PathBuf> {
     bundled_program("Contents/Resources/bin/cli-plugins/docker-compose").await
 }
