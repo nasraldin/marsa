@@ -72,7 +72,8 @@ flowchart TB
 
 - Anyone who can use the socket can run a container that mounts any shared folder and controls the VM. Treat socket access as full control of everything Marsa can reach.
 - The socket lives in `~/.marsa/run/` with directory mode 0700.
-- Marsa never exposes the engine over TCP. Remote access is a later feature and would use SSH.
+- Marsa never exposes its own engine over TCP. The desktop can connect to configured external engines using OpenSSH with verified host keys or mutual TLS with a configured CA, client certificate, and client key. Plain TCP and contexts that skip TLS verification remain unavailable. SSH resolves and pins the context identity before operations.
+- Every external action captures the selected endpoint. Deployment uses an owner-only temporary Unix socket backed by that authenticated connection. Compose reads the local YAML file the user chooses, including any Compose includes and associated files. Engine-provided project labels cannot select a local file.
 - Mounting the socket into a container (`-v /var/run/docker.sock:...`) works for compatibility, with the guest's socket, and is shown with a warning badge in the GUI. Agents are refused this by default.
 
 ## Shared folders

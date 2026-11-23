@@ -9,7 +9,9 @@ use tokio::{
     process::{Child, ChildStderr, ChildStdout, Command},
 };
 
-use crate::{ClientError, docker_socket_path, platform};
+use crate::{ClientError, docker::ExternalEndpoint, docker_socket_path, platform};
+
+mod relay;
 
 const MAX_OUTPUT_LINE: usize = 64 * 1024;
 
@@ -84,6 +86,14 @@ impl ComposeCommand {
 
     /// Launch the verified bundled process and retain its output until this stream drops.
     pub async fn start(self) -> Result<ComposeStream, ComposeError> {
+        self.start_on(None).await
+    }
+
+    /// Run the selected project against the supplied pinned external endpoint, or Marsa.
+    pub async fn start_on(
+        self,
+        endpoint: Option<ExternalEndpoint>,
+    ) -> Result<ComposeStream, ComposeError> {
         if geteuid().is_root() {
             return Err(ClientError::Root.into());
         }
@@ -105,14 +115,21 @@ impl ComposeCommand {
             .parent()
             .and_then(std::path::Path::parent)
             .ok_or(ComposeError::File)?;
-        let socket = docker_socket_path()?;
-        // Apply the same owner and peer checks as typed Docker requests
-        // before asking the bundled executable to use the endpoint.
-        drop(
-            platform::open_socket(socket.clone())
-                .await
-                .map_err(ComposeError::Io)?,
-        );
+        let relay = endpoint
+            .map(relay::Relay::start)
+            .transpose()
+            .map_err(ComposeError::Io)?;
+        let socket = if let Some(relay) = &relay {
+            relay.socket().to_path_buf()
+        } else {
+            let socket = docker_socket_path()?;
+            drop(
+                platform::open_socket(socket.clone())
+                    .await
+                    .map_err(ComposeError::Io)?,
+            );
+            socket
+        };
         let socket = socket.to_str().ok_or(ComposeError::EndpointPath)?;
         let inherited_path = std::env::var_os("PATH");
         let path = std::env::join_paths(
@@ -171,6 +188,7 @@ impl ComposeCommand {
             .ok_or(ComposeError::Output)?;
         Ok(ComposeStream {
             child,
+            _relay: relay,
             stdout: Some(stdout),
             stderr: Some(stderr),
             out_buffer: Vec::new(),
@@ -201,6 +219,7 @@ pub struct ComposeOutput {
 /// Running Compose process and both output pipes.
 pub struct ComposeStream {
     child: Child,
+    _relay: Option<relay::Relay>,
     stdout: Option<BufReader<ChildStdout>>,
     stderr: Option<BufReader<ChildStderr>>,
     out_buffer: Vec<u8>,

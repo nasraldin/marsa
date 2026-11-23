@@ -2686,6 +2686,7 @@ dependencies = [
 name = "marsa-client"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "getrandom 0.4.3",
  "http-body-util",
  "hyper",
@@ -2695,9 +2696,11 @@ dependencies = [
  "nix",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "tonic",
  "tower",

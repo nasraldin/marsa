@@ -9,7 +9,7 @@ use super::{
     stream::ResponseBody,
 };
 
-/// A user-supplied reference to a public registry image.
+/// A user-supplied reference to an image in a registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageReference(String);
 
@@ -29,6 +29,11 @@ impl ImageReference {
             return Err(DockerError::InvalidResourceName);
         }
         Ok(Self(value))
+    }
+
+    /// Return the validated reference as typed by the caller.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 
     fn query(&self) -> String {
@@ -137,7 +142,7 @@ impl DockerClient {
     /// Start an anonymous public-registry pull using the selected engine's platform.
     pub async fn pull_image(&self, image: &ImageReference) -> Result<ImagePull, DockerError> {
         let mut path = format!("/images/create?fromImage={}", image.query());
-        if matches!(self.scope, super::DockerScope::Marsa) {
+        if matches!(self.scope, super::DockerScope::Marsa(_)) {
             path.push_str("&platform=linux%2Farm64");
         }
         let (_, source) = self.request(Method::POST, &path).await?;

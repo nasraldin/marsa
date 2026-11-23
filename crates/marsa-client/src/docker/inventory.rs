@@ -1,34 +1,91 @@
-//! Inspect a separate user-owned Docker engine without changing Marsa's endpoint.
+//! Discover and inspect external Docker engines without changing the active context.
 
 use std::{
     collections::HashSet,
+    io,
     path::{Path, PathBuf},
 };
 
 use hyper::Method;
+use tokio::task::JoinSet;
 
 use super::{
     ContainerAction, ContainerDetails, ContainerId, ContainerSummary, DockerClient, DockerError,
-    DockerLogs, DockerScope, DockerStats, ExecSession, ImageSummary, NetworkSummary, ResourceName,
-    TerminalSize, VolumeSummary, docker_socket_path,
+    DockerLogs, DockerScope, DockerStats, DockerTransport, ExecSession, ImageSummary,
+    NetworkSummary, ResourceName, TerminalSize, VolumeSummary,
+    contexts::{self, SshEndpoint, TlsEndpoint},
+    docker_socket_path, transfer,
 };
 use crate::platform;
 
 /// Authenticated endpoint captured by discovery. Operations never consult the current context again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalEndpoint {
-    socket: PathBuf,
-    identity: platform::SocketIdentity,
+    context: Option<String>,
+    transport: ExternalTransport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ExternalTransport {
+    Unix {
+        socket: PathBuf,
+        identity: Option<platform::SocketIdentity>,
+    },
+    Ssh(SshEndpoint),
+    Tls(TlsEndpoint),
+    Unavailable,
 }
 
 impl ExternalEndpoint {
     fn client(&self, containers: bool) -> DockerClient {
         DockerClient {
-            socket: self.socket.clone(),
             scope: DockerScope::External {
-                identity: self.identity,
+                endpoint: self.clone(),
                 containers,
             },
+        }
+    }
+
+    /// Return the canonical path of a Unix socket endpoint, if applicable.
+    pub fn socket(&self) -> Option<&Path> {
+        match &self.transport {
+            ExternalTransport::Unix { socket, .. } => Some(socket),
+            _ => None,
+        }
+    }
+
+    /// Return the endpoint's address without displaying credentials.
+    pub fn address(&self) -> String {
+        match &self.transport {
+            ExternalTransport::Unix { socket, .. } => socket.to_string_lossy().into_owned(),
+            ExternalTransport::Ssh(endpoint) => endpoint.address(),
+            ExternalTransport::Tls(endpoint) => format!("tcp://{}", endpoint.authority()),
+            ExternalTransport::Unavailable => String::new(),
+        }
+    }
+
+    pub(super) fn request_host(&self) -> &str {
+        match &self.transport {
+            ExternalTransport::Tls(endpoint) => endpoint.authority(),
+            _ => "docker",
+        }
+    }
+
+    /// Open a transport using captured authentication details for the typed client and Compose.
+    pub(crate) async fn open_transport(&self) -> io::Result<DockerTransport> {
+        if nix::unistd::geteuid().is_root() {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
+        match &self.transport {
+            ExternalTransport::Unix {
+                socket,
+                identity: Some(identity),
+            } => Ok(Box::new(
+                platform::open_external_socket(socket.clone(), *identity).await?,
+            )),
+            ExternalTransport::Ssh(endpoint) => endpoint.connect().await,
+            ExternalTransport::Tls(endpoint) => endpoint.connect().await,
+            _ => Err(io::ErrorKind::NotConnected.into()),
         }
     }
 
@@ -90,7 +147,9 @@ pub(super) fn external_route(
     if !containers {
         return false;
     }
-    if resource_route(method, path, has_body) {
+    if resource_route(method, path, has_body)
+        || transfer::external_transfer_route(method, path, has_body)
+    {
         return true;
     }
     if let Some((id, action)) = path
@@ -214,14 +273,14 @@ fn valid_id(id: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
-/// Containers and images reported by a detected local Docker engine.
+/// Current resources and reachability of an external Docker engine.
 pub struct ExternalInventory {
-    /// Authenticated local socket queried for this inventory.
-    pub socket: PathBuf,
     /// Pinned engine connection for the detected resources.
     pub endpoint: ExternalEndpoint,
-    /// Provider or instance label for the socket.
+    /// Docker context name or local provider label for the engine.
     pub source: String,
+    /// Whether the engine returned a readable Docker inventory.
+    pub reachable: bool,
     /// Running and stopped containers.
     pub containers: Vec<ContainerSummary>,
     /// Tagged and untagged images.
@@ -232,32 +291,84 @@ pub struct ExternalInventory {
     pub networks: Option<Vec<NetworkSummary>>,
 }
 
-/// Read the inventory of the first reachable user-owned external Unix socket.
-///
-/// Prefer an explicit Unix DOCKER_HOST, then well-known local provider sockets.
-/// An unreachable or foreign-owned socket is skipped without launching anything.
+/// Read the inventory of the first reachable external engine.
 pub async fn discover_external_inventory() -> Option<ExternalInventory> {
-    let owner = tokio::task::spawn_blocking(|| {
+    discover_external_inventories()
+        .await
+        .into_iter()
+        .find(|entry| entry.reachable)
+}
+
+/// Read inventories for registered Docker contexts and reachable local providers.
+/// Registered contexts remain visible when their engine or transport is unavailable.
+pub async fn discover_external_inventories() -> Vec<ExternalInventory> {
+    if nix::unistd::geteuid().is_root() {
+        return Vec::new();
+    }
+    let Some(owner) = tokio::task::spawn_blocking(|| {
         nix::unistd::User::from_uid(nix::unistd::geteuid())
             .ok()
             .flatten()
     })
     .await
     .ok()
-    .flatten()?;
-    let local = docker_socket_path().ok()?;
-    let explicit = std::env::var("DOCKER_HOST").ok();
+    .flatten() else {
+        return Vec::new();
+    };
+    let config = std::env::var_os("DOCKER_CONFIG")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| {
+            std::env::home_dir()
+                .filter(|path| path.is_absolute())
+                .unwrap_or_else(|| owner.dir.clone())
+                .join(".docker")
+        });
+    let config = tokio::fs::canonicalize(&config).await.unwrap_or(config);
+    let explicit = std::env::var("DOCKER_HOST")
+        .ok()
+        .and_then(|host| contexts::environment_context(host, &config));
+    let registered = contexts::registered_contexts(&config).await;
     let mut seen = HashSet::new();
-    seen.insert(local.clone());
-    if let Ok(path) = tokio::fs::canonicalize(local).await {
-        seen.insert(path);
+    let default_marsa = owner.dir.join(".marsa/run/docker.sock");
+    for path in docker_socket_path().ok().into_iter().chain([default_marsa]) {
+        seen.insert(tokio::fs::canonicalize(&path).await.unwrap_or(path));
     }
-    let normal_marsa = owner.dir.join(".marsa/run/docker.sock");
-    seen.insert(normal_marsa.clone());
-    if let Ok(path) = tokio::fs::canonicalize(normal_marsa).await {
-        seen.insert(path);
+    let mut entries = Vec::new();
+    for (context, environment) in registered
+        .iter()
+        .map(|context| (context, false))
+        .chain(explicit.iter().map(|context| (context, true)))
+    {
+        let transport = if let Some(path) = unix_host(&context.host) {
+            let socket = tokio::fs::canonicalize(&path).await.unwrap_or(path);
+            if !seen.insert(socket.clone()) {
+                continue;
+            }
+            let identity = platform::socket_identity(&socket).await.ok();
+            ExternalTransport::Unix { socket, identity }
+        } else {
+            context
+                .transport()
+                .await
+                .unwrap_or(ExternalTransport::Unavailable)
+        };
+        let source = match &transport {
+            ExternalTransport::Unix { socket, .. } if environment => {
+                source_name(socket, &owner.dir)
+            }
+            _ => context.name.clone(),
+        };
+        entries.push((
+            source,
+            ExternalEndpoint {
+                context: Some(context.name.clone()),
+                transport,
+            },
+            true,
+        ));
     }
-    for candidate in candidates(&owner.dir, explicit.as_deref()) {
+    for candidate in provider_candidates(&owner.dir).await {
         let Ok(socket) = tokio::fs::canonicalize(candidate).await else {
             continue;
         };
@@ -267,31 +378,99 @@ pub async fn discover_external_inventory() -> Option<ExternalInventory> {
         let Ok(identity) = platform::socket_identity(&socket).await else {
             continue;
         };
-        let endpoint = ExternalEndpoint {
-            socket: socket.clone(),
-            identity,
+        let source = source_name(&socket, &owner.dir);
+        let transport = ExternalTransport::Unix {
+            socket,
+            identity: Some(identity),
         };
-        let client = endpoint.client(false);
-        let (containers, images, volumes, networks) = tokio::join!(
-            client.containers(),
-            client.images(),
-            client.volumes(),
-            client.networks()
-        );
-        if let (Ok(containers), Ok(images)) = (containers, images) {
-            let source = source_name(&socket, &owner.dir);
-            return Some(ExternalInventory {
-                socket,
-                endpoint,
-                source,
-                containers,
-                images,
-                volumes: volumes.ok(),
-                networks: networks.ok(),
+        entries.push((
+            source,
+            ExternalEndpoint {
+                context: None,
+                transport,
+            },
+            false,
+        ));
+    }
+    probe_endpoints(entries).await
+}
+
+async fn probe_endpoints(entries: Vec<(String, ExternalEndpoint, bool)>) -> Vec<ExternalInventory> {
+    const MAX_PARALLEL_ENGINES: usize = 8;
+    let mut pending = entries.into_iter().enumerate();
+    let mut probes = JoinSet::new();
+    let mut results = Vec::new();
+    loop {
+        while probes.len() < MAX_PARALLEL_ENGINES {
+            let Some((index, (source, endpoint, show_offline))) = pending.next() else {
+                break;
+            };
+            probes.spawn(async move {
+                let inventory = probe_engine(source, endpoint).await;
+                (
+                    index,
+                    (inventory.reachable || show_offline).then_some(inventory),
+                )
             });
         }
+        let Some(result) = probes.join_next().await else {
+            break;
+        };
+        if let Ok((index, Some(inventory))) = result {
+            results.push((index, inventory));
+        }
     }
-    None
+    results.sort_unstable_by_key(|(index, _)| *index);
+    results
+        .into_iter()
+        .map(|(_, inventory)| inventory)
+        .collect()
+}
+
+async fn probe_engine(source: String, mut endpoint: ExternalEndpoint) -> ExternalInventory {
+    if let ExternalTransport::Ssh(ssh) = &mut endpoint.transport {
+        ssh.pin().await;
+    }
+    let client = endpoint.client(false);
+    let (containers, images, volumes, networks) = tokio::join!(
+        client.containers(),
+        client.images(),
+        client.volumes(),
+        client.networks(),
+    );
+    let reachable = containers.is_ok() || images.is_ok() || volumes.is_ok() || networks.is_ok();
+    ExternalInventory {
+        endpoint,
+        source,
+        reachable,
+        containers: containers.unwrap_or_default(),
+        images: images.unwrap_or_default(),
+        volumes: volumes.ok(),
+        networks: networks.ok(),
+    }
+}
+
+async fn provider_candidates(home: &Path) -> Vec<PathBuf> {
+    let mut result: Vec<_> = candidates(home).into();
+    for (provider, socket) in [(".colima", "docker.sock"), (".lima", "sock/docker.sock")] {
+        let Ok(mut instances) = tokio::fs::read_dir(home.join(provider)).await else {
+            continue;
+        };
+        for _ in 0..1024 {
+            let Ok(Some(instance)) = instances.next_entry().await else {
+                break;
+            };
+            result.push(instance.path().join(socket));
+        }
+    }
+    result.sort();
+    result
+}
+
+fn unix_host(host: &str) -> Option<PathBuf> {
+    host.strip_prefix("unix://")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
 }
 
 fn source_name(socket: &Path, home: &Path) -> String {
@@ -311,18 +490,14 @@ fn source_name(socket: &Path, home: &Path) -> String {
     socket.to_string_lossy().into_owned()
 }
 
-fn candidates(home: &Path, explicit: Option<&str>) -> impl Iterator<Item = PathBuf> {
-    let configured = explicit
-        .and_then(|host| host.strip_prefix("unix://"))
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute());
-    configured.into_iter().chain([
+fn candidates(home: &Path) -> [PathBuf; 5] {
+    [
         home.join(".docker/run/docker.sock"),
         home.join(".orbstack/run/docker.sock"),
         home.join(".colima/default/docker.sock"),
         home.join(".lima/docker/sock/docker.sock"),
         PathBuf::from("/var/run/docker.sock"),
-    ])
+    ]
 }
 
 #[cfg(test)]
@@ -344,7 +519,14 @@ mod tests {
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
 
         let identity = platform::socket_identity(&socket).await.unwrap();
-        let client = ExternalEndpoint { socket, identity }.client(false);
+        let client = ExternalEndpoint {
+            context: None,
+            transport: ExternalTransport::Unix {
+                socket,
+                identity: Some(identity),
+            },
+        }
+        .client(false);
         assert!(
             client
                 .request(hyper::Method::POST, "/containers/example/start")
@@ -382,8 +564,11 @@ mod tests {
         let listener = UnixListener::bind(&socket).unwrap();
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
         let endpoint = ExternalEndpoint {
-            identity: platform::socket_identity(&socket).await.unwrap(),
-            socket: socket.clone(),
+            context: None,
+            transport: ExternalTransport::Unix {
+                identity: Some(platform::socket_identity(&socket).await.unwrap()),
+                socket: socket.clone(),
+            },
         };
         let id = ContainerId::parse("a".repeat(64)).unwrap();
         let server_id = id.clone();
@@ -516,16 +701,84 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn inventory_retains_reachable_engines_and_offline_registered_contexts() {
+        use std::{fs, os::unix::fs::PermissionsExt};
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::UnixListener,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut endpoints = Vec::new();
+        let mut servers = Vec::new();
+        for label in ["one", "two"] {
+            let socket = directory.path().join(format!("{label}.sock"));
+            let listener = UnixListener::bind(&socket).unwrap();
+            fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+            endpoints.push((
+                label.into(),
+                ExternalEndpoint {
+                    context: Some(label.into()),
+                    transport: ExternalTransport::Unix {
+                        identity: Some(platform::socket_identity(&socket).await.unwrap()),
+                        socket,
+                    },
+                },
+                true,
+            ));
+            servers.push(tokio::spawn(async move {
+                for _ in 0..4 {
+                    let (mut stream, _) = listener.accept().await.unwrap();
+                    let mut request = Vec::new();
+                    while !request.ends_with(b"\r\n\r\n") {
+                        request.push(stream.read_u8().await.unwrap());
+                    }
+                    assert!(request.starts_with(b"GET "));
+                    let body = if request.starts_with(b"GET /volumes ") {
+                        "{\"Volumes\":[] }"
+                    } else {
+                        "[]"
+                    };
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    stream.write_all(response.as_bytes()).await.unwrap();
+                }
+            }));
+        }
+        endpoints.push((
+            "offline".into(),
+            ExternalEndpoint {
+                context: Some("offline".into()),
+                transport: ExternalTransport::Unavailable,
+            },
+            true,
+        ));
+        let results = probe_endpoints(endpoints).await;
+        for server in servers {
+            server.await.unwrap();
+        }
+        assert_eq!(
+            results
+                .iter()
+                .map(|entry| (entry.source.as_str(), entry.reachable))
+                .collect::<Vec<_>>(),
+            [("one", true), ("two", true), ("offline", false)]
+        );
+        assert_ne!(results[0].endpoint, results[1].endpoint);
+        assert_eq!(results[0].volumes.as_ref().map(Vec::len), Some(0));
+    }
+
     #[test]
-    fn configured_unix_socket_precedes_local_providers() {
-        let home = Path::new("/home/test");
-        let first = candidates(home, Some("unix:///test/provider.sock")).next();
-        assert_eq!(first, Some(PathBuf::from("/test/provider.sock")));
+    fn configured_unix_hosts_require_absolute_paths() {
+        assert_eq!(
+            unix_host("unix:///test/provider.sock"),
+            Some(PathBuf::from("/test/provider.sock"))
+        );
         for host in ["tcp://localhost:2375", "ssh://remote", "unix://relative"] {
-            assert_eq!(
-                candidates(home, Some(host)).next(),
-                Some(home.join(".docker/run/docker.sock"))
-            );
+            assert_eq!(unix_host(host), None);
         }
     }
 }

@@ -7,6 +7,11 @@ use std::{
     process::Stdio,
 };
 
+mod docker_transport;
+pub(crate) use docker_transport::{
+    check_user_docker_directory, docker_ssh_config, open_docker_ssh, read_user_docker_file,
+};
+
 use nix::unistd::geteuid;
 use tokio::{fs, net::UnixStream, process::Command};
 
@@ -132,6 +137,14 @@ async fn daemon_path(executable: &Path) -> io::Result<PathBuf> {
 }
 
 pub(super) async fn bundled_compose() -> io::Result<PathBuf> {
+    bundled_program("Contents/Resources/bin/cli-plugins/docker-compose").await
+}
+
+pub(super) async fn bundled_registry_helper() -> io::Result<PathBuf> {
+    bundled_program("Contents/Resources/bin/docker-credential-osxkeychain").await
+}
+
+async fn bundled_program(_relative: &str) -> io::Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         let executable = fs::canonicalize(std::env::current_exe()?).await?;
@@ -139,14 +152,14 @@ pub(super) async fn bundled_compose() -> io::Result<PathBuf> {
             .parent()
             .and_then(app_bundle)
             .ok_or_else(unsafe_daemon)?;
-        let compose = bundle.join("Contents/Resources/bin/cli-plugins/docker-compose");
-        let metadata = fs::symlink_metadata(&compose).await?;
+        let binary = bundle.join(_relative);
+        let metadata = fs::symlink_metadata(&binary).await?;
         if !metadata.is_file() || metadata.mode() & 0o111 == 0 || metadata.mode() & 0o6022 != 0 {
             return Err(unsafe_daemon());
         }
         verify_signature(bundle).await?;
-        verify_signature(&compose).await?;
-        Ok(compose)
+        verify_signature(&binary).await?;
+        Ok(binary)
     }
     #[cfg(not(target_os = "macos"))]
     Err(io::ErrorKind::Unsupported.into())

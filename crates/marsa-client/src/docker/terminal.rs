@@ -118,7 +118,7 @@ impl DockerClient {
             let request = Request::builder()
                 .method(Method::POST)
                 .uri(self.request_uri(&path))
-                .header(header::HOST, "docker")
+                .header(header::HOST, self.request_host())
                 .header(header::CONNECTION, "Upgrade")
                 .header(header::UPGRADE, "tcp")
                 .header(header::CONTENT_TYPE, "application/json")
@@ -193,6 +193,7 @@ impl ExecSession {
                             .write_all(&bytes)
                             .await
                             .map_err(DockerError::TerminalIo)?;
+                        writer.flush().await.map_err(DockerError::TerminalIo)?;
                     }
                     ExecControl::Resize(size) => {
                         let path = format!(

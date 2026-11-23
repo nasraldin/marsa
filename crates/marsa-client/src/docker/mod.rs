@@ -1,6 +1,7 @@
-//! Typed access to Docker Engine API v1.57 over Marsa's authenticated Unix socket.
+//! Typed access to Marsa and authenticated external Docker engines.
 
 mod actions;
+mod contexts;
 mod images;
 mod resources;
 mod stats;
@@ -8,6 +9,7 @@ mod stream;
 mod terminal;
 #[cfg(test)]
 mod tests;
+mod transfer;
 
 use std::{io, path::PathBuf, time::Duration};
 
@@ -17,12 +19,18 @@ use hyper_util::rt::TokioIo;
 use nix::unistd::geteuid;
 use serde::{Deserialize, de::DeserializeOwned};
 use thiserror::Error;
-use tokio::time::timeout;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    time::timeout,
+};
 
 use crate::{ClientError, docker_socket_path, platform};
 
 mod inventory;
-pub use inventory::{ExternalEndpoint, ExternalInventory, discover_external_inventory};
+pub use inventory::{
+    ExternalEndpoint, ExternalInventory, discover_external_inventories, discover_external_inventory,
+};
+pub use transfer::NetworkId;
 
 pub use actions::{
     CreatedNetwork, ImageDetails, ImageId, ImageRemoval, NetworkRemoval, ResourceName,
@@ -200,6 +208,18 @@ pub enum DockerError {
     /// Docker reported failure while pulling an image.
     #[error("Docker image pull failed")]
     ImagePull,
+    /// Docker rejected a registry push.
+    #[error("Docker image push failed")]
+    ImagePush,
+    /// Docker rejected an image archive import.
+    #[error("Docker image load failed")]
+    ImageLoad,
+    /// An image archive could not be read or written.
+    #[error("Docker image archive I/O failed")]
+    ImageArchive(#[source] io::Error),
+    /// Docker registry authentication could not be obtained.
+    #[error("Docker registry authentication unavailable")]
+    RegistryAuthentication,
     /// A terminal dimension was zero or exceeded the supported bound.
     #[error("invalid terminal dimensions")]
     TerminalSize,
@@ -212,8 +232,8 @@ pub enum DockerError {
     /// The transport cannot resolve a per-user socket.
     #[error(transparent)]
     Endpoint(#[from] ClientError),
-    /// The local socket could not be opened or authenticated.
-    #[error("could not connect to the Docker socket")]
+    /// The pinned endpoint could not be opened or authenticated.
+    #[error("could not connect to the Docker endpoint")]
     Socket(#[source] io::Error),
     /// Docker did not establish the request within its deadline.
     #[error("Docker response timed out")]
@@ -244,18 +264,21 @@ pub enum DockerError {
     Json(#[from] serde_json::Error),
 }
 
-/// Local connection details for the per-user Docker proxy.
+pub(crate) trait DockerIo: AsyncRead + AsyncWrite + Send + Unpin {}
+impl<T: AsyncRead + AsyncWrite + Send + Unpin> DockerIo for T {}
+pub(crate) type DockerTransport = Box<dyn DockerIo>;
+
+/// Connection details pinned to a Docker engine.
 #[derive(Debug, Clone)]
 pub struct DockerClient {
-    socket: PathBuf,
     scope: DockerScope,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum DockerScope {
-    Marsa,
+    Marsa(PathBuf),
     External {
-        identity: platform::SocketIdentity,
+        endpoint: ExternalEndpoint,
         containers: bool,
     },
 }
@@ -269,8 +292,7 @@ impl DockerClient {
     /// Select an explicit authenticated Unix socket.
     pub fn at(socket: impl Into<PathBuf>) -> Self {
         Self {
-            socket: socket.into(),
-            scope: DockerScope::Marsa,
+            scope: DockerScope::Marsa(socket.into()),
         }
     }
 
@@ -373,8 +395,15 @@ impl DockerClient {
 
     fn request_uri(&self, path: &str) -> String {
         match self.scope {
-            DockerScope::Marsa => format!("{API_PREFIX}{path}"),
+            DockerScope::Marsa(_) => format!("{API_PREFIX}{path}"),
             DockerScope::External { .. } => path.to_owned(),
+        }
+    }
+
+    fn request_host(&self) -> &str {
+        match &self.scope {
+            DockerScope::Marsa(_) => "docker",
+            DockerScope::External { endpoint, .. } => endpoint.request_host(),
         }
     }
 
@@ -383,25 +412,27 @@ impl DockerClient {
         method: &Method,
         path: &str,
         has_body: bool,
-    ) -> Result<tokio::net::UnixStream, DockerError> {
+    ) -> Result<DockerTransport, DockerError> {
         if geteuid().is_root() {
             return Err(ClientError::Root.into());
         }
-        match self.scope {
-            DockerScope::Marsa => platform::open_socket(self.socket.clone()).await,
+        match &self.scope {
+            DockerScope::Marsa(socket) => {
+                let transport = platform::open_socket(socket.clone())
+                    .await
+                    .map_err(DockerError::Socket)?;
+                Ok(Box::new(transport))
+            }
             DockerScope::External {
-                identity,
+                endpoint,
                 containers,
             } => {
-                if !inventory::external_route(method, path, containers, has_body) {
-                    return Err(DockerError::Socket(
-                        std::io::ErrorKind::PermissionDenied.into(),
-                    ));
+                if !inventory::external_route(method, path, *containers, has_body) {
+                    return Err(DockerError::Socket(io::ErrorKind::PermissionDenied.into()));
                 }
-                platform::open_external_socket(self.socket.clone(), identity).await
+                endpoint.open_transport().await.map_err(DockerError::Socket)
             }
         }
-        .map_err(DockerError::Socket)
     }
 
     async fn request_payload(
@@ -423,9 +454,32 @@ impl DockerClient {
         } else {
             REQUEST_TIMEOUT
         };
+        let mut headers = hyper::HeaderMap::new();
+        if !payload.is_empty() {
+            headers.insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("application/json"),
+            );
+        }
+        self.request_body(method, path, Full::new(payload), headers, deadline)
+            .await
+    }
+
+    async fn request_body<B>(
+        &self,
+        method: Method,
+        path: &str,
+        body: B,
+        headers: hyper::HeaderMap,
+        deadline: Duration,
+    ) -> Result<(hyper::HeaderMap, stream::ResponseBody), DockerError>
+    where
+        B: hyper::body::Body<Data = Bytes> + Send + 'static,
+        B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    {
         timeout(deadline, async {
             let socket = self
-                .request_socket(&method, path, !payload.is_empty())
+                .request_socket(&method, path, !body.is_end_stream())
                 .await?;
             let (mut sender, connection) = http1::Builder::new()
                 .max_buf_size(16 * 1024)
@@ -435,12 +489,10 @@ impl DockerClient {
             let mut request = Request::builder()
                 .method(method.clone())
                 .uri(self.request_uri(path))
-                .header(header::HOST, "docker")
-                .header(header::CONNECTION, "close");
-            if !payload.is_empty() {
-                request = request.header(header::CONTENT_TYPE, "application/json");
-            }
-            let request = request.body(Full::new(payload))?;
+                .header(header::HOST, self.request_host())
+                .header(header::CONNECTION, "close")
+                .body(body)?;
+            request.headers_mut().extend(headers);
             let response = sender.send_request(request).await?;
             let (parts, body) = response.into_parts();
             if !parts.status.is_success()
