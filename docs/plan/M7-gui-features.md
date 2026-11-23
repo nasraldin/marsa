@@ -394,3 +394,14 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Accept when:**
   - App version and bundled tools come from the installed build. Daemon and guest component versions come from the owner daemon when connected.
   - The correct release notes appear in each locale. Source checkouts and bundles missing an asset report its absence, and distribution inventory and notice actions reveal the installed evidence.
+
+### M7-31 Download container files
+
+- **Status:** in progress
+- **Depends on:** M7-19
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Download an explicitly named path from a container to an owner-selected destination. Offer a persistent TAR or single-file download preference.
+- **Deliver:** A container file download action and a format control under Settings.
+- **Accept when:**
+  - Downloads use the selected container and its pinned environment. A single file can be saved directly, while directories use TAR.
+  - Truncated transfers and existing destinations are preserved. Marsa does not unpack archive paths into the host filesystem.
