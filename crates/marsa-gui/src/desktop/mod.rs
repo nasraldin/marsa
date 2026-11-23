@@ -149,6 +149,12 @@ impl Desktop {
                 .update(cx, |view, cx| view.set_log_settings(log_settings, cx));
             this.resources
                 .update(cx, |view, cx| view.set_log_settings(log_settings, cx));
+            let config_sets = system.read(cx).config_sets();
+            if this.containers.read(cx).config_sets() != config_sets {
+                let config_sets = config_sets.to_vec();
+                this.containers
+                    .update(cx, |view, _| view.set_config_sets(config_sets));
+            }
             let inventory = system.read(cx).external_inventory();
             if !Arc::ptr_eq(&this.external_inventory, inventory) {
                 this.external_inventory = inventory.clone();

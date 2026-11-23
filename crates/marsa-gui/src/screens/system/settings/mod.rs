@@ -3,6 +3,7 @@
 mod about;
 mod accents;
 mod compose_template;
+mod config_sets;
 mod external_docker;
 mod git_sources;
 mod integrations;
@@ -55,6 +56,7 @@ pub(super) enum SettingsTab {
     Environments,
     GitSources,
     Registries,
+    ConfigSets,
     Notifications,
     Logs,
     Agents,
@@ -74,6 +76,7 @@ impl SettingsTab {
             Self::Environments => "icons/server.svg",
             Self::GitSources => "icons/folder-open.svg",
             Self::Registries => "icons/layers.svg",
+            Self::ConfigSets => "icons/container.svg",
             Self::Notifications => "icons/bell.svg",
             Self::Logs => "icons/file-text.svg",
             Self::Agents => "icons/shield-check.svg",
@@ -93,6 +96,7 @@ impl SettingsTab {
             Self::Environments => return gui::GUI_SETTINGS_ENVIRONMENTS.text(locale),
             Self::GitSources => return gui::GUI_GIT_SETTINGS.text(locale),
             Self::Registries => return gui::GUI_REGISTRIES_TITLE.text(locale),
+            Self::ConfigSets => return gui::GUI_CONFIG_SETS.text(locale),
             Self::Notifications => return gui::GUI_SETTINGS_NOTIFICATIONS.text(locale),
             Self::Logs => return gui::GUI_DESKTOP_LOG_SETTINGS_TITLE.text(locale),
             Self::Agents => ("Agents", "الوكلاء"),
@@ -138,6 +142,7 @@ impl SystemView {
                         SettingsTab::Sharing,
                         SettingsTab::Network,
                         SettingsTab::Docker,
+                        SettingsTab::ConfigSets,
                         SettingsTab::Agents,
                     ][..],
                 ),
@@ -147,6 +152,7 @@ impl SystemView {
                         SettingsTab::Registries,
                         SettingsTab::GitSources,
                         SettingsTab::ComposeTemplate,
+                        SettingsTab::ConfigSets,
                     ][..],
                 ),
             ]
@@ -190,6 +196,7 @@ impl SystemView {
             SettingsTab::Environments => self.external_docker(screen, cx),
             SettingsTab::GitSources => self.git_sources(screen, cx),
             SettingsTab::Registries => self.registries(screen, cx),
+            SettingsTab::ConfigSets => self.config_sets_page(screen, cx),
             SettingsTab::Notifications => self.notification_settings(screen, cx),
             SettingsTab::Logs => self.log_settings_card(screen, cx),
             SettingsTab::Agents => self.agent_settings(screen, cx),

@@ -16,6 +16,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::container_config::MAX_CONFIG_SETS;
 use crate::error::SettingsError;
 use crate::paths::validate_directory;
 
@@ -103,6 +104,19 @@ impl Settings {
         self.vm.validate()?;
         self.disk.validate()?;
         self.network.validate()?;
+        let mut config_names = std::collections::HashSet::new();
+        if self.ui.container_config_sets.len() > MAX_CONFIG_SETS
+            || self
+                .ui
+                .container_config_sets
+                .iter()
+                .any(|set| !config_names.insert(set.name.to_lowercase()) || set.validate().is_err())
+        {
+            return Err(SettingsError::invalid(
+                "ui.container_config_sets",
+                "use unique names and valid, bounded container options",
+            ));
+        }
         if self
             .ui
             .compose_template
@@ -183,6 +197,33 @@ mod tests {
             settings
         );
         assert!(Settings::from_toml("[ui.logs]\nbuffer = \"unlimited\"").is_err());
+    }
+
+    #[test]
+    fn container_config_sets_round_trip_and_validate_name_uniqueness() {
+        let data = r#"
+            [[ui.container_config_sets]]
+            name = "Web"
+            description = "Default web workload"
+            [ui.container_config_sets.options]
+            network = "bridge"
+            restart = "unless_stopped"
+            [[ui.container_config_sets.options.ports]]
+            host = 8080
+            container = 80
+            protocol = "tcp"
+        "#;
+        let settings = Settings::from_toml(data).unwrap();
+        assert_eq!(
+            settings.ui.container_config_sets[0].options.ports[0].host,
+            8080
+        );
+        assert_eq!(
+            Settings::from_toml(&settings.to_toml().unwrap()).unwrap(),
+            settings
+        );
+        assert!(Settings::from_toml(&format!("{data}{}", data.replace("Web", "web"))).is_err());
+        assert!(Settings::from_toml(&data.replace("8080", "0")).is_err());
     }
 
     #[test]

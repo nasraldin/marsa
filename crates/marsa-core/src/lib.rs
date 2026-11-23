@@ -1,5 +1,7 @@
 //! Shared settings, paths, and types for the Marsa workspace.
 
+/// Constrained container creation records shared by the desktop and daemon.
+pub mod container_config;
 pub mod disk_schema;
 pub mod docker_mounts;
 pub mod error;

@@ -365,6 +365,11 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 - Settings replacements use compare-and-swap revisions and an atomic rename of a private file in the config directory. Idle policy changes apply to the supervisor live. Boot-time changes report `restart_required` until the VM runtime is rebuilt with the new settings. VM CPU, memory, disk size, shares, backend and network settings are included in that check.
 - Telemetry remains disabled pending [Q-10](16-risks-and-open-questions.md#open-questions-for-the-project-owner).
 
+Saved container configuration sets live under `ui.container_config_sets`. They are
+optional in schema version 1 and use the same private settings file and revision
+checks as other desktop preferences. Environment and label values are stored in
+that file. Use a secret provider for values that need separate protection.
+
 ## Diagnostics archive
 
 The owner-only Unix API creates one private tar archive in `~/.marsa/diagnostics/` when explicitly asked, even with the engine stopped. Review the archive before sharing it. Collection makes no network requests. Replaying a request ID while the daemon retains its result returns the same path.

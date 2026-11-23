@@ -43,11 +43,16 @@ pub use registry::{
 };
 pub use transfer::NetworkId;
 
+/// Versioned container creation records shared with the owner daemon.
+pub use marsa_proto::host::container_config;
+
 pub use actions::{
     CreatedNetwork, ImageDetails, ImageId, ImageRemoval, NetworkRemoval, ResourceName,
     VolumeRemoval,
 };
-pub use images::{ImagePull, ImageReference, ImageRun, PullCounters, PullProgress};
+pub use images::{
+    ContainerMountReview, ImagePull, ImageReference, ImageRun, PullCounters, PullProgress,
+};
 use resources::ComposeLabels;
 pub use resources::{
     ContainerDetails, ContainerMount, ContainerNetworkSettings, ContainerPort, ContainerRemoval,
@@ -208,6 +213,12 @@ pub enum DockerError {
     /// Docker resource name or reference isn't supported.
     #[error("invalid Docker resource name or image reference")]
     InvalidResourceName,
+    /// Container options did not satisfy the constrained create contract.
+    #[error(transparent)]
+    InvalidContainerConfig(#[from] container_config::ContainerConfigError),
+    /// The user did not confirm host paths for the selected external engine.
+    #[error("review external host mounts before creating the container")]
+    ExternalBindReviewRequired,
     /// A volume removal was not confirmed with its exact name.
     #[error("volume confirmation did not match")]
     VolumeConfirmation,

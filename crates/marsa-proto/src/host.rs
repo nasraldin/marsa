@@ -9,6 +9,9 @@ pub const API_MINOR: u32 = 12;
 /// Filename for delegated agent operations next to the owner daemon socket.
 pub use marsa_core::paths::AGENT_SOCKET_NAME;
 
+/// Constrained configuration records exchanged in versioned settings documents.
+pub use marsa_core::container_config;
+
 /// Requests, responses, clients and servers for the `marsa.v1` package.
 #[allow(missing_docs)]
 pub mod v1 {

@@ -159,6 +159,15 @@ impl SystemView {
         }
     }
 
+    pub(crate) fn config_sets(
+        &self,
+    ) -> &[marsa_client::docker::container_config::ContainerConfigSet] {
+        self.settings
+            .as_ref()
+            .map(|(settings, _)| settings.ui.container_config_sets.as_slice())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn preferences(&self) -> Option<(Language, Theme)> {
         self.settings
             .as_ref()

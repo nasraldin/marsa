@@ -85,6 +85,9 @@ pub struct UiSettings {
     /// Retention and display preferences for live container and Compose logs.
     #[serde(skip_serializing_if = "LogSettings::is_default")]
     pub logs: LogSettings,
+    /// Reusable options for the desktop's container creation dialog.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub container_config_sets: Vec<crate::container_config::ContainerConfigSet>,
 }
 
 /// Desktop notifications are opt-in and independent of in-window state.

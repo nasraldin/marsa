@@ -261,7 +261,13 @@ From the planning whiteboard.
 | Command palette and full keyboard use | Every action reachable without a mouse |
 | Auto-update and settings | See [12](12-build-release-update.md) |
 
-### Should have: soon after
+#Container creation opens on the selected engine. A named config set copies
+network, restart, environment, label, port and mount options into that draft.
+Edits to the draft apply to the new container. Review host mount paths and
+access modes before submitting to an external engine. Marsa's existing
+allowlist authorizes local host mounts.
+
+## Should have: soon after
 
 File browser for containers and volumes; build view (BuildKit progress and cache); registry sign-in and credentials; image layer inspector; crash and restart-loop notifications; clickable published ports.
 

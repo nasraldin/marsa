@@ -108,6 +108,7 @@ use super::external_inventory::{Environment, ExternalWorkspace, Workspaces};
 
 pub(crate) struct ContainerView {
     services: Option<Arc<Services>>,
+    config_sets: Vec<marsa_client::docker::container_config::ContainerConfigSet>,
     locale: Locale,
     palette: Palette,
     state: AppState,
@@ -186,6 +187,7 @@ impl ContainerView {
             file_operation: None,
             file_result: None,
             services,
+            config_sets: Vec::new(),
             locale,
             palette,
             state,
@@ -592,6 +594,19 @@ impl ContainerView {
         })
         .detach();
         cx.notify();
+    }
+
+    pub(crate) fn config_sets(
+        &self,
+    ) -> &[marsa_client::docker::container_config::ContainerConfigSet] {
+        &self.config_sets
+    }
+
+    pub(crate) fn set_config_sets(
+        &mut self,
+        sets: Vec<marsa_client::docker::container_config::ContainerConfigSet>,
+    ) {
+        self.config_sets = sets;
     }
 
     pub(crate) fn set_external_inventory(&mut self, inventory: Workspaces, cx: &mut Context<Self>) {
