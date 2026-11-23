@@ -88,6 +88,25 @@ See [07](07-file-sharing-and-storage.md#the-allowlist). Security-relevant points
 
 - `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS Keychain when that helper is on the Docker CLI's `PATH`. The authenticated opt-in adds `credsStore = osxkeychain` to the configured Docker client file only after the caller obtains consent. Existing `credsStore` and `credHelpers` entries remain untouched. If Docker already holds credentials in the file, log out before enabling Keychain and log in again afterwards. [Docker login](https://docs.docker.com/reference/cli/docker/login/), [pinned helper source](https://github.com/docker/docker-credential-helpers/blob/v0.9.13/osxkeychain/osxkeychain.go).
 - The engine in the guest receives credentials per pull or push from the CLI, as in standard Docker. Nothing is persisted in the guest.
+- The desktop Registries settings use an isolated namespace in the same verified
+  Keychain helper. A replacement is written at a fresh key before the old key is
+  removed. Docker CLI configuration and its credential entries are independent.
+- Desktop registry connection tests use HTTPS from macOS without redirects or
+  a proxy, and never pass credentials in subprocess arguments. Private Basic
+  authentication goes directly to the selected authority. A private Bearer
+  challenge is accepted only if its token realm uses the same HTTPS authority.
+  Docker Hub uses its official HTTPS token service. [Docker registry auth](https://docs.docker.com/reference/api/registry/auth/)
+- Desktop image transfers have no independent address binding for a
+  registry-controlled token realm or for a redirected request. Stock Docker's
+  registry login passes credentials to a realm supplied by the registry. The
+  pinned containerd bearer authorizer checks hostname without restricting
+  scheme, and its resolver can reauthorize a redirect. Credentials saved in
+  desktop Registries settings therefore serve the direct connection test. Keep
+  private image pulls and Docker CLI credentialed pushes on the established
+  container workflow until a transfer path can enforce the same boundary.
+  [Pinned registry login](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/pkg/registry/auth.go) ·
+  [Pinned bearer handling](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/containerd/resolver.go) ·
+  [Pinned redirect handling](https://github.com/moby/moby/blob/docker-v29.10.0/vendor/github.com/containerd/containerd/v2/core/remotes/docker/resolver.go)
 
 ## Git sources
 

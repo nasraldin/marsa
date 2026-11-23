@@ -57,7 +57,7 @@ pub(crate) async fn read_user_docker_file(
     Ok(bytes)
 }
 
-pub(crate) fn lock_docker_state(directory: &Path) -> io::Result<File> {
+pub(crate) fn lock_docker_state(directory: &Path, lock_name: &str) -> io::Result<File> {
     match DirBuilder::new().mode(0o700).create(directory) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
@@ -70,7 +70,7 @@ pub(crate) fn lock_docker_state(directory: &Path) -> io::Result<File> {
         .write(true)
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(directory.join("desktop-endpoints.lock"))?;
+        .open(directory.join(lock_name))?;
     let metadata = lock.metadata()?;
     if !metadata.is_file() || metadata.uid() != geteuid().as_raw() || metadata.mode() & 0o077 != 0 {
         return Err(io::ErrorKind::PermissionDenied.into());

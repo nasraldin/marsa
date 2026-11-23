@@ -44,7 +44,7 @@ use crate::{
 };
 
 pub(crate) use notifications::{NotificationDestination, Notifications, notification_destination};
-use settings::{EnvironmentSettings, GitSources, ResourceInputs, SettingsTab};
+use settings::{EnvironmentSettings, GitSources, RegistrySettings, ResourceInputs, SettingsTab};
 
 pub(crate) struct OpenRoute(pub(crate) Route);
 
@@ -65,6 +65,7 @@ pub(crate) struct SystemView {
     external_inventory_task: Option<Task<()>>,
     environment_settings: EnvironmentSettings,
     git_sources: GitSources,
+    registry_settings: RegistrySettings,
     resource_inputs: ResourceInputs,
     version: Option<VersionResponse>,
     about_assets: Option<AboutAssets>,
@@ -130,6 +131,7 @@ impl SystemView {
             external_inventory_task: None,
             environment_settings: EnvironmentSettings::default(),
             git_sources: GitSources::default(),
+            registry_settings: RegistrySettings::default(),
             resource_inputs: ResourceInputs::new(window, cx),
             version: None,
             about_assets: None,

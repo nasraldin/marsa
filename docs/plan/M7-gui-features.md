@@ -344,10 +344,10 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Status:** todo
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
-- **Do:** Manage registries and supported deploy-time secret providers. Add reusable container configuration sets.
-- **Deliver:** Settings connected to the image pull and push, container creation, and Compose deploy workflows.
+- **Do:** Manage supported deploy-time secret providers. Add reusable container configuration sets.
+- **Deliver:** Settings connected to container creation and Compose deployment.
 - **Accept when:**
-  - Registry connection tests use the configured credentials. Deployment resolves secrets without exposing stored credentials in logs or inspection output.
+  - Deployment resolves secrets without exposing stored credentials in logs or inspection output.
   - Applying a named configuration set fills the container form and permits overrides before creation.
 
 ### M7-23 Configure scanning, jobs, and downloads
@@ -395,16 +395,22 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
   - App version and bundled tools come from the installed build. Daemon and guest component versions come from the owner daemon when connected.
   - The correct release notes appear in each locale. Source checkouts and bundles missing an asset report its absence, and distribution inventory and notice actions reveal the installed evidence.
 
-### M7-31 Download container files
+### M7-27 Configure desktop registry credentials
 
 - **Status:** in progress
-- **Depends on:** M7-19
+- **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
-- **Do:** Download an explicitly named path from a container to an owner-selected destination. Offer a persistent TAR or single-file download preference.
-- **Deliver:** A container file download action and a format control under Settings.
+- **Do:** Provide registry settings for Docker Hub and private HTTPS registries. Use the signed bundled Docker credential helper and preserve existing CLI state. Bind credentials to the selected registry and only delegate transfers where the engine preserves that trust boundary.
+- **Deliver:** Localized registry settings, owner-private credential persistence, real connection testing, and credentialed transfers with verified registry trust.
 - **Accept when:**
-  - Downloads use the selected container and its pinned environment. A single file can be saved directly, while directories use TAR.
-  - Truncated transfers and existing destinations are preserved. Marsa does not unpack archive paths into the host filesystem.
+  - Docker Hub is available by default. Owners can add, test, replace, and remove private registry credentials without weakening existing transport or authentication controls.
+  - Pulls and pushes use credentials only for their intended registry, and unsupported engine or registry combinations fail without disclosing the credential.
+
+The desktop settings support owner-private Keychain storage and direct HTTPS
+connection checks. Credential delegation through the stock engine remains
+blocked by its handling of registry-selected realms and redirects. See
+[Registry credentials](../11-security.md#registry-credentials) for the pinned
+source evidence and allowed connection paths.
 
 ### M7-28 Save and check out HTTPS Git repositories
 
@@ -426,3 +432,14 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Do:** Add HTTPS username and password or token credentials in macOS Keychain and SSH using verified host keys and an explicit private key reference.
 - **Deliver:** A Git credentials view and authenticated branch test and checkout.
 - **Accept when:** Tests and checkout use only the credential associated with the selected repository. No secret is written to settings or sent to Compose.
+
+### M7-31 Download container files
+
+- **Status:** in progress
+- **Depends on:** M7-19
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Download an explicitly named path from a container to an owner-selected destination. Offer a persistent TAR or single-file download preference.
+- **Deliver:** A container file download action and a format control under Settings.
+- **Accept when:**
+  - Downloads use the selected container and its pinned environment. A single file can be saved directly, while directories use TAR.
+  - Truncated transfers and existing destinations are preserved. Marsa does not unpack archive paths into the host filesystem.

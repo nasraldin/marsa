@@ -1,6 +1,6 @@
 //! Resolve only the registry credential needed for an explicit image push.
 
-use std::{collections::BTreeMap, io, path::PathBuf, process::Stdio, time::Duration};
+use std::{collections::BTreeMap, io, path::PathBuf, time::Duration};
 
 use base64::{
     Engine as _,
@@ -9,13 +9,10 @@ use base64::{
 use hyper::header::HeaderValue;
 use nix::unistd::geteuid;
 use serde::{Deserialize, Serialize};
-use tokio::{
-    io::{AsyncReadExt as _, AsyncWriteExt as _},
-    process::Command,
-    time::timeout,
-};
+use tokio::time::timeout;
 
 use super::DockerError;
+use crate::docker::registry::helper;
 
 pub(super) const DOCKER_HUB: &str = "https://index.docker.io/v1/";
 const CONFIG_LIMIT: usize = 1024 * 1024;
@@ -161,61 +158,13 @@ async fn load_config(path: PathBuf) -> Result<DockerConfig, DockerError> {
     serde_json::from_slice(&data).map_err(|_| DockerError::RegistryAuthentication)
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct Credentials {
-    #[serde(rename = "ServerURL")]
-    server_url: String,
-    username: String,
-    secret: String,
-}
-
 async fn read_keychain(path: PathBuf, registry: &str) -> Result<RegistryAuth<'_>, DockerError> {
-    let failure = |_| DockerError::RegistryAuthentication;
-    let mut helper = Command::new(path)
-        .arg("get")
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(failure)?;
-    let mut stdin = helper
-        .stdin
-        .take()
-        .ok_or(DockerError::RegistryAuthentication)?;
-    stdin
-        .write_all(registry.as_bytes())
+    let Some(credentials) = helper::get(&path, registry)
         .await
-        .map_err(failure)?;
-    drop(stdin);
-
-    let mut data = Vec::new();
-    helper
-        .stdout
-        .take()
-        .ok_or(DockerError::RegistryAuthentication)?
-        .take(CREDENTIAL_LIMIT as u64 + 1)
-        .read_to_end(&mut data)
-        .await
-        .map_err(failure)?;
-    if data.len() > CREDENTIAL_LIMIT {
-        return Err(DockerError::RegistryAuthentication);
-    }
-    if !helper.wait().await.map_err(failure)?.success() {
-        if data.trim_ascii() == b"credentials not found in native keychain" {
-            return Ok(RegistryAuth::default());
-        }
-        return Err(DockerError::RegistryAuthentication);
-    }
-
-    let credentials: Credentials =
-        serde_json::from_slice(&data).map_err(|_| DockerError::RegistryAuthentication)?;
-    if credentials.server_url != registry || credentials.username.is_empty() {
-        return Err(DockerError::RegistryAuthentication);
-    }
+        .map_err(|_| DockerError::RegistryAuthentication)?
+    else {
+        return Ok(RegistryAuth::default());
+    };
     let mut result = RegistryAuth {
         serveraddress: registry,
         ..RegistryAuth::default()

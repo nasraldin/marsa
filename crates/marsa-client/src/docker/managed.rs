@@ -372,10 +372,12 @@ impl ManagedEndpointStore {
     ) -> Result<T> {
         check_user()?;
         let directory = self.directory.clone();
-        let lock = tokio::task::spawn_blocking(move || platform::lock_docker_state(&directory))
-            .await
-            .map_err(|error| ManagedEndpointError::Store(io::Error::other(error)))?
-            .map_err(ManagedEndpointError::Store)?;
+        let lock = tokio::task::spawn_blocking(move || {
+            platform::lock_docker_state(&directory, "desktop-endpoints.lock")
+        })
+        .await
+        .map_err(|error| ManagedEndpointError::Store(io::Error::other(error)))?
+        .map_err(ManagedEndpointError::Store)?;
         let mut entries = self.list().await?;
         let output = update(&mut entries)?;
         let data = serde_json::to_vec(&entries)

@@ -4,6 +4,7 @@ mod actions;
 mod contexts;
 mod images;
 mod managed;
+mod registry;
 mod resources;
 mod stats;
 mod stream;
@@ -36,6 +37,9 @@ pub use inventory::{
 pub use managed::{
     ManagedEndpoint, ManagedEndpointConfig, ManagedEndpointError, ManagedEndpointStore,
     ManagedEndpointTransport, VerifiedEngine,
+};
+pub use registry::{
+    RegistryAddress, RegistryCredentials, RegistryEntry, RegistryError, RegistryStore,
 };
 pub use transfer::NetworkId;
 
