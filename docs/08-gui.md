@@ -220,6 +220,12 @@ flowchart LR
 
 Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
 
+Settings → Logs & files configures retention and timestamp display for container
+and stack logs. Its download format applies to the Files tab of a container.
+Enter an absolute path inside that container and choose a new destination on
+your Mac. Directories use TAR. In single-file mode, the app writes only the
+selected file's bytes.
+
 The Compose workspace can deploy an existing YAML file or start a new stack from
 the template saved in Settings. Review the initial YAML before choosing the
 project directory. Marsa creates `compose.yaml` there and deploys it to the

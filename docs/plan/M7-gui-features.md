@@ -362,7 +362,7 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 
 ### M7-24 Compose template and new stack creation
 
-- **Status:** in progress
+- **Status:** blocked (signed desktop visual qualification pending)
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Let users save or restore the default Compose template in Settings. Use the template when creating a new stack in an explicitly chosen project directory.
@@ -371,9 +371,11 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
   - A saved template survives relaunch. Restoring the built-in template has an explicit action.
   - A new stack opens with the saved template. Creating a Compose file keeps any existing file intact and deployment uses the environment selected when the flow began.
 
+The signed Compose client created the reviewed file in a disposable directory, deployed to the selected Lima socket, and removed the test stack afterward. Unit tests cover refusing existing files and symlinks. The Mac locked before the final four-variant desktop checks.
+
 ### M7-25 Desktop log preferences
 
-- **Status:** in progress
+- **Status:** blocked (signed desktop visual qualification pending)
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings)
 - **Do:** Configure live log buffer size and time zone through the revisioned desktop settings. Retain bounded engine timestamps for the latest container and Compose output.
@@ -383,9 +385,11 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
   - Container logs and combined Compose logs use the selected limits and time zone, without increasing existing resource bounds.
   - Log lines without usable engine timestamps remain readable.
 
+Settings and viewer tests cover persisted choices, bounded buffers, and missing timestamps. The same Docker log records were checked in Dubai and New York, including the daylight saving transition rules. The Mac locked before the final four-variant desktop checks.
+
 ### M7-26 Show the installed release and its dependencies
 
-- **Status:** in progress
+- **Status:** blocked (signed desktop visual qualification pending)
 - **Depends on:** M10-12
 - **Docs:** [08 Screens](../08-gui.md#screens), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
 - **Do:** Extend the existing About screen with bilingual notes for the installed build, bundled Docker tool versions, live daemon and guest versions, and Finder access to bundled inventories and notices.
@@ -394,9 +398,11 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
   - App version and bundled tools come from the installed build. Daemon and guest component versions come from the owner daemon when connected.
   - The correct release notes appear in each locale. Source checkouts and bundles missing an asset report its absence, and distribution inventory and notice actions reveal the installed evidence.
 
+Bundle verification confirmed both release-note languages and the four staged tool records. Release inventory and notes are loaded from the installed app. The Mac locked before the final four-variant desktop checks.
+
 ### M7-27 Configure desktop registry credentials
 
-- **Status:** in progress
+- **Status:** blocked (credentialed image transfers require a pinned HTTPS path)
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Provide registry settings for Docker Hub and private HTTPS registries. Use the signed bundled Docker credential helper and preserve existing CLI state. Bind credentials to the selected registry and only delegate transfers where the engine preserves that trust boundary.
@@ -413,7 +419,7 @@ source evidence and allowed connection paths.
 
 ### M7-28 Save and check out HTTPS Git repositories
 
-- **Status:** in progress
+- **Status:** blocked (signed desktop visual qualification pending)
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md#git-sources)
 - **Do:** Manage named HTTPS Git repository and branch references, test branch access, and create a checkout in a chosen folder for explicit selection by the Compose workflow.
@@ -423,9 +429,11 @@ source evidence and allowed connection paths.
   - Test verifies the branch exists. Checkout uses the selected reference and does not overwrite existing files.
   - Git ignores ambient configuration. The desktop keeps checkout and engine-pinned Compose deployment as distinct owner actions.
 
+The client tested a real HTTPS branch, rejected a missing ref, and completed separate checkouts into explicitly chosen folders. Authenticated HTTPS and SSH are tracked in M7-30. The Mac locked before the final four-variant desktop checks.
+
 ### M7-29 Reusable container configuration sets
 
-- **Status:** in progress
+- **Status:** blocked (signed desktop visual qualification pending)
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings), [11 Security](../11-security.md)
 - **Do:** Save named sets of container network, restart, environment, label, port and mount options. Let users apply and edit a copy before creating a container.
@@ -434,6 +442,8 @@ source evidence and allowed connection paths.
   - Sets can be added, edited and removed with confirmation. Saved sets survive relaunch.
   - The create form shows the saved values and accepts overrides without changing the set. Docker receives the reviewed options for the selected engine.
   - Local binds remain subject to Marsa's existing allowlist. An external bind requires confirmation of the destination engine, source path and access mode.
+
+A disposable Lima container verified options including environment, labels, restart policy, TCP and UDP ports, and read-only mounts. The same fixture verified the requirement for explicit external bind review. The Mac locked before the final four-variant desktop checks.
 
 ### M7-30 Authenticate Git sources
 
@@ -446,7 +456,7 @@ source evidence and allowed connection paths.
 
 ### M7-31 Download container files
 
-- **Status:** in progress
+- **Status:** blocked (signed desktop visual qualification pending)
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Download an explicitly named path from a container to an owner-selected destination. Offer a persistent TAR or single-file download preference.
@@ -454,3 +464,5 @@ source evidence and allowed connection paths.
 - **Accept when:**
   - Downloads use the selected container and its pinned environment. A single file can be saved directly, while directories use TAR.
   - Truncated transfers and existing destinations are preserved. Marsa does not unpack archive paths into the host filesystem.
+
+A disposable Lima container returned a binary file directly and a directory as TAR. The download refused to replace the existing destination. The pinned [Moby 29.10.0 schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml) documents the archive routes and path metadata header. The Mac locked before the final four-variant desktop checks.
