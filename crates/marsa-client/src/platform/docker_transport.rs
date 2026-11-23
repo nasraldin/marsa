@@ -1,8 +1,9 @@
 //! Platform operations used by the authenticated external Docker transports.
 
 use std::{
-    io,
-    os::unix::fs::MetadataExt,
+    fs::{DirBuilder, File, OpenOptions},
+    io::{self, Write},
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     path::Path,
     pin::Pin,
     process::Stdio,
@@ -19,7 +20,10 @@ use tokio::{
 };
 
 pub(crate) async fn check_user_docker_directory(path: &Path) -> io::Result<()> {
-    let directory = fs::symlink_metadata(path).await?;
+    check_owned_directory(&fs::symlink_metadata(path).await?)
+}
+
+fn check_owned_directory(directory: &std::fs::Metadata) -> io::Result<()> {
     if !directory.is_dir() || directory.uid() != geteuid().as_raw() || directory.mode() & 0o022 != 0
     {
         return Err(io::ErrorKind::PermissionDenied.into());
@@ -51,6 +55,37 @@ pub(crate) async fn read_user_docker_file(
         return Err(io::ErrorKind::InvalidData.into());
     }
     Ok(bytes)
+}
+
+pub(crate) fn lock_docker_state(directory: &Path) -> io::Result<File> {
+    match DirBuilder::new().mode(0o700).create(directory) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+    check_owned_directory(&std::fs::symlink_metadata(directory)?)?;
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(directory.join("desktop-endpoints.lock"))?;
+    let metadata = lock.metadata()?;
+    if !metadata.is_file() || metadata.uid() != geteuid().as_raw() || metadata.mode() & 0o077 != 0 {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    lock.lock()?;
+    Ok(lock)
+}
+
+pub(crate) fn replace_docker_state(path: &Path, data: &[u8]) -> io::Result<()> {
+    let directory = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+    temporary.write_all(data)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map_err(|error| error.error)?;
+    Ok(())
 }
 
 pub(crate) async fn docker_ssh_config(args: &[String]) -> io::Result<String> {

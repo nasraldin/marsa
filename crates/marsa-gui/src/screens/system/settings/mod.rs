@@ -35,6 +35,7 @@ use crate::screens::common::{ScreenContext, align, color, copy, panel, row};
 
 use super::{Notice, SystemView, machine::title_text, notifications::Kind};
 
+pub(super) use external_docker::EnvironmentSettings;
 pub(super) use resources::ResourceInputs;
 pub(super) use update::UpdatePanel;
 
@@ -45,6 +46,8 @@ pub(super) enum SettingsTab {
     Sharing,
     Network,
     Docker,
+    Environments,
+    Notifications,
     Agents,
     Updates,
     About,
@@ -58,6 +61,8 @@ impl SettingsTab {
             Self::Sharing => "icons/folder-open.svg",
             Self::Network => "icons/network.svg",
             Self::Docker => "icons/container.svg",
+            Self::Environments => "icons/server.svg",
+            Self::Notifications => "icons/bell.svg",
             Self::Agents => "icons/shield-check.svg",
             Self::Updates => "icons/refresh-cw.svg",
             Self::About => "icons/info.svg",
@@ -70,7 +75,9 @@ impl SettingsTab {
             Self::Resources => ("Resources", "الموارد"),
             Self::Sharing => ("Sharing", "المشاركة"),
             Self::Network => ("Network", "الشبكة"),
-            Self::Docker => ("Docker", "Docker"),
+            Self::Docker => return gui::GUI_SETTINGS_DOCKER_INTEGRATION.text(locale),
+            Self::Environments => return gui::GUI_SETTINGS_ENVIRONMENTS.text(locale),
+            Self::Notifications => return gui::GUI_SETTINGS_NOTIFICATIONS.text(locale),
             Self::Agents => ("Agents", "الوكلاء"),
             Self::Updates => ("Updates", "التحديثات"),
             Self::About => ("About", "حول"),
@@ -80,82 +87,67 @@ impl SettingsTab {
 }
 
 impl SystemView {
-    pub(super) fn settings(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
+    pub(super) fn settings(
+        &self,
+        screen: &ScreenContext<'_>,
+        compact: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let locale = screen.locale;
-        let tabs = row(locale)
-            .flex_wrap()
-            .gap(px(Space::S4.pixels()))
-            .border_b_1()
-            .border_color(color(screen.palette, ColorToken::BorderSubtle))
-            .pb_2()
-            .children(
-                [
-                    SettingsTab::General,
-                    SettingsTab::Resources,
-                    SettingsTab::Sharing,
-                    SettingsTab::Network,
-                    SettingsTab::Docker,
-                    SettingsTab::Agents,
-                    SettingsTab::Updates,
-                    SettingsTab::About,
-                ]
-                .into_iter()
-                .map(|tab| {
-                    let selected = tab == self.settings_tab;
-                    let active = if selected {
-                        ColorToken::AccentDefault
-                    } else {
-                        ColorToken::TextMuted
-                    };
-                    let button = Button::new(("settings-tab", tab as usize))
-                        .ghost()
-                        .selected(selected)
-                        .h(px(Space::S36.pixels()))
-                        .rounded(px(Radius::R8.pixels()))
-                        .px(px(Space::S8.pixels()))
-                        .accessibility_label(tab.title(locale))
-                        .child(
-                            row(locale)
-                                .gap(px(Space::S8.pixels()))
-                                .child(settings_icon(
-                                    screen,
-                                    tab.icon(),
-                                    Space::S16.pixels(),
-                                    ColorToken::TextMuted,
-                                ))
-                                .child(settings_text(
-                                    screen,
-                                    Role::Label,
-                                    tab.title(locale),
-                                    active,
-                                )),
-                        );
-                    let button = if selected {
-                        button.bg(color(screen.palette, ColorToken::AccentSubtle))
-                    } else {
-                        button
-                    };
-                    button.on_click(cx.listener(move |this, _, window, cx| {
-                        this.settings_tab = tab;
-                        if matches!(tab, SettingsTab::Resources | SettingsTab::Network) {
-                            this.show_resource_inputs(window, cx);
-                        }
-                        if tab == SettingsTab::Updates {
-                            this.load_update_status(cx);
-                        }
-                        if tab == SettingsTab::Docker {
-                            this.refresh_external_inventory(cx);
-                        }
-                        if tab == SettingsTab::About {
-                            this.load_version(cx);
-                        }
-                        if tab == SettingsTab::General {
-                            this.load_login(cx);
-                        }
-                        cx.notify();
-                    }))
-                }),
-            );
+        let navigation = div().flex().flex_col().gap_4().flex_shrink_0();
+        let navigation = if compact {
+            navigation.w_full()
+        } else {
+            navigation.w(px(170.))
+        };
+        let navigation = navigation.children(
+            [
+                (
+                    gui::GUI_SETTINGS_SECTION_APPLICATION.text(locale),
+                    &[
+                        SettingsTab::General,
+                        SettingsTab::Notifications,
+                        SettingsTab::Updates,
+                        SettingsTab::About,
+                    ][..],
+                ),
+                (
+                    gui::GUI_SETTINGS_SECTION_INFRASTRUCTURE.text(locale),
+                    &[
+                        SettingsTab::Environments,
+                        SettingsTab::Resources,
+                        SettingsTab::Sharing,
+                        SettingsTab::Network,
+                        SettingsTab::Docker,
+                        SettingsTab::Agents,
+                    ][..],
+                ),
+            ]
+            .into_iter()
+            .map(|(group, tabs)| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        settings_text(screen, Role::Small, group, ColorToken::TextMuted)
+                            .px_2()
+                            .pb_1(),
+                    )
+                    .child({
+                        let items = if compact {
+                            row(locale).flex_wrap().gap_1()
+                        } else {
+                            div().flex().flex_col().gap_1()
+                        };
+                        items.children(
+                            tabs.iter()
+                                .copied()
+                                .map(|tab| self.settings_navigation_item(tab, screen, compact, cx)),
+                        )
+                    })
+            }),
+        );
         let content = match self.settings_tab {
             SettingsTab::General => self.general(screen, cx),
             SettingsTab::Resources => settings_card(screen)
@@ -168,16 +160,92 @@ impl SystemView {
             SettingsTab::Sharing => self.sharing(screen, cx),
             SettingsTab::Network => self.network(screen, cx),
             SettingsTab::Docker => self.docker(screen, cx),
+            SettingsTab::Environments => self.external_docker(screen, cx),
+            SettingsTab::Notifications => self.notification_settings(screen, cx),
             SettingsTab::Agents => self.agent_settings(screen, cx),
             SettingsTab::Updates => self.updates(screen, cx),
             SettingsTab::About => self.about(screen, cx),
         };
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(Space::S16.pixels() + Space::S4.pixels()))
-            .child(tabs)
-            .child(content)
+        let layout = if compact {
+            div().flex().flex_col()
+        } else {
+            row(locale).items_start()
+        };
+        layout.gap_5().child(navigation).child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .flex_1()
+                .min_w_0()
+                .child(settings_text(
+                    screen,
+                    Role::Title,
+                    self.settings_tab.title(locale),
+                    ColorToken::TextPrimary,
+                ))
+                .child(content),
+        )
+    }
+
+    fn settings_navigation_item(
+        &self,
+        tab: SettingsTab,
+        screen: &ScreenContext<'_>,
+        compact: bool,
+        cx: &Context<Self>,
+    ) -> Button {
+        let locale = screen.locale;
+        let selected = tab == self.settings_tab;
+        let foreground = if selected {
+            ColorToken::AccentDefault
+        } else {
+            ColorToken::TextPrimary
+        };
+        let button = Button::new(("settings-tab", tab as usize))
+            .ghost()
+            .selected(selected)
+            .h(px(Space::S36.pixels()))
+            .rounded(px(Radius::R8.pixels()))
+            .px_2()
+            .accessibility_label(tab.title(locale))
+            .child(
+                row(locale)
+                    .w_full()
+                    .gap_2()
+                    .child(settings_icon(
+                        screen,
+                        tab.icon(),
+                        Space::S16.pixels(),
+                        foreground,
+                    ))
+                    .child(settings_text(
+                        screen,
+                        Role::Label,
+                        tab.title(locale),
+                        foreground,
+                    )),
+            );
+        let button = if compact { button } else { button.w_full() };
+        let button = if selected {
+            button.bg(color(screen.palette, ColorToken::AccentSubtle))
+        } else {
+            button
+        };
+        button.on_click(cx.listener(move |this, _, window, cx| {
+            this.settings_tab = tab;
+            match tab {
+                SettingsTab::Resources | SettingsTab::Network => {
+                    this.show_resource_inputs(window, cx)
+                }
+                SettingsTab::Updates => this.load_update_status(cx),
+                SettingsTab::Environments => this.refresh_environments(cx),
+                SettingsTab::About => this.load_version(cx),
+                SettingsTab::General => this.load_login(cx),
+                _ => {}
+            }
+            cx.notify();
+        }))
     }
 
     fn general(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
@@ -194,11 +262,10 @@ impl SystemView {
             (Theme::Dark, gui::GUI_DESKTOP_DARK.text(locale)),
         ];
         let general = settings_card(screen)
-            .min_h(px(304.))
             .pb(px(Space::S24.pixels()))
             .child(settings_heading(
                 screen,
-                gui::GUI_DESKTOP_GENERAL.text(locale),
+                gui::GUI_SETTINGS_PREFERENCES.text(locale),
                 gui::GUI_DESKTOP_CHANGES_APPLY_IMMEDIATELY.text(locale),
             ))
             .child(setting(
@@ -246,7 +313,6 @@ impl SystemView {
             .gap(px(Space::S16.pixels() + Space::S4.pixels()))
             .child(general)
             .child(self.accent_picker(screen, cx))
-            .child(self.notification_settings(screen, cx))
     }
 
     pub(super) fn save_settings(
@@ -302,11 +368,12 @@ impl SystemView {
             .as_ref()
             .map(|(settings, _)| settings.ui.notifications);
         let locale = screen.locale;
-        panel(screen)
-            .child(title_text(
+        settings_card(screen)
+            .child(settings_heading(
+                screen,
                 gui::GUI_DESKTOP_NOTIFICATION_SETTINGS_TITLE.text(locale),
+                gui::GUI_DESKTOP_NOTIFICATION_SETTINGS_BODY.text(locale),
             ))
-            .child(message(locale, gui::GUI_DESKTOP_NOTIFICATION_SETTINGS_BODY))
             .children(Kind::ALL.into_iter().enumerate().map(|(index, kind)| {
                 let title = kind.title(locale);
                 row(locale)

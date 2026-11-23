@@ -268,9 +268,22 @@ impl Desktop {
         }
         Some(if self.active_workspace(cx).is_some() {
             EngineState::Ready
+        } else if self.system.read(cx).external_inventory_pending() {
+            EngineState::Starting
         } else {
             EngineState::Failed
         })
+    }
+
+    fn context_status_text(&self, state: Option<EngineState>, cx: &App) -> &'static str {
+        if !self.environment.read(cx).includes_marsa() {
+            return match state {
+                Some(EngineState::Ready) => gui::GUI_ENVIRONMENT_CONNECTED.text(self.locale),
+                Some(EngineState::Starting) => gui::GUI_ENVIRONMENT_CHECKING.text(self.locale),
+                _ => gui::GUI_DESKTOP_UNAVAILABLE.text(self.locale),
+            };
+        }
+        status::text(self.locale, state)
     }
 
     fn select_environment(&mut self, environment: Environment, cx: &mut Context<Self>) {
@@ -476,7 +489,14 @@ impl Render for Desktop {
                 }
                 _ => self.system.update(cx, |system, cx| {
                     system
-                        .render_route(route, &screen, &self.history, cx)
+                        .render_route(
+                            route,
+                            &screen,
+                            &self.history,
+                            window.viewport_size().width
+                                < px(if self.collapsed { 840. } else { 980. }),
+                            cx,
+                        )
                         .into_any_element()
                 }),
             }

@@ -12,9 +12,10 @@ use tokio::task::JoinSet;
 use super::{
     ContainerAction, ContainerDetails, ContainerId, ContainerSummary, DockerClient, DockerError,
     DockerLogs, DockerScope, DockerStats, DockerTransport, ExecSession, ImageSummary,
-    NetworkSummary, ResourceName, TerminalSize, VolumeSummary,
+    ManagedEndpointError, ManagedEndpointStore, NetworkSummary, ResourceName, TerminalSize,
+    VerifiedEngine, VolumeSummary,
     contexts::{self, SshEndpoint, TlsEndpoint},
-    docker_socket_path, transfer,
+    docker_socket_path, managed, transfer,
 };
 use crate::platform;
 
@@ -37,6 +38,41 @@ pub(super) enum ExternalTransport {
 }
 
 impl ExternalEndpoint {
+    pub(super) fn managed(id: String, transport: ExternalTransport) -> Self {
+        Self {
+            context: Some(id),
+            transport,
+        }
+    }
+
+    /// Return the stable source ID of a Marsa-managed endpoint.
+    pub fn managed_id(&self) -> Option<&str> {
+        self.context
+            .as_deref()
+            .filter(|id| managed::is_managed_id(id))
+    }
+
+    pub(super) async fn pin_ssh(&mut self) {
+        if let ExternalTransport::Ssh(ssh) = &mut self.transport {
+            ssh.pin().await;
+        }
+    }
+
+    pub(super) async fn verify_engine(&self) -> Result<VerifiedEngine, ManagedEndpointError> {
+        let engine: VerifiedEngine =
+            self.client(false)
+                .snapshot("/info")
+                .await
+                .map_err(|error| match error {
+                    DockerError::Json(_) => ManagedEndpointError::InvalidEngineIdentity,
+                    other => other.into(),
+                })?;
+        if !engine.valid() {
+            return Err(ManagedEndpointError::InvalidEngineIdentity);
+        }
+        Ok(engine)
+    }
+
     fn client(&self, containers: bool) -> DockerClient {
         DockerClient {
             scope: DockerScope::External {
@@ -277,10 +313,12 @@ fn valid_id(id: &str) -> bool {
 pub struct ExternalInventory {
     /// Pinned engine connection for the detected resources.
     pub endpoint: ExternalEndpoint,
-    /// Docker context name or local provider label for the engine.
+    /// Display label of the managed configuration, Docker context, or local provider.
     pub source: String,
-    /// Whether the engine returned a readable Docker inventory.
+    /// Whether a managed engine returned its identity or discovery read available inventory.
     pub reachable: bool,
+    /// The engine identity verified for a managed endpoint, when available.
+    pub verified_engine: Option<VerifiedEngine>,
     /// Running and stopped containers.
     pub containers: Vec<ContainerSummary>,
     /// Tagged and untagged images.
@@ -299,8 +337,8 @@ pub async fn discover_external_inventory() -> Option<ExternalInventory> {
         .find(|entry| entry.reachable)
 }
 
-/// Read inventories for registered Docker contexts and reachable local providers.
-/// Registered contexts remain visible when their engine or transport is unavailable.
+/// Read inventories for managed endpoints, Docker contexts and reachable local providers.
+/// Managed endpoints and registered contexts remain visible when unavailable.
 pub async fn discover_external_inventories() -> Vec<ExternalInventory> {
     if nix::unistd::geteuid().is_root() {
         return Vec::new();
@@ -392,6 +430,22 @@ pub async fn discover_external_inventories() -> Vec<ExternalInventory> {
             false,
         ));
     }
+    if let Ok(store) = ManagedEndpointStore::discover()
+        && let Ok(managed) = store.list().await
+    {
+        for endpoint in managed {
+            let transport = endpoint
+                .config
+                .capture_transport()
+                .await
+                .unwrap_or(ExternalTransport::Unavailable);
+            entries.push((
+                endpoint.config.name,
+                ExternalEndpoint::managed(endpoint.id, transport),
+                true,
+            ));
+        }
+    }
     probe_endpoints(entries).await
 }
 
@@ -428,9 +482,26 @@ async fn probe_endpoints(entries: Vec<(String, ExternalEndpoint, bool)>) -> Vec<
 }
 
 async fn probe_engine(source: String, mut endpoint: ExternalEndpoint) -> ExternalInventory {
-    if let ExternalTransport::Ssh(ssh) = &mut endpoint.transport {
-        ssh.pin().await;
-    }
+    endpoint.pin_ssh().await;
+    let verified_engine = if endpoint.managed_id().is_some() {
+        match endpoint.verify_engine().await {
+            Ok(engine) => Some(engine),
+            Err(_) => {
+                return ExternalInventory {
+                    endpoint,
+                    source,
+                    reachable: false,
+                    verified_engine: None,
+                    containers: Vec::new(),
+                    images: Vec::new(),
+                    volumes: None,
+                    networks: None,
+                };
+            }
+        }
+    } else {
+        None
+    };
     let client = endpoint.client(false);
     let (containers, images, volumes, networks) = tokio::join!(
         client.containers(),
@@ -438,11 +509,16 @@ async fn probe_engine(source: String, mut endpoint: ExternalEndpoint) -> Externa
         client.volumes(),
         client.networks(),
     );
-    let reachable = containers.is_ok() || images.is_ok() || volumes.is_ok() || networks.is_ok();
+    let reachable = verified_engine.is_some()
+        || containers.is_ok()
+        || images.is_ok()
+        || volumes.is_ok()
+        || networks.is_ok();
     ExternalInventory {
         endpoint,
         source,
         reachable,
+        verified_engine,
         containers: containers.unwrap_or_default(),
         images: images.unwrap_or_default(),
         volumes: volumes.ok(),

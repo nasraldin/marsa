@@ -35,7 +35,12 @@ pub(crate) fn compact_badge(locale: Locale, palette: Palette, state: Option<Engi
     badge_with_text(locale, palette, state, text)
 }
 
-pub(crate) fn inline_badge(locale: Locale, palette: Palette, state: Option<EngineState>) -> Div {
+pub(super) fn inline_badge(
+    locale: Locale,
+    palette: Palette,
+    state: Option<EngineState>,
+    label: &'static str,
+) -> Div {
     let foreground = color(palette, foreground(state));
     row(locale)
         .gap_2()
@@ -48,7 +53,7 @@ pub(crate) fn inline_badge(locale: Locale, palette: Palette, state: Option<Engin
                 .rounded_full()
                 .bg(foreground),
         )
-        .child(div().min_w_0().truncate().child(text(locale, state)))
+        .child(div().min_w_0().truncate().child(label))
 }
 
 pub(super) fn foreground(state: Option<EngineState>) -> ColorToken {

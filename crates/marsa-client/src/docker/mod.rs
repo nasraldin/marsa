@@ -3,6 +3,7 @@
 mod actions;
 mod contexts;
 mod images;
+mod managed;
 mod resources;
 mod stats;
 mod stream;
@@ -29,6 +30,10 @@ use crate::{ClientError, docker_socket_path, platform};
 mod inventory;
 pub use inventory::{
     ExternalEndpoint, ExternalInventory, discover_external_inventories, discover_external_inventory,
+};
+pub use managed::{
+    ManagedEndpoint, ManagedEndpointConfig, ManagedEndpointError, ManagedEndpointStore,
+    ManagedEndpointTransport, VerifiedEngine,
 };
 pub use transfer::NetworkId;
 
@@ -427,7 +432,12 @@ impl DockerClient {
                 endpoint,
                 containers,
             } => {
-                if !inventory::external_route(method, path, *containers, has_body) {
+                let managed_probe = endpoint.managed_id().is_some()
+                    && *method == Method::GET
+                    && path == "/info"
+                    && !has_body;
+                if !managed_probe && !inventory::external_route(method, path, *containers, has_body)
+                {
                     return Err(DockerError::Socket(io::ErrorKind::PermissionDenied.into()));
                 }
                 endpoint.open_transport().await.map_err(DockerError::Socket)

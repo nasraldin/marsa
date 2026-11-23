@@ -43,7 +43,7 @@ use crate::{
 };
 
 pub(crate) use notifications::{NotificationDestination, Notifications, notification_destination};
-use settings::{ResourceInputs, SettingsTab};
+use settings::{EnvironmentSettings, ResourceInputs, SettingsTab};
 
 pub(crate) struct OpenRoute(pub(crate) Route);
 
@@ -62,7 +62,7 @@ pub(crate) struct SystemView {
     update_panel: settings::UpdatePanel,
     external_inventory: crate::screens::external_inventory::Workspaces,
     external_inventory_task: Option<Task<()>>,
-    external_inventory_checked: bool,
+    environment_settings: EnvironmentSettings,
     resource_inputs: ResourceInputs,
     version: Option<VersionResponse>,
     login: Option<marsa_client::login::LoginStatus>,
@@ -102,6 +102,10 @@ enum Notice {
 }
 
 impl SystemView {
+    pub(crate) fn external_inventory_pending(&self) -> bool {
+        self.external_inventory_task.is_some()
+    }
+
     pub(crate) fn external_inventory(&self) -> &crate::screens::external_inventory::Workspaces {
         &self.external_inventory
     }
@@ -120,7 +124,7 @@ impl SystemView {
             update_panel: settings::UpdatePanel::default(),
             external_inventory: Arc::from([]),
             external_inventory_task: None,
-            external_inventory_checked: false,
+            environment_settings: EnvironmentSettings::default(),
             resource_inputs: ResourceInputs::new(window, cx),
             version: None,
             login: None,
@@ -162,8 +166,8 @@ impl SystemView {
 
     /// Select the Docker settings tab and update the detected engine list.
     pub(crate) fn select_docker_settings(&mut self, cx: &mut Context<Self>) {
-        self.settings_tab = SettingsTab::Docker;
-        self.refresh_external_inventory(cx);
+        self.settings_tab = SettingsTab::Environments;
+        self.refresh_environments(cx);
         cx.notify();
     }
 
@@ -353,6 +357,7 @@ impl SystemView {
         route: Route,
         screen: &ScreenContext<'_>,
         history: &VecDeque<EngineState>,
+        compact_settings: bool,
         cx: &mut Context<Self>,
     ) -> Div {
         let view = match route {
@@ -360,7 +365,7 @@ impl SystemView {
             Route::Machine => self.machine(screen, cx),
             Route::Disk => self.disk(screen, cx),
             Route::Activity => self.activity(screen, history, cx),
-            Route::Settings => self.settings(screen, cx),
+            Route::Settings => self.settings(screen, compact_settings, cx),
             _ => div(),
         };
         align(view, screen.locale)

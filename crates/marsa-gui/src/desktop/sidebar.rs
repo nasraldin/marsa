@@ -158,9 +158,17 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
     let palette = desktop.palette;
     let engine = desktop.context_engine(cx);
     let current = desktop.environment.read(cx).clone();
-    let context = current.display();
+    let context = desktop
+        .external_inventory
+        .iter()
+        .find(|workspace| current.includes_external(workspace))
+        .map_or_else(
+            || current.display(),
+            |workspace| crate::screens::common::technical(&workspace.source),
+        );
     let label = gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale);
-    let description = format!("{label}: {context} · {}", status::text(locale, engine));
+    let state_text = desktop.context_status_text(engine, cx);
+    let description = format!("{label}: {context} · {state_text}");
     let choices = std::iter::once(Environment::Marsa)
         .chain(
             desktop
@@ -193,7 +201,7 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
                 .gap_2()
                 .child(
                     align(div().min_w_0().flex_1().flex().flex_col().gap_1(), locale)
-                        .child(status::inline_badge(locale, palette, engine))
+                        .child(status::inline_badge(locale, palette, engine, state_text))
                         .child(
                             div()
                                 .truncate()
@@ -219,7 +227,7 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
             let desktop = desktop_entity.clone();
             menu.item(
                 PopupMenuItem::new(choice.display())
-                    .checked(*choice == current)
+                    .checked(choice.same_identity(&current))
                     .on_click(move |_, _, cx| {
                         let _ = desktop.update(cx, |desktop, cx| {
                             desktop.select_environment(picked.clone(), cx)

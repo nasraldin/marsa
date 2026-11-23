@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use marsa_client::docker::{ExternalEndpoint, ExternalInventory};
+use marsa_client::docker::{ExternalEndpoint, ExternalInventory, VerifiedEngine};
 use marsa_ui::{
     ColorToken, Palette,
     gpui::{Div, ParentElement as _, SharedString, Styled as _, div, px},
@@ -25,6 +25,7 @@ pub(crate) struct ExternalWorkspace {
     pub(crate) source: String,
     pub(crate) state: AppState,
     pub(crate) reachable: bool,
+    pub(crate) verified_engine: Option<VerifiedEngine>,
     pub(crate) volumes_available: bool,
     pub(crate) networks_available: bool,
 }
@@ -35,6 +36,7 @@ impl From<ExternalInventory> for ExternalWorkspace {
             endpoint: inventory.endpoint,
             source: inventory.source,
             reachable: inventory.reachable,
+            verified_engine: inventory.verified_engine,
             volumes_available: inventory.volumes.is_some(),
             networks_available: inventory.networks.is_some(),
             state: AppState::index_resources(ResourceSnapshot {
@@ -64,7 +66,10 @@ impl From<&ExternalWorkspace> for Environment {
     fn from(workspace: &ExternalWorkspace) -> Self {
         Self::External {
             name: Arc::from(workspace.source.as_str()),
-            address: workspace.endpoint.address(),
+            address: workspace
+                .endpoint
+                .managed_id()
+                .map_or_else(|| workspace.endpoint.address(), str::to_owned),
         }
     }
 }
@@ -137,8 +142,18 @@ impl Environment {
 
     pub(crate) fn includes_external(&self, workspace: &ExternalWorkspace) -> bool {
         matches!(self, Self::External { name, address }
-            if name.as_ref() == workspace.source && !address.is_empty()
-                && *address == workspace.endpoint.address())
+        if workspace.endpoint.managed_id().map_or_else(
+            || name.as_ref() == workspace.source && !address.is_empty()
+                && *address == workspace.endpoint.address(),
+            |id| address == id,
+        ))
+    }
+
+    pub(crate) fn same_identity(&self, other: &Self) -> bool {
+        self == other
+            || matches!((self, other),
+            (Self::External { address, .. }, Self::External { address: other, .. })
+            if address.starts_with("managed:") && address == other)
     }
 
     pub(crate) fn display(&self) -> SharedString {
@@ -165,6 +180,19 @@ pub(super) fn source_badge(palette: Palette, value: SharedString) -> Div {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_identity_survives_rename_without_matching_a_different_endpoint() {
+        let before = Environment::decode("Lima\nmanaged:one");
+        let renamed = Environment::decode("Development\nmanaged:one");
+        let replaced = Environment::decode("Lima\nmanaged:two");
+        assert!(before.same_identity(&renamed));
+        assert!(!before.same_identity(&replaced));
+        assert!(
+            !Environment::decode("Lima\n/tmp/docker.sock")
+                .same_identity(&Environment::decode("Development\n/tmp/docker.sock"))
+        );
+    }
 
     #[test]
     fn saved_environment_requires_an_address() {

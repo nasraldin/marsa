@@ -1,5 +1,6 @@
 //! Present the selected external engine without invoking Marsa's VM controls.
 
+use marsa_client::api::EngineState;
 use marsa_ui::{
     ColorToken,
     gpui::{Context, Div, ParentElement as _, Styled as _, div, prelude::FluentBuilder as _, px},
@@ -43,9 +44,17 @@ impl Desktop {
             .child(
                 type_role(Role::Title, locale)
                     .apply(div())
-                    .child(selection.display()),
+                    .child(workspace.map_or_else(
+                        || selection.display(),
+                        |workspace| technical(&workspace.source),
+                    )),
             )
-            .child(status::inline_badge(locale, palette, engine))
+            .child(status::inline_badge(
+                locale,
+                palette,
+                engine,
+                self.context_status_text(engine, cx),
+            ))
             .when_some(workspace, |card, workspace| {
                 card.child(
                     div()
@@ -72,7 +81,11 @@ impl Desktop {
                 ),
             );
         let Some(workspace) = workspace else {
-            return body.child(gui::GUI_ENVIRONMENT_OFFLINE.text(locale));
+            return if engine == Some(EngineState::Starting) {
+                body
+            } else {
+                body.child(gui::GUI_ENVIRONMENT_OFFLINE.text(locale))
+            };
         };
         match route {
             Route::Overview => {

@@ -9,7 +9,8 @@ use std::{
 
 mod docker_transport;
 pub(crate) use docker_transport::{
-    check_user_docker_directory, docker_ssh_config, open_docker_ssh, read_user_docker_file,
+    check_user_docker_directory, docker_ssh_config, lock_docker_state, open_docker_ssh,
+    read_user_docker_file, replace_docker_state,
 };
 
 use nix::unistd::geteuid;

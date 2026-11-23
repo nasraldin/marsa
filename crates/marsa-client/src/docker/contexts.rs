@@ -236,7 +236,7 @@ impl SshTarget {
 }
 
 impl SshEndpoint {
-    fn parse(value: &str) -> Option<Self> {
+    pub(super) fn parse(value: &str) -> Option<Self> {
         if value.contains(['?', '#']) {
             return None;
         }
@@ -431,7 +431,11 @@ impl PartialEq for TlsEndpoint {
 impl Eq for TlsEndpoint {}
 
 impl TlsEndpoint {
-    async fn load(address: &str, directory: &Path) -> io::Result<Self> {
+    pub(super) fn valid_address(address: &str) -> bool {
+        Self::parse_address(address).is_ok()
+    }
+
+    fn parse_address(address: &str) -> io::Result<(Authority, ServerName<'static>)> {
         let parsed: Authority = address.parse().map_err(io::Error::other)?;
         let (hostname, port) = host_and_port(&parsed).ok_or(io::ErrorKind::InvalidInput)?;
         let server = ServerName::try_from(hostname.to_owned()).map_err(io::Error::other)?;
@@ -440,11 +444,31 @@ impl TlsEndpoint {
         } else {
             format!("{parsed}:2376").parse().map_err(io::Error::other)?
         };
+        Ok((authority, server))
+    }
+
+    async fn load(address: &str, directory: &Path) -> io::Result<Self> {
         platform::check_user_docker_directory(directory).await?;
+        Self::load_files(
+            address,
+            &directory.join("ca.pem"),
+            &directory.join("cert.pem"),
+            &directory.join("key.pem"),
+        )
+        .await
+    }
+
+    pub(super) async fn load_files(
+        address: &str,
+        ca: &Path,
+        cert: &Path,
+        key: &Path,
+    ) -> io::Result<Self> {
+        let (authority, server) = Self::parse_address(address)?;
         let (root, cert, key) = tokio::try_join!(
-            read_pem(directory.join("ca.pem"), false),
-            read_pem(directory.join("cert.pem"), false),
-            read_pem(directory.join("key.pem"), true),
+            read_pem(ca, false),
+            read_pem(cert, false),
+            read_pem(key, true),
         )?;
         let mut roots = RootCertStore::empty();
         for cert in CertificateDer::pem_slice_iter(&root) {
@@ -491,8 +515,10 @@ impl TlsEndpoint {
     }
 }
 
-async fn read_pem(path: PathBuf, private: bool) -> io::Result<Vec<u8>> {
-    platform::read_user_docker_file(&path, PEM_LIMIT, private).await
+async fn read_pem(path: &Path, private: bool) -> io::Result<Vec<u8>> {
+    let directory = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
+    platform::check_user_docker_directory(directory).await?;
+    platform::read_user_docker_file(path, PEM_LIMIT, private).await
 }
 
 #[cfg(test)]
