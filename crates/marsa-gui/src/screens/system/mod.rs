@@ -156,6 +156,13 @@ impl SystemView {
             .map(|(settings, _)| (settings.ui.language, settings.ui.theme))
     }
 
+    pub(crate) fn log_settings(&self) -> marsa_ui::preferences::LogSettings {
+        self.settings
+            .as_ref()
+            .map(|(settings, _)| settings.ui.logs)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn accent(&self) -> AccentColor {
         self.settings
             .as_ref()

@@ -264,7 +264,7 @@ In-app AI assistant; vulnerability scanning; volume backup, restore and export; 
 | Screen | Rule |
 |---|---|
 | Lists (containers, images) | Virtualised; only visible rows are built |
-| Logs | Bounded ring buffer per stream; virtualised rendering; search runs off the UI thread; ANSI colours parsed once on ingest |
+| Logs | Bounded log buffers, virtualised container rendering, background search, and UTC or system-local timestamps from Docker. General settings select capacity independently of the fixed byte and source limits. |
 | Stats | Sampled at a fixed interval; charts keep a bounded history |
 | Terminal | A real terminal emulator component with a bounded scrollback |
 | Start-up | First frame before any network call completes; data fills in from the snapshot |

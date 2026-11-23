@@ -183,13 +183,57 @@ impl LogSource {
     }
 }
 
+/// An absolute timestamp reported with a line by Docker Engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LogTimestamp(time::OffsetDateTime);
+
+impl LogTimestamp {
+    fn parse(text: &str) -> Option<Self> {
+        // Bound the timestamp prefix before parsing any untrusted output.
+        if text.len() > 35 {
+            return None;
+        }
+        time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339)
+            .ok()
+            .map(Self)
+    }
+
+    /// Format the instant with its local UTC offset, or in UTC if local time is unavailable.
+    pub fn format(self, local: bool) -> String {
+        use time::{UtcOffset, format_description::well_known::Rfc3339};
+
+        let utc = self.0.checked_to_offset(UtcOffset::UTC).unwrap_or(self.0);
+        if local
+            && let Ok(offset) = UtcOffset::local_offset_at(utc)
+            && let Some(local) = utc.checked_to_offset(offset)
+            && let Ok(text) = local.format(&Rfc3339)
+        {
+            return text;
+        }
+        // When UTC falls outside RFC 3339's year range, preserve the valid source offset.
+        utc.format(&Rfc3339).unwrap_or_else(|_| self.0.to_string())
+    }
+}
+
 /// One logical line of container output with its original stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogLine {
     /// Output that produced this line.
     pub source: LogSource,
-    /// Text with invalid UTF-8 replaced and the line terminator removed.
+    /// Text with invalid UTF-8 replaced and the timestamp and line terminator removed.
     pub text: String,
+    /// Timestamp from Docker, when the stream supplied a valid value.
+    pub timestamp: Option<LogTimestamp>,
+}
+
+impl LogLine {
+    /// Approximate retained bytes for the message and timestamp, used by desktop buffer limits.
+    pub fn retained_bytes(&self) -> usize {
+        self.text.len()
+            + self
+                .timestamp
+                .map_or(0, |_| std::mem::size_of::<LogTimestamp>())
+    }
 }
 
 /// A live Docker log stream with bounded framing and per-output line assembly.
@@ -231,9 +275,20 @@ impl DockerLogs {
 
     fn line(&mut self, source: LogSource) -> LogLine {
         let bytes = &mut self.lines[source.index()];
-        let text = String::from_utf8_lossy(bytes.strip_suffix(b"\r").unwrap_or(bytes)).into_owned();
+        let text = String::from_utf8_lossy(bytes.strip_suffix(b"\r").unwrap_or(bytes));
+        let (timestamp, text) = text
+            .split_once(' ')
+            .and_then(|(prefix, message)| Some((LogTimestamp::parse(prefix)?, message)))
+            .map_or((None, text.as_ref()), |(timestamp, message)| {
+                (Some(timestamp), message)
+            });
+        let text = text.to_owned();
         bytes.clear();
-        LogLine { source, text }
+        LogLine {
+            source,
+            text,
+            timestamp,
+        }
     }
 
     async fn read_payload(&mut self) -> Result<bool, DockerError> {

@@ -82,6 +82,9 @@ pub struct UiSettings {
     /// User-authored Compose YAML used when starting a new stack.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compose_template: Option<String>,
+    /// Retention and display preferences for live container and Compose logs.
+    #[serde(skip_serializing_if = "LogSettings::is_default")]
+    pub logs: LogSettings,
 }
 
 /// Desktop notifications are opt-in and independent of in-window state.
@@ -96,6 +99,55 @@ pub struct NotificationSettings {
     pub approval_pending: bool,
     /// Notify when the VM changes between native and userspace networking.
     pub network_mode_changed: bool,
+}
+
+/// Per-view log buffer choices, each bounded by the original desktop limits.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogBufferSize {
+    /// Retain 500 container lines and 64 stack lines.
+    Compact,
+    /// Retain 2,000 container lines and 128 stack lines.
+    Medium,
+    /// Retain up to 8,000 container lines and 256 stack lines.
+    #[default]
+    Full,
+}
+
+impl LogBufferSize {
+    /// Maximum lines in the container viewer, including its combined mode.
+    pub const fn container_lines(self) -> usize {
+        match self {
+            Self::Compact => 500,
+            Self::Medium => 2_000,
+            Self::Full => 8_000,
+        }
+    }
+
+    /// Maximum lines in the Compose project log panel.
+    pub const fn stack_lines(self) -> usize {
+        match self {
+            Self::Compact => 64,
+            Self::Medium => 128,
+            Self::Full => 256,
+        }
+    }
+}
+
+/// Live desktop log preferences. Older settings use the original buffer limits and UTC.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LogSettings {
+    /// Maximum retained lines in each live log view.
+    pub buffer: LogBufferSize,
+    /// Display engine timestamps in the system time zone instead of UTC.
+    pub local_timestamps: bool,
+}
+
+impl LogSettings {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// Release stream the updater follows.

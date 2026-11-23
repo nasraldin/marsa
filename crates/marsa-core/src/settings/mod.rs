@@ -6,8 +6,9 @@ mod vm;
 
 pub use network::{NetworkMode, NetworkSettings, ProxySettings};
 pub use preferences::{
-    AccentColor, AgentSettings, Language, NotificationSettings, OperateApproval, TelemetrySettings,
-    Theme, UiSettings, UpdateChannel, UpdateSettings, valid_compose_template,
+    AccentColor, AgentSettings, Language, LogBufferSize, LogSettings, NotificationSettings,
+    OperateApproval, TelemetrySettings, Theme, UiSettings, UpdateChannel, UpdateSettings,
+    valid_compose_template,
 };
 pub use vm::{DiskSettings, VmBackend, VmSettings};
 
@@ -162,6 +163,27 @@ fn decode<T: serde::de::DeserializeOwned>(document: &str) -> Result<T, SettingsE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_view_preferences_keep_old_defaults_and_round_trip() {
+        let legacy = Settings::from_toml("[ui]\nlanguage = \"en-US\"").unwrap();
+        assert_eq!(legacy.ui.logs.buffer.container_lines(), 8_000);
+        assert_eq!(legacy.ui.logs.buffer.stack_lines(), 256);
+        assert!(!legacy.ui.logs.local_timestamps);
+
+        let settings = Settings::from_toml(
+            "schema_version = 1\n[ui.logs]\nbuffer = \"compact\"\nlocal_timestamps = true",
+        )
+        .unwrap();
+        assert_eq!(settings.ui.logs.buffer.container_lines(), 500);
+        assert_eq!(settings.ui.logs.buffer.stack_lines(), 64);
+        assert!(settings.ui.logs.local_timestamps);
+        assert_eq!(
+            Settings::from_toml(&settings.to_toml().unwrap()).unwrap(),
+            settings
+        );
+        assert!(Settings::from_toml("[ui.logs]\nbuffer = \"unlimited\"").is_err());
+    }
 
     #[test]
     fn document_limit_is_checked_before_the_parser_runs() {

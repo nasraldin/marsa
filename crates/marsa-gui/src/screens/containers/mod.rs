@@ -320,6 +320,14 @@ impl ContainerView {
         }
     }
 
+    pub(crate) fn set_log_settings(
+        &mut self,
+        settings: marsa_ui::preferences::LogSettings,
+        cx: &mut Context<Self>,
+    ) {
+        self.logs.set_settings(settings, cx);
+    }
+
     fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.stream_tasks.clear();
         self.terminal.close_detached(cx);
@@ -327,7 +335,7 @@ impl ContainerView {
         self.revealed = None;
         self.reveal_task = None;
         self.reveal_failed = false;
-        self.logs = logs::LogsState::default();
+        self.logs = logs::LogsState::new(self.logs.settings());
         self.stats = stats::StatsState::default();
         self.inspection = Inspection::Idle;
         self.tab = tab;

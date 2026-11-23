@@ -4,11 +4,12 @@ use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
 use std::collections::VecDeque;
 
-use marsa_client::docker::{ContainerId, ExternalEndpoint};
+use marsa_client::docker::{ContainerId, ExternalEndpoint, LogLine};
 use marsa_ui::{
     ColorToken,
     gpui::{Context, Div, Entity, ParentElement, Styled, Task, div, px},
     gpui_component::{Disableable, button::Button},
+    preferences::LogSettings,
     tokens::{scale::Space, typography::Role},
 };
 
@@ -19,18 +20,36 @@ use crate::{
 
 use super::{ResourcesView, logical_row, rows::ResourceRow, text, tone};
 
-const MAX_LINES: usize = 256;
 const MAX_LINE_BYTES: usize = 1024;
 
 pub(super) struct ProjectLogs {
     project: String,
     endpoint: Option<ExternalEndpoint>,
-    lines: VecDeque<(String, String)>,
+    lines: VecDeque<(String, LogLine)>,
     failed: bool,
     _streams: Vec<Task<()>>,
 }
 
 impl ProjectLogs {
+    fn append(&mut self, source: &str, lines: Vec<LogLine>, limit: usize) {
+        for mut line in lines {
+            if self.lines.len() == limit {
+                self.lines.pop_front();
+            }
+            let timestamp_bytes = line.retained_bytes() - line.text.len();
+            let text_limit = MAX_LINE_BYTES - timestamp_bytes;
+            if line.text.len() > text_limit {
+                let end = line.text.floor_char_boundary(text_limit);
+                line.text = line.text[..end].to_owned();
+            }
+            self.lines.push_back((source.to_owned(), line));
+        }
+    }
+
+    pub(super) fn trim(&mut self, limit: usize) {
+        self.lines.drain(..self.lines.len().saturating_sub(limit));
+    }
+
     fn follow(
         project: String,
         members: Vec<(ContainerId, String)>,
@@ -51,6 +70,7 @@ impl ProjectLogs {
                     while let Some(batch) = stream.next().await {
                         let failed = batch.is_err();
                         let updated = view.update(cx, |view, cx| {
+                            let limit = view.log_settings.buffer.stack_lines();
                             let Some(logs) =
                                 view.logs.as_mut().filter(|logs| logs.project == project)
                             else {
@@ -58,16 +78,7 @@ impl ProjectLogs {
                             };
                             match batch {
                                 Ok(lines) => {
-                                    for line in lines {
-                                        if logs.lines.len() == MAX_LINES {
-                                            logs.lines.pop_front();
-                                        }
-                                        let mut line = line.text;
-                                        if line.len() > MAX_LINE_BYTES {
-                                            line.truncate(line.floor_char_boundary(MAX_LINE_BYTES));
-                                        }
-                                        logs.lines.push_back((source.clone(), line));
-                                    }
+                                    logs.append(&source, lines, limit);
                                 }
                                 Err(_) => logs.failed = true,
                             }
@@ -95,6 +106,7 @@ pub(super) fn render(
     row: &ResourceRow,
     view: &Entity<ResourcesView>,
     selected: Option<&ProjectLogs>,
+    settings: LogSettings,
 ) -> Div {
     let mut target = panel(screen).gap(px(Space::S8.pixels()));
     let selected =
@@ -178,10 +190,54 @@ pub(super) fn render(
                                 text(screen, Role::Mono, service.clone())
                                     .text_color(tone(screen, ColorToken::SourceApi)),
                             )
-                            .child(text(screen, Role::Mono, line.clone()).flex_1())
+                            .children(line.timestamp.map(|timestamp| {
+                                text(
+                                    screen,
+                                    Role::Mono,
+                                    timestamp.format(settings.local_timestamps),
+                                )
+                                .text_color(tone(screen, ColorToken::TextMuted))
+                            }))
+                            .child(text(screen, Role::Mono, line.text.clone()).flex_1())
                     })),
             );
         }
     }
     target
+}
+
+#[cfg(test)]
+mod tests {
+    use marsa_client::docker::LogSource;
+    use marsa_ui::preferences::LogBufferSize;
+
+    use super::*;
+
+    #[test]
+    fn stack_buffer_keeps_recent_sources_and_truncates_large_lines_at_character_boundaries() {
+        let mut logs = ProjectLogs {
+            project: "test-project".into(),
+            endpoint: None,
+            lines: VecDeque::new(),
+            failed: false,
+            _streams: Vec::new(),
+        };
+        let limit = LogBufferSize::Compact.stack_lines();
+        logs.append(
+            "service-a",
+            (0..256)
+                .map(|index| LogLine {
+                    source: LogSource::Stdout,
+                    text: format!("{index} {}", "ي".repeat(1024)),
+                    timestamp: None,
+                })
+                .collect(),
+            limit,
+        );
+        assert_eq!(logs.lines.len(), 64);
+        let (source, line) = logs.lines.front().unwrap();
+        assert_eq!(source, "service-a");
+        assert!(line.text.starts_with("192 "));
+        assert_eq!(line.text.len(), 1024);
+    }
 }

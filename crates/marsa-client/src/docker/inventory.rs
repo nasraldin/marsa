@@ -217,10 +217,9 @@ pub(super) fn external_route(
         return false;
     }
     match *method {
-        Method::GET if !has_body => matches!(
-            action,
-            "json" | "logs?stdout=true&stderr=true&follow=true&tail=200" | "stats?stream=true"
-        ),
+        Method::GET if !has_body => {
+            matches!(action, "json" | super::LOG_ENDPOINT | "stats?stream=true")
+        }
         Method::POST if has_body => action == "exec",
         Method::POST => matches!(action, "start" | "stop" | "restart" | "pause" | "unpause"),
         _ => false,

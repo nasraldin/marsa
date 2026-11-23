@@ -350,7 +350,7 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 | `disk` | `data_size_limit`, `auto_reclaim` |
 | `shares` | list of host paths |
 | `network` | `mode` (`auto`, `nat`, `userspace`), `proxy` settings, `dns` overrides |
-| `ui` | `language` (`system`, `en-US`, `ar`), `theme` (`system`, `light`, `dark`) |
+| `ui` | `language` (`system`, `en-US`, `ar`), `theme` (`system`, `light`, `dark`), `logs.buffer` (`compact`, `medium`, `full`), `logs.local_timestamps` |
 | `updates` | `channel`, `auto_check`, `auto_install` |
 | `agents` | permission defaults for MCP clients |
 | `telemetry` | `enabled` (default false) |

@@ -25,7 +25,7 @@ use marsa_ui::{
         menu::{DropdownMenu, PopupMenuItem},
         switch::Switch,
     },
-    preferences::{Language, OperateApproval, Settings, Theme},
+    preferences::{Language, LogBufferSize, OperateApproval, Settings, Theme},
     tokens::{
         scale::{Radius, Space},
         typography::Role,
@@ -49,6 +49,7 @@ pub(super) enum SettingsTab {
     Docker,
     Environments,
     Notifications,
+    Logs,
     Agents,
     Updates,
     ComposeTemplate,
@@ -65,6 +66,7 @@ impl SettingsTab {
             Self::Docker => "icons/container.svg",
             Self::Environments => "icons/server.svg",
             Self::Notifications => "icons/bell.svg",
+            Self::Logs => "icons/file-text.svg",
             Self::Agents => "icons/shield-check.svg",
             Self::Updates => "icons/refresh-cw.svg",
             Self::ComposeTemplate => "icons/layout-template.svg",
@@ -81,6 +83,7 @@ impl SettingsTab {
             Self::Docker => return gui::GUI_SETTINGS_DOCKER_INTEGRATION.text(locale),
             Self::Environments => return gui::GUI_SETTINGS_ENVIRONMENTS.text(locale),
             Self::Notifications => return gui::GUI_SETTINGS_NOTIFICATIONS.text(locale),
+            Self::Logs => return gui::GUI_DESKTOP_LOG_SETTINGS_TITLE.text(locale),
             Self::Agents => ("Agents", "الوكلاء"),
             Self::Updates => ("Updates", "التحديثات"),
             Self::About => ("About", "حول"),
@@ -111,6 +114,7 @@ impl SystemView {
                     &[
                         SettingsTab::General,
                         SettingsTab::Notifications,
+                        SettingsTab::Logs,
                         SettingsTab::Updates,
                         SettingsTab::About,
                     ][..],
@@ -167,6 +171,7 @@ impl SystemView {
             SettingsTab::Docker => self.docker(screen, cx),
             SettingsTab::Environments => self.external_docker(screen, cx),
             SettingsTab::Notifications => self.notification_settings(screen, cx),
+            SettingsTab::Logs => self.log_settings_card(screen, cx),
             SettingsTab::Agents => self.agent_settings(screen, cx),
             SettingsTab::Updates => self.updates(screen, cx),
             SettingsTab::ComposeTemplate => self.compose_template_settings(screen, cx),
@@ -319,6 +324,64 @@ impl SystemView {
             .gap(px(Space::S16.pixels() + Space::S4.pixels()))
             .child(general)
             .child(self.accent_picker(screen, cx))
+    }
+
+    fn log_settings_card(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
+        let locale = screen.locale;
+        let settings = self.settings.as_ref().map(|(settings, _)| settings.ui.logs);
+        let buffer = gui::GUI_DESKTOP_LOG_BUFFER_SIZE.text(locale);
+        let timestamp = gui::GUI_DESKTOP_LOG_LOCAL_TIMESTAMPS.text(locale);
+        let options = [
+            (
+                LogBufferSize::Compact,
+                gui::GUI_DESKTOP_LOG_BUFFER_COMPACT.text(locale),
+            ),
+            (
+                LogBufferSize::Medium,
+                gui::GUI_DESKTOP_LOG_BUFFER_MEDIUM.text(locale),
+            ),
+            (
+                LogBufferSize::Full,
+                gui::GUI_DESKTOP_LOG_BUFFER_FULL.text(locale),
+            ),
+        ];
+        settings_card(screen)
+            .child(settings_heading(
+                screen,
+                gui::GUI_DESKTOP_LOG_SETTINGS_TITLE.text(locale),
+                gui::GUI_DESKTOP_LOG_SETTINGS_BODY.text(locale),
+            ))
+            .child(setting_row(
+                screen,
+                buffer,
+                gui::GUI_DESKTOP_LOG_BUFFER_BODY.text(locale),
+                setting_picker(
+                    screen,
+                    ("log-buffer-size", buffer),
+                    options,
+                    settings.map(|settings| settings.buffer),
+                    self.busy(),
+                    |settings, value| settings.ui.logs.buffer = value,
+                    cx,
+                ),
+            ))
+            .child(setting_row(
+                screen,
+                timestamp,
+                gui::GUI_DESKTOP_LOG_LOCAL_TIMESTAMPS_BODY.text(locale),
+                div().child(
+                    Switch::new("log-local-timestamps")
+                        .accessibility_label(timestamp)
+                        .checked(settings.is_some_and(|settings| settings.local_timestamps))
+                        .disabled(self.busy() || settings.is_none())
+                        .on_change(cx.listener(|this, enabled: &bool, _, cx| {
+                            this.save_settings(
+                                |settings| settings.ui.logs.local_timestamps = *enabled,
+                                cx,
+                            );
+                        })),
+                ),
+            ))
     }
 
     pub(super) fn save_settings(
@@ -600,6 +663,20 @@ fn setting(
     ar_help: &'static str,
     control: Div,
 ) -> Div {
+    setting_row(
+        screen,
+        copy(screen.locale, en, ar),
+        copy(screen.locale, en_help, ar_help),
+        control,
+    )
+}
+
+fn setting_row(
+    screen: &ScreenContext<'_>,
+    title: &'static str,
+    description: &'static str,
+    control: Div,
+) -> Div {
     row(screen.locale)
         .justify_between()
         .gap(px(Space::S16.pixels()))
@@ -616,13 +693,13 @@ fn setting(
                 .child(settings_text(
                     screen,
                     Role::Label,
-                    copy(screen.locale, en, ar),
+                    title,
                     ColorToken::TextPrimary,
                 ))
                 .child(settings_text(
                     screen,
                     Role::Small,
-                    copy(screen.locale, en_help, ar_help),
+                    description,
                     ColorToken::TextMuted,
                 )),
         )

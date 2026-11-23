@@ -36,14 +36,17 @@ async fn docker_logs_preserve_source_and_trailing_fragments() {
         assert!(
             String::from_utf8(request)
                 .unwrap()
-                .starts_with(&format!("GET /v1.57/containers/{ID}/logs?"))
+                .starts_with(&format!(
+                    "GET /v1.57/containers/{ID}/logs?stdout=true&stderr=true&follow=true&tail=200&timestamps=true "
+                ))
         );
         socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/vnd.docker.multiplexed-stream\r\nConnection: close\r\n\r\n").await.unwrap();
+        let stdout = b"2026-11-23T08:12:03.123456789Z a\n2026-99-23T08:12:03Z tail";
         socket
-            .write_all(&[1, 0, 0, 0, 0, 0, 0, 6, b'a', b'\n'])
+            .write_all(&[1, 0, 0, 0, 0, 0, 0, stdout.len() as u8])
             .await
             .unwrap();
-        socket.write_all(b"tail").await.unwrap();
+        socket.write_all(stdout).await.unwrap();
         socket
             .write_all(&[2, 0, 0, 0, 0, 0, 0, 2, b'b', b'\n'])
             .await
@@ -51,11 +54,19 @@ async fn docker_logs_preserve_source_and_trailing_fragments() {
     });
     let client = DockerClient::at(path);
     let mut logs = client.logs(&ContainerId::parse(ID).unwrap()).await.unwrap();
-    assert_eq!(logs.next().await.unwrap().unwrap().text, "a");
+    let stdout = logs.next().await.unwrap().unwrap();
+    assert_eq!(stdout.text, "a");
+    assert_eq!(
+        stdout.timestamp.unwrap().format(false),
+        "2026-11-23T08:12:03.123456789Z"
+    );
     let stderr = logs.next().await.unwrap().unwrap();
     assert_eq!(stderr.source, LogSource::Stderr);
     assert_eq!(stderr.text, "b");
-    assert_eq!(logs.next().await.unwrap().unwrap().text, "tail");
+    assert!(stderr.timestamp.is_none());
+    let trailing = logs.next().await.unwrap().unwrap();
+    assert_eq!(trailing.text, "2026-99-23T08:12:03Z tail");
+    assert!(trailing.timestamp.is_none());
     assert!(logs.next().await.unwrap().is_none());
     server.await.unwrap();
 }

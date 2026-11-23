@@ -25,6 +25,7 @@ hyper-util = { version = "=0.1.21", features = ["tokio"] }
 nix = { version = "=0.32.0", features = ["user"] }
 tempfile = "=3.27.0"
 thiserror = "=2.0.21"
+time = { version = "=0.3.55", features = ["formatting", "local-offset", "parsing"] }
 tokio = { version = "=1.54.1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
 tonic = "=0.14.9"

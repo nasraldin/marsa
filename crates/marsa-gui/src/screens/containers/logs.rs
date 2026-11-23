@@ -19,6 +19,7 @@ use marsa_ui::{
         input::{Input, InputEvent, InputState},
         menu::{DropdownMenu as _, PopupMenuItem},
     },
+    preferences::LogSettings,
 };
 
 use crate::screens::common::{ScreenContext, label};
@@ -26,12 +27,13 @@ use crate::screens::common::{ScreenContext, label};
 use super::{ContainerView, ansi, color, name};
 
 pub(super) const MAX_SOURCES: usize = 32;
-const MAX_LINES: usize = 8_000;
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Default)]
 pub(super) struct LogsState {
     rows: Arc<VecDeque<Line>>,
+    settings: LogSettings,
+    hide_timestamps: bool,
     bytes: usize,
     paused: Option<Arc<VecDeque<Line>>>,
     query: String,
@@ -59,6 +61,49 @@ struct Line {
 }
 
 impl LogsState {
+    pub(super) fn new(settings: LogSettings) -> Self {
+        Self {
+            settings,
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn settings(&self) -> LogSettings {
+        self.settings
+    }
+
+    pub(super) fn set_settings(&mut self, settings: LogSettings, cx: &mut Context<ContainerView>) {
+        if self.settings == settings {
+            return;
+        }
+        self.settings = settings;
+        let limit = settings.buffer.container_lines();
+        let truncated = self.trim();
+        let paused_truncated = if let Some(paused) = &mut self.paused
+            && paused.len() > limit
+        {
+            let excess = paused.len() - limit;
+            Arc::make_mut(paused).drain(..excess);
+            true
+        } else {
+            false
+        };
+        if truncated || paused_truncated {
+            self.indexed_rows = Arc::default();
+            self.refilter(cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    fn timestamp(&self, line: &LogLine) -> Option<String> {
+        if self.hide_timestamps {
+            return None;
+        }
+        line.timestamp
+            .map(|timestamp| timestamp.format(self.settings.local_timestamps))
+    }
+
     pub(super) fn set_source_limit(&mut self, limited: bool) {
         self.source_limit = limited;
     }
@@ -143,19 +188,28 @@ impl LogsState {
     fn append(&mut self, container: &Arc<str>, batch: Vec<LogLine>) {
         let rows = Arc::make_mut(&mut self.rows);
         for line in batch {
-            self.bytes = self.bytes.saturating_add(line.text.len());
+            self.bytes = self.bytes.saturating_add(line.retained_bytes());
             rows.push_back(Line {
                 container: Arc::clone(container),
                 content: line,
             });
         }
-        while rows.len() > MAX_LINES || self.bytes > MAX_BYTES {
-            if let Some(line) = rows.pop_front() {
-                self.bytes = self.bytes.saturating_sub(line.content.text.len());
-            } else {
-                break;
-            }
+        self.trim();
+    }
+
+    fn trim(&mut self) -> bool {
+        let limit = self.settings.buffer.container_lines();
+        if self.rows.len() <= limit && self.bytes <= MAX_BYTES {
+            return false;
         }
+        let rows = Arc::make_mut(&mut self.rows);
+        while rows.len() > limit || self.bytes > MAX_BYTES {
+            let Some(line) = rows.pop_front() else {
+                break;
+            };
+            self.bytes = self.bytes.saturating_sub(line.content.retained_bytes());
+        }
+        true
     }
 }
 
@@ -269,9 +323,12 @@ pub(super) fn render(
         .child(
             Button::new("log-timestamps")
                 .outline()
-                .disabled(true)
+                .selected(!log.hide_timestamps)
                 .label(gui::GUI_DESKTOP_CONTAINERS_LOG_TIMESTAMPS.text(locale))
-                .tooltip(gui::GUI_DESKTOP_CONTAINERS_LOG_TIMESTAMPS_UNAVAILABLE.text(locale)),
+                .on_click(cx.listener(|view, _, _, cx| {
+                    view.logs.hide_timestamps = !view.logs.hide_timestamps;
+                    cx.notify();
+                })),
         )
         .child(div().flex_1())
         .child(
@@ -350,6 +407,7 @@ pub(super) fn render(
     let selected = log.match_cursor;
     let wrap = log.wrap;
     let indexes = log.matching.clone();
+    let local_timestamps = (!log.hide_timestamps).then_some(log.settings.local_timestamps);
 
     if log.paused.is_none() && !filtering && row_count > 0 {
         log.scroll
@@ -457,7 +515,13 @@ pub(super) fn render(
                         index
                     };
                     snapshot.get(source).map(|line| {
-                        line_element(line, palette, filtering && selected == index, true)
+                        line_element(
+                            line,
+                            palette,
+                            filtering && selected == index,
+                            true,
+                            local_timestamps,
+                        )
                     })
                 })),
         )
@@ -472,7 +536,13 @@ pub(super) fn render(
                             index
                         };
                         snapshot.get(source).map(|line| {
-                            line_element(line, palette, filtering && selected == index, false)
+                            line_element(
+                                line,
+                                palette,
+                                filtering && selected == index,
+                                false,
+                                local_timestamps,
+                            )
                         })
                     })
                     .collect()
@@ -540,7 +610,13 @@ fn move_match(view: &mut ContainerView, forward: bool, cx: &mut Context<Containe
     }
 }
 
-fn line_element(line: &Line, palette: marsa_ui::Palette, selected: bool, wrap: bool) -> Div {
+fn line_element(
+    line: &Line,
+    palette: marsa_ui::Palette,
+    selected: bool,
+    wrap: bool,
+    local_timestamps: Option<bool>,
+) -> Div {
     let source = match line.content.source {
         LogSource::Stdout => "stdout",
         LogSource::Stderr => "stderr",
@@ -551,7 +627,16 @@ fn line_element(line: &Line, palette: marsa_ui::Palette, selected: bool, wrap: b
     } else {
         ColorToken::TextPrimary
     };
-    let prefix = format!("{}    {source:<6}    ", line.container);
+    let prefix = match local_timestamps.zip(line.content.timestamp) {
+        Some((local, timestamp)) => {
+            format!(
+                "{}    {}    {source:<6}    ",
+                timestamp.format(local),
+                line.container
+            )
+        }
+        None => format!("{}    {source:<6}    ", line.container),
+    };
     let element = div()
         .w_full()
         .px_3()
@@ -576,7 +661,13 @@ fn export(logs: &LogsState) -> String {
         .as_ref()
         .unwrap_or(&logs.rows)
         .iter()
-        .map(|line| format!("{}: {}", line.container, ansi::plain(&line.content.text)))
+        .map(|line| {
+            let text = ansi::plain(&line.content.text);
+            match logs.timestamp(&line.content) {
+                Some(timestamp) => format!("{timestamp} {}: {text}", line.container),
+                None => format!("{}: {text}", line.container),
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -604,4 +695,52 @@ fn save(view: &mut ContainerView, cx: &mut Context<ContainerView>) {
         });
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use marsa_ui::preferences::LogBufferSize;
+
+    use super::*;
+
+    #[test]
+    fn container_buffer_drops_oldest_rows_when_the_limit_changes() {
+        let mut logs = LogsState::default();
+        let container = Arc::from("test-container");
+        logs.append(
+            &container,
+            (0..550)
+                .map(|index| LogLine {
+                    source: LogSource::Stdout,
+                    text: index.to_string(),
+                    timestamp: None,
+                })
+                .collect(),
+        );
+        assert_eq!(logs.rows.len(), 550);
+        logs.settings.buffer = LogBufferSize::Compact;
+        assert!(logs.trim());
+        assert_eq!(logs.rows.len(), 500);
+        assert_eq!(logs.rows.front().unwrap().content.text, "50");
+        assert_eq!(logs.rows.back().unwrap().content.text, "549");
+    }
+
+    #[test]
+    fn full_container_buffer_remains_byte_bounded() {
+        let mut logs = LogsState::default();
+        let container = Arc::from("test-container");
+        let text = "a".repeat(64 * 1024);
+        logs.append(
+            &container,
+            (0..40)
+                .map(|_| LogLine {
+                    source: LogSource::Stdout,
+                    text: text.clone(),
+                    timestamp: None,
+                })
+                .collect(),
+        );
+        assert_eq!(logs.rows.len(), 32);
+        assert_eq!(logs.bytes, 2 * 1024 * 1024);
+    }
 }

@@ -80,6 +80,7 @@ pub(crate) struct ResourcesView {
     reveal_selection: bool,
     form: Option<Form>,
     logs: Option<logs::ProjectLogs>,
+    log_settings: marsa_ui::preferences::LogSettings,
     inspect: Option<ImageDetails>,
     inspection_failed: bool,
     inspection_task: Option<Task<()>>,
@@ -133,6 +134,7 @@ impl ResourcesView {
             reveal_selection: false,
             form: None,
             logs: None,
+            log_settings: Default::default(),
             inspect: None,
             inspection_failed: false,
             inspection_task: None,
@@ -181,6 +183,20 @@ impl ResourcesView {
     }
 
     /// Stop viewing resource details when leaving the route.
+    pub(crate) fn set_log_settings(
+        &mut self,
+        settings: marsa_ui::preferences::LogSettings,
+        cx: &mut Context<Self>,
+    ) {
+        if self.log_settings != settings {
+            self.log_settings = settings;
+            if let Some(logs) = &mut self.logs {
+                logs.trim(settings.buffer.stack_lines());
+            }
+            cx.notify();
+        }
+    }
+
     pub(crate) fn leave(&mut self) {
         self.selection = None;
         self.selected_endpoint = None;
@@ -452,7 +468,13 @@ pub(crate) fn render(
     if let Some(row) = selected
         && kind == ResourceKind::Compose
     {
-        content = content.child(logs::render(screen, row, view, data.logs.as_ref()));
+        content = content.child(logs::render(
+            screen,
+            row,
+            view,
+            data.logs.as_ref(),
+            data.log_settings,
+        ));
     }
     content
 }

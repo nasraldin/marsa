@@ -144,6 +144,11 @@ impl Desktop {
         let _subscription = cx.observe(&system, |this, system, cx| {
             let preferences = system.read(cx).preferences();
             this.accent = system.read(cx).accent();
+            let log_settings = system.read(cx).log_settings();
+            this.containers
+                .update(cx, |view, cx| view.set_log_settings(log_settings, cx));
+            this.resources
+                .update(cx, |view, cx| view.set_log_settings(log_settings, cx));
             let inventory = system.read(cx).external_inventory();
             if !Arc::ptr_eq(&this.external_inventory, inventory) {
                 this.external_inventory = inventory.clone();

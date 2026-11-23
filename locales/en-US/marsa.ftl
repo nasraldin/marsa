@@ -709,7 +709,6 @@ gui-desktop-containers-log-standard-output = Standard output
 gui-desktop-containers-log-standard-error = Standard error
 gui-desktop-containers-log-terminal-output = Terminal output
 gui-desktop-containers-log-timestamps = Timestamps
-gui-desktop-containers-log-timestamps-unavailable = The engine did not provide timestamps for this stream.
 gui-desktop-containers-log-follow-live = Follow live
 
 ### Onboarding
@@ -833,3 +832,13 @@ gui-compose-choose-project-folder = Choose the project folder
 gui-compose-file-exists = This folder already contains compose.yaml. Deploy that file or choose another folder.
 gui-compose-file-write-failed = Could not create compose.yaml. Choose a project folder you can write to.
 gui-compose-file-kept = compose.yaml was saved. Deployment failed. Review the Compose output before deploying the file again.
+
+gui-desktop-log-settings-title = Logs
+gui-desktop-log-settings-body = Preferences apply to live container and stack logs.
+gui-desktop-log-buffer-size = Log buffer size
+gui-desktop-log-buffer-body = Maximum recent lines kept in each open log view.
+gui-desktop-log-buffer-compact = 500 container / 64 stack
+gui-desktop-log-buffer-medium = 2,000 container / 128 stack
+gui-desktop-log-buffer-full = 8,000 container / 256 stack
+gui-desktop-log-local-timestamps = Show timestamps in local time
+gui-desktop-log-local-timestamps-body = Use the time zone set on this Mac. When off, logs use UTC.

@@ -52,12 +52,13 @@ pub use stats::{
     BlockIoCounter, BlockIoStats, CpuStats, CpuUsage, MemoryStats, NetworkCounters, ProcessStats,
     StatsSample,
 };
-pub use stream::{DockerEvents, DockerLogs, DockerStats, LogLine, LogSource};
+pub use stream::{DockerEvents, DockerLogs, DockerStats, LogLine, LogSource, LogTimestamp};
 pub use terminal::{ExecControl, ExecOutput, ExecSession, MAX_TERMINAL_INPUT, TerminalSize};
 
 const API_PREFIX: &str = "/v1.57";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const SNAPSHOT_LIMIT: usize = 8 * 1024 * 1024;
+const LOG_ENDPOINT: &str = "logs?stdout=true&stderr=true&follow=true&tail=200&timestamps=true";
 const RAW: &str = "application/vnd.docker.raw-stream";
 const MULTIPLEXED: &str = "application/vnd.docker.multiplexed-stream";
 
@@ -319,10 +320,7 @@ impl DockerClient {
 
     /// Follow a container's output after replaying at most 200 recent lines.
     pub async fn logs(&self, id: &ContainerId) -> Result<DockerLogs, DockerError> {
-        let path = format!(
-            "/containers/{}/logs?stdout=true&stderr=true&follow=true&tail=200",
-            id.as_str(),
-        );
+        let path = format!("/containers/{}/{LOG_ENDPOINT}", id.as_str());
         let (headers, body) = self.request(Method::GET, &path).await?;
         let framed = match headers
             .get(header::CONTENT_TYPE)

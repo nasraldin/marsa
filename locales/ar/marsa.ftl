@@ -709,7 +709,6 @@ gui-desktop-containers-log-standard-output = المخرجات القياسية
 gui-desktop-containers-log-standard-error = الأخطاء القياسية
 gui-desktop-containers-log-terminal-output = مخرجات الطرفية
 gui-desktop-containers-log-timestamps = الطوابع الزمنية
-gui-desktop-containers-log-timestamps-unavailable = لم يوفّر المحرّك طوابع زمنية لهذا البث.
 gui-desktop-containers-log-follow-live = متابعة مباشرة
 
 ### Onboarding
@@ -833,3 +832,13 @@ gui-compose-choose-project-folder = اختر مجلد المشروع
 gui-compose-file-exists = يحتوي هذا المجلد على ملف compose.yaml. انشر الملف الموجود أو اختر مجلدًا آخر.
 gui-compose-file-write-failed = تعذّر إنشاء ملف compose.yaml. اختر مجلد مشروع يمكنك الكتابة فيه.
 gui-compose-file-kept = حُفظ ملف compose.yaml وتعذّر النشر. راجع مخرجات Compose قبل نشر الملف مجددًا.
+
+gui-desktop-log-settings-title = السجلات
+gui-desktop-log-settings-body = تسري التفضيلات على السجلات المباشرة للحاويات والمكدسات.
+gui-desktop-log-buffer-size = حجم ذاكرة السجل المؤقتة
+gui-desktop-log-buffer-body = الحد الأقصى لعدد الأسطر الأخيرة المحفوظة في كل عرض سجل مفتوح.
+gui-desktop-log-buffer-compact = ٥٠٠ للحاوية / ٦٤ للمكدس
+gui-desktop-log-buffer-medium = ٢٬٠٠٠ للحاوية / ١٢٨ للمكدس
+gui-desktop-log-buffer-full = ٨٬٠٠٠ للحاوية / ٢٥٦ للمكدس
+gui-desktop-log-local-timestamps = عرض الطوابع الزمنية بالتوقيت المحلي
+gui-desktop-log-local-timestamps-body = تُستخدم المنطقة الزمنية المضبوطة على هذا الـ Mac. عند الإيقاف يُستخدم التوقيت العالمي المنسّق (UTC).
