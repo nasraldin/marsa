@@ -355,11 +355,11 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Status:** todo
 - **Depends on:** M7-21
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
-- **Do:** Add image scanner settings and cache controls, system-job configuration, log and download preferences, and About details for releases and dependencies.
+- **Do:** Add image scanner settings and cache controls, system-job configuration, download preferences, and About details for releases and dependencies.
 - **Deliver:** Persisted settings consumed by the corresponding workflows, and About metadata from the bundled release.
 - **Accept when:**
   - Scanner settings affect a scan, maintenance schedules affect subsequent runs, and scan retention and cache cleanup report their outcomes.
-  - Log buffer, timestamp, and download settings take effect in resource views. About shows actual version, release notes, and dependency information.
+  - Download settings take effect in resource views. About shows actual version, release notes, and dependency information.
 
 ### M7-24 Compose template and new stack creation
 
@@ -371,3 +371,15 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Accept when:**
   - A saved template survives relaunch. Restoring the built-in template has an explicit action.
   - A new stack opens with the saved template. Creating a Compose file keeps any existing file intact and deployment uses the environment selected when the flow began.
+
+### M7-25 Desktop log preferences
+
+- **Status:** in progress
+- **Depends on:** M7-19
+- **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings)
+- **Do:** Configure live log buffer size and time zone through the revisioned desktop settings. Retain bounded engine timestamps for the latest container and Compose output.
+- **Deliver:** Localized log preferences and their effects in container and Compose logs.
+- **Accept when:**
+  - Buffer size and UTC or local time preferences survive relaunch and apply without an engine restart.
+  - Container logs and combined Compose logs use the selected limits and time zone, without increasing existing resource bounds.
+  - Log lines without usable engine timestamps remain readable.
