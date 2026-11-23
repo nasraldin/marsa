@@ -31,6 +31,10 @@ impl SystemView {
             }));
         }
 
+        self.load_component_versions(cx);
+    }
+
+    pub(super) fn load_component_versions(&mut self, cx: &Context<Self>) {
         let Some(services) = self.services.as_ref() else {
             return;
         };

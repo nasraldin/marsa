@@ -220,8 +220,10 @@ flowchart LR
 
 Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
 
-Settings → Environments opens the same editor for adding a connection or
-editing a saved or discovered environment. Saved connections can carry up to
+Settings → Environments lists the built-in Marsa engine, saved connections,
+and discovered Docker engines in one table. Test a row or use Test all to
+check the listed connections and see the result beside each engine. Add and
+Edit open the same environment editor. Saved connections can carry up to
 ten labels and an optional IPv4 or IPv6 address for the Containers published
 TCP port menu. Opening a link leaves Docker's port bindings as configured.
 

@@ -42,6 +42,7 @@ impl From<&ScreenContext<'_>> for Appearance {
     }
 }
 
+#[derive(Clone)]
 pub(super) enum EditorTarget {
     Add,
     Saved(ManagedEndpoint, Option<Arc<ExternalWorkspace>>),
