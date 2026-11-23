@@ -30,7 +30,7 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
     }
     let locale = view.locale;
     let palette = view.palette;
-    let filter = view.context_filter.read(cx);
+    let filter = view.environment.read(cx);
     let source = view
         .external_inventory
         .iter()

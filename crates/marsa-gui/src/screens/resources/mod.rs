@@ -23,7 +23,6 @@ use marsa_ui::{
         Disableable, IconName, WindowExt,
         button::{Button, ButtonVariants},
         input::InputState,
-        menu::{DropdownMenu as _, PopupMenuItem},
     },
     tokens::{
         scale::{Radius, Space},
@@ -34,7 +33,7 @@ use marsa_ui::{
 use crate::{
     screens::{
         common::{ScreenContext, align, resource_input, row, technical},
-        external_inventory::{self, ContextFilter, ExternalWorkspace},
+        external_inventory::{Environment, ExternalWorkspace},
     },
     services::Services,
 };
@@ -167,10 +166,11 @@ impl ResourcesView {
         &mut self,
         kind: ResourceKind,
         key: String,
+        endpoint: Option<ExternalEndpoint>,
         cx: &mut Context<Self>,
     ) {
         self.selection = Some((kind, key));
-        self.selected_endpoint = None;
+        self.selected_endpoint = endpoint;
         self.reveal_selection = true;
         self.form = None;
         self.logs = None;
@@ -237,21 +237,21 @@ pub(crate) fn render(
     kind: ResourceKind,
     view: &Entity<ResourcesView>,
     external: &[Arc<ExternalWorkspace>],
-    context_filter: &Entity<ContextFilter>,
+    environment: &Entity<Environment>,
     cx: &App,
 ) -> Div {
     let data = view.read(cx);
     let filter = data.filter.read(cx).value().to_lowercase();
-    let context = context_filter.read(cx);
+    let context = environment.read(cx);
     let selected_workspaces = external
         .iter()
         .filter(|workspace| context.includes_external(workspace))
         .collect::<Vec<_>>();
-    let choices = external
+    let active_source = selected_workspaces
         .iter()
-        .filter(|workspace| workspace.reachable)
-        .map(|workspace| ResourceSource::from(workspace.as_ref()))
-        .collect::<Vec<_>>();
+        .find(|workspace| workspace.reachable)
+        .map(|workspace| ResourceSource::from(workspace.as_ref()));
+    let available = context.includes_marsa() || active_source.is_some();
     let mut toolbar = logical_row(screen.locale)
         .items_center()
         .gap(px(Space::S8.pixels()))
@@ -263,77 +263,48 @@ pub(crate) fn render(
                     .prefix(IconName::Search)
                     .aria_label(message(screen.locale, gui::GUI_DESKTOP_FILTER_RESOURCES)),
             ),
-        )
-        .child(external_inventory::filter_button(
-            screen.locale,
-            context_filter,
-            external,
-            cx,
-        ));
+        );
     if let Some(action) = kind.main_action() {
-        toolbar = toolbar.child(primary_action(screen, view, action, choices.clone()));
+        toolbar = toolbar.child(primary_action(
+            screen,
+            view,
+            action,
+            active_source.clone(),
+            available,
+        ));
     }
     if kind == ResourceKind::Images {
-        toolbar = toolbar.child(primary_action(screen, view, FormKind::ImportImage, choices));
+        toolbar = toolbar.child(primary_action(
+            screen,
+            view,
+            FormKind::ImportImage,
+            active_source.clone(),
+            available,
+        ));
     }
 
     if kind == ResourceKind::Volumes {
         let service = screen.services.cloned();
         let view = view.clone();
-        let choices = selected_workspaces
-            .iter()
-            .filter(|workspace| workspace.reachable)
-            .map(|workspace| {
-                (
-                    Some(workspace.endpoint.clone()),
-                    technical(&workspace.source),
-                )
-            });
-        let options = context
-            .includes_marsa()
-            .then(|| (None, "Marsa".into()))
-            .into_iter()
-            .chain(choices)
-            .collect::<Vec<_>>();
-        let button = Button::new("measure-volume-usage")
-            .outline()
-            .h(px(Space::S36.pixels()))
-            .label(message(
-                screen.locale,
-                gui::GUI_DESKTOP_MEASURE_VOLUME_SIZES,
-            ))
-            .disabled(service.is_none() || data.volume_scanning || options.is_empty())
-            .loading(data.volume_scanning);
-        if options.len() > 1 {
-            toolbar = toolbar.child(button.icon(IconName::ChevronDown).dropdown_menu(
-                move |menu, _, _| {
-                    options.iter().fold(menu, |menu, (endpoint, label)| {
-                        let service = service.clone();
-                        let view = view.clone();
-                        let endpoint = endpoint.clone();
-                        menu.item(PopupMenuItem::new(label.clone()).on_click(move |_, _, cx| {
-                            if let Some(service) = &service {
-                                view.update(cx, |view, cx| {
-                                    view.measure_volumes(service, endpoint.clone(), cx)
-                                });
-                            }
-                        }))
-                    })
-                },
-            ));
-        } else {
-            let endpoint = options
-                .into_iter()
-                .next()
-                .and_then(|(endpoint, _)| endpoint);
-            toolbar = toolbar.child(button.on_click(move |_, _, cx| {
-                if let Some(service) = &service {
-                    view.update(cx, |view, cx| {
-                        view.measure_volumes(service, endpoint.clone(), cx)
-                    });
-                }
-            }));
-        }
+        let endpoint = active_source.map(|source| source.endpoint);
+        toolbar = toolbar.child(
+            Button::new("measure-volume-usage")
+                .outline()
+                .h(px(Space::S36.pixels()))
+                .label(message(
+                    screen.locale,
+                    gui::GUI_DESKTOP_MEASURE_VOLUME_SIZES,
+                ))
+                .disabled(service.is_none() || data.volume_scanning || !available)
+                .loading(data.volume_scanning)
+                .on_click(move |_, _, cx| {
+                    if let (true, Some(service)) = (available, &service) {
+                        view.update(cx, |view, cx| {
+                            view.measure_volumes(service, endpoint.clone(), cx)
+                        });
+                    }
+                }),
+        );
     }
     let columns = Columns::for_kind(screen, kind);
     let mut resources = if context.includes_marsa() {
@@ -459,7 +430,8 @@ fn primary_action(
     screen: &ScreenContext<'_>,
     view: &Entity<ResourcesView>,
     action: FormKind,
-    external: Vec<ResourceSource>,
+    source: Option<ResourceSource>,
+    available: bool,
 ) -> impl marsa_ui::gpui::IntoElement {
     let state = view.clone();
     let locale = screen.locale;
@@ -473,44 +445,13 @@ fn primary_action(
     .h(px(Space::S36.pixels()))
     .rounded(px(Radius::R8.pixels()))
     .label(title)
-    .disabled(service.is_none());
-    if !external.is_empty() {
-        return button
-            .icon(IconName::ChevronDown)
-            .dropdown_menu(move |menu, _, _| {
-                std::iter::once(None)
-                    .chain(external.iter().cloned().map(Some))
-                    .fold(menu, |menu, source| {
-                        let badge = source
-                            .as_ref()
-                            .map_or_else(|| "Marsa".into(), |source| source.badge.clone());
-                        let state = state.clone();
-                        let service = service.clone();
-                        let action = action.clone();
-                        menu.item(PopupMenuItem::new(badge).on_click(move |_, window, cx| {
-                            if let Some(service) = &service {
-                                state.update(cx, |state, cx| {
-                                    state.open_form(
-                                        (action.clone(), source.clone()),
-                                        locale,
-                                        palette,
-                                        Arc::clone(service),
-                                        window,
-                                        cx,
-                                    )
-                                });
-                            }
-                        }))
-                    })
-            })
-            .into_any_element();
-    }
+    .disabled(service.is_none() || !available);
     button
         .on_click(move |_, window, cx| {
-            if let Some(service) = &service {
+            if let (true, Some(service)) = (available, &service) {
                 state.update(cx, |state, cx| {
                     state.open_form(
-                        (action.clone(), None),
+                        (action.clone(), source.clone()),
                         locale,
                         palette,
                         Arc::clone(service),

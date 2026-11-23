@@ -68,7 +68,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     let locale = screen.locale;
     let palette = screen.palette;
     let mode = view.mode;
-    let filter = view.context_filter.read(cx);
+    let filter = view.environment.read(cx);
     let mut rows = if filter.includes_marsa() {
         collect_rows(view, &view.state.containers(), None)
     } else {
@@ -163,12 +163,6 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
             } else {
                 46.
             }));
-    toolbar = toolbar.child(super::super::external_inventory::filter_button(
-        locale,
-        &view.context_filter,
-        &view.external_inventory,
-        cx,
-    ));
     let groups = rows
         .iter()
         .filter_map(|entry| match entry {

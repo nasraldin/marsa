@@ -4,18 +4,19 @@ use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken,
     gpui::{
-        Context, Div, FontWeight, InteractiveElement, ParentElement, StatefulInteractiveElement,
-        Styled, div, img, prelude::FluentBuilder, px, svg,
+        Anchor, Context, Div, FontWeight, InteractiveElement, ParentElement,
+        StatefulInteractiveElement, Styled, div, img, prelude::FluentBuilder, px, svg,
     },
     gpui_component::{
         Icon, IconName, Selectable,
         button::{Button, ButtonVariants},
+        menu::{DropdownMenu as _, PopupMenuItem},
     },
 };
 
 use crate::screens::common::{align, color, row};
 
-use super::{Desktop, navigation::Route, status};
+use super::{Desktop, Environment, navigation::Route, status};
 
 pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
     let locale = desktop.locale;
@@ -152,13 +153,23 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         .child(footer)
 }
 
-fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> Button {
+fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::gpui::IntoElement {
     let locale = desktop.locale;
     let palette = desktop.palette;
     let engine = desktop.context_engine(cx);
-    let context = desktop.context_label(cx);
+    let current = desktop.environment.read(cx).clone();
+    let context = current.display();
     let label = gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale);
     let description = format!("{label}: {context} · {}", status::text(locale, engine));
+    let choices = std::iter::once(Environment::Marsa)
+        .chain(
+            desktop
+                .external_inventory
+                .iter()
+                .map(|workspace| Environment::from(workspace.as_ref())),
+        )
+        .collect::<Vec<_>>();
+    let desktop_entity = cx.entity().downgrade();
     let button = Button::new("sidebar-engine-state")
         .ghost()
         .w_full()
@@ -167,38 +178,64 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> Button {
         .border_color(color(palette, ColorToken::GlassEdge))
         .bg(color(palette, ColorToken::GlassControl))
         .accessibility_label(description.clone())
-        .tooltip(description)
-        .on_click(cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx)));
-    if desktop.collapsed {
-        return button.h(px(36.)).child(
+        .tooltip(description);
+    let button = if desktop.collapsed {
+        button.h(px(36.)).child(
             svg()
                 .path("icons/server.svg")
                 .size(px(17.))
                 .text_color(color(palette, status::foreground(engine))),
-        );
-    }
-
-    button.h(px(52.)).px_2().child(
-        row(locale)
-            .w_full()
-            .gap_2()
-            .child(
-                align(div().min_w_0().flex_1().flex().flex_col().gap_1(), locale)
-                    .child(status::inline_badge(locale, palette, engine))
-                    .child(
-                        div()
-                            .truncate()
-                            .text_xs()
-                            .text_color(color(palette, ColorToken::TextMuted))
-                            .child(context),
-                    ),
+        )
+    } else {
+        button.h(px(52.)).px_2().child(
+            row(locale)
+                .w_full()
+                .gap_2()
+                .child(
+                    align(div().min_w_0().flex_1().flex().flex_col().gap_1(), locale)
+                        .child(status::inline_badge(locale, palette, engine))
+                        .child(
+                            div()
+                                .truncate()
+                                .text_xs()
+                                .text_color(color(palette, ColorToken::TextMuted))
+                                .child(context),
+                        ),
+                )
+                .child(
+                    Icon::new(IconName::ChevronUp)
+                        .size(px(14.))
+                        .text_color(color(palette, ColorToken::TextMuted)),
+                ),
+        )
+    };
+    let anchor = match locale {
+        marsa_ui::Locale::Arabic => Anchor::BottomRight,
+        marsa_ui::Locale::EnglishUs => Anchor::BottomLeft,
+    };
+    button.dropdown_menu_with_anchor(anchor, move |menu, _, _| {
+        let menu = choices.iter().fold(menu, |menu, choice| {
+            let picked = choice.clone();
+            let desktop = desktop_entity.clone();
+            menu.item(
+                PopupMenuItem::new(choice.display())
+                    .checked(*choice == current)
+                    .on_click(move |_, _, cx| {
+                        let _ = desktop.update(cx, |desktop, cx| {
+                            desktop.select_environment(picked.clone(), cx)
+                        });
+                    }),
             )
-            .child(
-                Icon::new(IconName::ChevronRight)
-                    .size(px(14.))
-                    .text_color(color(palette, ColorToken::TextMuted)),
+        });
+        let desktop = desktop_entity.clone();
+        menu.separator().item(
+            PopupMenuItem::new(gui::GUI_ENVIRONMENT_MANAGE.text(locale)).on_click(
+                move |_, _, cx| {
+                    let _ = desktop.update(cx, |desktop, cx| desktop.open_contexts(cx));
+                },
             ),
-    )
+        )
+    })
 }
 
 fn route_icon_color(route: Route, selected: bool) -> ColorToken {

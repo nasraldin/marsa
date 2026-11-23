@@ -300,3 +300,59 @@ Qualification used two isolated Unix test engines and an offline registered cont
   - Toasts remain keyboard accessible and the sidebar status goes directly to the context list.
 
 The signed desktop was reviewed in English light, English dark, Arabic light, and Arabic dark using isolated preferences. The context card opened Docker settings, the context filter isolated the selected source, and the deployment surfaced a dismissible toast.
+
+### M7-19 Active Docker environment
+
+- **Status:** in progress
+- **Depends on:** M7-18
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Replace page-level context filters with an app-wide selection in the sidebar. Persist the selection and resolve external engines by both name and address. Keep each action pinned to the endpoint used to read the resource. Keep Marsa VM controls scoped to Marsa.
+- **Deliver:** Environment switcher, scoped resource lists and commands, and an external overview with resource counts and connection status.
+- **Accept when:**
+  - Switching between stopped Marsa and reachable Lima changes the overview and resource action destinations. Both appear in the sidebar menu in English light, English dark, Arabic light, and Arabic dark.
+  - The selected Lima environment survives relaunch. An unavailable selection does not route an operation to Marsa.
+  - Search results and resource details carry the source endpoint. Existing per-row source badges remain visible.
+
+### M7-20 Manage Docker environments
+
+- **Status:** todo
+- **Depends on:** M7-19
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Add, edit, and test Marsa-managed Docker endpoints. Show verified engine identity and connection status. Keep manual connection settings distinct from discovered Docker CLI contexts.
+- **Deliver:** Environment settings with input validation, connection testing, and confirmation before removing saved configurations.
+- **Accept when:**
+  - Unix, SSH, and mutual TLS endpoints can be configured and tested with the existing endpoint trust requirements.
+  - The engine reconnects with saved settings after relaunch. Editing or removing an environment does not retarget an in-flight action.
+
+### M7-21 Observe and maintain each environment
+
+- **Status:** todo
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [13 Testing](../13-testing-and-benchmarks.md)
+- **Do:** Surface container health, engine metrics, disk accounting, and events for the selected environment. Provide per-environment update and cleanup settings, collection and retention, and notifications and reports.
+- **Deliver:** Environment dashboard metrics, activity, and maintenance controls.
+- **Accept when:**
+  - The dashboard and activity views are fed by the selected engine. They identify unavailable measurements and can recover from a disconnect.
+  - A maintenance request targets the confirmed engine, previews destructive effects, and reports its outcome.
+
+### M7-22 Configure software sources and deployment inputs
+
+- **Status:** todo
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Manage registries, Git repositories and credentials, and supported deploy-time secret providers. Add a configurable Compose template and reusable container configuration sets.
+- **Deliver:** Settings connected to the image pull and push, container creation, and Compose deploy workflows.
+- **Accept when:**
+  - Registry and Git connection tests use the configured credentials. Deployment resolves secrets without exposing stored credentials in logs or inspection output.
+  - A new stack uses the saved template. Applying a named configuration set fills the container form and permits overrides before creation.
+
+### M7-23 Configure scanning, jobs, and desktop metadata
+
+- **Status:** todo
+- **Depends on:** M7-21
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Add image scanner settings and cache controls, system-job configuration, log and download preferences, and About details for releases and dependencies.
+- **Deliver:** Persisted settings consumed by the corresponding workflows, and About metadata from the bundled release.
+- **Accept when:**
+  - Scanner settings affect a scan, maintenance schedules affect subsequent runs, and scan retention and cache cleanup report their outcomes.
+  - Log buffer, timestamp, and download settings take effect in resource views. About shows actual version, release notes, and dependency information.

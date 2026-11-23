@@ -16,7 +16,7 @@ use marsa_ui::{
 use super::{SystemView, settings_card, settings_heading, settings_text};
 use crate::screens::{
     common::{ScreenContext, row, technical},
-    external_inventory::ContextFilter,
+    external_inventory::Environment,
     system::SelectContext,
 };
 
@@ -84,36 +84,13 @@ impl SystemView {
                 ColorToken::TextMuted,
             ));
         }
-        card = card.child(
-            row(locale)
-                .gap_2()
-                .child(
-                    Button::new("contexts-all")
-                        .outline()
-                        .label(gui::GUI_DESKTOP_ALL_CONTEXTS.text(locale))
-                        .on_click(
-                            cx.listener(|_, _, _, cx| cx.emit(SelectContext(ContextFilter::All))),
-                        ),
-                )
-                .child(
-                    Button::new("contexts-marsa")
-                        .ghost()
-                        .label("Marsa")
-                        .on_click(
-                            cx.listener(|_, _, _, cx| cx.emit(SelectContext(ContextFilter::Marsa))),
-                        ),
-                ),
-        );
         for (index, inventory) in self.external_inventory.iter().enumerate() {
             let state = if inventory.reachable {
                 gui::GUI_DESKTOP_RUNNING
             } else {
                 gui::GUI_DESKTOP_UNAVAILABLE
             };
-            let selection = ContextFilter::External {
-                endpoint: inventory.endpoint.clone(),
-                name: Arc::from(inventory.source.as_str()),
-            };
+            let selection = Environment::from(inventory.as_ref());
             card = card.child(
                 row(locale)
                     .items_center()

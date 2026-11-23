@@ -102,7 +102,7 @@ impl StatusFilter {
     }
 }
 
-use super::external_inventory::{ContextFilter, ExternalWorkspace, Workspaces};
+use super::external_inventory::{Environment, ExternalWorkspace, Workspaces};
 
 pub(crate) struct ContainerView {
     services: Option<Arc<Services>>,
@@ -110,7 +110,7 @@ pub(crate) struct ContainerView {
     palette: Palette,
     state: AppState,
     external_inventory: Workspaces,
-    context_filter: marsa_ui::gpui::Entity<ContextFilter>,
+    environment: marsa_ui::gpui::Entity<Environment>,
     _context_subscription: Subscription,
     input: Option<Entity<InputState>>,
     query: String,
@@ -143,13 +143,14 @@ impl ContainerView {
         services: Option<Arc<Services>>,
         locale: Locale,
         palette: Palette,
-        context_filter: marsa_ui::gpui::Entity<ContextFilter>,
+        environment: marsa_ui::gpui::Entity<Environment>,
         cx: &mut Context<Self>,
     ) -> Self {
         cx.on_release(|view, cx| view.terminal.close_detached(cx))
             .detach();
-        let _context_subscription = cx.observe(&context_filter, |view, _, cx| {
+        let _context_subscription = cx.observe(&environment, |view, _, cx| {
             view.selected.clear();
+            view.close_detail(cx);
             cx.notify();
         });
         let mut state = AppState::default();
@@ -185,7 +186,7 @@ impl ContainerView {
             input: None,
             query: String::new(),
             external_inventory: Arc::from([]),
-            context_filter,
+            environment,
             _context_subscription,
             filter: StatusFilter::All,
             selected: BTreeSet::new(),
@@ -272,10 +273,17 @@ impl ContainerView {
     }
 
     /// Open an existing container from the desktop command palette.
-    pub(crate) fn show_container(&mut self, id: ContainerId, cx: &mut Context<Self>) {
-        if self.state.container(&id).is_some() {
-            self.open_detail(ContainerTarget::Marsa(id), cx);
-        }
+    pub(crate) fn show_container(
+        &mut self,
+        id: ContainerId,
+        endpoint: Option<ExternalEndpoint>,
+        cx: &mut Context<Self>,
+    ) {
+        let target = match endpoint {
+            Some(endpoint) => ContainerTarget::External { id, endpoint },
+            None => ContainerTarget::Marsa(id),
+        };
+        self.open_detail(target, cx);
     }
 
     fn open_detail(&mut self, target: ContainerTarget, cx: &mut Context<Self>) {

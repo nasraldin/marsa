@@ -36,7 +36,7 @@ pub(super) fn observe_query(
                 cx.notify();
             }
             InputEvent::PressEnter { .. } => {
-                let entries = results::search(this, input.read(cx).value().as_ref());
+                let entries = results::search(this, input.read(cx).value().as_ref(), cx);
                 let index = this.palette_index.min(entries.len().saturating_sub(1));
                 if let Some(entry) = entries.into_iter().nth(index) {
                     entry.destination.run(this, window, cx);
@@ -94,7 +94,7 @@ impl Desktop {
         {
             return;
         }
-        let count = results::search(self, self.query.read(cx).value().as_ref()).len();
+        let count = results::search(self, self.query.read(cx).value().as_ref(), cx).len();
         if count > 0 {
             let index = self.palette_index.min(count - 1);
             self.palette_index = if forward {
@@ -111,7 +111,7 @@ impl Desktop {
     pub(super) fn command_palette(&self, cx: &mut Context<Self>) -> Div {
         let palette = self.palette;
         let locale = self.locale;
-        let entries = results::search(self, self.query.read(cx).value().as_ref());
+        let entries = results::search(self, self.query.read(cx).value().as_ref(), cx);
         let border = color(palette, ColorToken::BorderSubtle);
         let muted = color(palette, ColorToken::TextMuted);
         let is_empty = entries.is_empty();

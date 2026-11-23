@@ -47,7 +47,7 @@ use settings::{ResourceInputs, SettingsTab};
 
 pub(crate) struct OpenRoute(pub(crate) Route);
 
-pub(crate) struct SelectContext(pub(crate) crate::screens::external_inventory::ContextFilter);
+pub(crate) struct SelectContext(pub(crate) crate::screens::external_inventory::Environment);
 
 impl EventEmitter<SelectContext> for SystemView {}
 

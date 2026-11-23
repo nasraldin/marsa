@@ -1,6 +1,7 @@
 //! Native workspace, window commands and screen routing.
 
 mod background;
+mod environment;
 mod navigation;
 mod onboarding;
 mod palette;
@@ -34,7 +35,7 @@ use crate::{
     screens::{
         common::{ScreenContext, align, color, row},
         containers::ContainerView,
-        external_inventory::{ContextFilter, Workspaces},
+        external_inventory::{Environment, ExternalWorkspace, Workspaces},
         resources::{self, ResourceKind, ResourcesView},
         system::{OpenRoute, SelectContext, SystemView},
     },
@@ -79,7 +80,7 @@ pub(crate) struct Desktop {
     accent: AccentColor,
     state: AppState,
     external_inventory: Workspaces,
-    context_filter: Entity<ContextFilter>,
+    environment: Entity<Environment>,
     _context_subscription: Subscription,
     _context_picker_subscription: Subscription,
     services: Option<Arc<Services>>,
@@ -110,25 +111,23 @@ impl Desktop {
         window.on_next_frame(move |window, cx| initial_focus.focus(window, cx));
         let services = session::attach(window, locale, cx);
         let palette = palette_for(window, Theme::System);
-        let context_filter = cx.new(|_| ContextFilter::default());
-        let _context_subscription = cx.observe(&context_filter, |_, _, cx| cx.notify());
+        let environment = cx.new(|_| Environment::load());
+        let _context_subscription = cx.observe(&environment, |this, environment, cx| {
+            environment.read(cx).save();
+            this.resources.update(cx, |view, _| view.leave());
+            this.palette_index = 0;
+            this.system
+                .update(cx, |view, cx| view.refresh_external_inventory(cx));
+            cx.notify();
+        });
         let containers = cx.new(|cx| {
-            ContainerView::new(
-                services.clone(),
-                locale,
-                palette,
-                context_filter.clone(),
-                cx,
-            )
+            ContainerView::new(services.clone(), locale, palette, environment.clone(), cx)
         });
         let resources = cx.new(|cx| ResourcesView::new(window, cx));
         let system = cx.new(|cx| SystemView::new(services.clone(), window, cx));
         let _context_picker_subscription =
             cx.subscribe(&system, |this, _, SelectContext(selection), cx| {
-                this.context_filter.update(cx, |filter, cx| {
-                    *filter = selection.clone();
-                    cx.notify();
-                });
+                this.select_environment(selection.clone(), cx);
             });
         let query = cx.new(|cx| InputState::new(window, cx));
         let _resource_subscription = cx.subscribe(
@@ -226,7 +225,7 @@ impl Desktop {
             accent: AccentColor::MarsaBlue,
             state,
             external_inventory: Arc::from([]),
-            context_filter,
+            environment,
             _context_subscription,
             _context_picker_subscription,
             services,
@@ -255,28 +254,32 @@ impl Desktop {
         self.state.engine().map(|engine| engine.state())
     }
 
-    fn context_label(&self, cx: &App) -> gpui::SharedString {
-        match self.context_filter.read(cx) {
-            ContextFilter::All | ContextFilter::Marsa => "marsa".into(),
-            filter => filter.display(self.locale),
-        }
+    fn active_workspace(&self, cx: &App) -> Option<&ExternalWorkspace> {
+        let environment = self.environment.read(cx);
+        self.external_inventory
+            .iter()
+            .find(|workspace| workspace.reachable && environment.includes_external(workspace))
+            .map(Arc::as_ref)
     }
 
     fn context_engine(&self, cx: &App) -> Option<EngineState> {
-        let ContextFilter::External { endpoint, .. } = self.context_filter.read(cx) else {
+        if self.environment.read(cx).includes_marsa() {
             return self.engine();
-        };
-        Some(
-            if self
-                .external_inventory
-                .iter()
-                .any(|workspace| &workspace.endpoint == endpoint && workspace.reachable)
-            {
-                EngineState::Ready
-            } else {
-                EngineState::Failed
-            },
-        )
+        }
+        Some(if self.active_workspace(cx).is_some() {
+            EngineState::Ready
+        } else {
+            EngineState::Failed
+        })
+    }
+
+    fn select_environment(&mut self, environment: Environment, cx: &mut Context<Self>) {
+        self.environment.update(cx, |current, cx| {
+            if *current != environment {
+                *current = environment;
+                cx.notify();
+            }
+        });
     }
 
     fn open_contexts(&mut self, cx: &mut Context<Self>) {
@@ -303,11 +306,15 @@ impl Desktop {
             view.enter(route, cx);
             if matches!(
                 route,
-                Route::Containers
+                Route::Overview
+                    | Route::Containers
                     | Route::Images
                     | Route::Volumes
                     | Route::Networks
                     | Route::Compose
+                    | Route::Machine
+                    | Route::Disk
+                    | Route::Activity
             ) {
                 view.refresh_external_inventory(cx);
             }
@@ -321,6 +328,9 @@ impl Desktop {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.environment.read(cx).includes_marsa() {
+            return;
+        }
         self.palette_open = false;
         self.palette_previous_focus = None;
         self.system
@@ -357,8 +367,9 @@ impl Render for Desktop {
             services: self.services.as_ref(),
         };
         let route = self.route;
-        let failed = (route == Route::Machine
-            || route == Route::Containers && self.external_inventory.is_empty())
+        let local = self.environment.read(cx).includes_marsa();
+        let failed = local
+            && matches!(route, Route::Machine | Route::Containers)
             && self.engine() == Some(EngineState::Failed);
         let sidebar = sidebar::render(self, cx);
         let header = row(self.locale)
@@ -381,6 +392,8 @@ impl Render for Desktop {
                             .text_color(color(palette, ColorToken::TextMuted))
                             .child(if failed {
                                 gui::GUI_SYSTEM_ENGINE_FAILED_SUBTITLE.text(self.locale)
+                            } else if !local && route != Route::Settings {
+                                gui::GUI_ENVIRONMENT_SCOPE.text(self.locale)
                             } else {
                                 route.description(self.locale)
                             }),
@@ -398,7 +411,8 @@ impl Render for Desktop {
                     .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx))),
             )
             .children(
-                (route == Route::Overview
+                (local
+                    && route == Route::Overview
                     && matches!(
                         self.engine(),
                         Some(EngineState::Stopped | EngineState::Failed)
@@ -432,6 +446,14 @@ impl Render for Desktop {
             self.system.update(cx, |view, cx| {
                 view.failed_engine(&screen, cx).into_any_element()
             })
+        } else if !local
+            && (self.active_workspace(cx).is_none() && route != Route::Settings
+                || matches!(
+                    route,
+                    Route::Overview | Route::Machine | Route::Activity | Route::Disk
+                ))
+        {
+            self.external_screen(route, &screen, cx).into_any_element()
         } else {
             match route {
                 Route::Containers => self.containers.clone().into_any_element(),
@@ -447,7 +469,7 @@ impl Render for Desktop {
                         kind,
                         &self.resources,
                         &self.external_inventory,
-                        &self.context_filter,
+                        &self.environment,
                         cx,
                     )
                     .into_any_element()

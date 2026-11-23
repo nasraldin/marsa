@@ -1,9 +1,12 @@
 //! Command palette actions and bounded entries from the current resource snapshot.
 
-use marsa_client::{api::EngineState, docker::ContainerId};
+use marsa_client::{
+    api::EngineState,
+    docker::{ContainerId, ExternalEndpoint},
+};
 use marsa_ui::{
     Locale,
-    gpui::{Context, Window},
+    gpui::{App, Context, Window},
     gui_keys as gui,
 };
 
@@ -19,8 +22,8 @@ pub(super) enum Destination {
     Engine(EngineAction),
     Diagnostics,
     Setup,
-    Container(ContainerId),
-    Resource(ResourceKind, String),
+    Container(ContainerId, Option<ExternalEndpoint>),
+    Resource(ResourceKind, String, Option<ExternalEndpoint>),
 }
 
 impl Destination {
@@ -36,17 +39,17 @@ impl Destination {
                     .update(cx, |system, cx| system.collect_diagnostics(cx));
             }
             Self::Setup => desktop.begin_setup(cx),
-            Self::Container(id) => {
+            Self::Container(id, endpoint) => {
                 desktop.navigate(Route::Containers, cx);
                 desktop
                     .containers
-                    .update(cx, |view, cx| view.show_container(id, cx));
+                    .update(cx, |view, cx| view.show_container(id, endpoint, cx));
             }
-            Self::Resource(kind, key) => {
+            Self::Resource(kind, key, endpoint) => {
                 desktop.navigate(resource_route(kind), cx);
                 desktop
                     .resources
-                    .update(cx, |view, cx| view.show_resource(kind, key, cx));
+                    .update(cx, |view, cx| view.show_resource(kind, key, endpoint, cx));
             }
         }
     }
@@ -60,8 +63,10 @@ pub(super) struct Entry {
     pub(super) destination: Destination,
 }
 
-pub(super) fn search(desktop: &Desktop, value: &str) -> Vec<Entry> {
+pub(super) fn search(desktop: &Desktop, value: &str, cx: &App) -> Vec<Entry> {
     let locale = desktop.locale;
+    let local = desktop.environment.read(cx).includes_marsa();
+    let engine = local.then(|| desktop.engine()).flatten();
     let value = value.trim().to_lowercase();
     let mut actions = vec![
         route_action(Route::Containers, locale),
@@ -69,7 +74,7 @@ pub(super) fn search(desktop: &Desktop, value: &str) -> Vec<Entry> {
         route_action(Route::Settings, locale),
     ];
     if matches!(
-        desktop.engine(),
+        engine,
         Some(EngineState::Ready | EngineState::Idle | EngineState::Paused)
     ) {
         actions.push(action(
@@ -77,17 +82,14 @@ pub(super) fn search(desktop: &Desktop, value: &str) -> Vec<Entry> {
             "icons/rotate-cw.svg",
             Destination::Engine(EngineAction::Restart),
         ));
-    } else if matches!(
-        desktop.engine(),
-        Some(EngineState::Stopped | EngineState::Failed)
-    ) {
+    } else if matches!(engine, Some(EngineState::Stopped | EngineState::Failed)) {
         actions.push(action(
             gui::GUI_PALETTE_START.text(locale),
             "icons/play.svg",
             Destination::Engine(EngineAction::Start),
         ));
     }
-    if desktop.state.daemon().is_some() {
+    if local && desktop.state.daemon().is_some() {
         actions.push(action(
             gui::GUI_DESKTOP_COLLECT_DIAGNOSTICS.text(locale),
             "icons/download.svg",
@@ -100,7 +102,7 @@ pub(super) fn search(desktop: &Desktop, value: &str) -> Vec<Entry> {
     }
 
     if matches!(
-        desktop.engine(),
+        engine,
         Some(EngineState::Ready | EngineState::Idle | EngineState::Paused)
     ) {
         actions.push(action(
@@ -130,7 +132,7 @@ pub(super) fn search(desktop: &Desktop, value: &str) -> Vec<Entry> {
                 .to_lowercase()
                 .contains(&value)
     });
-    append_resources(desktop, &value, &mut actions);
+    append_resources(desktop, &value, &mut actions, cx);
     actions
 }
 
@@ -173,9 +175,15 @@ fn action_title(destination: &Destination, locale: Locale) -> String {
     text.into()
 }
 
-fn append_resources(desktop: &Desktop, value: &str, entries: &mut Vec<Entry>) {
+fn append_resources(desktop: &Desktop, value: &str, entries: &mut Vec<Entry>, cx: &App) {
     let locale = desktop.locale;
-    let state = &desktop.state;
+    let (state, endpoint) = if desktop.environment.read(cx).includes_marsa() {
+        (&desktop.state, None)
+    } else if let Some(workspace) = desktop.active_workspace(cx) {
+        (&workspace.state, Some(workspace.endpoint.clone()))
+    } else {
+        return;
+    };
 
     fn contains(text: &str, value: &str) -> bool {
         text.to_lowercase().contains(value)
@@ -205,7 +213,7 @@ fn append_resources(desktop: &Desktop, value: &str, entries: &mut Vec<Entry>) {
                     name,
                     Route::Containers,
                     locale,
-                    Destination::Container(container.id.clone()),
+                    Destination::Container(container.id.clone(), endpoint.clone()),
                 )
             })
         })
@@ -226,7 +234,7 @@ fn append_resources(desktop: &Desktop, value: &str, entries: &mut Vec<Entry>) {
                 name,
                 Route::Images,
                 locale,
-                Destination::Resource(ResourceKind::Images, key),
+                Destination::Resource(ResourceKind::Images, key, endpoint.clone()),
             ))
         }))
         .chain(
@@ -238,7 +246,11 @@ fn append_resources(desktop: &Desktop, value: &str, entries: &mut Vec<Entry>) {
                         &volume.name,
                         Route::Volumes,
                         locale,
-                        Destination::Resource(ResourceKind::Volumes, volume.name.clone()),
+                        Destination::Resource(
+                            ResourceKind::Volumes,
+                            volume.name.clone(),
+                            endpoint.clone(),
+                        ),
                     )
                 }),
         )
@@ -251,7 +263,11 @@ fn append_resources(desktop: &Desktop, value: &str, entries: &mut Vec<Entry>) {
                         &network.name,
                         Route::Networks,
                         locale,
-                        Destination::Resource(ResourceKind::Networks, network.id.clone()),
+                        Destination::Resource(
+                            ResourceKind::Networks,
+                            network.id.clone(),
+                            endpoint.clone(),
+                        ),
                     )
                 }),
         )
@@ -264,7 +280,11 @@ fn append_resources(desktop: &Desktop, value: &str, entries: &mut Vec<Entry>) {
                         &project.name,
                         Route::Compose,
                         locale,
-                        Destination::Resource(ResourceKind::Compose, project.name.clone()),
+                        Destination::Resource(
+                            ResourceKind::Compose,
+                            project.name.clone(),
+                            endpoint.clone(),
+                        ),
                     )
                 }),
         );
