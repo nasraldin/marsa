@@ -41,7 +41,7 @@ impl TerminalSize {
         Ok(Self { columns, rows })
     }
 
-    fn docker(self) -> [u16; 2] {
+    pub(super) fn docker(self) -> [u16; 2] {
         [self.rows, self.columns]
     }
 }
@@ -70,7 +70,14 @@ struct ExecCreated {
 }
 
 /// The authenticated bidirectional session. Dropping it closes the attachment.
-pub struct ExecSession {
+pub struct ExecSession(ExecConnection);
+
+enum ExecConnection {
+    Docker(Box<DockerExecSession>),
+    Edge(super::hawser::EdgeTerminal),
+}
+
+struct DockerExecSession {
     docker: DockerClient,
     id: ContainerId,
     stream: TokioIo<Upgraded>,
@@ -87,6 +94,17 @@ impl DockerClient {
         id: &ContainerId,
         size: TerminalSize,
     ) -> Result<ExecSession, DockerError> {
+        if let super::DockerScope::External {
+            endpoint,
+            containers: true,
+            ..
+        } = &self.scope
+            && let Some(edge) = endpoint.hawser_edge()
+        {
+            return Ok(ExecSession(ExecConnection::Edge(
+                edge.open_terminal(id, size).await?,
+            )));
+        }
         let path = format!("/containers/{}/exec", id.as_str());
         let created: ExecCreated = self
             .post_json(
@@ -143,11 +161,13 @@ impl DockerClient {
         })
         .await
         .map_err(|_| DockerError::Timeout)??;
-        Ok(ExecSession {
-            docker: self.clone(),
-            id: created.id,
-            stream,
-        })
+        Ok(ExecSession(ExecConnection::Docker(Box::new(
+            DockerExecSession {
+                docker: self.clone(),
+                id: created.id,
+                stream,
+            },
+        ))))
     }
 }
 
@@ -161,7 +181,13 @@ impl ExecSession {
         mut input: Receiver<ExecControl>,
         output: &Sender<Result<ExecOutput, DockerError>>,
     ) -> Result<(), DockerError> {
-        let Self { docker, id, stream } = self;
+        let (docker, id, stream) = match self.0 {
+            ExecConnection::Docker(session) => {
+                let DockerExecSession { docker, id, stream } = *session;
+                (docker, id, stream)
+            }
+            ExecConnection::Edge(terminal) => return terminal.drive(input, output).await,
+        };
         let (mut reader, mut writer) = split(stream);
         if !output.send(Ok(ExecOutput::Opened)).await {
             return Ok(());

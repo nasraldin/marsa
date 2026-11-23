@@ -41,7 +41,7 @@ pub(super) async fn list(path: &Path) -> io::Result<BTreeMap<String, String>> {
     serde_json::from_slice(&output).map_err(|_| failure())
 }
 
-pub(super) async fn store(path: &Path, credential: &Credential) -> io::Result<()> {
+pub(in crate::docker) async fn store(path: &Path, credential: &Credential) -> io::Result<()> {
     let input = serde_json::to_vec(credential).map_err(|_| failure())?;
     run(path, "store", &input, CREDENTIAL_LIMIT)
         .await?
@@ -49,7 +49,7 @@ pub(super) async fn store(path: &Path, credential: &Credential) -> io::Result<()
     Ok(())
 }
 
-pub(super) async fn erase(path: &Path, key: &str) -> io::Result<()> {
+pub(in crate::docker) async fn erase(path: &Path, key: &str) -> io::Result<()> {
     run(path, "erase", key.as_bytes(), CREDENTIAL_LIMIT).await?;
     Ok(())
 }

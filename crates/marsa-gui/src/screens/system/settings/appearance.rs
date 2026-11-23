@@ -6,7 +6,7 @@ use marsa_ui::{
     preferences::{TerminalFont, TimeFormat, UiFont, UiFontSize},
 };
 
-use super::{SystemView, setting_picker, setting_row};
+use super::{SystemView, setting_choices, setting_row};
 use crate::screens::common::ScreenContext;
 
 impl SystemView {
@@ -30,8 +30,7 @@ impl SystemView {
                 screen,
                 font,
                 gui::GUI_SETTINGS_UI_FONT_DESCRIPTION.text(locale),
-                setting_picker(
-                    screen,
+                setting_choices(
                     ("ui-font", font),
                     [
                         (UiFont::IbmPlex, gui::GUI_SETTINGS_UI_FONT_PLEX.text(locale)),
@@ -50,8 +49,7 @@ impl SystemView {
                 screen,
                 size,
                 gui::GUI_SETTINGS_UI_FONT_SIZE_DESCRIPTION.text(locale),
-                setting_picker(
-                    screen,
+                setting_choices(
                     ("ui-font-size", size),
                     [
                         (
@@ -77,8 +75,7 @@ impl SystemView {
                 screen,
                 terminal,
                 gui::GUI_SETTINGS_TERMINAL_FONT_DESCRIPTION.text(locale),
-                setting_picker(
-                    screen,
+                setting_choices(
                     ("terminal-font", terminal),
                     [
                         (
@@ -100,8 +97,7 @@ impl SystemView {
                 screen,
                 time,
                 gui::GUI_SETTINGS_TIME_FORMAT_DESCRIPTION.text(locale),
-                setting_picker(
-                    screen,
+                setting_choices(
                     ("time-format", time),
                     [
                         (

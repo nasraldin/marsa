@@ -3,6 +3,7 @@
 mod actions;
 mod contexts;
 mod environment_report;
+mod hawser;
 mod images;
 mod managed;
 mod registry;
@@ -36,6 +37,7 @@ mod lima;
 mod overview;
 pub use container_files::{ContainerFileFormat, ContainerPath};
 pub use environment_report::{DockerActivity, EnvironmentReport, EnvironmentReportContainer};
+pub use hawser::HAWSER_EDGE_PATH;
 pub use inventory::{
     ExternalEndpoint, ExternalInventory, discover_external_inventories, discover_external_inventory,
 };

@@ -457,9 +457,15 @@ impl Render for Desktop {
                         Some(EngineState::Stopped | EngineState::Failed)
                     ))
                 .then(|| {
+                    let label = gui::GUI_DESKTOP_START_MACHINE.text(self.locale);
                     Button::new("start-engine-from-overview")
-                        .primary()
-                        .label(gui::GUI_DESKTOP_START_MACHINE.text(self.locale))
+                        .ghost()
+                        .size(px(36.))
+                        .p_0()
+                        .bg(color(palette, ColorToken::GlassControl))
+                        .accessibility_label(label)
+                        .tooltip(label)
+                        .child(IconName::Play)
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.request_engine(EngineAction::Start, window, cx);
                         }))
@@ -555,6 +561,11 @@ impl Render for Desktop {
             .flex_1()
             .min_h_0()
             .child(view);
+        let content = if route == Route::Settings {
+            content.px_3()
+        } else {
+            content
+        };
         let content = if route == Route::Containers && !failed {
             content.overflow_hidden().into_any_element()
         } else {

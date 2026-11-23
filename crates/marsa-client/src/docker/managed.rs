@@ -3,7 +3,7 @@
 use std::{
     collections::HashSet,
     io,
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
 };
 
@@ -16,6 +16,7 @@ use crate::{docker_socket_path, platform, request_id};
 use super::{
     DockerError, ExternalEndpoint,
     contexts::{SshEndpoint, TlsEndpoint},
+    hawser::{self, EdgeEndpoint, StandardEndpoint},
     inventory::ExternalTransport,
 };
 
@@ -80,6 +81,28 @@ pub enum ManagedEndpointTransport {
         /// Absolute path to the owner-private client key file.
         key: PathBuf,
     },
+    /// Connect to a Hawser Standard agent over verified HTTPS.
+    HawserStandard {
+        /// Exact HTTPS authority, including the port if it differs from 2376.
+        address: String,
+        /// Absolute path to the CA trusted for this agent.
+        ca: PathBuf,
+        /// Opaque Keychain reference, present only for a saved credential.
+        credential: Option<String>,
+    },
+    /// Accept a Hawser Edge agent on the configured TLS WebSocket listener.
+    HawserEdge {
+        /// Local interface address and unprivileged port to listen on.
+        bind: SocketAddr,
+        /// Absolute path to the certificate chain presented to the agent.
+        cert: PathBuf,
+        /// Absolute path to the owner-private TLS server key.
+        key: PathBuf,
+        /// Exact upstream `AGENT_ID` value required in the handshake.
+        agent_id: String,
+        /// Opaque Keychain reference, present only for a saved credential.
+        credential: Option<String>,
+    },
 }
 
 /// Engine identity returned over an authenticated Docker connection.
@@ -122,6 +145,16 @@ pub enum ManagedEndpointError {
     /// A TLS credential path is invalid.
     #[error("expected absolute paths to Docker TLS credential files")]
     InvalidCredentialPath,
+    /// A Hawser token was missing, invalid, or could not be retrieved from Keychain.
+    #[error("invalid or unavailable Hawser credential")]
+    HawserCredential,
+    /// The Edge listener could not be configured, bound, or reached by a verified agent.
+    #[error("Hawser Edge connection unavailable")]
+    HawserEdge(#[source] io::Error),
+    /// Credential cleanup failed after committing a settings change.
+    #[error("settings were saved, but the previous Hawser credential remains in Keychain")]
+    HawserCredentialCleanup,
+
     /// The Unix socket belongs to Marsa's built-in environment.
     #[error("Marsa's own Docker socket is already configured")]
     LocalMarsa,
@@ -196,22 +229,68 @@ impl ManagedEndpointConfig {
                     Err(ManagedEndpointError::InvalidCredentialPath)
                 }
             }
+            ManagedEndpointTransport::HawserStandard {
+                address,
+                ca,
+                credential,
+            } if valid_text(address, ADDRESS_LIMIT)
+                && hawser::standard_address(address).is_ok() =>
+            {
+                Self::validate_hawser(&[ca], credential)
+            }
+            ManagedEndpointTransport::HawserEdge {
+                bind,
+                cert,
+                key,
+                agent_id,
+                credential,
+            } if bind.port() >= 1024 && hawser::valid_agent_id(agent_id) => {
+                Self::validate_hawser(&[cert, key], credential)
+            }
             _ => Err(ManagedEndpointError::InvalidAddress),
         }
     }
 
+    fn validate_hawser(paths: &[&PathBuf], credential: &Option<String>) -> Result<()> {
+        if !paths.iter().all(|path| valid_path(path)) {
+            return Err(ManagedEndpointError::InvalidCredentialPath);
+        }
+        if credential
+            .as_deref()
+            .is_some_and(|reference| !valid_id(&format!("{MANAGED_PREFIX}{reference}")))
+        {
+            return Err(ManagedEndpointError::HawserCredential);
+        }
+        Ok(())
+    }
+
     /// Authenticate a draft and read Docker's identity without saving the settings.
     pub async fn test(&self) -> Result<VerifiedEngine> {
+        self.test_with_hawser_token(None).await
+    }
+
+    /// Verify the draft using an unsaved Hawser token, or use its current Keychain reference.
+    pub async fn test_with_hawser_token(&self, token: Option<String>) -> Result<VerifiedEngine> {
         check_user()?;
-        let mut endpoint = ExternalEndpoint::managed(
-            format!("{MANAGED_PREFIX}draft"),
-            self.capture_transport().await?,
-        );
+        let transport = self.capture_transport_with_token(token).await?;
+        if let ExternalTransport::HawserEdge(edge) = &transport {
+            edge.wait()
+                .await
+                .map_err(ManagedEndpointError::HawserEdge)?;
+        }
+        let mut endpoint = ExternalEndpoint::managed(format!("{MANAGED_PREFIX}draft"), transport);
         endpoint.pin_ssh().await;
         endpoint.verify_engine().await
     }
 
     pub(super) async fn capture_transport(&self) -> Result<ExternalTransport> {
+        self.capture_transport_with_token(None).await
+    }
+
+    async fn capture_transport_with_token(
+        &self,
+        token: Option<String>,
+    ) -> Result<ExternalTransport> {
         self.validate()?;
         match &self.transport {
             ManagedEndpointTransport::Unix { socket } => {
@@ -236,7 +315,42 @@ impl ManagedEndpointConfig {
                     .map(ExternalTransport::Tls)
                     .map_err(ManagedEndpointError::Credentials)
             }
+            ManagedEndpointTransport::HawserStandard { address, ca, .. } => {
+                let token = self.hawser_token(token).await?;
+                StandardEndpoint::load(address, ca, token)
+                    .await
+                    .map(ExternalTransport::HawserStandard)
+                    .map_err(ManagedEndpointError::Credentials)
+            }
+            ManagedEndpointTransport::HawserEdge {
+                bind,
+                cert,
+                key,
+                agent_id,
+                ..
+            } => {
+                let token = self.hawser_token(token).await?;
+                EdgeEndpoint::listen(*bind, agent_id, cert, key, &token)
+                    .await
+                    .map(ExternalTransport::HawserEdge)
+                    .map_err(ManagedEndpointError::HawserEdge)
+            }
         }
+    }
+
+    async fn hawser_token(&self, token: Option<String>) -> Result<String> {
+        if let Some(token) = token {
+            return hawser::valid_token(&token)
+                .then_some(token)
+                .ok_or(ManagedEndpointError::HawserCredential);
+        }
+        let (reference, target) = self
+            .transport
+            .hawser_credential()
+            .ok_or(ManagedEndpointError::HawserCredential)?;
+        hawser::load_secret(&reference, &target)
+            .await
+            .map_err(|_| ManagedEndpointError::HawserCredential)
     }
 
     async fn validate_save(&self) -> Result<()> {
@@ -246,6 +360,48 @@ impl ManagedEndpointConfig {
             external_socket(socket).await?;
         }
         Ok(())
+    }
+}
+
+impl ManagedEndpointTransport {
+    fn hawser_target(&self) -> Option<String> {
+        let target = match self {
+            Self::HawserStandard { address, ca, .. } => (address.as_str(), ca.as_path()),
+            Self::HawserEdge {
+                bind,
+                cert,
+                key,
+                agent_id,
+                ..
+            } => {
+                return serde_json::to_string(&(bind, agent_id, cert, key))
+                    .ok()
+                    .map(|json| format!("edge:{json}"));
+            }
+            _ => return None,
+        };
+        serde_json::to_string(&target)
+            .ok()
+            .map(|json| format!("standard:{json}"))
+    }
+
+    fn credential_mut(&mut self) -> Option<&mut Option<String>> {
+        match self {
+            Self::HawserStandard { credential, .. } | Self::HawserEdge { credential, .. } => {
+                Some(credential)
+            }
+            _ => None,
+        }
+    }
+
+    fn hawser_credential(&self) -> Option<(String, String)> {
+        let reference = match self {
+            Self::HawserStandard { credential, .. } | Self::HawserEdge { credential, .. } => {
+                credential.as_deref()?
+            }
+            _ => return None,
+        };
+        Some((reference.to_owned(), self.hawser_target()?))
     }
 }
 
@@ -355,49 +511,110 @@ impl ManagedEndpointStore {
 
     /// Save new settings with an independent source ID. Offline endpoints may be saved.
     pub async fn add(&self, config: ManagedEndpointConfig) -> Result<ManagedEndpoint> {
+        self.add_with_hawser_token(config, None).await
+    }
+
+    /// Save a connection and store any Hawser token in the platform credential store.
+    pub async fn add_with_hawser_token(
+        &self,
+        mut config: ManagedEndpointConfig,
+        token: Option<String>,
+    ) -> Result<ManagedEndpoint> {
         config.validate_save().await?;
         let id = request_id().map_err(ManagedEndpointError::Store)?;
+        let secret = prepare_hawser_secret(&mut config, token, None).await?;
         let entry = ManagedEndpoint {
             id: format!("{MANAGED_PREFIX}{id}"),
             config,
         };
-        self.change(|entries| {
-            if entries.len() >= MAX_ENDPOINTS || entries.iter().any(|saved| saved.id == entry.id) {
-                return Err(ManagedEndpointError::Store(io::Error::other(
-                    "managed endpoint store is full or allocated a duplicate identifier",
-                )));
-            }
-            entries.push(entry.clone());
-            Ok(entry)
-        })
-        .await
+        let result = self
+            .change(|entries| {
+                if entries.len() >= MAX_ENDPOINTS
+                    || entries.iter().any(|saved| saved.id == entry.id)
+                {
+                    return Err(ManagedEndpointError::Store(io::Error::other(
+                        "managed endpoint store is full or allocated a duplicate identifier",
+                    )));
+                }
+                entries.push(entry.clone());
+                Ok(entry)
+            })
+            .await;
+        if result.is_err()
+            && let Some(secret) = secret
+        {
+            let _ = erase_credential(secret).await;
+        }
+        result
     }
 
     /// Replace a saved endpoint's settings while preserving its source ID.
     pub async fn edit(&self, id: &str, config: ManagedEndpointConfig) -> Result<ManagedEndpoint> {
+        self.edit_with_hawser_token(id, config, None).await
+    }
+
+    /// Update the reviewed connection, replacing its Keychain credential when supplied.
+    pub async fn edit_with_hawser_token(
+        &self,
+        id: &str,
+        mut config: ManagedEndpointConfig,
+        token: Option<String>,
+    ) -> Result<ManagedEndpoint> {
         config.validate_save().await?;
-        self.change(|entries| {
-            let entry = entries
-                .iter_mut()
-                .find(|entry| entry.id == id)
-                .ok_or(ManagedEndpointError::NotFound)?;
-            entry.config = config;
-            Ok(entry.clone())
-        })
-        .await
+        let previous = self
+            .list()
+            .await?
+            .into_iter()
+            .find(|entry| entry.id == id)
+            .ok_or(ManagedEndpointError::NotFound)?;
+        let old_secret = previous.config.transport.hawser_credential();
+        let new_secret = prepare_hawser_secret(&mut config, token, old_secret.as_ref()).await?;
+        let saved_secret = config.transport.hawser_credential();
+        let result = self
+            .change(|entries| {
+                let entry = entries
+                    .iter_mut()
+                    .find(|entry| entry.id == id)
+                    .ok_or(ManagedEndpointError::NotFound)?;
+                if entry.config.transport.hawser_credential() != old_secret {
+                    return Err(ManagedEndpointError::HawserCredential);
+                }
+                entry.config = config;
+                Ok(entry.clone())
+            })
+            .await;
+        match &result {
+            Err(_) => {
+                if let Some(secret) = new_secret {
+                    let _ = erase_credential(secret).await;
+                }
+            }
+            Ok(_) => {
+                if saved_secret != old_secret
+                    && let Some(secret) = old_secret
+                {
+                    erase_credential(secret).await?;
+                }
+            }
+        }
+        result
     }
 
     /// Remove saved settings by source ID after the caller confirms removal.
     pub async fn remove(&self, id: &str) -> Result<()> {
-        self.change(|entries| {
-            let index = entries
-                .iter()
-                .position(|entry| entry.id == id)
-                .ok_or(ManagedEndpointError::NotFound)?;
-            entries.remove(index);
-            Ok(())
-        })
-        .await
+        let removed = self
+            .change(|entries| {
+                let index = entries
+                    .iter()
+                    .position(|entry| entry.id == id)
+                    .ok_or(ManagedEndpointError::NotFound)?;
+                Ok(entries.remove(index))
+            })
+            .await?;
+        if let Some(secret) = removed.config.transport.hawser_credential() {
+            erase_credential(secret).await?;
+        }
+        Ok(())
     }
 
     async fn change<T>(
@@ -431,6 +648,45 @@ impl ManagedEndpointStore {
         .map_err(ManagedEndpointError::Store)?;
         Ok(output)
     }
+}
+
+async fn prepare_hawser_secret(
+    config: &mut ManagedEndpointConfig,
+    token: Option<String>,
+    previous: Option<&(String, String)>,
+) -> Result<Option<(String, String)>> {
+    let target = config.transport.hawser_target();
+    let Some(reference) = config.transport.credential_mut() else {
+        return if token.is_none() {
+            Ok(None)
+        } else {
+            Err(ManagedEndpointError::HawserCredential)
+        };
+    };
+    let target = target.ok_or(ManagedEndpointError::InvalidCredentialPath)?;
+    if let Some(token) = token {
+        if !hawser::valid_token(&token) {
+            return Err(ManagedEndpointError::HawserCredential);
+        }
+        let next = request_id().map_err(ManagedEndpointError::Store)?;
+        hawser::save_secret(&next, &target, token)
+            .await
+            .map_err(|_| ManagedEndpointError::HawserCredential)?;
+        *reference = Some(next.clone());
+        return Ok(Some((next, target)));
+    }
+    let (old, old_target) = previous.ok_or(ManagedEndpointError::HawserCredential)?;
+    if old_target != &target || reference.as_ref().is_some_and(|reference| reference != old) {
+        return Err(ManagedEndpointError::HawserCredential);
+    }
+    *reference = Some(old.clone());
+    Ok(None)
+}
+
+async fn erase_credential(secret: (String, String)) -> Result<()> {
+    hawser::remove_secret(&secret.0, &secret.1)
+        .await
+        .map_err(|_| ManagedEndpointError::HawserCredentialCleanup)
 }
 
 fn valid_id(id: &str) -> bool {

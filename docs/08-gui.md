@@ -215,7 +215,7 @@ flowchart LR
     cd --> stats["Stats"]
     cmp --> cpd["Project detail<br/>services, logs, actions"]
     img --> imd["Image detail"]
-    set --> s1["General, Resources, Sharing,<br/>Network, Agents, Updates, About"]
+    set --> s1["General, Environments, Sharing,<br/>Registries, Agents, Updates, About"]
 ```
 
 Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
@@ -237,12 +237,31 @@ configuration for Docker CLI credentials is in Settings → Registries. Saved co
 ten labels and an optional IPv4 or IPv6 address for the Containers published
 TCP port menu. Opening a link leaves Docker's port bindings as configured.
 
+Add or edit a connection to choose Unix socket, direct SSH or mutual TLS,
+Hawser Standard, or Hawser Edge. **Test connection** verifies the selected
+engine before saving. Standard goes to the agent over verified HTTPS. Edge
+opens a TLS listener in the desktop session and waits for a configured agent
+to connect. [Hawser connection requirements](11-security.md#the-docker-socket).
+
 On macOS, a matching owner-managed Lima Docker VM exposes CPU, memory, and
 primary disk capacity in Resources, and supported host loopback access in
-Network. Stop the instance in Lima and refresh the dialog before applying
-a change. Lima takes the saved allocation on the next start and only grows
-the primary disk. Marsa also shows verified stopped Lima instances. These
-controls use separately installed Lima 2.3 or later in the 2.x series.
+Network. Start and stop the verified Lima VM from its row or the editor's
+Resources and Network pages. Stop asks for confirmation and requests a
+graceful shutdown. After stopping, the editor reloads the allocation so you
+can apply changes and start the VM again. Lima takes the saved allocation on
+the next start and only grows the primary disk. Deleting a saved connection
+removes that record and keeps its VM and Docker resources.
+
+These controls use separately installed Lima 2.3 or later in the 2.x series.
+On macOS the lifecycle process prevents elevation and launchd delegation.
+This covers the ordinary user-mode VM while letting a VM that requires a
+privileged network, an elevated block device helper, or launchd autostart
+remain controlled by Lima. See the pinned [start command], [graceful stop],
+and [privileged network reconciliation] source.
+
+[start command]: https://github.com/lima-vm/lima/blob/v2.3.0/cmd/limactl/start.go
+[graceful stop]: https://github.com/lima-vm/lima/blob/v2.3.0/pkg/instance/stop.go
+[privileged network reconciliation]: https://github.com/lima-vm/lima/blob/v2.3.0/pkg/networks/reconcile/reconcile.go
 [Primary disk resize](https://github.com/lima-vm/lima/blob/v2.3.0/website/content/en/docs/config/disk.md#resizing-the-vms-primary-disk)
 [User-mode network](https://github.com/lima-vm/lima/blob/v2.3.0/website/content/en/docs/config/network/user.md)
 

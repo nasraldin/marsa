@@ -13,7 +13,8 @@ use editor::{Editor, EditorTarget};
 use table::{ConnectionCheck, ConnectionKey, check_builtin_connection};
 
 use marsa_client::docker::{
-    ManagedEndpoint, ManagedEndpointError, ManagedEndpointStore, VerifiedEngine,
+    LimaInstance, LimaSettings, LimaSettingsError, ManagedEndpoint, ManagedEndpointError,
+    ManagedEndpointStore, VerifiedEngine,
 };
 use marsa_ui::{
     ColorToken, Locale, TextKey,
@@ -50,6 +51,7 @@ enum Feedback {
     Checked { passed: usize, total: usize },
     Saved,
     Removed,
+    Lima(bool),
     Failed(TextKey),
 }
 
@@ -59,7 +61,8 @@ enum Update {
     Checked(Vec<(ConnectionKey, ConnectionCheck)>),
     MarsaTest(bool),
     Changed(Vec<ManagedEndpoint>, Feedback),
-    Closed(Vec<ManagedEndpoint>),
+    Closed(Vec<ManagedEndpoint>, Feedback),
+    Lima(Result<LimaSettings, LimaSettingsError>, bool),
 }
 
 impl SystemView {
@@ -119,7 +122,7 @@ impl SystemView {
         let window = window.map(|window| window.window_handle());
         self.environment_settings.task = Some(cx.spawn(async move |this, cx| {
             let result = pending.result().await;
-            let close = matches!(&result, Some(Ok(Ok(Update::Closed(_)))));
+            let close = matches!(&result, Some(Ok(Ok(Update::Closed(..)))));
             let _ = this.update(cx, |this, cx| {
                 let panel = &mut this.environment_settings;
                 panel.task = None;
@@ -150,11 +153,20 @@ impl SystemView {
                         this.external_inventory_task = None;
                         this.refresh_external_inventory(cx);
                     }
-                    Some(Ok(Ok(Update::Closed(saved)))) => {
+                    Some(Ok(Ok(Update::Closed(saved, feedback)))) => {
                         panel.editor = None;
                         panel.saved = Some(saved);
                         panel.checks.clear();
-                        panel.feedback = Some(Feedback::Saved);
+                        panel.feedback = Some(feedback);
+                        this.external_inventory_task = None;
+                        this.refresh_external_inventory(cx);
+                    }
+                    Some(Ok(Ok(Update::Lima(result, running)))) => {
+                        panel.feedback = Some(match result {
+                            Ok(_) => Feedback::Lima(running),
+                            Err(error) => Feedback::Failed(vm::error_text(error)),
+                        });
+                        panel.checks.clear();
                         this.external_inventory_task = None;
                         this.refresh_external_inventory(cx);
                     }
@@ -212,6 +224,7 @@ impl SystemView {
             return;
         }
         let id = editor.id.clone();
+        let token = editor.hawser_token(cx);
         let config = match editor.config(cx) {
             Ok(config) => config,
             Err(key) => {
@@ -223,15 +236,15 @@ impl SystemView {
         self.update_environments(
             async move {
                 if test {
-                    return Ok(Update::Tested(config.test().await?));
+                    return Ok(Update::Tested(config.test_with_hawser_token(token).await?));
                 }
                 let store = ManagedEndpointStore::discover()?;
                 if let Some(id) = id {
-                    store.edit(&id, config).await?;
+                    store.edit_with_hawser_token(&id, config, token).await?;
                 } else {
-                    store.add(config).await?;
+                    store.add_with_hawser_token(config, token).await?;
                 }
-                Ok(Update::Closed(store.list().await?))
+                Ok(Update::Closed(store.list().await?, Feedback::Saved))
             },
             Some(window),
             cx,
@@ -338,27 +351,87 @@ impl SystemView {
             gui::GUI_ENVIRONMENT_REMOVE_TITLE.text(locale),
             Some(gui::GUI_ENVIRONMENT_REMOVE_HELP.text(locale)),
             &[
-                PromptButton::Ok(gui::GUI_DESKTOP_REMOVE.text(locale).into()),
                 PromptButton::Cancel(gui::GUI_DESKTOP_CANCEL.text(locale).into()),
+                PromptButton::Ok(gui::GUI_DESKTOP_REMOVE.text(locale).into()),
             ],
             cx,
         );
-        cx.spawn(async move |this, cx| {
-            if answer.await == Ok(0) {
-                let _ = this.update(cx, |this, cx| {
-                    this.update_environments(
-                        async move {
-                            let store = ManagedEndpointStore::discover()?;
-                            store.remove(&id).await?;
-                            Ok(Update::Changed(store.list().await?, Feedback::Removed))
-                        },
-                        None,
-                        cx,
-                    )
+        cx.spawn_in(window, async move |this, cx| {
+            if answer.await == Ok(1) {
+                let _ = cx.update(|window, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        let close_editor = this
+                            .environment_settings
+                            .editor
+                            .as_ref()
+                            .and_then(|editor| editor.id.as_deref())
+                            == Some(id.as_str());
+                        this.update_environments(
+                            async move {
+                                let store = ManagedEndpointStore::discover()?;
+                                store.remove(&id).await?;
+                                let saved = store.list().await?;
+                                Ok(if close_editor {
+                                    Update::Closed(saved, Feedback::Removed)
+                                } else {
+                                    Update::Changed(saved, Feedback::Removed)
+                                })
+                            },
+                            close_editor.then_some(window),
+                            cx,
+                        );
+                    });
                 });
             }
         })
         .detach();
+    }
+}
+
+fn confirm_lima_stop(
+    name: &str,
+    locale: Locale,
+    window: &mut Window,
+    cx: &mut Context<SystemView>,
+    apply: impl FnOnce(&mut SystemView, &mut Window, &mut Context<SystemView>) + 'static,
+) {
+    let title = format!(
+        "{} · {}",
+        gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOP.text(locale),
+        technical(name),
+    );
+    let answer = window.prompt(
+        PromptLevel::Warning,
+        &title,
+        Some(gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_CONFIRM.text(locale)),
+        &[
+            PromptButton::Cancel(gui::GUI_DESKTOP_CANCEL.text(locale).into()),
+            PromptButton::Ok(gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOP.text(locale).into()),
+        ],
+        cx,
+    );
+    cx.spawn_in(window, async move |this, cx| {
+        if answer.await == Ok(1) {
+            let _ = cx.update(|window, cx| {
+                let _ = this.update(cx, |this, cx| apply(this, window, cx));
+            });
+        }
+    })
+    .detach();
+}
+
+impl SystemView {
+    fn change_lima_row_state(
+        &mut self,
+        instance: LimaInstance,
+        running: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_environments(
+            async move { Ok(Update::Lima(instance.set_running(running).await, running)) },
+            None,
+            cx,
+        );
     }
 }
 
@@ -426,6 +499,7 @@ fn feedback_text(screen: &ScreenContext<'_>, feedback: &Feedback) -> Div {
         }
         Feedback::Saved => (gui::GUI_ENVIRONMENT_SAVED, ColorToken::StatusRunning),
         Feedback::Removed => (gui::GUI_ENVIRONMENT_REMOVED, ColorToken::TextMuted),
+        Feedback::Lima(running) => (vm::lima_result_key(*running), ColorToken::StatusRunning),
         Feedback::Failed(key) => (*key, ColorToken::StatusWarning),
     };
     let label = settings_text(screen, Role::Small, key.text(screen.locale), token);
@@ -456,6 +530,9 @@ fn error_text(error: &ManagedEndpointError) -> TextKey {
         ManagedEndpointError::InvalidCredentialPath | ManagedEndpointError::Credentials(_) => {
             gui::GUI_ENVIRONMENT_INVALID_CREDENTIALS
         }
+        ManagedEndpointError::HawserCredential => gui::GUI_ENVIRONMENT_HAWSER_KEYCHAIN,
+        ManagedEndpointError::HawserEdge(_) => gui::GUI_ENVIRONMENT_HAWSER_EDGE_FAILED,
+        ManagedEndpointError::HawserCredentialCleanup => gui::GUI_ENVIRONMENT_HAWSER_KEYCHAIN,
         ManagedEndpointError::Connection(_) | ManagedEndpointError::InvalidEngineIdentity => {
             gui::GUI_ENVIRONMENT_TEST_FAILED
         }

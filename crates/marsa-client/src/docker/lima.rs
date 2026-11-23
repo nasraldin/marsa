@@ -20,7 +20,10 @@ mod tests;
 const OUTPUT_LIMIT: u64 = 1024 * 1024;
 const CONFIG_LIMIT: usize = 1024 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
-static EDIT_LOCK: Mutex<()> = Mutex::const_new(());
+// Lima's graceful shutdown may spend just over six minutes waiting for the
+// guest and its host agent. Give the installed CLI time to finish that path.
+const LIFECYCLE_TIMEOUT: Duration = Duration::from_secs(400);
+static MUTATION_LOCK: Mutex<()> = Mutex::const_new(());
 
 /// A local Lima VM identified by the exact Docker socket it forwards.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +87,12 @@ pub enum LimaSettingsError {
     /// The configuration changed since it was displayed.
     #[error("Lima settings changed since they were loaded")]
     Changed,
+    /// Start and stop require Lima to report an unambiguous lifecycle state.
+    #[error("Lima must report the instance as running or stopped")]
+    LifecycleState,
+    /// The requested VM state could not be reached with unprivileged commands.
+    #[error("Lima could not complete the requested unprivileged lifecycle operation")]
+    LifecycleFailed,
     /// Lima did not complete the operation or its returned settings differed.
     #[error("Lima could not complete the settings operation")]
     CommandFailed,
@@ -111,11 +120,43 @@ impl LimaInstance {
         })
     }
 
+    /// Name of the exact Lima instance represented by this endpoint.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Read settings for the exact configured Docker socket.
     pub async fn settings(&self) -> Result<LimaSettings, LimaSettingsError> {
         self.check_target().await?;
         let lima = LimaCommand::find().await?;
         self.read(&lima).await
+    }
+
+    /// Start this validated instance or shut it down gracefully, without host elevation.
+    /// Returns the observed effective settings after the transition.
+    pub async fn set_running(&self, running: bool) -> Result<LimaSettings, LimaSettingsError> {
+        let _guard = MUTATION_LOCK.lock().await;
+        let config = self.check_target().await?;
+        let lima = LimaCommand::find().await?;
+        let current = self.read(&lima).await?;
+        let Some(arguments) = lifecycle_arguments(current, running)? else {
+            return Ok(current);
+        };
+        if self.check_target().await? != config {
+            return Err(LimaSettingsError::Changed);
+        }
+        let mut command = platform::lima_lifecycle_command(&lima.0, &self.root.join(&self.name))
+            .map_err(|_| LimaSettingsError::LifecycleFailed)?;
+        lima.configure(&mut command, &self.root);
+        command.args(arguments).args(["--", &self.name]);
+        let completed = run_bounded(command, LIFECYCLE_TIMEOUT).await.is_ok();
+        let actual = self.read(&lima).await?;
+        // Stop can finish successfully before Lima reconciles unrelated
+        // networks. In that case report the verified stopped state.
+        if (running && completed && actual.running) || (!running && actual.stopped) {
+            return Ok(actual);
+        }
+        Err(LimaSettingsError::LifecycleFailed)
     }
 
     /// Edit the stopped instance and verify that Lima reports the requested values.
@@ -124,7 +165,7 @@ impl LimaInstance {
         expected: LimaSettings,
         update: LimaSettingsUpdate,
     ) -> Result<LimaSettings, LimaSettingsError> {
-        let _guard = EDIT_LOCK.lock().await;
+        let _guard = MUTATION_LOCK.lock().await;
         let config = self.check_target().await?;
         let lima = LimaCommand::find().await?;
         let current = self.read(&lima).await?;
@@ -220,6 +261,18 @@ fn valid_name(name: &str) -> bool {
         && name
             .split(['.', '-', '_'])
             .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+}
+
+fn lifecycle_arguments(
+    settings: LimaSettings,
+    running: bool,
+) -> Result<Option<&'static [&'static str]>, LimaSettingsError> {
+    match (settings.running, settings.stopped, running) {
+        (true, false, true) | (false, true, false) => Ok(None),
+        (true, false, false) => Ok(Some(&["stop"])),
+        (false, true, true) => Ok(Some(&["start", "--timeout=180s"])),
+        _ => Err(LimaSettingsError::LifecycleState),
+    }
 }
 
 #[derive(Deserialize)]
@@ -432,13 +485,24 @@ impl LimaCommand {
 
     fn command(&self, root: &Path) -> Command {
         let mut command = Command::new(&self.0);
-        command.env("LIMA_HOME", root).arg("--tty=false");
+        self.configure(&mut command, root);
         command
+    }
+
+    fn configure(&self, command: &mut Command, root: &Path) {
+        command.env("LIMA_HOME", root).arg("--tty=false");
     }
 }
 
-async fn run(mut command: Command) -> Result<Vec<u8>, LimaSettingsError> {
-    timeout(COMMAND_TIMEOUT, async move {
+async fn run(command: Command) -> Result<Vec<u8>, LimaSettingsError> {
+    run_bounded(command, COMMAND_TIMEOUT).await
+}
+
+async fn run_bounded(
+    mut command: Command,
+    deadline: Duration,
+) -> Result<Vec<u8>, LimaSettingsError> {
+    timeout(deadline, async move {
         let mut child = command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

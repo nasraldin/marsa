@@ -25,9 +25,8 @@ use marsa_ui::{
         px, svg,
     },
     gpui_component::{
-        Disableable, IconName, Selectable,
-        button::{Button, ButtonVariants},
-        menu::{DropdownMenu, PopupMenuItem},
+        Disableable, Selectable,
+        button::{Button, ButtonVariants, Toggle, ToggleGroup, ToggleVariants},
         switch::Switch,
     },
     preferences::{DownloadFormat, Language, LogBufferSize, OperateApproval, Settings, Theme},
@@ -296,8 +295,7 @@ impl SystemView {
                 "اللغة",
                 "Uses the selected language throughout the app.",
                 "تُستخدم اللغة المحدّدة في جميع أنحاء التطبيق.",
-                setting_picker(
-                    screen,
+                setting_choices(
                     (
                         "language-picker",
                         gui::GUI_DESKTOP_SETTINGS_LANGUAGE.text(locale),
@@ -315,8 +313,7 @@ impl SystemView {
                 "المظهر",
                 "Choose a theme or follow macOS.",
                 "اختر مظهرًا أو اتبع إعداد macOS.",
-                setting_picker(
-                    screen,
+                setting_choices(
                     (
                         "appearance-picker",
                         gui::GUI_DESKTOP_SETTINGS_APPEARANCE.text(locale),
@@ -367,8 +364,7 @@ impl SystemView {
                 screen,
                 buffer,
                 gui::GUI_DESKTOP_LOG_BUFFER_BODY.text(locale),
-                setting_picker(
-                    screen,
+                setting_choices(
                     ("log-buffer-size", buffer),
                     options,
                     settings.map(|settings| settings.buffer),
@@ -398,8 +394,7 @@ impl SystemView {
                 screen,
                 gui::GUI_CONTAINER_DOWNLOAD_FORMAT.text(locale),
                 gui::GUI_CONTAINER_DOWNLOAD_FORMAT_HELP.text(locale),
-                setting_picker(
-                    screen,
+                setting_choices(
                     (
                         "download-format",
                         gui::GUI_CONTAINER_DOWNLOAD_FORMAT.text(locale),
@@ -591,8 +586,7 @@ impl SystemView {
     }
 }
 
-fn setting_picker<T: Copy + Eq + 'static, const N: usize>(
-    screen: &ScreenContext<'_>,
+fn setting_choices<T: Copy + Eq + 'static, const N: usize>(
     (id, name): (&'static str, &'static str),
     options: [(T, &'static str); N],
     selected: Option<T>,
@@ -600,33 +594,29 @@ fn setting_picker<T: Copy + Eq + 'static, const N: usize>(
     edit: fn(&mut Settings, T),
     cx: &Context<SystemView>,
 ) -> Div {
-    let selected_label = options
-        .iter()
-        .find_map(|(value, label)| (Some(*value) == selected).then_some(*label));
     let view = cx.weak_entity();
-    div().child(
-        Button::new(id)
+    div().flex_shrink_0().child(
+        ToggleGroup::new(id)
             .outline()
-            .h(px(38.))
-            .rounded(px(Radius::R8.pixels()))
-            .border_color(color(screen.palette, ColorToken::BorderControl))
-            .label(selected_label.unwrap_or(name))
-            .accessibility_label(name)
+            .segmented()
+            .single()
             .disabled(selected.is_none() || busy)
-            .child(IconName::ChevronDown)
-            .dropdown_menu(move |menu, _, _| {
-                options.into_iter().fold(menu, |menu, (value, label)| {
-                    let view = view.clone();
-                    menu.item(
-                        PopupMenuItem::new(label)
-                            .checked(Some(value) == selected)
-                            .on_click(move |_, _, cx| {
-                                let _ = view.update(cx, |view, cx| {
-                                    view.save_settings(|settings| edit(settings, value), cx);
-                                });
-                            }),
-                    )
-                })
+            .children(options.iter().enumerate().map(|(index, (value, label))| {
+                Toggle::new((id, index))
+                    .label(*label)
+                    .tooltip(format!("{name} · {label}"))
+                    .checked(Some(*value) == selected)
+            }))
+            .on_click(move |checks, _, cx| {
+                let Some(index) = checks.iter().position(|checked| *checked) else {
+                    return;
+                };
+                let (value, _) = options[index];
+                if Some(value) != selected {
+                    let _ = view.update(cx, |view, cx| {
+                        view.save_settings(|settings| edit(settings, value), cx);
+                    });
+                }
             }),
     )
 }
@@ -710,7 +700,9 @@ fn setting_row(
 ) -> Div {
     row(screen.locale)
         .justify_between()
-        .gap(px(Space::S16.pixels()))
+        .flex_wrap()
+        .gap_x(px(Space::S16.pixels()))
+        .gap_y(px(Space::S8.pixels()))
         .min_h(px(Space::S72.pixels() - Space::S12.pixels()))
         .py(px(Space::S8.pixels()))
         .border_t_1()
@@ -720,6 +712,7 @@ fn setting_row(
                 .flex()
                 .flex_col()
                 .gap(px(Space::S4.pixels()))
+                .min_w(px(180.))
                 .flex_1()
                 .child(settings_text(
                     screen,

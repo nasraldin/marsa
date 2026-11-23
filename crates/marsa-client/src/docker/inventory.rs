@@ -17,7 +17,9 @@ use super::{
     ManagedEndpointError, ManagedEndpointStore, NetworkSummary, ResourceName, TerminalSize,
     VerifiedEngine, VolumeSummary,
     contexts::{self, SshEndpoint, TlsEndpoint},
-    docker_socket_path, managed, transfer,
+    docker_socket_path,
+    hawser::{self, EdgeEndpoint, HAWSER_EDGE_PATH, StandardEndpoint},
+    managed, transfer,
 };
 use crate::platform;
 
@@ -53,6 +55,8 @@ pub(super) enum ExternalTransport {
     },
     Ssh(SshEndpoint),
     Tls(TlsEndpoint),
+    HawserStandard(StandardEndpoint),
+    HawserEdge(EdgeEndpoint),
     Unavailable,
 }
 
@@ -116,14 +120,13 @@ impl ExternalEndpoint {
                 probe_identity: true,
             },
         };
-        let engine: VerifiedEngine =
-            client
-                .snapshot("/info")
-                .await
-                .map_err(|error| match error {
-                    DockerError::Json(_) => ManagedEndpointError::InvalidEngineIdentity,
-                    other => other.into(),
-                })?;
+        let engine: VerifiedEngine = client
+            .snapshot_with_timeout("/info", hawser::TEST_TIMEOUT)
+            .await
+            .map_err(|error| match error {
+                DockerError::Json(_) => ManagedEndpointError::InvalidEngineIdentity,
+                other => other.into(),
+            })?;
         if !engine.valid() {
             return Err(ManagedEndpointError::InvalidEngineIdentity);
         }
@@ -163,6 +166,12 @@ impl ExternalEndpoint {
             ExternalTransport::Unix { socket, .. } => socket.to_string_lossy().into_owned(),
             ExternalTransport::Ssh(endpoint) => endpoint.address(),
             ExternalTransport::Tls(endpoint) => format!("tcp://{}", endpoint.authority()),
+            ExternalTransport::HawserStandard(endpoint) => {
+                format!("https://{}", endpoint.authority())
+            }
+            ExternalTransport::HawserEdge(endpoint) => {
+                format!("wss://{}{HAWSER_EDGE_PATH}", endpoint.address())
+            }
             ExternalTransport::Unavailable => String::new(),
         }
     }
@@ -171,6 +180,13 @@ impl ExternalEndpoint {
         match &self.transport {
             ExternalTransport::Tls(endpoint) => endpoint.authority(),
             _ => "docker",
+        }
+    }
+
+    pub(super) fn hawser_edge(&self) -> Option<&EdgeEndpoint> {
+        match &self.transport {
+            ExternalTransport::HawserEdge(endpoint) => Some(endpoint),
+            _ => None,
         }
     }
 
@@ -188,6 +204,8 @@ impl ExternalEndpoint {
             )),
             ExternalTransport::Ssh(endpoint) => endpoint.connect().await,
             ExternalTransport::Tls(endpoint) => endpoint.connect().await,
+            ExternalTransport::HawserStandard(endpoint) => endpoint.connect().await,
+            ExternalTransport::HawserEdge(endpoint) => endpoint.connect(),
             _ => Err(io::ErrorKind::NotConnected.into()),
         }
     }
@@ -402,6 +420,8 @@ pub struct ExternalInventory {
     pub reachable: bool,
     /// The engine identity verified for a managed endpoint, when available.
     pub verified_engine: Option<VerifiedEngine>,
+    /// Verified VM state for an owner-managed Lima endpoint.
+    pub lima_settings: Option<super::LimaSettings>,
     /// Running and stopped containers.
     pub containers: Vec<ContainerSummary>,
     /// Tagged and untagged images.
@@ -547,17 +567,16 @@ async fn probe_endpoints(entries: Vec<(String, ExternalEndpoint, bool)>) -> Vec<
                 break;
             };
             probes.spawn(async move {
-                let inventory = probe_engine(source, endpoint).await;
-                let show = if inventory.reachable || show_offline {
-                    true
-                } else if let Some(instance) = inventory.endpoint.lima_instance() {
-                    instance
-                        .settings()
-                        .await
-                        .is_ok_and(|settings| settings.stopped)
-                } else {
-                    false
-                };
+                let lima = endpoint.lima_instance();
+                let (mut inventory, lima_settings) =
+                    tokio::join!(probe_engine(source, endpoint), async move {
+                        match lima {
+                            Some(instance) => instance.settings().await.ok(),
+                            None => None,
+                        }
+                    });
+                inventory.lima_settings = lima_settings;
+                let show = inventory.reachable || show_offline || lima_settings.is_some();
                 (index, show.then_some(inventory))
             });
         }
@@ -586,6 +605,7 @@ async fn probe_engine(source: String, mut endpoint: ExternalEndpoint) -> Externa
                     source,
                     reachable: false,
                     verified_engine: None,
+                    lima_settings: None,
                     containers: Vec::new(),
                     images: Vec::new(),
                     volumes: None,
@@ -613,6 +633,7 @@ async fn probe_engine(source: String, mut endpoint: ExternalEndpoint) -> Externa
         source,
         reachable,
         verified_engine,
+        lima_settings: None,
         containers: containers.unwrap_or_default(),
         images: images.unwrap_or_default(),
         volumes: volumes.ok(),

@@ -6,7 +6,9 @@ use std::{net::IpAddr, path::PathBuf, sync::Arc};
 
 use marsa_ui::gpui::Subscription;
 
-use marsa_client::docker::{ManagedEndpoint, ManagedEndpointConfig, ManagedEndpointTransport};
+use marsa_client::docker::{
+    HAWSER_EDGE_PATH, ManagedEndpoint, ManagedEndpointConfig, ManagedEndpointTransport,
+};
 use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
     gpui::{
@@ -14,7 +16,7 @@ use marsa_ui::{
         PathPromptOptions, Styled as _, Window, div, prelude::FluentBuilder as _, px,
     },
     gpui_component::{
-        Disableable as _, IconName, Selectable as _, WindowExt as _,
+        Disableable as _, Icon, IconName, Selectable as _, WindowExt as _,
         button::{Button, ButtonVariants as _},
         input::{InputEvent, InputState},
         menu::{DropdownMenu as _, PopupMenuItem},
@@ -79,6 +81,15 @@ enum Section {
 }
 
 impl Section {
+    fn icon(self) -> &'static str {
+        match self {
+            Self::General => "icons/sliders-horizontal.svg",
+            Self::Resources => "icons/cpu.svg",
+            Self::Network => "icons/network.svg",
+            Self::Security => "icons/shield-check.svg",
+        }
+    }
+
     fn label(self) -> TextKey {
         match self {
             Self::General => gui::GUI_ENVIRONMENT_TAB_GENERAL,
@@ -91,11 +102,14 @@ impl Section {
 use crate::screens::common::{ScreenContext, color, resource_input, row};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[repr(usize)]
 enum Transport {
     #[default]
     Unix,
     Ssh,
     Tls,
+    HawserStandard,
+    HawserEdge,
 }
 
 impl Transport {
@@ -104,6 +118,8 @@ impl Transport {
             Self::Unix => gui::GUI_ENVIRONMENT_UNIX.text(locale),
             Self::Ssh => "SSH",
             Self::Tls => "TLS",
+            Self::HawserStandard => gui::GUI_ENVIRONMENT_HAWSER_STANDARD.text(locale),
+            Self::HawserEdge => gui::GUI_ENVIRONMENT_HAWSER_EDGE.text(locale),
         }
     }
 
@@ -112,6 +128,8 @@ impl Transport {
             Self::Unix => gui::GUI_ENVIRONMENT_SOCKET_PATH,
             Self::Ssh => gui::GUI_ENVIRONMENT_SSH_ADDRESS,
             Self::Tls => gui::GUI_ENVIRONMENT_TLS_ADDRESS,
+            Self::HawserStandard => gui::GUI_ENVIRONMENT_HAWSER_ADDRESS,
+            Self::HawserEdge => gui::GUI_ENVIRONMENT_HAWSER_LISTEN,
         }
     }
 }
@@ -124,16 +142,23 @@ pub(super) struct Editor {
     pub(super) security: Security,
     section: Section,
     transport: Transport,
+    direct_transport: Transport,
     name: Entity<InputState>,
     icon: EnvironmentIcon,
-    address: Entity<InputState>,
+    addresses: [Entity<InputState>; 5],
+    agent_id: Entity<InputState>,
+    standard_token: Entity<InputState>,
+    edge_token: Entity<InputState>,
+    edge_cert: Entity<InputState>,
+    edge_key: Entity<InputState>,
     ca: Entity<InputState>,
+    standard_ca: Entity<InputState>,
     cert: Entity<InputState>,
     key: Entity<InputState>,
     labels: Vec<String>,
     label: Entity<InputState>,
     public_ip: Entity<InputState>,
-    _edit_observers: [Subscription; 7],
+    _edit_observers: Vec<Subscription>,
 }
 
 impl Editor {
@@ -147,7 +172,7 @@ impl Editor {
             EditorTarget::Saved(entry, _) => Some(entry),
             _ => None,
         };
-        let (transport, address, ca, cert, key) =
+        let (transport, address, ca, cert, key, agent_id) =
             match existing.map(|entry| &entry.config.transport) {
                 Some(ManagedEndpointTransport::Unix { socket }) => (
                     Transport::Unix,
@@ -155,9 +180,10 @@ impl Editor {
                     None,
                     None,
                     None,
+                    None,
                 ),
                 Some(ManagedEndpointTransport::Ssh { address }) => {
-                    (Transport::Ssh, address.clone(), None, None, None)
+                    (Transport::Ssh, address.clone(), None, None, None, None)
                 }
                 Some(ManagedEndpointTransport::Tls {
                     address,
@@ -170,8 +196,31 @@ impl Editor {
                     Some(ca),
                     Some(cert),
                     Some(key),
+                    None,
                 ),
-                None => (Transport::Unix, String::new(), None, None, None),
+                Some(ManagedEndpointTransport::HawserStandard { address, ca, .. }) => (
+                    Transport::HawserStandard,
+                    address.clone(),
+                    Some(ca),
+                    None,
+                    None,
+                    None,
+                ),
+                Some(ManagedEndpointTransport::HawserEdge {
+                    bind,
+                    cert,
+                    key,
+                    agent_id,
+                    ..
+                }) => (
+                    Transport::HawserEdge,
+                    bind.to_string(),
+                    None,
+                    Some(cert),
+                    Some(key),
+                    Some(agent_id.as_str()),
+                ),
+                None => (Transport::Unix, String::new(), None, None, None, None),
             };
         let field = |value: &str, window: &mut Window, cx: &mut Context<SystemView>| {
             let field = cx.new(|cx| InputState::new(window, cx));
@@ -190,10 +239,41 @@ impl Editor {
             };
         let (display_name, icon) = name_and_icon;
         let name = field(&display_name, window, cx);
-        let address = field(&address, window, cx);
-        let ca = path_field(ca, window, cx);
-        let cert = path_field(cert, window, cx);
-        let key = path_field(key, window, cx);
+        let addresses = std::array::from_fn(|index| {
+            field(
+                if index == transport as usize {
+                    &address
+                } else {
+                    ""
+                },
+                window,
+                cx,
+            )
+        });
+        let standard_ca = path_field(
+            ca.filter(|_| transport == Transport::HawserStandard),
+            window,
+            cx,
+        );
+        let ca = path_field(ca.filter(|_| transport == Transport::Tls), window, cx);
+        let edge_cert = path_field(
+            cert.filter(|_| transport == Transport::HawserEdge),
+            window,
+            cx,
+        );
+        let edge_key = path_field(
+            key.filter(|_| transport == Transport::HawserEdge),
+            window,
+            cx,
+        );
+        let cert = path_field(cert.filter(|_| transport == Transport::Tls), window, cx);
+        let key = path_field(key.filter(|_| transport == Transport::Tls), window, cx);
+        let agent_id = field(agent_id.unwrap_or_default(), window, cx);
+        let standard_token = field("", window, cx);
+        let edge_token = field("", window, cx);
+        for token in [&standard_token, &edge_token] {
+            token.update(cx, |field, cx| field.set_masked(true, window, cx));
+        }
         let labels = existing.map_or_else(Vec::new, |entry| entry.config.labels.clone());
         let label = field("", window, cx);
         let public_ip = field(
@@ -203,8 +283,23 @@ impl Editor {
             window,
             cx,
         );
-        let _edit_observers =
-            [&name, &address, &ca, &cert, &key, &label, &public_ip].map(|field| {
+        let _edit_observers = addresses
+            .iter()
+            .chain([
+                &name,
+                &ca,
+                &standard_ca,
+                &cert,
+                &key,
+                &label,
+                &public_ip,
+                &agent_id,
+                &standard_token,
+                &edge_token,
+                &edge_cert,
+                &edge_key,
+            ])
+            .map(|field| {
                 cx.subscribe(field, |this, _, event: &InputEvent, cx| {
                     if matches!(event, InputEvent::Change)
                         && this.environment_settings.editor.is_some()
@@ -213,14 +308,26 @@ impl Editor {
                         cx.refresh_windows();
                     }
                 })
-            });
+            })
+            .collect();
         Self {
             id: existing.map(|entry| entry.id.clone()),
             transport,
+            direct_transport: if transport == Transport::Tls {
+                Transport::Tls
+            } else {
+                Transport::Ssh
+            },
             name,
             icon,
-            address,
+            addresses,
+            agent_id,
+            standard_token,
+            edge_token,
+            edge_cert,
+            edge_key,
             ca,
+            standard_ca,
             cert,
             key,
             labels,
@@ -240,7 +347,7 @@ impl Editor {
         cx: &Context<SystemView>,
     ) -> Result<ManagedEndpointConfig, TextKey> {
         let value = |field: &Entity<InputState>| field.read(cx).value().trim().to_owned();
-        let transport = self.draft_transport(cx);
+        let transport = self.draft_transport(cx)?;
         let public_ip = value(&self.public_ip);
         let public_ip = if public_ip.is_empty() {
             None
@@ -267,10 +374,32 @@ impl Editor {
         })
     }
 
-    fn draft_transport(&self, cx: &Context<SystemView>) -> ManagedEndpointTransport {
+    fn address(&self) -> &Entity<InputState> {
+        &self.addresses[self.transport as usize]
+    }
+
+    pub(super) fn hawser_token(&self, cx: &Context<SystemView>) -> Option<String> {
+        let input = match self.transport {
+            Transport::HawserStandard => &self.standard_token,
+            Transport::HawserEdge => &self.edge_token,
+            _ => return None,
+        };
+        let token = input.read(cx).value();
+        let token = token.trim();
+        (!token.is_empty()).then(|| token.to_owned())
+    }
+
+    fn draft_transport(
+        &self,
+        cx: &Context<SystemView>,
+    ) -> Result<ManagedEndpointTransport, TextKey> {
         let value = |field: &Entity<InputState>| field.read(cx).value().trim().to_owned();
-        let address = value(&self.address);
-        match self.transport {
+        let address = value(self.address());
+        let existing = match &self.target {
+            EditorTarget::Saved(entry, _) => Some(&entry.config.transport),
+            _ => None,
+        };
+        Ok(match self.transport {
             Transport::Unix => ManagedEndpointTransport::Unix {
                 socket: address.into(),
             },
@@ -281,14 +410,69 @@ impl Editor {
                 cert: value(&self.cert).into(),
                 key: value(&self.key).into(),
             },
-        }
+            Transport::HawserStandard => {
+                let ca = PathBuf::from(value(&self.standard_ca));
+                let credential = match existing {
+                    Some(ManagedEndpointTransport::HawserStandard {
+                        address: saved_address,
+                        ca: saved_ca,
+                        credential,
+                    }) if *saved_address == address && *saved_ca == ca => credential.clone(),
+                    _ => None,
+                };
+                if credential.is_none() && self.hawser_token(cx).is_none() {
+                    return Err(gui::GUI_ENVIRONMENT_HAWSER_TOKEN_REQUIRED);
+                }
+                ManagedEndpointTransport::HawserStandard {
+                    address,
+                    ca,
+                    credential,
+                }
+            }
+            Transport::HawserEdge => {
+                let bind = address
+                    .parse()
+                    .map_err(|_| gui::GUI_ENVIRONMENT_INVALID_ADDRESS)?;
+                let cert = PathBuf::from(value(&self.edge_cert));
+                let key = PathBuf::from(value(&self.edge_key));
+                let agent_id = value(&self.agent_id);
+                let credential = match existing {
+                    Some(ManagedEndpointTransport::HawserEdge {
+                        bind: saved_bind,
+                        cert: saved_cert,
+                        key: saved_key,
+                        agent_id: saved_id,
+                        credential,
+                    }) if *saved_bind == bind
+                        && *saved_cert == cert
+                        && *saved_key == key
+                        && *saved_id == agent_id =>
+                    {
+                        credential.clone()
+                    }
+                    _ => None,
+                };
+                if credential.is_none() && self.hawser_token(cx).is_none() {
+                    return Err(gui::GUI_ENVIRONMENT_HAWSER_TOKEN_REQUIRED);
+                }
+                ManagedEndpointTransport::HawserEdge {
+                    bind,
+                    cert,
+                    key,
+                    agent_id,
+                    credential,
+                }
+            }
+        })
     }
 
     pub(super) fn provider_matches_draft(&self, cx: &Context<SystemView>) -> bool {
         match &self.target {
-            EditorTarget::Saved(entry, _) => entry.config.transport == self.draft_transport(cx),
+            EditorTarget::Saved(entry, _) => self
+                .draft_transport(cx)
+                .is_ok_and(|transport| entry.config.transport == transport),
             EditorTarget::Add => match self.draft_transport(cx) {
-                ManagedEndpointTransport::Unix { socket } => {
+                Ok(ManagedEndpointTransport::Unix { socket }) => {
                     self.selected_socket
                         .as_ref()
                         .and_then(|workspace| workspace.endpoint.socket())
@@ -329,10 +513,10 @@ impl SystemView {
         self.load_environment_vm(window, cx);
         let owner = cx.weak_entity();
         window.open_dialog(cx, move |dialog, window, cx| {
-            let (title, busy, body, footer) = owner
+            let (title, identity, busy, body, footer) = owner
                 .update(cx, |this, cx| {
                     let Some(editor) = &this.environment_settings.editor else {
-                        return (gui::GUI_ENVIRONMENT_EDIT_TITLE, false, div(), div());
+                        return (gui::GUI_ENVIRONMENT_EDIT_TITLE, None, false, div(), div());
                     };
                     let screen = ScreenContext {
                         locale: appearance.locale,
@@ -349,13 +533,15 @@ impl SystemView {
                     let busy = this.environment_settings.task.is_some()
                         || editor.vm.applying()
                         || this.busy();
+                    let identity = (!matches!(editor.target, EditorTarget::Add))
+                        .then(|| this.editor_presentation(&editor.target).0);
                     let height =
-                        (window.viewport_size().height - px(218.)).clamp(px(165.), px(490.));
+                        (window.viewport_size().height - px(268.)).clamp(px(165.), px(535.));
                     let body = this.environment_dialog_body(editor, &screen, height, cx);
                     let footer = this.environment_dialog_footer(editor, &screen, busy, cx);
-                    (title, busy, body, footer)
+                    (title, identity, busy, body, footer)
                 })
-                .unwrap_or_else(|_| (gui::GUI_ENVIRONMENT_EDIT_TITLE, false, div(), div()));
+                .unwrap_or_else(|_| (gui::GUI_ENVIRONMENT_EDIT_TITLE, None, false, div(), div()));
             let locale = appearance.locale;
             let close = owner.clone();
             let close_button = owner.clone();
@@ -364,7 +550,21 @@ impl SystemView {
                 .items_center()
                 .justify_between()
                 .gap_3()
-                .child(title.text(locale))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .min_w_0()
+                        .child(title.text(locale))
+                        .children(identity.map(|name| {
+                            div()
+                                .truncate()
+                                .text_sm()
+                                .text_color(color(appearance.palette, ColorToken::TextMuted))
+                                .child(crate::screens::common::technical(&name))
+                        })),
+                )
                 .child(
                     Button::new("close-environment-editor")
                         .ghost()
@@ -379,7 +579,7 @@ impl SystemView {
                 );
             dialog
                 .centered()
-                .width(px(780.))
+                .width((window.viewport_size().width - px(56.)).min(px(840.)))
                 .bg(color(appearance.palette, ColorToken::BgElevated))
                 .border_color(color(appearance.palette, ColorToken::BorderSubtle))
                 .title(heading)
@@ -431,7 +631,9 @@ impl SystemView {
             .children(sections.iter().copied().map(|tab_section| {
                 Button::new(("environment-section", tab_section as usize))
                     .ghost()
+                    .icon(Icon::default().path(tab_section.icon()))
                     .selected(tab_section == section)
+                    .toggled(tab_section == section)
                     .when(tab_section == section, |tab| {
                         tab.bg(color(screen.palette, ColorToken::AccentSubtle))
                     })
@@ -454,20 +656,17 @@ impl SystemView {
             Section::Network => self.environment_vm(editor, true, screen, cx),
             Section::Security => self.environment_security(editor, screen, cx),
         };
-        let identity = (!matches!(editor.target, EditorTarget::Add))
-            .then(|| self.editor_presentation(&editor.target).0);
         div()
             .flex()
             .flex_col()
             .gap_4()
-            .children(identity.map(|name| {
-                settings_text(screen, Role::Small, name.to_owned(), ColorToken::TextMuted)
-            }))
             .children((sections.len() > 1).then_some(tabs))
             .child(
                 div()
-                    .id(("environment-section-body", editor.section as usize))
+                    .id(("environment-section-body", section as usize))
                     .h(height)
+                    .px_4()
+                    .pb_2()
                     .overflow_y_scrollbar()
                     .child(page),
             )
@@ -499,6 +698,9 @@ impl SystemView {
         row(locale)
             .gap_2()
             .w_full()
+            .pt_3()
+            .border_t_1()
+            .border_color(color(screen.palette, ColorToken::BorderSubtle))
             .flex_wrap()
             .children(
                 (editable
@@ -507,6 +709,7 @@ impl SystemView {
                 .then(|| {
                     Button::new("test-environment")
                         .outline()
+                        .icon(Icon::default().path("icons/network.svg"))
                         .label(gui::GUI_ENVIRONMENT_TEST.text(locale))
                         .disabled(busy || self.services.is_none())
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -514,6 +717,18 @@ impl SystemView {
                         }))
                 }),
             )
+            .children(editor.id.as_ref().map(|id| {
+                let id = id.clone();
+                Button::new("remove-environment-dialog")
+                    .ghost()
+                    .icon(Icon::default().path("icons/trash.svg"))
+                    .tooltip(gui::GUI_DESKTOP_REMOVE.text(locale))
+                    .accessibility_label(gui::GUI_DESKTOP_REMOVE.text(locale))
+                    .disabled(busy)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.confirm_environment_removal(id.clone(), locale, window, cx);
+                    }))
+            }))
             .child(div().flex_1())
             .child(
                 Button::new("cancel-environment")
@@ -574,30 +789,37 @@ impl SystemView {
                 .flex_col()
                 .gap_3()
                 .child(identity_fields)
-                .child(settings_text(
+                .child(environment_group(
                     screen,
-                    Role::Label,
-                    gui::GUI_ENVIRONMENT_CONNECTION.text(screen.locale),
-                    ColorToken::TextPrimary,
-                ))
-                .children(value.filter(|value| !value.is_empty()).map(|value| {
-                    settings_text(
-                        screen,
-                        Role::Mono,
-                        crate::screens::common::technical(&value),
-                        ColorToken::TextMuted,
-                    )
-                }))
-                .child(settings_text(
-                    screen,
-                    Role::Small,
-                    if editor.target.is_discovered() {
-                        gui::GUI_ENVIRONMENT_DISCOVERED_HELP
-                    } else {
-                        gui::GUI_ENVIRONMENT_BUILTIN_HELP
-                    }
-                    .text(screen.locale),
-                    ColorToken::TextMuted,
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(settings_text(
+                            screen,
+                            Role::Label,
+                            gui::GUI_ENVIRONMENT_CONNECTION.text(screen.locale),
+                            ColorToken::TextPrimary,
+                        ))
+                        .children(value.filter(|value| !value.is_empty()).map(|value| {
+                            settings_text(
+                                screen,
+                                Role::Mono,
+                                crate::screens::common::technical(&value),
+                                ColorToken::TextMuted,
+                            )
+                        }))
+                        .child(settings_text(
+                            screen,
+                            Role::Small,
+                            if editor.target.is_discovered() {
+                                gui::GUI_ENVIRONMENT_DISCOVERED_HELP
+                            } else {
+                                gui::GUI_ENVIRONMENT_BUILTIN_HELP
+                            }
+                            .text(screen.locale),
+                            ColorToken::TextMuted,
+                        )),
                 ))
                 .children(
                     matches!(editor.target, EditorTarget::Builtin)
@@ -621,7 +843,7 @@ impl SystemView {
                                     return;
                                 };
                                 let workspace = Arc::clone(workspace);
-                                editor.address.update(cx, |address, cx| {
+                                editor.address().update(cx, |address, cx| {
                                     address.set_value(socket.clone(), window, cx)
                                 });
                                 editor.target = EditorTarget::Add;
@@ -633,72 +855,102 @@ impl SystemView {
                 }));
         }
         let locale = screen.locale;
-        let busy = self.environment_settings.task.is_some() || editor.vm.applying();
         let current = editor.transport;
-        let unix = current == Transport::Unix;
-        let picker = transport_picker(
-            "environment-transport",
-            gui::GUI_ENVIRONMENT_CONNECTION_TYPE,
-            screen,
-            busy,
-            cx,
-            if unix {
-                gui::GUI_ENVIRONMENT_UNIX.text(locale)
-            } else {
-                gui::GUI_ENVIRONMENT_DIRECT.text(locale)
-            },
-            &[
+        let direct = matches!(current, Transport::Ssh | Transport::Tls);
+        let picker = row(locale).gap_2().flex_wrap().children(
+            [
                 (
                     Transport::Unix,
-                    gui::GUI_ENVIRONMENT_UNIX.text(locale),
-                    unix,
+                    Transport::Unix.title(locale),
+                    "icons/plug-zap.svg",
+                    current == Transport::Unix,
                 ),
                 (
-                    if unix { Transport::Ssh } else { current },
+                    editor.direct_transport,
                     gui::GUI_ENVIRONMENT_DIRECT.text(locale),
-                    !unix,
+                    "icons/network.svg",
+                    direct,
                 ),
-            ],
+                (
+                    Transport::HawserStandard,
+                    Transport::HawserStandard.title(locale),
+                    "icons/server.svg",
+                    current == Transport::HawserStandard,
+                ),
+                (
+                    Transport::HawserEdge,
+                    Transport::HawserEdge.title(locale),
+                    "icons/radio.svg",
+                    current == Transport::HawserEdge,
+                ),
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(index, (transport, label, icon, selected))| {
+                transport_choice(
+                    ("environment-transport", index),
+                    transport,
+                    label,
+                    selected,
+                    busy,
+                    cx,
+                )
+                .icon(Icon::default().path(icon))
+                .flex_grow(1.)
+            }),
         );
-        let direct = (!unix).then(|| {
-            transport_picker(
-                "environment-direct-protocol",
-                gui::GUI_ENVIRONMENT_DIRECT_PROTOCOL,
-                screen,
-                busy,
-                cx,
-                current.title(locale),
-                &[
-                    (
-                        Transport::Ssh,
-                        Transport::Ssh.title(locale),
-                        current == Transport::Ssh,
+        let protocol = direct.then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(settings_text(
+                    screen,
+                    Role::Label,
+                    gui::GUI_ENVIRONMENT_DIRECT_PROTOCOL.text(locale),
+                    ColorToken::TextPrimary,
+                ))
+                .child(
+                    row(locale).gap_2().children(
+                        [Transport::Ssh, Transport::Tls]
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, transport)| {
+                                transport_choice(
+                                    ("environment-direct-protocol", index),
+                                    transport,
+                                    transport.title(locale),
+                                    current == transport,
+                                    busy,
+                                    cx,
+                                )
+                            }),
                     ),
-                    (
-                        Transport::Tls,
-                        Transport::Tls.title(locale),
-                        current == Transport::Tls,
-                    ),
-                ],
-            )
+                )
         });
         let hint = match current {
             Transport::Unix => gui::GUI_ENVIRONMENT_UNIX_HELP,
             Transport::Ssh => gui::GUI_ENVIRONMENT_SSH_HELP,
             Transport::Tls => gui::GUI_ENVIRONMENT_TLS_HELP,
+            Transport::HawserStandard => gui::GUI_ENVIRONMENT_HAWSER_STANDARD_HELP,
+            Transport::HawserEdge => gui::GUI_ENVIRONMENT_HAWSER_EDGE_HELP,
         };
-        let mut form = div()
+        let mut connection = div()
             .flex()
             .flex_col()
             .gap_3()
-            .child(identity_fields)
-            .child(self.environment_labels(editor, screen, busy, cx))
+            .child(settings_text(
+                screen,
+                Role::Label,
+                gui::GUI_ENVIRONMENT_CONNECTION_TYPE.text(locale),
+                ColorToken::TextPrimary,
+            ))
             .child(picker)
-            .children(direct)
+            .children(protocol)
             .child(input_field(
                 screen,
                 current.address_label(),
-                &editor.address,
+                editor.address(),
                 busy,
                 false,
                 cx,
@@ -725,7 +977,7 @@ impl SystemView {
                 .collect::<Vec<_>>();
             if !choices.is_empty() {
                 let owner = cx.weak_entity();
-                form = form.child(
+                connection = connection.child(
                     row(locale).child(
                         Button::new("detected-docker-sockets")
                             .outline()
@@ -745,7 +997,7 @@ impl SystemView {
                                                 else {
                                                     return;
                                                 };
-                                                editor.address.update(cx, |address, cx| {
+                                                editor.address().update(cx, |address, cx| {
                                                     address.set_value(path.clone(), window, cx)
                                                 });
                                                 if matches!(editor.target, EditorTarget::Add) {
@@ -770,29 +1022,97 @@ impl SystemView {
                 );
             }
         }
-        if current == Transport::Tls {
-            for (label, field) in [
+        let tls_files = match current {
+            Transport::Tls => &[
                 (gui::GUI_ENVIRONMENT_CA, &editor.ca),
                 (gui::GUI_ENVIRONMENT_CERT, &editor.cert),
                 (gui::GUI_ENVIRONMENT_KEY, &editor.key),
-            ] {
-                form = form.child(input_field(screen, label, field, busy, true, cx));
-            }
+            ][..],
+            Transport::HawserStandard => &[(gui::GUI_ENVIRONMENT_CA, &editor.standard_ca)][..],
+            Transport::HawserEdge => &[
+                (gui::GUI_ENVIRONMENT_HAWSER_SERVER_CERT, &editor.edge_cert),
+                (gui::GUI_ENVIRONMENT_HAWSER_SERVER_KEY, &editor.edge_key),
+            ][..],
+            _ => &[],
+        };
+        if current == Transport::HawserEdge {
+            let address = format!("DOCKHAND_SERVER_URL=wss://host:port{HAWSER_EDGE_PATH}");
+            connection = connection
+                .child(settings_text(
+                    screen,
+                    Role::Mono,
+                    crate::screens::common::technical(&address),
+                    ColorToken::TextMuted,
+                ))
+                .child(input_field(
+                    screen,
+                    gui::GUI_ENVIRONMENT_HAWSER_AGENT_ID,
+                    &editor.agent_id,
+                    busy,
+                    false,
+                    cx,
+                ));
         }
-        form.child(input_field(
-            screen,
-            gui::GUI_ENVIRONMENT_PUBLIC_IP,
-            &editor.public_ip,
-            busy,
-            false,
-            cx,
-        ))
-        .child(settings_text(
-            screen,
-            Role::Small,
-            gui::GUI_ENVIRONMENT_PUBLIC_IP_HELP.text(locale),
-            ColorToken::TextMuted,
-        ))
+        connection = connection.children(
+            tls_files
+                .iter()
+                .map(|(label, field)| input_field(screen, *label, field, busy, true, cx)),
+        );
+        if matches!(current, Transport::HawserStandard | Transport::HawserEdge) {
+            let token = if current == Transport::HawserStandard {
+                &editor.standard_token
+            } else {
+                &editor.edge_token
+            };
+            connection = connection
+                .child(input_field(
+                    screen,
+                    gui::GUI_ENVIRONMENT_HAWSER_TOKEN,
+                    token,
+                    busy,
+                    false,
+                    cx,
+                ))
+                .children(editor.id.as_ref().map(|_| {
+                    settings_text(
+                        screen,
+                        Role::Small,
+                        gui::GUI_ENVIRONMENT_HAWSER_SAVED_TOKEN.text(locale),
+                        ColorToken::TextMuted,
+                    )
+                }));
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap_5()
+            .child(identity_fields)
+            .child(environment_group(
+                screen,
+                self.environment_labels(editor, screen, busy, cx),
+            ))
+            .child(environment_group(screen, connection))
+            .child(environment_group(
+                screen,
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(input_field(
+                        screen,
+                        gui::GUI_ENVIRONMENT_PUBLIC_IP,
+                        &editor.public_ip,
+                        busy,
+                        false,
+                        cx,
+                    ))
+                    .child(settings_text(
+                        screen,
+                        Role::Small,
+                        gui::GUI_ENVIRONMENT_PUBLIC_IP_HELP.text(locale),
+                        ColorToken::TextMuted,
+                    )),
+            ))
     }
 
     fn environment_identity_fields(
@@ -802,44 +1122,18 @@ impl SystemView {
         disabled: bool,
         cx: &Context<Self>,
     ) -> Div {
-        use marsa_ui::gpui_component::Icon;
         let locale = screen.locale;
-        let owner = cx.weak_entity();
-        let current = editor.icon;
-        let labels = [
+        let icons = [
             (EnvironmentIcon::Server, gui::GUI_ENVIRONMENT_ICON_SERVER),
             (EnvironmentIcon::Rocket, gui::GUI_ENVIRONMENT_ICON_ROCKET),
             (EnvironmentIcon::Globe, gui::GUI_ENVIRONMENT_ICON_GLOBE),
             (EnvironmentIcon::Box, gui::GUI_ENVIRONMENT_ICON_BOX),
         ];
-        let picker = Button::new("environment-icon")
-            .outline()
-            .icon(Icon::default().path(super::icon_path(current)))
-            .accessibility_label(gui::GUI_ENVIRONMENT_ICON.text(locale))
-            .tooltip(gui::GUI_ENVIRONMENT_ICON.text(locale))
-            .disabled(disabled)
-            .dropdown_menu(move |menu, _, _| {
-                labels.into_iter().fold(menu, |menu, (icon, label)| {
-                    let owner = owner.clone();
-                    menu.item(
-                        PopupMenuItem::new(label.text(locale))
-                            .checked(current == icon)
-                            .on_click(move |_, _, cx| {
-                                let _ = owner.update(cx, |this, cx| {
-                                    if let Some(editor) = &mut this.environment_settings.editor {
-                                        editor.icon = icon;
-                                        cx.notify();
-                                    }
-                                });
-                            }),
-                    )
-                })
-            });
         row(locale)
+            .gap_3()
             .items_end()
-            .gap_2()
-            .child(picker)
-            .child(div().flex_1().min_w_0().child(input_field(
+            .flex_wrap()
+            .child(div().flex_1().min_w(px(190.)).child(input_field(
                 screen,
                 gui::GUI_DESKTOP_NAME,
                 &editor.name,
@@ -847,6 +1141,42 @@ impl SystemView {
                 false,
                 cx,
             )))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(settings_text(
+                        screen,
+                        Role::Label,
+                        gui::GUI_ENVIRONMENT_ICON.text(locale),
+                        ColorToken::TextPrimary,
+                    ))
+                    .child(
+                        row(locale)
+                            .gap_1()
+                            .children(icons.into_iter().enumerate().map(
+                                |(index, (icon, label))| {
+                                    Button::new(("environment-icon", index))
+                                        .outline()
+                                        .icon(Icon::default().path(super::icon_path(icon)))
+                                        .selected(editor.icon == icon)
+                                        .toggled(editor.icon == icon)
+                                        .accessibility_label(label.text(locale))
+                                        .tooltip(label.text(locale))
+                                        .disabled(disabled)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            if let Some(editor) =
+                                                &mut this.environment_settings.editor
+                                            {
+                                                editor.icon = icon;
+                                                cx.notify();
+                                            }
+                                        }))
+                                },
+                            )),
+                    ),
+            )
     }
 
     pub(super) fn presentation_draft(
@@ -957,57 +1287,38 @@ impl SystemView {
     }
 }
 
-fn transport_picker(
-    id: &'static str,
-    title: TextKey,
-    screen: &ScreenContext<'_>,
-    disabled: bool,
+fn transport_choice(
+    id: (&'static str, usize),
+    transport: Transport,
+    label: &'static str,
+    selected: bool,
+    busy: bool,
     cx: &Context<SystemView>,
-    selected: &'static str,
-    options: &[(Transport, &'static str, bool)],
-) -> Div {
-    let locale = screen.locale;
-    let owner = cx.weak_entity();
-    let options = options.to_vec();
+) -> Button {
+    Button::new(id)
+        .outline()
+        .selected(selected)
+        .toggled(selected)
+        .label(label)
+        .disabled(busy)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            if let Some(editor) = &mut this.environment_settings.editor {
+                editor.transport = transport;
+                if matches!(transport, Transport::Ssh | Transport::Tls) {
+                    editor.direct_transport = transport;
+                }
+                this.environment_settings.feedback = None;
+                cx.notify();
+            }
+        }))
+}
+
+fn environment_group(screen: &ScreenContext<'_>, content: Div) -> Div {
     div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .child(settings_text(
-            screen,
-            Role::Label,
-            title.text(locale),
-            ColorToken::TextPrimary,
-        ))
-        .child(
-            Button::new(id)
-                .outline()
-                .w_full()
-                .icon(IconName::ChevronDown)
-                .label(selected)
-                .accessibility_label(title.text(locale))
-                .disabled(disabled)
-                .dropdown_menu(move |menu, _, _| {
-                    options
-                        .iter()
-                        .copied()
-                        .fold(menu, |menu, (transport, label, active)| {
-                            let owner = owner.clone();
-                            menu.item(PopupMenuItem::new(label).checked(active).on_click(
-                                move |_, _, cx| {
-                                    let _ = owner.update(cx, |this, cx| {
-                                        if let Some(editor) = &mut this.environment_settings.editor
-                                        {
-                                            editor.transport = transport;
-                                            this.environment_settings.feedback = None;
-                                            cx.notify();
-                                        }
-                                    });
-                                },
-                            ))
-                        })
-                }),
-        )
+        .border_t_1()
+        .border_color(color(screen.palette, ColorToken::BorderSubtle))
+        .pt_4()
+        .child(content)
 }
 
 fn input_field(

@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use marsa_client::docker::{ExternalEndpoint, ExternalInventory, VerifiedEngine};
+use marsa_client::docker::{ExternalEndpoint, ExternalInventory, LimaSettings, VerifiedEngine};
 use marsa_ui::{
     ColorToken, Palette,
     gpui::{Div, ParentElement as _, SharedString, Styled as _, div, px},
@@ -26,6 +26,7 @@ pub(crate) struct ExternalWorkspace {
     pub(crate) state: AppState,
     pub(crate) reachable: bool,
     pub(crate) verified_engine: Option<VerifiedEngine>,
+    pub(crate) lima_settings: Option<LimaSettings>,
     pub(crate) volumes_available: bool,
     pub(crate) networks_available: bool,
 }
@@ -37,6 +38,7 @@ impl From<ExternalInventory> for ExternalWorkspace {
             source: inventory.source,
             reachable: inventory.reachable,
             verified_engine: inventory.verified_engine,
+            lima_settings: inventory.lima_settings,
             volumes_available: inventory.volumes.is_some(),
             networks_available: inventory.networks.is_some(),
             state: AppState::index_resources(ResourceSnapshot {

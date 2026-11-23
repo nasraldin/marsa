@@ -469,7 +469,7 @@ A disposable Lima container returned a binary file directly and a directory as T
 
 ### M7-32 Connect to Hawser agents
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Implement Hawser Standard connections to a trusted agent and Hawser Edge connections through an authenticated reverse tunnel. Keep agent credentials in the platform credential store.
@@ -477,3 +477,5 @@ A disposable Lima container returned a binary file directly and a directory as T
 - **Accept when:**
   - Real Standard and Edge agents pass connection testing and can be selected as the active engine.
   - Agent identity and authorization are checked before any Docker API request. Tests cover credential rejection, disconnect, and endpoint replacement while a request is in flight.
+
+Verified both transports and terminal I/O against [Hawser upstream bca2770](https://github.com/Finsys/hawser/tree/bca2770d3c013f0559ac162372bca6ba75dfeed5) with private TLS fixtures. The tests reject incorrect tokens and verify that a disconnected Edge session cannot retarget an existing Docker request after reconnecting.

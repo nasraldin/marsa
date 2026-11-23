@@ -4,13 +4,13 @@ use marsa_client::docker::{
     LimaInstance, LimaSettings, LimaSettingsError, LimaSettingsUpdate, ManagedEndpointTransport,
 };
 use marsa_ui::{
-    ColorToken, TextKey,
+    ColorToken, Locale, TextKey,
     gpui::{
         AppContext as _, Context, Div, Entity, ParentElement as _, Styled as _, Subscription, Task,
         Window, div, px,
     },
     gpui_component::{
-        Disableable as _,
+        Disableable as _, IconName,
         button::{Button, ButtonVariants as _},
         checkbox::Checkbox,
         input::{InputEvent, InputState},
@@ -20,7 +20,7 @@ use marsa_ui::{
 };
 
 use super::{
-    SystemView,
+    SystemView, confirm_lima_stop,
     editor::{Editor, EditorTarget},
     settings_text,
 };
@@ -28,6 +28,13 @@ use crate::screens::common::{ScreenContext, resource_input, row};
 
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
+
+#[derive(Clone, Copy)]
+enum VmWork {
+    Inspect,
+    Edit(LimaSettings, LimaSettingsUpdate),
+    Lifecycle(bool),
+}
 
 pub(super) struct VmEditor {
     instance: Option<LimaInstance>,
@@ -134,7 +141,7 @@ impl VmEditor {
 
 impl SystemView {
     pub(super) fn load_environment_vm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.run_environment_vm(None, window, cx);
+        self.run_environment_vm(VmWork::Inspect, window, cx);
     }
 
     fn apply_environment_vm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -155,16 +162,41 @@ impl SystemView {
                     .is_none_or(|disk| disk >= settings.disk_bytes)
         });
         if let Some(update) = update {
-            self.run_environment_vm(Some((settings, update)), window, cx);
+            self.run_environment_vm(VmWork::Edit(settings, update), window, cx);
         }
     }
 
-    fn run_environment_vm(
+    fn change_editor_lima_state(
         &mut self,
-        changes: Option<(LimaSettings, LimaSettingsUpdate)>,
+        running: bool,
+        locale: Locale,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Some(editor) = &self.environment_settings.editor else {
+            return;
+        };
+        if !editor.provider_matches_draft(cx) {
+            return;
+        }
+        if running {
+            self.run_environment_vm(VmWork::Lifecycle(true), window, cx);
+        } else if let Some(instance) = editor.vm.instance.clone() {
+            let name = instance.name().to_owned();
+            confirm_lima_stop(&name, locale, window, cx, move |this, window, cx| {
+                if this
+                    .environment_settings
+                    .editor
+                    .as_ref()
+                    .is_some_and(|editor| editor.vm.instance.as_ref() == Some(&instance))
+                {
+                    this.run_environment_vm(VmWork::Lifecycle(false), window, cx);
+                }
+            });
+        }
+    }
+
+    fn run_environment_vm(&mut self, work: VmWork, window: &mut Window, cx: &mut Context<Self>) {
         let Some(editor) = &mut self.environment_settings.editor else {
             return;
         };
@@ -176,11 +208,12 @@ impl SystemView {
             return;
         };
         vm.feedback = None;
-        vm.applying = changes.is_some();
+        vm.applying = !matches!(work, VmWork::Inspect);
         let mut pending = services.pending(async move {
-            Ok(match changes {
-                Some((expected, update)) => instance.update(expected, update).await,
-                None => instance.settings().await,
+            Ok(match work {
+                VmWork::Inspect => instance.settings().await,
+                VmWork::Edit(expected, update) => instance.update(expected, update).await,
+                VmWork::Lifecycle(running) => instance.set_running(running).await,
             })
         });
         vm.task = Some(cx.spawn_in(window, async move |this, cx| {
@@ -196,12 +229,16 @@ impl SystemView {
                     match result {
                         Some(Ok(Ok(settings))) => {
                             vm.show(settings, window, cx);
-                            if changes.is_some() {
-                                vm.feedback = Some((
+                            vm.feedback = match work {
+                                VmWork::Inspect => None,
+                                VmWork::Edit(..) => Some((
                                     gui::GUI_ENVIRONMENT_LIMA_APPLIED,
                                     ColorToken::StatusRunning,
-                                ));
-                            }
+                                )),
+                                VmWork::Lifecycle(running) => {
+                                    Some((lima_result_key(running), ColorToken::StatusRunning))
+                                }
+                            };
                         }
                         Some(Ok(Err(error))) => {
                             if !matches!(
@@ -217,6 +254,11 @@ impl SystemView {
                             vm.feedback =
                                 Some((gui::GUI_ENVIRONMENT_LIMA_FAILED, ColorToken::StatusWarning));
                         }
+                    }
+                    if matches!(work, VmWork::Lifecycle(_)) {
+                        this.environment_settings.checks.clear();
+                        this.external_inventory_task = None;
+                        this.refresh_external_inventory(cx);
                     }
                     cx.notify();
                 });
@@ -236,6 +278,42 @@ impl SystemView {
         let vm = &editor.vm;
         let locale = screen.locale;
         let busy = vm.task.is_some();
+        let pending_changes = vm.original.is_some_and(|settings| {
+            vm.draft_changes(settings, cx)
+                .is_none_or(|changes| changes != LimaSettingsUpdate::default())
+        });
+        let actions = row(locale)
+            .gap_2()
+            .flex_wrap()
+            .children(
+                vm.original
+                    .and_then(lima_next_action)
+                    .map(|(running, icon, label)| {
+                        Button::new("change-lima-lifecycle")
+                            .outline()
+                            .icon(icon)
+                            .label(label.text(locale))
+                            .disabled(
+                                busy || self.services.is_none()
+                                    || !editor.provider_matches_draft(cx)
+                                    || (running && pending_changes),
+                            )
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.change_editor_lima_state(running, locale, window, cx);
+                            }))
+                    }),
+            )
+            .child(
+                Button::new("refresh-lima-settings")
+                    .outline()
+                    .icon(IconName::RefreshCw)
+                    .tooltip(gui::GUI_DESKTOP_REFRESH.text(locale))
+                    .accessibility_label(gui::GUI_DESKTOP_REFRESH.text(locale))
+                    .disabled(busy || self.services.is_none())
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.load_environment_vm(window, cx)),
+                    ),
+            );
         let mut body =
             div()
                 .flex()
@@ -257,15 +335,8 @@ impl SystemView {
                             .text(locale),
                             ColorToken::TextPrimary,
                         ))
-                        .child(
-                            Button::new("refresh-lima-settings")
-                                .outline()
-                                .label(gui::GUI_DESKTOP_REFRESH.text(locale))
-                                .disabled(busy || self.services.is_none())
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.load_environment_vm(window, cx)
-                                })),
-                        ),
+                        .flex_wrap()
+                        .child(actions),
                 )
                 .children(vm.feedback.map(|(key, token)| {
                     settings_text(screen, Role::Small, key.text(locale), token)
@@ -444,7 +515,33 @@ fn field(
         .child(resource_input(state).aria_label(label).disabled(disabled))
 }
 
-fn error_text(error: LimaSettingsError) -> TextKey {
+pub(super) fn lima_next_action(settings: LimaSettings) -> Option<(bool, IconName, TextKey)> {
+    if settings.running {
+        Some((
+            false,
+            IconName::Square,
+            gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOP,
+        ))
+    } else if settings.stopped {
+        Some((
+            true,
+            IconName::Play,
+            gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_START,
+        ))
+    } else {
+        None
+    }
+}
+
+pub(super) fn lima_result_key(running: bool) -> TextKey {
+    if running {
+        gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STARTED
+    } else {
+        gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOPPED
+    }
+}
+
+pub(super) fn error_text(error: LimaSettingsError) -> TextKey {
     match error {
         LimaSettingsError::Unavailable => gui::GUI_ENVIRONMENT_LIMA_UNAVAILABLE,
         LimaSettingsError::RequiresStopped => gui::GUI_ENVIRONMENT_LIMA_RUNNING,
@@ -452,6 +549,8 @@ fn error_text(error: LimaSettingsError) -> TextKey {
         LimaSettingsError::InvalidResources => gui::GUI_ENVIRONMENT_LIMA_INVALID,
         LimaSettingsError::UnsupportedNetwork => gui::GUI_ENVIRONMENT_LIMA_UNSUPPORTED_NETWORK,
         LimaSettingsError::Changed => gui::GUI_ENVIRONMENT_LIMA_CHANGED,
+        LimaSettingsError::LifecycleState => gui::GUI_ENVIRONMENT_LIMA_UNKNOWN_STATE,
+        LimaSettingsError::LifecycleFailed => gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_FAILED,
         _ => gui::GUI_ENVIRONMENT_LIMA_FAILED,
     }
 }

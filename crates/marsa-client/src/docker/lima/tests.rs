@@ -107,3 +107,81 @@ fn edits_reject_running_guests_stale_settings_and_disk_shrink() {
         current
     );
 }
+
+#[test]
+fn lifecycle_commands_use_one_validated_instance_and_graceful_stop() {
+    let root = PathBuf::from("/Users/owner/.lima");
+    let instance = LimaInstance {
+        socket: root.join("docker/sock/docker.sock"),
+        root,
+        name: "docker".into(),
+    };
+    let stopped = decode_settings(
+        &fixture(instance.socket.to_str().unwrap(), "[]"),
+        &instance.name,
+        &instance.socket,
+        true,
+    )
+    .unwrap();
+    let running = LimaSettings {
+        stopped: false,
+        running: true,
+        ..stopped
+    };
+    assert_eq!(
+        lifecycle_arguments(stopped, true).unwrap(),
+        Some(&["start", "--timeout=180s"][..]),
+    );
+    assert_eq!(
+        lifecycle_arguments(running, false).unwrap(),
+        Some(&["stop"][..]),
+    );
+    assert!(lifecycle_arguments(running, true).unwrap().is_none());
+    assert!(lifecycle_arguments(stopped, false).unwrap().is_none());
+    assert!(matches!(
+        lifecycle_arguments(
+            LimaSettings {
+                stopped: false,
+                ..stopped
+            },
+            true,
+        ),
+        Err(LimaSettingsError::LifecycleState)
+    ));
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+#[ignore = "requires a disposable Lima VM on a macOS virtualization runner"]
+async fn lima_changes_allocation_between_a_graceful_stop_and_start() {
+    let socket = PathBuf::from(
+        env::var_os("MARSA_DISPOSABLE_LIMA_DOCKER_SOCKET")
+            .expect("set this to the configured Docker forward of a disposable Lima instance"),
+    );
+    let instance = LimaInstance::from_socket(&socket).unwrap();
+    assert!(instance.root.starts_with("/private/tmp"));
+    assert_eq!(
+        env::var_os("LIMA_HOME").as_deref(),
+        Some(instance.root.as_os_str())
+    );
+
+    let stopped = instance.set_running(false).await.unwrap();
+    assert!(stopped.stopped);
+    let cpus = if stopped.cpus == 1 { 2 } else { 1 };
+    let updated = instance
+        .update(
+            stopped,
+            LimaSettingsUpdate {
+                cpus: Some(cpus),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.cpus, cpus);
+    let running = instance.set_running(true).await.unwrap();
+    assert!(running.running);
+    assert_eq!(running.cpus, cpus);
+    let stopped_again = instance.set_running(false).await.unwrap();
+    assert!(stopped_again.stopped);
+}

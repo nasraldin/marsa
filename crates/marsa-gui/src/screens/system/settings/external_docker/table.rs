@@ -23,7 +23,10 @@ use marsa_ui::{
     tokens::typography::Role,
 };
 
-use super::{EditorTarget, SystemView, Update, editor::Appearance, feedback_text, settings_text};
+use super::{
+    EditorTarget, SystemView, Update, confirm_lima_stop, editor::Appearance, feedback_text,
+    settings_text, vm::lima_next_action,
+};
 use crate::{
     screens::{
         common::{ScreenContext, color, row, technical},
@@ -316,6 +319,12 @@ impl SystemView {
         let locale = screen.locale;
         let panel = &self.environment_settings;
         let workspace = target.workspace();
+        let lima = workspace.and_then(|workspace| {
+            Some((
+                workspace.endpoint.lima_instance()?,
+                workspace.lima_settings?,
+            ))
+        });
         let check = panel.checks.get(&target.key());
         let disabled = panel.task.is_some() || panel.editor.is_some();
         let (origin, address, labels) = match target {
@@ -332,7 +341,14 @@ impl SystemView {
                 match &entry.config.transport {
                     ManagedEndpointTransport::Unix { socket } => socket.display().to_string(),
                     ManagedEndpointTransport::Ssh { address }
-                    | ManagedEndpointTransport::Tls { address, .. } => address.clone(),
+                    | ManagedEndpointTransport::Tls { address, .. }
+                    | ManagedEndpointTransport::HawserStandard { address, .. } => address.clone(),
+                    ManagedEndpointTransport::HawserEdge { bind, agent_id, .. } => {
+                        format!(
+                            "{agent_id} · wss://{bind}{}",
+                            marsa_client::docker::HAWSER_EDGE_PATH
+                        )
+                    }
                 },
                 entry.config.labels.as_slice(),
             ),
@@ -451,6 +467,13 @@ impl SystemView {
                     screen.state.engine().map(|engine| engine.state()),
                 )
             }
+            None if lima.as_ref().is_some_and(|(_, settings)| settings.stopped) => {
+                crate::desktop::status::compact_badge(
+                    locale,
+                    screen.palette,
+                    Some(EngineState::Stopped),
+                )
+            }
             None => {
                 let (label, color) = match workspace {
                     Some(workspace) if workspace.reachable => {
@@ -505,6 +528,29 @@ impl SystemView {
                 .disabled(disabled || self.busy())
                 .on_click(
                     cx.listener(move |this, _, window, cx| this.engine(action, locale, window, cx)),
+                )
+            }))
+            .children(lima.and_then(|(instance, settings)| {
+                let (running, icon, label) = lima_next_action(settings)?;
+                Some(
+                    row_action(
+                        "environment-lima-lifecycle",
+                        index,
+                        icon,
+                        label.text(locale),
+                    )
+                    .disabled(disabled || self.services.is_none())
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let instance = instance.clone();
+                        if running {
+                            this.change_lima_row_state(instance, true, cx);
+                        } else {
+                            let name = instance.name().to_owned();
+                            confirm_lima_stop(&name, locale, window, cx, move |this, _, cx| {
+                                this.change_lima_row_state(instance, false, cx);
+                            });
+                        }
+                    })),
                 )
             }))
             .child(
@@ -605,7 +651,7 @@ fn table_line(locale: Locale, cells: [Div; 6]) -> Div {
                 Some(84.),
                 Some(104.),
                 Some(56.),
-                Some(152.),
+                Some(160.),
             ])
             .map(|(cell, width)| {
                 div()

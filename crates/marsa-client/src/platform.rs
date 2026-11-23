@@ -9,7 +9,7 @@ use std::{
 
 mod docker_transport;
 mod lima;
-pub(crate) use lima::{check_lima_target, trusted_lima_binary};
+pub(crate) use lima::{check_lima_target, lima_lifecycle_command, trusted_lima_binary};
 pub(crate) mod registry_https;
 pub(crate) use docker_transport::{
     check_user_docker_directory, docker_ssh_config, lock_docker_state, open_docker_ssh,

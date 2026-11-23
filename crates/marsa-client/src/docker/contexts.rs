@@ -435,7 +435,7 @@ impl TlsEndpoint {
         Self::parse_address(address).is_ok()
     }
 
-    fn parse_address(address: &str) -> io::Result<(Authority, ServerName<'static>)> {
+    pub(super) fn parse_address(address: &str) -> io::Result<(Authority, ServerName<'static>)> {
         let parsed: Authority = address.parse().map_err(io::Error::other)?;
         let (hostname, port) = host_and_port(&parsed).ok_or(io::ErrorKind::InvalidInput)?;
         let server = ServerName::try_from(hostname.to_owned()).map_err(io::Error::other)?;
@@ -515,7 +515,7 @@ impl TlsEndpoint {
     }
 }
 
-async fn read_pem(path: &Path, private: bool) -> io::Result<Vec<u8>> {
+pub(super) async fn read_pem(path: &Path, private: bool) -> io::Result<Vec<u8>> {
     let directory = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
     platform::check_user_docker_directory(directory).await?;
     platform::read_user_docker_file(path, PEM_LIMIT, private).await

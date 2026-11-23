@@ -207,6 +207,8 @@ impl Desktop {
         let platform = version.map(|details| format!("{}/{}", details.os, details.arch));
         let refresh = Button::new("overview-refresh")
             .ghost()
+            .size(px(36.))
+            .p_0()
             .child(IconName::RefreshCw)
             .accessibility_label(gui::GUI_DESKTOP_REFRESH.text(locale))
             .tooltip(gui::GUI_DESKTOP_REFRESH.text(locale))
@@ -279,12 +281,19 @@ impl Desktop {
                                     ),
                             ),
                     )
-                    .child(refresh)
                     .child(
-                        Button::new("overview-manage-environments")
-                            .outline()
-                            .label(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
-                            .on_click(cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx))),
+                        row(locale).gap_1().flex_shrink_0().child(refresh).child(
+                            Button::new("overview-manage-environments")
+                                .ghost()
+                                .size(px(36.))
+                                .p_0()
+                                .child(IconName::Settings2)
+                                .accessibility_label(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
+                                .tooltip(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
+                                .on_click(
+                                    cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx)),
+                                ),
+                        ),
                     ),
             )
             .children(
