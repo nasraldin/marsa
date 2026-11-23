@@ -267,6 +267,9 @@ impl SystemView {
             Route::Settings if self.settings_tab == SettingsTab::GitSources => {
                 self.load_git_sources(cx)
             }
+            Route::Settings if self.settings_tab == SettingsTab::Registries => {
+                self.load_registries(cx)
+            }
             Route::Settings if self.settings_tab == SettingsTab::General => self.load_login(cx),
             Route::Activity => self.load_audit(cx),
             _ => {}

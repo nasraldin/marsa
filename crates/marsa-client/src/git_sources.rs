@@ -350,11 +350,13 @@ impl GitRepositoryStore {
         action: impl FnOnce(&mut Vec<GitRepository>) -> Result<T, GitSourceError>,
     ) -> Result<T, GitSourceError> {
         let directory = self.0.clone();
-        let lock = tokio::task::spawn_blocking(move || platform::lock_docker_state(&directory))
-            .await
-            .map_err(io::Error::other)
-            .map_err(GitSourceError::Store)?
-            .map_err(GitSourceError::Store)?;
+        let lock = tokio::task::spawn_blocking(move || {
+            platform::lock_docker_state(&directory, "desktop-git-sources.lock")
+        })
+        .await
+        .map_err(io::Error::other)
+        .map_err(GitSourceError::Store)?
+        .map_err(GitSourceError::Store)?;
         let mut entries = self.list().await?;
         let result = action(&mut entries)?;
         let data = serde_json::to_vec(&entries)
