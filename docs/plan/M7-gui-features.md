@@ -350,16 +350,16 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
   - Registry and Git connection tests use the configured credentials. Deployment resolves secrets without exposing stored credentials in logs or inspection output.
   - Applying a named configuration set fills the container form and permits overrides before creation.
 
-### M7-23 Configure scanning, jobs, and desktop metadata
+### M7-23 Configure scanning, jobs, and downloads
 
 - **Status:** todo
 - **Depends on:** M7-21
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
-- **Do:** Add image scanner settings and cache controls, system-job configuration, download preferences, and About details for releases and dependencies.
-- **Deliver:** Persisted settings consumed by the corresponding workflows, and About metadata from the bundled release.
+- **Do:** Add image scanner settings and cache controls, system-job configuration, and download preferences.
+- **Deliver:** Persisted settings consumed by the corresponding workflows.
 - **Accept when:**
   - Scanner settings affect a scan, maintenance schedules affect subsequent runs, and scan retention and cache cleanup report their outcomes.
-  - Download settings take effect in resource views. About shows actual version, release notes, and dependency information.
+  - Download settings take effect in resource views.
 
 ### M7-24 Compose template and new stack creation
 
@@ -383,3 +383,14 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
   - Buffer size and UTC or local time preferences survive relaunch and apply without an engine restart.
   - Container logs and combined Compose logs use the selected limits and time zone, without increasing existing resource bounds.
   - Log lines without usable engine timestamps remain readable.
+
+### M7-26 Show the installed release and its dependencies
+
+- **Status:** in progress
+- **Depends on:** M10-12
+- **Docs:** [08 Screens](../08-gui.md#screens), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
+- **Do:** Extend the existing About screen with bilingual notes for the installed build, bundled Docker tool versions, live daemon and guest versions, and Finder access to bundled inventories and notices.
+- **Deliver:** An offline-capable About screen and release notes included by bundle assembly.
+- **Accept when:**
+  - App version and bundled tools come from the installed build. Daemon and guest component versions come from the owner daemon when connected.
+  - The correct release notes appear in each locale. Source checkouts and bundles missing an asset report its absence, and distribution inventory and notice actions reveal the installed evidence.
