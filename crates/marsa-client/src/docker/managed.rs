@@ -40,6 +40,9 @@ pub struct ManagedEndpoint {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ManagedEndpointConfig {
+    /// Icon displayed next to the connection name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     /// A display label chosen by the user.
     pub name: String,
     /// The required transport and its connection settings.
@@ -110,6 +113,9 @@ pub enum ManagedEndpointError {
     /// There are more than ten labels, or a label is empty, too long, or contains unsafe characters.
     #[error("invalid Docker endpoint labels")]
     InvalidLabels,
+    /// The icon is outside the built-in display choices.
+    #[error("unsupported environment icon")]
+    InvalidIcon,
     /// The endpoint address is malformed for its selected transport.
     #[error("invalid Docker endpoint address")]
     InvalidAddress,
@@ -149,6 +155,13 @@ impl ManagedEndpointConfig {
     pub fn validate(&self) -> Result<()> {
         if !valid_text(&self.name, DISPLAY_LIMIT) {
             return Err(ManagedEndpointError::InvalidName);
+        }
+        if self
+            .icon
+            .as_deref()
+            .is_some_and(|icon| !matches!(icon, "server" | "rocket" | "globe" | "box"))
+        {
+            return Err(ManagedEndpointError::InvalidIcon);
         }
         if self.labels.len() > Self::MAX_LABELS
             || self
@@ -264,7 +277,7 @@ fn valid_path(path: &Path) -> bool {
             .is_some_and(|path| valid_text(path, ADDRESS_LIMIT))
 }
 
-fn valid_text(value: &str, limit: usize) -> bool {
+pub(super) fn valid_text(value: &str, limit: usize) -> bool {
     !value.trim().is_empty()
         && value.len() <= limit
         && !value.chars().any(|ch| {

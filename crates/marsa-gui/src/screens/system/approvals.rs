@@ -3,7 +3,6 @@
 use marsa_client::api::{
     ApproveRequest, DenyRequest, PendingApproval, PermissionTier, RevokeGrantRequest,
 };
-use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
     gpui::{
@@ -15,6 +14,7 @@ use marsa_ui::{
         input::{Input, InputEvent, InputState},
     },
 };
+use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
 
 use super::{
     Notice, SystemView,
@@ -120,6 +120,7 @@ impl SystemView {
         };
         let view = cx.entity().downgrade();
         let approval_id = approval.id.clone();
+        let clock = self.display_settings().time_format;
         window.open_dialog(cx, move |dialog, _, cx| {
             let muted_color = color(palette, ColorToken::TextMuted);
             let mut content = align(div().flex().flex_col().gap_4(), locale)
@@ -232,8 +233,12 @@ impl SystemView {
                             gui::GUI_SYSTEM_ACTIVITY_EXPIRES_UTC.text(locale),
                         ))
                         .child(
-                            mono(&super::activity::utc_time(approval.expires_at_unix_millis))
-                                .text_color(muted_color),
+                            mono(&super::activity::utc_time(
+                                locale,
+                                clock,
+                                approval.expires_at_unix_millis,
+                            ))
+                            .text_color(muted_color),
                         ),
                 );
             }
@@ -476,7 +481,7 @@ fn permission_pill(locale: Locale, palette: Palette, tier: PermissionTier) -> Di
         .rounded_full()
         .px_3()
         .py_1()
-        .text_size(px(13.))
+        .text_size(ui_size(13.))
         .bg(color(palette, background))
         .text_color(color(palette, foreground))
         .child(

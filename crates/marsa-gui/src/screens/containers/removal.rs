@@ -1,16 +1,15 @@
 //! Explicit confirmation for stopped and running container removal.
 
-use marsa_ui::gui_keys as gui;
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+
+use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
 use std::{cell::Cell, rc::Rc};
 
 use marsa_client::docker::{ContainerId, ContainerRemoval, ExternalEndpoint, RemovalMode};
 use marsa_ui::{
     ColorToken, Locale,
     direction::{LogicalStyle as _, isolate_technical_text, row},
-    gpui::{
-        Context, InteractiveElement as _, ParentElement as _, StatefulInteractiveElement as _,
-        Styled as _, Window, div, px,
-    },
+    gpui::{Context, InteractiveElement as _, ParentElement as _, Styled as _, Window, div, px},
     gpui_component::{
         Disableable as _, Sizable as _, WindowExt as _,
         button::{Button, ButtonVariants as _},
@@ -154,7 +153,7 @@ pub(super) fn open(
             .gap_1()
             .p_2()
             .max_h(px(184.))
-            .overflow_y_scroll()
+            .overflow_y_scrollbar()
             .rounded_md()
             .bg(color(palette, ColorToken::BgCode))
             .border_1()
@@ -218,7 +217,7 @@ pub(super) fn open(
                 )
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(ui_size(12.))
                         .text_color(color(palette, ColorToken::TextMuted))
                         .child(
                             gui::GUI_DESKTOP_STOPS_THE_AFFECTED_CONTAINERS_IMMEDIATELY.text(locale),

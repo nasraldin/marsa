@@ -1,5 +1,7 @@
 //! Manage the owner's reusable container configurations through revisioned settings.
 
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+
 use std::{cell::Cell, rc::Rc};
 
 use marsa_client::docker::container_config::{ContainerConfigSet, MAX_CONFIG_SETS};
@@ -8,7 +10,7 @@ use marsa_ui::{
     direction::LogicalStyle as _,
     gpui::{
         App, Context, Div, InteractiveElement as _, ParentElement as _, PromptButton, PromptLevel,
-        StatefulInteractiveElement as _, Styled as _, Window, div, px,
+        Styled as _, Window, div, px,
     },
     gpui_component::{
         Disableable as _, WindowExt as _,
@@ -202,7 +204,7 @@ impl SystemView {
                     div()
                         .id("config-set-editor")
                         .max_h(px(460.))
-                        .overflow_y_scroll()
+                        .overflow_y_scrollbar()
                         .flex()
                         .flex_col()
                         .gap_3()

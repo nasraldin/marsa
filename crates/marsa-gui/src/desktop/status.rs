@@ -1,6 +1,7 @@
 //! Translate lifecycle indicators independently from daemon diagnostic details.
 
 use marsa_client::api::EngineState;
+use marsa_ui::tokens::typography::ui_size;
 use marsa_ui::{
     ColorToken, Locale, Palette,
     gpui::{Div, ParentElement, Styled, div, px},
@@ -44,7 +45,7 @@ pub(super) fn inline_badge(
     let foreground = color(palette, foreground(state));
     row(locale)
         .gap_2()
-        .text_size(px(12.))
+        .text_size(ui_size(12.))
         .text_color(foreground)
         .child(
             div()

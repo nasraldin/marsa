@@ -7,6 +7,7 @@ mod images;
 mod managed;
 mod registry;
 mod resources;
+pub mod scanning;
 mod stats;
 mod stream;
 mod terminal;
@@ -32,6 +33,7 @@ use crate::{ClientError, docker_socket_path, platform};
 mod container_files;
 mod inventory;
 mod lima;
+mod overview;
 pub use container_files::{ContainerFileFormat, ContainerPath};
 pub use environment_report::{DockerActivity, EnvironmentReport, EnvironmentReportContainer};
 pub use inventory::{
@@ -56,6 +58,10 @@ pub use actions::{
 };
 pub use images::{
     ContainerMountReview, ImagePull, ImageReference, ImageRun, PullCounters, PullProgress,
+};
+pub use overview::{
+    ContainerCounts, ContainerUtilization, DiskBreakdown, EngineVersion, OverviewClient,
+    OverviewSample, OverviewUtilization,
 };
 use resources::ComposeLabels;
 pub use resources::{
@@ -126,6 +132,7 @@ pub struct ContainerSummary {
     pub state: String,
     /// Engine-provided status details.
     pub status: String,
+    health: Option<ContainerHealth>,
     /// Creation time in Unix seconds.
     pub created: i64,
     /// Stable image identifier from Docker.
@@ -141,6 +148,12 @@ pub struct ContainerSummary {
     pub network_settings: Option<ContainerNetworkSettings>,
     #[serde(rename = "Labels", default, deserialize_with = "null_to_default")]
     compose: ComposeLabels,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct ContainerHealth {
+    #[serde(rename = "Status", default)]
+    status: String,
 }
 
 impl ContainerSummary {
@@ -383,8 +396,24 @@ impl DockerClient {
     }
 
     async fn snapshot<T: DeserializeOwned>(&self, path: &str) -> Result<T, DockerError> {
-        timeout(REQUEST_TIMEOUT, async {
-            let (_, body) = self.request(Method::GET, path).await?;
+        self.snapshot_with_timeout(path, REQUEST_TIMEOUT).await
+    }
+
+    async fn snapshot_with_timeout<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        deadline: Duration,
+    ) -> Result<T, DockerError> {
+        timeout(deadline, async {
+            let (_, body) = self
+                .request_body(
+                    Method::GET,
+                    path,
+                    Full::new(Bytes::new()),
+                    Default::default(),
+                    deadline,
+                )
+                .await?;
             let bytes = Limited::new(body.body, SNAPSHOT_LIMIT)
                 .collect()
                 .await

@@ -172,7 +172,7 @@ struct EngineActorAttributes {
     name: Option<String>,
 }
 
-fn display_value(value: &str, limit: usize) -> String {
+pub(super) fn display_value(value: &str, limit: usize) -> String {
     value
         .chars()
         .take(limit)

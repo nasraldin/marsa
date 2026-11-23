@@ -14,7 +14,7 @@ use marsa_ui::{
 };
 
 use crate::{
-    screens::common::{ScreenContext, panel},
+    screens::common::{ScreenContext, log_time, panel},
     services::Services,
 };
 
@@ -194,7 +194,12 @@ pub(super) fn render(
                                 text(
                                     screen,
                                     Role::Mono,
-                                    timestamp.format(settings.local_timestamps),
+                                    log_time(
+                                        screen.locale,
+                                        screen.display.time_format,
+                                        settings.local_timestamps,
+                                        timestamp,
+                                    ),
                                 )
                                 .text_color(tone(screen, ColorToken::TextMuted))
                             }))

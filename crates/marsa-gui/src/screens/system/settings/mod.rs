@@ -2,6 +2,7 @@
 
 mod about;
 mod accents;
+mod appearance;
 mod compose_template;
 mod config_sets;
 mod external_docker;
@@ -40,7 +41,8 @@ use crate::screens::common::{ScreenContext, align, color, copy, panel, row};
 
 use super::{Notice, SystemView, machine::title_text, notifications::Kind};
 
-pub(super) use external_docker::EnvironmentSettings;
+pub(crate) use external_docker::icon_path as environment_icon_path;
+pub(super) use external_docker::{EnvironmentSettings, Observations};
 pub(super) use git_sources::GitSources;
 pub(super) use registries::RegistrySettings;
 pub(super) use resources::ResourceInputs;
@@ -49,10 +51,7 @@ pub(super) use update::UpdatePanel;
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum SettingsTab {
     General,
-    Resources,
     Sharing,
-    Network,
-    Docker,
     Environments,
     GitSources,
     Registries,
@@ -69,10 +68,7 @@ impl SettingsTab {
     fn icon(self) -> &'static str {
         match self {
             Self::General => "icons/sliders-horizontal.svg",
-            Self::Resources => "icons/cpu.svg",
             Self::Sharing => "icons/folder-open.svg",
-            Self::Network => "icons/network.svg",
-            Self::Docker => "icons/container.svg",
             Self::Environments => "icons/server.svg",
             Self::GitSources => "icons/folder-open.svg",
             Self::Registries => "icons/layers.svg",
@@ -89,10 +85,7 @@ impl SettingsTab {
     fn title(self, locale: Locale) -> &'static str {
         let (en, ar) = match self {
             Self::General => ("General", "عام"),
-            Self::Resources => ("Resources", "الموارد"),
             Self::Sharing => ("Sharing", "المشاركة"),
-            Self::Network => ("Network", "الشبكة"),
-            Self::Docker => return gui::GUI_SETTINGS_DOCKER_INTEGRATION.text(locale),
             Self::Environments => return gui::GUI_SETTINGS_ENVIRONMENTS.text(locale),
             Self::GitSources => return gui::GUI_GIT_SETTINGS.text(locale),
             Self::Registries => return gui::GUI_REGISTRIES_TITLE.text(locale),
@@ -138,10 +131,7 @@ impl SystemView {
                     gui::GUI_SETTINGS_SECTION_INFRASTRUCTURE.text(locale),
                     &[
                         SettingsTab::Environments,
-                        SettingsTab::Resources,
                         SettingsTab::Sharing,
-                        SettingsTab::Network,
-                        SettingsTab::Docker,
                         SettingsTab::Agents,
                     ][..],
                 ),
@@ -182,19 +172,15 @@ impl SystemView {
         );
         let content = match self.settings_tab {
             SettingsTab::General => self.general(screen, cx),
-            SettingsTab::Resources => settings_card(screen)
-                .child(settings_heading(
-                    screen,
-                    gui::GUI_DESKTOP_VIRTUAL_MACHINE_RESOURCES.text(locale),
-                    gui::GUI_DESKTOP_CHANGES_APPLY_AT_THE_NEXT_START.text(locale),
-                ))
-                .child(self.resource_editor(screen, cx)),
             SettingsTab::Sharing => self.sharing(screen, cx),
-            SettingsTab::Network => self.network(screen, cx),
-            SettingsTab::Docker => self.docker(screen, cx),
             SettingsTab::Environments => self.external_docker(screen, cx),
             SettingsTab::GitSources => self.git_sources(screen, cx),
-            SettingsTab::Registries => self.registries(screen, cx),
+            SettingsTab::Registries => div()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .child(self.registries(screen, cx))
+                .child(self.registry_keychain(screen, cx)),
             SettingsTab::ConfigSets => self.config_sets_page(screen, cx),
             SettingsTab::Notifications => self.notification_settings(screen, cx),
             SettingsTab::Logs => self.log_settings_card(screen, cx),
@@ -269,12 +255,9 @@ impl SystemView {
         } else {
             button
         };
-        button.on_click(cx.listener(move |this, _, window, cx| {
+        button.on_click(cx.listener(move |this, _, _, cx| {
             this.settings_tab = tab;
             match tab {
-                SettingsTab::Resources | SettingsTab::Network => {
-                    this.show_resource_inputs(window, cx)
-                }
                 SettingsTab::Updates => this.load_update_status(cx),
                 SettingsTab::Environments => this.refresh_environments(cx),
                 SettingsTab::About => this.load_about(cx),
@@ -345,6 +328,7 @@ impl SystemView {
                     cx,
                 ),
             ))
+            .children(self.appearance_settings(screen, cx))
             .child(self.login_setting(screen, cx));
         div()
             .flex()
@@ -673,11 +657,7 @@ fn settings_text(
     value: impl Into<SharedString>,
     token: ColorToken,
 ) -> Div {
-    let style = if screen.locale == Locale::Arabic {
-        role.arabic()
-    } else {
-        role.latin()
-    };
+    let style = screen.typography(role);
     align(style.apply(div()), screen.locale)
         .text_color(color(screen.palette, token))
         .child(value.into())

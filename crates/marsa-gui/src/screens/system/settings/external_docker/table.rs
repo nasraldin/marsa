@@ -1,5 +1,7 @@
 //! A single inventory of Marsa, saved connections, and detected Docker engines.
 
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+
 use std::{iter, sync::Arc};
 
 use marsa_client::{
@@ -28,7 +30,7 @@ use crate::{
         external_inventory::Environment,
         system::SelectContext,
     },
-    services::{Pending, Services},
+    services::{EngineAction, Pending, Services},
 };
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -83,7 +85,7 @@ impl SystemView {
                     let workspace = self.external_inventory.iter().find(|workspace| {
                         workspace.endpoint.managed_id() == Some(entry.id.as_str())
                     });
-                    EditorTarget::Saved(entry.clone(), workspace.cloned())
+                    EditorTarget::Saved(Box::new(entry.clone()), workspace.cloned())
                 });
         let discovered = self
             .external_inventory
@@ -224,7 +226,7 @@ impl SystemView {
             .flex()
             .flex_col()
             .w_full()
-            .min_w(px(740.))
+            .min_w(px(710.))
             .rounded(px(12.))
             .border_1()
             .border_color(boundary)
@@ -290,7 +292,7 @@ impl SystemView {
                     .id("environment-table-scroll")
                     .w_full()
                     .min_w_0()
-                    .overflow_x_scroll()
+                    .overflow_x_scrollbar()
                     .child(table),
             )
     }
@@ -307,9 +309,8 @@ impl SystemView {
         let workspace = target.workspace();
         let check = panel.checks.get(&target.key());
         let disabled = panel.task.is_some() || panel.editor.is_some();
-        let (name, origin, address, labels) = match target {
+        let (origin, address, labels) = match target {
             EditorTarget::Builtin => (
-                "Marsa",
                 gui::GUI_ENVIRONMENT_TABLE_BUILTIN,
                 marsa_client::docker_socket_path()
                     .ok()
@@ -318,7 +319,6 @@ impl SystemView {
                 &[][..],
             ),
             EditorTarget::Saved(entry, _) => (
-                entry.config.name.as_str(),
                 gui::GUI_ENVIRONMENT_TABLE_SAVED,
                 match &entry.config.transport {
                     ManagedEndpointTransport::Unix { socket } => socket.display().to_string(),
@@ -328,33 +328,45 @@ impl SystemView {
                 entry.config.labels.as_slice(),
             ),
             EditorTarget::Discovered(workspace) => (
-                workspace.source.as_str(),
                 gui::GUI_ENVIRONMENT_TABLE_DISCOVERED,
                 workspace.endpoint.address(),
                 &[][..],
             ),
             EditorTarget::Add => return div(),
         };
-        let label = div()
-            .flex()
-            .flex_col()
-            .gap_1()
+        let (name, chosen_icon) = self.editor_presentation(target);
+        let label = row(locale)
+            .gap_2()
+            .items_center()
             .child(
-                settings_text(
-                    screen,
-                    Role::Label,
-                    technical(name),
-                    ColorToken::TextPrimary,
-                )
-                .truncate(),
+                marsa_ui::gpui::svg()
+                    .path(super::icon_path(chosen_icon))
+                    .size(px(18.))
+                    .flex_shrink_0()
+                    .text_color(color(screen.palette, ColorToken::AccentDefault)),
             )
-            .child(settings_text(
-                screen,
-                Role::Small,
-                origin.text(locale),
-                ColorToken::TextMuted,
-            ));
-
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .min_w_0()
+                    .gap_1()
+                    .child(
+                        settings_text(
+                            screen,
+                            Role::Label,
+                            technical(&name),
+                            ColorToken::TextPrimary,
+                        )
+                        .truncate(),
+                    )
+                    .child(settings_text(
+                        screen,
+                        Role::Small,
+                        origin.text(locale),
+                        ColorToken::TextMuted,
+                    )),
+            );
         let connection = if address.is_empty() {
             "—".into()
         } else {
@@ -454,14 +466,43 @@ impl SystemView {
                 })
                 .map(Environment::from),
         };
+        let lifecycle = if matches!(target, EditorTarget::Builtin) {
+            match screen.state.engine().map(|engine| engine.state()) {
+                Some(EngineState::Ready | EngineState::Idle | EngineState::Paused) => Some((
+                    EngineAction::Stop,
+                    IconName::Square,
+                    gui::GUI_DESKTOP_STOP_MACHINE,
+                )),
+                Some(EngineState::Stopped | EngineState::Failed) => Some((
+                    EngineAction::Start,
+                    IconName::Play,
+                    gui::GUI_DESKTOP_START_MACHINE,
+                )),
+                _ => None,
+            }
+        } else {
+            None
+        };
         let actions = row(locale)
             .gap_1()
             .items_center()
+            .children(lifecycle.map(|(action, icon, label)| {
+                row_action(
+                    "environment-engine-lifecycle",
+                    index,
+                    icon,
+                    label.text(locale),
+                )
+                .disabled(disabled || self.busy())
+                .on_click(
+                    cx.listener(move |this, _, window, cx| this.engine(action, locale, window, cx)),
+                )
+            }))
             .child(
                 row_action(
                     "use-environment",
                     index,
-                    IconName::Play,
+                    IconName::ArrowUp,
                     gui::GUI_ENVIRONMENT_USE.text(locale),
                 )
                 .disabled(disabled || selection.is_none())
@@ -499,18 +540,16 @@ impl SystemView {
                 EditorTarget::Saved(entry, _) => {
                     let id = entry.id.clone();
                     Some(
-                        row_action(
-                            "remove-environment",
-                            index,
-                            IconName::Delete,
-                            gui::GUI_DESKTOP_REMOVE.text(locale),
-                        )
-                        .disabled(disabled)
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
+                        Button::new(("remove-environment", index))
+                            .ghost()
+                            .small()
+                            .icon(marsa_ui::gpui_component::Icon::default().path("icons/trash.svg"))
+                            .tooltip(gui::GUI_DESKTOP_REMOVE.text(locale))
+                            .accessibility_label(gui::GUI_DESKTOP_REMOVE.text(locale))
+                            .disabled(disabled)
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 this.confirm_environment_removal(id.clone(), locale, window, cx);
-                            },
-                        )),
+                            })),
                     )
                 }
                 _ => None,
@@ -552,18 +591,20 @@ fn table_line(locale: Locale, cells: [Div; 6]) -> Div {
         cells
             .into_iter()
             .zip([
-                Some(128.),
+                Some(124.),
                 None,
-                Some(98.),
-                Some(112.),
-                Some(68.),
-                Some(136.),
+                Some(84.),
+                Some(104.),
+                Some(56.),
+                Some(152.),
             ])
             .map(|(cell, width)| {
                 div()
                     .min_w_0()
                     .when_some(width, |column, width| column.w(px(width)).flex_shrink_0())
-                    .when(width.is_none(), |column| column.flex_1())
+                    .when(width.is_none(), |column| {
+                        column.w_0().flex_1().overflow_hidden()
+                    })
                     .child(cell)
             }),
     )

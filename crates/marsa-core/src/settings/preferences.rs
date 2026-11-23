@@ -63,6 +63,72 @@ pub fn valid_compose_template(value: &str) -> bool {
     value.len() <= MAX_COMPOSE_TEMPLATE_BYTES && !value.trim().is_empty() && !value.contains('\0')
 }
 
+/// Font used for desktop interface text.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiFont {
+    /// Use the bundled IBM Plex face for the current language.
+    #[default]
+    IbmPlex,
+    /// Use the operating system's interface face.
+    System,
+}
+
+/// The desktop's base body text size, in logical pixels.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiFontSize {
+    /// Use 12 pixels.
+    Small,
+    /// Use 14 pixels.
+    #[default]
+    Default,
+    /// Use 16 pixels.
+    Large,
+}
+
+/// Monospace face used in interactive terminal sessions.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalFont {
+    /// Use bundled IBM Plex Mono.
+    #[default]
+    IbmPlexMono,
+    /// Use the system-installed Menlo face.
+    Menlo,
+}
+
+/// Hour cycle used to display timestamps.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeFormat {
+    /// Use hours 01 through 12 with a day-period marker.
+    TwelveHour,
+    /// Use hours 00 through 23.
+    #[default]
+    TwentyFourHour,
+}
+
+/// Desktop typography and time display preferences.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DisplaySettings {
+    /// Font for workspace text and controls.
+    pub ui_font: UiFont,
+    /// Base size for workspace text and controls.
+    pub ui_font_size: UiFontSize,
+    /// Font for docked and detached terminals.
+    pub terminal_font: TerminalFont,
+    /// Hour cycle for displayed timestamps.
+    pub time_format: TimeFormat,
+}
+
+impl DisplaySettings {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// Desktop app appearance, language and workflow settings.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -74,6 +140,9 @@ pub struct UiSettings {
     /// Tint used by interactive desktop controls.
     #[serde(skip_serializing_if = "AccentColor::is_default")]
     pub accent_color: AccentColor,
+    /// Typography and time display for the desktop.
+    #[serde(skip_serializing_if = "DisplaySettings::is_default")]
+    pub display: DisplaySettings,
     /// Whether the owner completed the desktop setup flow.
     #[serde(skip_serializing_if = "is_false")]
     pub setup_complete: bool,
@@ -85,6 +154,9 @@ pub struct UiSettings {
     /// Retention and display preferences for live container and Compose logs.
     #[serde(skip_serializing_if = "LogSettings::is_default")]
     pub logs: LogSettings,
+    /// Owner-selected names and icons for detected environments.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub environment_appearance: std::collections::BTreeMap<String, super::EnvironmentAppearance>,
     /// Reusable options for the desktop's container creation dialog.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub container_config_sets: Vec<crate::container_config::ContainerConfigSet>,

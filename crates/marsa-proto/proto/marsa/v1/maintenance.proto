@@ -5,6 +5,8 @@ package marsa.v1;
 // VM utilization samples and storage maintenance.
 service Stats {
   rpc VmStats(VmStatsRequest) returns (stream VmStatsSample);
+  // Read a bounded snapshot from a guest which is already running.
+  rpc DockerOverview(DockerOverviewRequest) returns (DockerOverviewResponse);
 }
 
 service Disk {
@@ -38,6 +40,28 @@ message VmStatsSample {
   uint64 disk_total_bytes = 6;
   uint64 network_rx_bytes = 7;
   uint64 network_tx_bytes = 8;
+}
+
+enum DockerOverviewSection {
+  DOCKER_OVERVIEW_SECTION_UNSPECIFIED = 0;
+  DOCKER_OVERVIEW_SECTION_CONTAINERS = 1;
+  DOCKER_OVERVIEW_SECTION_IMAGES = 2;
+  DOCKER_OVERVIEW_SECTION_VOLUMES = 3;
+  DOCKER_OVERVIEW_SECTION_NETWORKS = 4;
+  DOCKER_OVERVIEW_SECTION_CONTAINER_STATS = 5;
+  DOCKER_OVERVIEW_SECTION_DISK = 6;
+  DOCKER_OVERVIEW_SECTION_VERSION = 7;
+}
+
+message DockerOverviewRequest {
+  DockerOverviewSection section = 1;
+  // Only valid for container stats, which require the full lowercase hex ID.
+  string container_id = 2;
+}
+
+message DockerOverviewResponse {
+  // Bounded Docker JSON for the requested section.
+  bytes json = 1;
 }
 
 message DiskUsageRequest {}

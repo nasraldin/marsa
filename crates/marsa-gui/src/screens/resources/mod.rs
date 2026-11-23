@@ -222,13 +222,13 @@ impl ResourcesView {
     fn open_form(
         &mut self,
         action: (FormKind, Option<ResourceSource>),
-        locale: Locale,
-        palette: Palette,
+        appearance: (Locale, Palette, marsa_ui::preferences::DisplaySettings),
         service: Arc<Services>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let (kind, source) = action;
+        let (locale, palette, display) = appearance;
         let title = kind.title(locale);
         let state = source.as_ref().map_or_else(
             || service.store().select(Clone::clone).current().clone(),
@@ -240,6 +240,7 @@ impl ResourcesView {
             let screen = ScreenContext {
                 locale,
                 palette,
+                display,
                 state: &state,
                 services: Some(&service),
             };
@@ -488,7 +489,7 @@ fn primary_action(
 ) -> impl marsa_ui::gpui::IntoElement {
     let state = view.clone();
     let locale = screen.locale;
-    let palette = screen.palette;
+    let appearance = (locale, screen.palette, screen.display);
     let service = screen.services.cloned();
     let title = action.title(locale);
     let button = Button::new(marsa_ui::gpui::SharedString::from(format!(
@@ -509,8 +510,7 @@ fn primary_action(
                 state.update(cx, |state, cx| {
                     state.open_form(
                         (action.clone(), source.clone()),
-                        locale,
-                        palette,
+                        appearance,
                         Arc::clone(service),
                         window,
                         cx,
@@ -535,7 +535,7 @@ fn details(
         .enumerate()
         .map(|(index, action)| {
             let view = view.clone();
-            let palette = screen.palette;
+            let appearance = (locale, screen.palette, screen.display);
             let service = screen.services.cloned();
             let source = row.source().cloned();
             Button::new(("resource-detail-action", index))
@@ -546,8 +546,7 @@ fn details(
                         view.update(cx, |view, cx| {
                             view.open_form(
                                 (action.clone(), source.clone()),
-                                locale,
-                                palette,
+                                appearance,
                                 Arc::clone(service),
                                 window,
                                 cx,
@@ -690,11 +689,7 @@ fn text(
     role: Role,
     value: impl Into<marsa_ui::gpui::SharedString>,
 ) -> Div {
-    let style = if screen.locale == Locale::Arabic {
-        role.arabic()
-    } else {
-        role.latin()
-    };
+    let style = screen.typography(role);
     let value = value.into();
     let value = if matches!(role, Role::Mono | Role::MonoSmall) {
         technical(value.as_ref())

@@ -1,10 +1,18 @@
 //! Stream bounded observations from the active guest control session.
 
+use std::{io, time::Duration};
+
 use marsa_proto::{
     guest::v1::VmStats,
-    host::v1::{VmStatsRequest, VmStatsSample, stats_server::Stats},
+    host::v1::{
+        DockerOverviewRequest, DockerOverviewResponse, DockerOverviewSection, VmStatsRequest,
+        VmStatsSample, stats_server::Stats,
+    },
 };
+use tokio::time::timeout;
 use tonic::{Request, Response, Status};
+
+use crate::guest_control::docker_http;
 
 use super::{
     TypedApi,
@@ -50,5 +58,85 @@ impl Stats for TypedApi {
                 .events
                 .watch_stats(self.inner.closing.subscribe()),
         ))
+    }
+
+    async fn docker_overview(
+        &self,
+        request: Request<DockerOverviewRequest>,
+    ) -> Result<Response<DockerOverviewResponse>, Status> {
+        let request = self.authorize(request)?;
+        let deadline = match request.section() {
+            DockerOverviewSection::Disk => Duration::from_secs(40),
+            _ => Duration::from_secs(10),
+        };
+        let path = overview_path(request).map_err(Status::invalid_argument)?;
+        let not_running = || Status::failed_precondition("Docker overview requires a running VM");
+        let supervisor = self.supervisor.as_ref().ok_or_else(not_running)?;
+        let json = timeout(deadline, async {
+            let stream = supervisor.connect_running_docker().await?;
+            docker_http::get(stream, &path, 2 * 1024 * 1024).await
+        })
+        .await
+        .map_err(|_| Status::deadline_exceeded("Docker overview timed out"))?
+        .map_err(|error| match error.kind() {
+            io::ErrorKind::NotConnected => not_running(),
+            _ => Status::unavailable("could not read Docker overview"),
+        })?;
+        Ok(Response::new(DockerOverviewResponse {
+            json: json.to_vec(),
+        }))
+    }
+}
+
+fn overview_path(request: DockerOverviewRequest) -> Result<String, &'static str> {
+    let section = request.section();
+    let id = &request.container_id;
+    if section == DockerOverviewSection::ContainerStats {
+        if id.len() != 64
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err("invalid Docker container identifier");
+        }
+        return Ok(format!("/v1.57/containers/{id}/stats?stream=false"));
+    }
+    if !id.is_empty() {
+        return Err("unexpected Docker container identifier");
+    }
+    Ok(match section {
+        DockerOverviewSection::Containers => "/v1.57/containers/json?all=true",
+        DockerOverviewSection::Images => "/v1.57/images/json?all=true",
+        DockerOverviewSection::Volumes => "/v1.57/volumes",
+        DockerOverviewSection::Networks => "/v1.57/networks",
+        DockerOverviewSection::Disk => "/v1.57/system/df?verbose=true",
+        DockerOverviewSection::Version => "/v1.57/version",
+        _ => return Err("invalid Docker overview section"),
+    }
+    .to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overview_routes_accept_only_fixed_queries_and_full_container_ids() {
+        let make = |section: DockerOverviewSection, id: &str| DockerOverviewRequest {
+            section: section.into(),
+            container_id: id.into(),
+        };
+        assert_eq!(
+            overview_path(make(DockerOverviewSection::Disk, "")).unwrap(),
+            "/v1.57/system/df?verbose=true"
+        );
+        let id = "1a".repeat(32);
+        assert_eq!(
+            overview_path(make(DockerOverviewSection::ContainerStats, &id)).unwrap(),
+            format!("/v1.57/containers/{id}/stats?stream=false")
+        );
+        assert!(overview_path(make(DockerOverviewSection::ContainerStats, "../json")).is_err());
+        assert!(overview_path(make(DockerOverviewSection::Containers, &id)).is_err());
+        assert!(overview_path(make(DockerOverviewSection::Unspecified, "")).is_err());
     }
 }

@@ -2,6 +2,8 @@
 
 mod results;
 
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+
 use marsa_ui::{
     ColorToken, FocusTrapElement as _,
     gpui::{
@@ -157,7 +159,7 @@ impl Desktop {
                 div()
                     .id("palette-results")
                     .track_scroll(&self.palette_scroll)
-                    .overflow_y_scroll()
+                    .overflow_y_scrollbar()
                     .max_h(px(204.))
                     .min_h(px(204.))
                     .flex()

@@ -14,13 +14,14 @@ use marsa_ui::{
         ElementInputHandler, FocusHandle, FontWeight, Hsla, InteractiveElement as _, IntoElement,
         KeyDownEvent, ParentElement as _, Pixels, Render, ScrollEvent,
         StatefulInteractiveElement as _, Styled as _, Subscription, Task, TitlebarOptions,
-        WeakEntity, Window, WindowBounds, WindowHandle, WindowOptions, canvas, div, font, point,
-        px, rgb, size,
+        WeakEntity, Window, WindowBounds, WindowHandle, WindowOptions, canvas, div, point, px, rgb,
+        size,
     },
     gpui_component::{
         Disableable as _, Icon, IconName, Sizable as _,
         button::{Button, ButtonVariants as _},
     },
+    tokens::typography::{Family, Role, rem_size, ui_size},
     vt100::{Color, Parser, Screen},
 };
 
@@ -36,8 +37,8 @@ const SCROLLBACK: usize = 2_000;
 const FONT_SIZE: Pixels = px(12.);
 const CELL_HEIGHT: Pixels = px(18.);
 
-fn cell_width(window: &Window) -> Pixels {
-    let font = window.text_system().resolve_font(&font("IBM Plex Mono"));
+fn cell_width(window: &Window, family: Family) -> Pixels {
+    let font = window.text_system().resolve_font(&family.font());
     window
         .text_system()
         .advance(font, FONT_SIZE, 'M')
@@ -402,9 +403,13 @@ impl Render for Detached {
                 let target = view.focused.as_ref()?;
                 let entry = view.target_state(target)?.container(target.id())?;
                 let palette = screen.palette;
+                let terminal_font = Family::terminal(screen.display.terminal_font);
                 let heading = format!("{}  ·  /bin/sh", name(entry));
+                window.set_rem_size(px(rem_size(screen.display.ui_font_size)));
                 Some(
-                    div()
+                    screen
+                        .typography(Role::Body)
+                        .apply(div())
                         .flex()
                         .flex_col()
                         .size_full()
@@ -422,7 +427,7 @@ impl Render for Detached {
                                 .child(
                                     div()
                                         .flex_1()
-                                        .font_family("IBM Plex Mono")
+                                        .font(terminal_font.font())
                                         .text_xs()
                                         .child(isolate_technical_text(&heading)),
                                 )
@@ -484,7 +489,8 @@ fn viewport(
 ) -> impl IntoElement {
     let panel = &view.terminal;
     let palette = screen.palette;
-    let cell_width = cell_width(window);
+    let family = Family::terminal(screen.display.terminal_font);
+    let cell_width = cell_width(window, family);
     let mut terminal = div()
         .id("container-terminal-viewport")
         .relative()
@@ -523,7 +529,7 @@ fn viewport(
         terminal = terminal.child(
             div()
                 .text_start(cx)
-                .text_size(px(12.))
+                .text_size(ui_size(12.))
                 .text_color(color(palette, ColorToken::TextMuted))
                 .child(message(screen.locale, status)),
         );
@@ -580,6 +586,7 @@ fn viewport(
                 .child(screen_lines(
                     session.parser.screen(),
                     palette,
+                    family,
                     cell_width,
                     session.opened && !session.closed,
                     &panel.compose.marked,
@@ -604,6 +611,7 @@ fn viewport(
 fn screen_lines(
     screen: &Screen,
     palette: Palette,
+    family: Family,
     cell_width: Pixels,
     active: bool,
     marked: &str,
@@ -614,8 +622,9 @@ fn screen_lines(
     div()
         .flex()
         .flex_col()
-        .font_family("IBM Plex Mono")
+        .font(family.font())
         .text_size(FONT_SIZE)
+        .line_height(CELL_HEIGHT)
         .children((0..rows.get()).map(|y| {
             let cells = (0..cols.get()).filter_map(|column| {
                 let cell = screen.cell(y, column)?;

@@ -1,15 +1,15 @@
 //! Storage accounting, exact cleanup inventory and explicit space reclaim.
 
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+use marsa_ui::tokens::typography::ui_size;
+
 use marsa_client::api::{
     DiskCategory, DiskCategoryUsage, DiskReclaimRequest, DiskUsageRequest, EngineState,
     PruneApplyCapability, PruneCandidate, PrunePreviewRequest, PrunePreviewResponse,
 };
 use marsa_ui::{
     ColorToken, Locale, Palette,
-    gpui::{
-        Context, Div, FontWeight, InteractiveElement, ParentElement, StatefulInteractiveElement,
-        Styled, Window, div, px,
-    },
+    gpui::{Context, Div, FontWeight, InteractiveElement, ParentElement, Styled, Window, div, px},
     gpui_component::{
         Disableable, Sizable, WindowExt,
         button::{Button, ButtonVariants},
@@ -22,6 +22,8 @@ use crate::{
     desktop::Route,
     screens::common::{ScreenContext, align, color, message, panel, row},
 };
+
+pub(super) use crate::screens::common::disk_bytes as bytes;
 
 use super::{
     SystemView,
@@ -146,7 +148,7 @@ impl SystemView {
                             div()
                                 .id("reviewed-disk-targets")
                                 .max_h(px(292.))
-                                .overflow_y_scroll()
+                                .overflow_y_scrollbar()
                                 .rounded(px(8.))
                                 .px_4()
                                 .py_2()
@@ -269,8 +271,8 @@ impl SystemView {
                             )
                             .child(
                                 div()
-                                    .text_size(px(28.))
-                                    .line_height(px(36.))
+                                    .text_size(ui_size(28.))
+                                    .line_height(ui_size(36.))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(disk.map_or_else(
                                         || message(locale, gui::GUI_DESKTOP_UNAVAILABLE),
@@ -507,7 +509,7 @@ fn disk_chart(locale: Locale, palette: Palette, categories: &[DiskCategoryUsage]
                 .children(amounts.into_iter().map(|entry| {
                     row(locale)
                         .gap_2()
-                        .text_size(px(13.))
+                        .text_size(ui_size(13.))
                         .child(
                             div()
                                 .size(px(8.))
@@ -567,7 +569,7 @@ fn cleanup_contents(
     row(locale)
         .flex_1()
         .gap_3()
-        .text_size(px(13.))
+        .text_size(ui_size(13.))
         .child(
             div()
                 .w(px(216.))
@@ -605,7 +607,7 @@ fn sum_estimates<'a>(mut items: impl Iterator<Item = &'a PruneCandidate>) -> Opt
 fn cleanup_summary(locale: Locale, palette: Palette, count: usize, estimate: Option<u64>) -> Div {
     row(locale)
         .gap_2()
-        .text_size(px(13.))
+        .text_size(ui_size(13.))
         .text_color(color(palette, ColorToken::TextMuted))
         .child(mono(&count.to_string()))
         .child(gui::GUI_SYSTEM_DISK_ITEMS_SELECTED.text(locale))
@@ -636,22 +638,5 @@ fn category_color(category: DiskCategory) -> ColorToken {
         DiskCategory::BuildCache => ColorToken::ChartNetwork,
         DiskCategory::Containers => ColorToken::ChartDisk,
         _ => ColorToken::StatusStopped,
-    }
-}
-
-pub(super) fn bytes(value: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
-    let mut amount = value as f64;
-    let mut unit = 0;
-    while amount >= 1024. && unit + 1 < UNITS.len() {
-        amount /= 1024.;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{value} B")
-    } else if amount.fract() == 0. {
-        format!("{amount:.0} {}", UNITS[unit])
-    } else {
-        format!("{amount:.1} {}", UNITS[unit])
     }
 }

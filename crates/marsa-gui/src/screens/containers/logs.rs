@@ -1,17 +1,22 @@
 //! Bounded subscriptions and virtualized log output for a container or Compose project.
 
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+
 use crate::screens::common::message;
-use marsa_ui::gui_keys as gui;
+use marsa_ui::{
+    gui_keys as gui,
+    tokens::typography::{Family, ui_size},
+};
 use std::{collections::VecDeque, io::Write as _, path::Path, sync::Arc};
 
 use marsa_client::docker::{ContainerSummary, LogLine, LogSource};
 use marsa_ui::{
-    ColorToken,
+    ColorToken, Locale,
     direction::{isolate_technical_text, row},
     gpui::{
         AnyElement, AppContext as _, ClipboardItem, Context, Div, Entity, InteractiveElement as _,
-        IntoElement, ParentElement as _, ScrollStrategy, StatefulInteractiveElement as _,
-        Styled as _, Subscription, Task, UniformListScrollHandle, Window, div, px, uniform_list,
+        IntoElement, ParentElement as _, ScrollStrategy, Styled as _, Subscription, Task,
+        UniformListScrollHandle, Window, div, px, uniform_list,
     },
     gpui_component::{
         Disableable as _, Icon, IconName, Selectable as _, Sizable as _,
@@ -19,10 +24,10 @@ use marsa_ui::{
         input::{Input, InputEvent, InputState},
         menu::{DropdownMenu as _, PopupMenuItem},
     },
-    preferences::LogSettings,
+    preferences::{LogSettings, TimeFormat},
 };
 
-use crate::screens::common::{ScreenContext, label};
+use crate::screens::common::{ScreenContext, label, log_time};
 
 use super::{ContainerView, ansi, color, name};
 
@@ -281,7 +286,7 @@ pub(super) fn render(
                     .disabled(matches == 0)
                     .on_click(cx.listener(|view, _, _, cx| move_match(view, true, cx))),
             )
-            .child(div().text_size(px(11.)).child(if !filtering {
+            .child(div().text_size(ui_size(11.)).child(if !filtering {
                 String::new()
             } else if matches == 0 {
                 "0 / 0".to_owned()
@@ -371,7 +376,7 @@ pub(super) fn render(
         .child(
             div()
                 .font_family("IBM Plex Mono")
-                .text_size(px(12.))
+                .text_size(ui_size(12.))
                 .child(sources),
         )
         .child(div().flex_1())
@@ -392,7 +397,7 @@ pub(super) fn render(
         );
 
     if log.source_limit {
-        source_bar = source_bar.child(div().text_size(px(11.)).child(message(
+        source_bar = source_bar.child(div().text_size(ui_size(11.)).child(message(
             screen.locale,
             gui::GUI_DESKTOP_SHOWING_LOGS_FROM_UP_TO_32_PROJECT_CONTAINERS,
         )));
@@ -407,7 +412,11 @@ pub(super) fn render(
     let selected = log.match_cursor;
     let wrap = log.wrap;
     let indexes = log.matching.clone();
-    let local_timestamps = (!log.hide_timestamps).then_some(log.settings.local_timestamps);
+    let timestamps = (!log.hide_timestamps).then_some((
+        screen.locale,
+        screen.display.time_format,
+        log.settings.local_timestamps,
+    ));
 
     if log.paused.is_none() && !filtering && row_count > 0 {
         log.scroll
@@ -507,7 +516,7 @@ pub(super) fn render(
                 .id("container-logs-wrapped")
                 .flex_1()
                 .min_h_0()
-                .overflow_y_scroll()
+                .overflow_y_scrollbar()
                 .children((start..row_count).filter_map(|index| {
                     let source = if filtering {
                         indexes.get(index).copied()?
@@ -520,36 +529,44 @@ pub(super) fn render(
                             palette,
                             filtering && selected == index,
                             true,
-                            local_timestamps,
+                            timestamps,
                         )
                     })
                 })),
         )
     } else {
-        output.child(
-            uniform_list("container-log-buffer", row_count, move |range, _, _| {
-                range
-                    .filter_map(|index| {
-                        let source = if filtering {
-                            indexes.get(index).copied()?
-                        } else {
-                            index
-                        };
-                        snapshot.get(source).map(|line| {
-                            line_element(
-                                line,
-                                palette,
-                                filtering && selected == index,
-                                false,
-                                local_timestamps,
-                            )
-                        })
+        let list = uniform_list("container-log-buffer", row_count, move |range, _, _| {
+            range
+                .filter_map(|index| {
+                    let source = if filtering {
+                        indexes.get(index).copied()?
+                    } else {
+                        index
+                    };
+                    snapshot.get(source).map(|line| {
+                        line_element(
+                            line,
+                            palette,
+                            filtering && selected == index,
+                            false,
+                            timestamps,
+                        )
                     })
-                    .collect()
-            })
-            .track_scroll(&log.scroll)
-            .flex_1()
-            .min_h_0(),
+                })
+                .collect()
+        })
+        .track_scroll(&log.scroll)
+        .flex_1()
+        .min_h_0();
+        output.child(
+            div()
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .child(list)
+                .vertical_scrollbar(&log.scroll),
         )
     };
     if log.save_failed {
@@ -615,7 +632,7 @@ fn line_element(
     palette: marsa_ui::Palette,
     selected: bool,
     wrap: bool,
-    local_timestamps: Option<bool>,
+    timestamp_format: Option<(Locale, TimeFormat, bool)>,
 ) -> Div {
     let source = match line.content.source {
         LogSource::Stdout => "stdout",
@@ -627,11 +644,11 @@ fn line_element(
     } else {
         ColorToken::TextPrimary
     };
-    let prefix = match local_timestamps.zip(line.content.timestamp) {
-        Some((local, timestamp)) => {
+    let prefix = match timestamp_format.zip(line.content.timestamp) {
+        Some(((locale, format, local), timestamp)) => {
             format!(
                 "{}    {}    {source:<6}    ",
-                timestamp.format(local),
+                isolate_technical_text(&log_time(locale, format, local, timestamp)),
                 line.container
             )
         }
@@ -640,8 +657,9 @@ fn line_element(
     let element = div()
         .w_full()
         .px_3()
-        .font_family("IBM Plex Mono")
-        .text_size(px(12.))
+        .font(Family::Mono.font())
+        .text_size(ui_size(12.))
+        .line_height(ui_size(20.))
         .text_color(color(palette, foreground))
         .child(ansi::styled(&prefix, &line.content.text, palette));
     let element = if selected {
@@ -652,7 +670,10 @@ fn line_element(
     if wrap {
         element.py_1()
     } else {
-        element.h(px(23.)).overflow_hidden().whitespace_nowrap()
+        element
+            .h(ui_size(23.))
+            .overflow_hidden()
+            .whitespace_nowrap()
     }
 }
 

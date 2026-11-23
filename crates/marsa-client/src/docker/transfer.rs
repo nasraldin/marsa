@@ -224,6 +224,16 @@ impl DockerClient {
         image: &ImageId,
         destination: &Path,
     ) -> Result<(), DockerError> {
+        self.export_image_with_limit(image, destination, MAX_ARCHIVE_SIZE)
+            .await
+    }
+
+    pub(super) async fn export_image_with_limit(
+        &self,
+        image: &ImageId,
+        destination: &Path,
+        size_limit: u64,
+    ) -> Result<(), DockerError> {
         let directory = destination
             .parent()
             .filter(|_| destination.is_absolute() && destination.file_name().is_some())
@@ -251,7 +261,13 @@ impl DockerClient {
                 STREAM_IDLE,
             )
             .await?;
-        if headers.get(header::CONTENT_TYPE) != Some(&HeaderValue::from_static(ARCHIVE_TYPE)) {
+        if headers.get(header::CONTENT_TYPE) != Some(&HeaderValue::from_static(ARCHIVE_TYPE))
+            || headers
+                .get(header::CONTENT_LENGTH)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
+                .is_some_and(|length| length > size_limit)
+        {
             return Err(invalid_archive());
         }
         let mut length = 0;
@@ -263,7 +279,7 @@ impl DockerClient {
             {
                 if let Ok(chunk) = frame.into_data() {
                     length += chunk.len() as u64;
-                    if length > MAX_ARCHIVE_SIZE {
+                    if length > size_limit {
                         return Err(invalid_archive());
                     }
                     file.write_all(&chunk)

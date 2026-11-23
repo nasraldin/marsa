@@ -8,7 +8,7 @@ use marsa_ui::gpui::{
     Window, size,
 };
 
-use super::{CELL_HEIGHT, ContainerView, cell_width};
+use super::{CELL_HEIGHT, ContainerView, Family, cell_width};
 
 #[derive(Default)]
 pub(super) struct Composition {
@@ -129,7 +129,7 @@ impl EntityInputHandler for ContainerView {
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let (row, column) = self.terminal.current()?.parser.screen().cursor_position();
-        let width = cell_width(window);
+        let width = cell_width(window, Family::terminal(self.display.terminal_font));
         let origin = Point {
             x: bounds.origin.x + width * f32::from(column),
             y: bounds.origin.y + CELL_HEIGHT * f32::from(row),

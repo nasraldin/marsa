@@ -220,10 +220,20 @@ flowchart LR
 
 Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
 
+Settings → General lets you choose IBM Plex or the macOS system font for the
+interface, set the base text size, and use IBM Plex Mono or Menlo in the
+terminal. The 12-hour and 24-hour choices apply to the displayed times in
+activity, approvals, and logs. Log timestamps use the time zone configured
+under Logs & files. Copied and downloaded logs retain their RFC 3339 timestamps.
+
 Settings → Environments lists the built-in Marsa engine, saved connections,
 and discovered Docker engines in one table. Test a row or use Test all to
 check the listed connections and see the result beside each engine. Add and
-Edit open the same environment editor. Saved connections can carry up to
+Edit open the same environment editor. Name and icon choices are stored
+independently of the discovered Docker context. Resource and Network controls
+are scoped to the environment in that editor. Its built-in connection also
+offers Docker CLI context registration and endpoint copy. Keychain
+configuration for Docker CLI credentials is in Settings → Registries. Saved connections can carry up to
 ten labels and an optional IPv4 or IPv6 address for the Containers published
 TCP port menu. Opening a link leaves Docker's port bindings as configured.
 
@@ -236,13 +246,24 @@ controls use separately installed Lima 2.3 or later in the 2.x series.
 [Primary disk resize](https://github.com/lima-vm/lima/blob/v2.3.0/website/content/en/docs/config/disk.md#resizing-the-vms-primary-disk)
 [User-mode network](https://github.com/lima-vm/lima/blob/v2.3.0/website/content/en/docs/config/network/user.md)
 
-For a selected external Docker environment, Activity shows the engine's recent
+For the active external Docker environment, the Activity page shows the engine's recent
 events, newest first. Docker Engine keeps up to 256 events in memory. Marsa
 requests the events retained from the previous 24 hours and displays the resource,
 action and time. [Docker Engine event history](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/events/events.go#L12-L32),
 [Docker Engine date filtering](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L274-L305).
 
-External environment reports refresh the selected engine's container inventory
+Overview shows the selected environment's lifecycle and health totals, resource
+counts, independently ranked CPU and memory samples, and Docker disk accounting.
+Sampling runs while Overview is visible and reports its coverage. A missing
+category or sample stays unavailable. The disk bars compare reported category
+sizes on a common scale because shared data can appear in more than one
+category. The built-in environment uses the owner API to query an already
+running guest without starting it.
+[Moby 29.10.0 Engine API](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml),
+[Moby disk accounting compatibility](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L207-L248).
+
+The Reports page follows the active environment. Reports for an external engine
+refresh its container inventory
 and show container names, image references and lifecycle states, plus the
 latest available resource counts. Review the report in Marsa and copy it to
 the clipboard.

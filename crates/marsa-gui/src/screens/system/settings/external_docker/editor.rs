@@ -1,5 +1,7 @@
 //! Render and collect the saved connection form.
 
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+
 use std::{net::IpAddr, path::PathBuf, sync::Arc};
 
 use marsa_ui::gpui::Subscription;
@@ -9,8 +11,7 @@ use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
     gpui::{
         AppContext as _, Context, Div, Entity, InteractiveElement as _, ParentElement as _,
-        PathPromptOptions, StatefulInteractiveElement as _, Styled as _, Window, div,
-        prelude::FluentBuilder as _, px,
+        PathPromptOptions, Styled as _, Window, div, prelude::FluentBuilder as _, px,
     },
     gpui_component::{
         Disableable as _, IconName, Selectable as _, WindowExt as _,
@@ -19,10 +20,11 @@ use marsa_ui::{
         menu::{DropdownMenu as _, PopupMenuItem},
     },
     gui_keys as gui,
+    preferences::EnvironmentIcon,
     tokens::typography::Role,
 };
 
-use super::{SystemView, feedback_text, observations::Observations, settings_text, vm::VmEditor};
+use super::{SystemView, feedback_text, security::Security, settings_text, vm::VmEditor};
 use crate::{screens::external_inventory::ExternalWorkspace, store::AppState};
 
 #[derive(Clone)]
@@ -45,7 +47,7 @@ impl From<&ScreenContext<'_>> for Appearance {
 #[derive(Clone)]
 pub(super) enum EditorTarget {
     Add,
-    Saved(ManagedEndpoint, Option<Arc<ExternalWorkspace>>),
+    Saved(Box<ManagedEndpoint>, Option<Arc<ExternalWorkspace>>),
     Discovered(Arc<ExternalWorkspace>),
     Builtin,
 }
@@ -73,8 +75,7 @@ enum Section {
     General,
     Resources,
     Network,
-    Activity,
-    Reports,
+    Security,
 }
 
 impl Section {
@@ -83,8 +84,7 @@ impl Section {
             Self::General => gui::GUI_ENVIRONMENT_TAB_GENERAL,
             Self::Resources => gui::GUI_ENVIRONMENT_TAB_RESOURCES,
             Self::Network => gui::GUI_ENVIRONMENT_TAB_NETWORK,
-            Self::Activity => gui::GUI_ENVIRONMENT_TAB_ACTIVITY,
-            Self::Reports => gui::GUI_ENVIRONMENT_TAB_REPORTS,
+            Self::Security => gui::GUI_ENVIRONMENT_TAB_SECURITY,
         }
     }
 }
@@ -121,11 +121,11 @@ pub(super) struct Editor {
     pub(super) target: EditorTarget,
     selected_socket: Option<Arc<ExternalWorkspace>>,
     pub(super) vm: VmEditor,
-    pub(super) observations: Observations,
-    pub(super) observations_token: std::rc::Rc<()>,
+    pub(super) security: Security,
     section: Section,
     transport: Transport,
     name: Entity<InputState>,
+    icon: EnvironmentIcon,
     address: Entity<InputState>,
     ca: Entity<InputState>,
     cert: Entity<InputState>,
@@ -139,6 +139,7 @@ pub(super) struct Editor {
 impl Editor {
     pub(super) fn new(
         target: EditorTarget,
+        name_and_icon: (String, EnvironmentIcon),
         window: &mut Window,
         cx: &mut Context<SystemView>,
     ) -> Self {
@@ -187,11 +188,8 @@ impl Editor {
                     cx,
                 )
             };
-        let name = field(
-            existing.map_or("", |entry| entry.config.name.as_str()),
-            window,
-            cx,
-        );
+        let (display_name, icon) = name_and_icon;
+        let name = field(&display_name, window, cx);
         let address = field(&address, window, cx);
         let ca = path_field(ca, window, cx);
         let cert = path_field(cert, window, cx);
@@ -220,6 +218,7 @@ impl Editor {
             id: existing.map(|entry| entry.id.clone()),
             transport,
             name,
+            icon,
             address,
             ca,
             cert,
@@ -228,8 +227,7 @@ impl Editor {
             label,
             public_ip,
             vm: VmEditor::new(&target, window, cx),
-            observations: Observations::default(),
-            observations_token: std::rc::Rc::new(()),
+            security: Security::default(),
             target,
             selected_socket: None,
             section: Section::General,
@@ -261,6 +259,7 @@ impl Editor {
             labels.push(label);
         }
         Ok(ManagedEndpointConfig {
+            icon: Some(super::icon_id(self.icon).to_owned()),
             name: value(&self.name),
             transport,
             labels,
@@ -324,7 +323,8 @@ impl SystemView {
         if matches!(target, EditorTarget::Builtin) {
             self.show_resource_inputs(window, cx);
         }
-        self.environment_settings.editor = Some(Editor::new(target, window, cx));
+        let presentation = self.editor_presentation(&target);
+        self.environment_settings.editor = Some(Editor::new(target, presentation, window, cx));
         self.environment_settings.feedback = None;
         self.load_environment_vm(window, cx);
         let owner = cx.weak_entity();
@@ -337,6 +337,7 @@ impl SystemView {
                     let screen = ScreenContext {
                         locale: appearance.locale,
                         palette: appearance.palette,
+                        display: this.display_settings(),
                         state: &appearance.state,
                         services: this.services.as_ref(),
                     };
@@ -347,7 +348,7 @@ impl SystemView {
                     };
                     let busy = this.environment_settings.task.is_some()
                         || editor.vm.applying()
-                        || (matches!(editor.target, EditorTarget::Builtin) && this.busy());
+                        || this.busy();
                     let height =
                         (window.viewport_size().height - px(218.)).clamp(px(165.), px(490.));
                     let body = this.environment_dialog_body(editor, &screen, height, cx);
@@ -413,8 +414,8 @@ impl SystemView {
         if builtin || (editor.vm.available() && editor.provider_matches_draft(cx)) {
             sections.extend([Section::Resources, Section::Network]);
         }
-        if builtin || editor.workspace(cx).is_some() {
-            sections.extend([Section::Activity, Section::Reports]);
+        if !matches!(editor.target, EditorTarget::Add) {
+            sections.push(Section::Security);
         }
         let section = if sections.contains(&editor.section) {
             editor.section
@@ -439,12 +440,8 @@ impl SystemView {
                         if let Some(editor) = &mut this.environment_settings.editor {
                             editor.section = tab_section;
                         }
-                        if matches!(tab_section, Section::Activity | Section::Reports) {
-                            this.load_environment_observations(
-                                tab_section == Section::Reports,
-                                window,
-                                cx,
-                            );
+                        if tab_section == Section::Security {
+                            this.load_environment_security(window, cx);
                         }
                         cx.notify();
                     }))
@@ -455,15 +452,10 @@ impl SystemView {
             Section::Network if builtin => self.network(screen, cx),
             Section::Resources => self.environment_vm(editor, false, screen, cx),
             Section::Network => self.environment_vm(editor, true, screen, cx),
-            Section::Activity => self.environment_activity(editor, screen, cx),
-            Section::Reports => self.environment_report(editor, screen, cx),
+            Section::Security => self.environment_security(editor, screen, cx),
         };
-        let identity = match &editor.target {
-            EditorTarget::Saved(entry, _) => Some(entry.config.name.as_str()),
-            EditorTarget::Discovered(workspace) => Some(workspace.source.as_str()),
-            EditorTarget::Builtin => Some("Marsa"),
-            EditorTarget::Add => None,
-        };
+        let identity = (!matches!(editor.target, EditorTarget::Add))
+            .then(|| self.editor_presentation(&editor.target).0);
         div()
             .flex()
             .flex_col()
@@ -476,7 +468,7 @@ impl SystemView {
                 div()
                     .id(("environment-section-body", editor.section as usize))
                     .h(height)
-                    .overflow_y_scroll()
+                    .overflow_y_scrollbar()
                     .child(page),
             )
             .children(self.environment_settings.task.is_some().then(|| {
@@ -526,38 +518,33 @@ impl SystemView {
             .child(
                 Button::new("cancel-environment")
                     .outline()
-                    .label(
-                        if editable {
-                            gui::GUI_DESKTOP_CANCEL
-                        } else {
-                            gui::GUI_DESKTOP_CLOSE
-                        }
-                        .text(locale),
-                    )
+                    .label(gui::GUI_DESKTOP_CANCEL.text(locale))
                     .disabled(busy)
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.dismiss_environment_editor(cx);
                         window.close_dialog(cx);
                     })),
             )
-            .children(editable.then(|| {
+            .child({
                 Button::new("save-environment")
                     .primary()
                     .label(
-                        if editor.id.is_some() {
-                            gui::GUI_ENVIRONMENT_SAVE
-                        } else {
+                        if matches!(editor.target, EditorTarget::Add) {
                             gui::GUI_ENVIRONMENT_ADD
+                        } else {
+                            gui::GUI_ENVIRONMENT_SAVE
                         }
                         .text(locale),
                     )
-                    .disabled(busy || self.services.is_none())
+                    .disabled(
+                        busy || self.services.is_none() || (!editable && self.settings.is_none()),
+                    )
                     .on_click(
                         cx.listener(|this, _, window, cx| {
                             this.environment_submit(false, window, cx)
                         }),
                     )
-            }))
+            })
     }
 
     fn environment_general(
@@ -566,6 +553,8 @@ impl SystemView {
         screen: &ScreenContext<'_>,
         cx: &Context<Self>,
     ) -> Div {
+        let busy = self.environment_settings.task.is_some() || editor.vm.applying() || self.busy();
+        let identity_fields = self.environment_identity_fields(editor, screen, busy, cx);
         if !editor.target.editable_connection() {
             let value = editor
                 .target
@@ -584,6 +573,7 @@ impl SystemView {
                 .flex()
                 .flex_col()
                 .gap_3()
+                .child(identity_fields)
                 .child(settings_text(
                     screen,
                     Role::Label,
@@ -609,6 +599,10 @@ impl SystemView {
                     .text(screen.locale),
                     ColorToken::TextMuted,
                 ))
+                .children(
+                    matches!(editor.target, EditorTarget::Builtin)
+                        .then(|| self.docker_cli_integration(screen, cx)),
+                )
                 .children(save_discovered_socket.map(|socket| {
                     row(screen.locale).child(
                         Button::new("save-discovered-socket")
@@ -627,9 +621,6 @@ impl SystemView {
                                     return;
                                 };
                                 let workspace = Arc::clone(workspace);
-                                editor.name.update(cx, |name, cx| {
-                                    name.set_value(workspace.source.clone(), window, cx)
-                                });
                                 editor.address.update(cx, |address, cx| {
                                     address.set_value(socket.clone(), window, cx)
                                 });
@@ -644,34 +635,53 @@ impl SystemView {
         let locale = screen.locale;
         let busy = self.environment_settings.task.is_some() || editor.vm.applying();
         let current = editor.transport;
-        let owner = cx.weak_entity();
-        let picker = Button::new("environment-transport")
-            .outline()
-            .icon(IconName::ChevronDown)
-            .label(current.title(locale))
-            .accessibility_label(gui::GUI_ENVIRONMENT_TRANSPORT.text(locale))
-            .disabled(busy)
-            .dropdown_menu(move |menu, _, _| {
-                [Transport::Unix, Transport::Ssh, Transport::Tls]
-                    .into_iter()
-                    .fold(menu, |menu, kind| {
-                        let owner = owner.clone();
-                        menu.item(
-                            PopupMenuItem::new(kind.title(locale))
-                                .checked(kind == current)
-                                .on_click(move |_, _, cx| {
-                                    let _ = owner.update(cx, |this, cx| {
-                                        if let Some(editor) = &mut this.environment_settings.editor
-                                        {
-                                            editor.transport = kind;
-                                            this.environment_settings.feedback = None;
-                                            cx.notify();
-                                        }
-                                    });
-                                }),
-                        )
-                    })
-            });
+        let unix = current == Transport::Unix;
+        let picker = transport_picker(
+            "environment-transport",
+            gui::GUI_ENVIRONMENT_CONNECTION_TYPE,
+            screen,
+            busy,
+            cx,
+            if unix {
+                gui::GUI_ENVIRONMENT_UNIX.text(locale)
+            } else {
+                gui::GUI_ENVIRONMENT_DIRECT.text(locale)
+            },
+            &[
+                (
+                    Transport::Unix,
+                    gui::GUI_ENVIRONMENT_UNIX.text(locale),
+                    unix,
+                ),
+                (
+                    if unix { Transport::Ssh } else { current },
+                    gui::GUI_ENVIRONMENT_DIRECT.text(locale),
+                    !unix,
+                ),
+            ],
+        );
+        let direct = (!unix).then(|| {
+            transport_picker(
+                "environment-direct-protocol",
+                gui::GUI_ENVIRONMENT_DIRECT_PROTOCOL,
+                screen,
+                busy,
+                cx,
+                current.title(locale),
+                &[
+                    (
+                        Transport::Ssh,
+                        Transport::Ssh.title(locale),
+                        current == Transport::Ssh,
+                    ),
+                    (
+                        Transport::Tls,
+                        Transport::Tls.title(locale),
+                        current == Transport::Tls,
+                    ),
+                ],
+            )
+        });
         let hint = match current {
             Transport::Unix => gui::GUI_ENVIRONMENT_UNIX_HELP,
             Transport::Ssh => gui::GUI_ENVIRONMENT_SSH_HELP,
@@ -681,27 +691,10 @@ impl SystemView {
             .flex()
             .flex_col()
             .gap_3()
-            .child(input_field(
-                screen,
-                gui::GUI_DESKTOP_NAME,
-                &editor.name,
-                busy,
-                false,
-                cx,
-            ))
+            .child(identity_fields)
             .child(self.environment_labels(editor, screen, busy, cx))
-            .child(
-                row(locale)
-                    .items_center()
-                    .gap_3()
-                    .child(settings_text(
-                        screen,
-                        Role::Label,
-                        gui::GUI_ENVIRONMENT_TRANSPORT.text(locale),
-                        ColorToken::TextPrimary,
-                    ))
-                    .child(picker),
-            )
+            .child(picker)
+            .children(direct)
             .child(input_field(
                 screen,
                 current.address_label(),
@@ -765,9 +758,6 @@ impl SystemView {
                                                         window,
                                                         cx,
                                                     );
-                                                    editor.observations = Observations::default();
-                                                    editor.observations_token =
-                                                        std::rc::Rc::new(());
                                                     this.load_environment_vm(window, cx);
                                                 }
                                                 cx.notify();
@@ -802,6 +792,72 @@ impl SystemView {
             Role::Small,
             gui::GUI_ENVIRONMENT_PUBLIC_IP_HELP.text(locale),
             ColorToken::TextMuted,
+        ))
+    }
+
+    fn environment_identity_fields(
+        &self,
+        editor: &Editor,
+        screen: &ScreenContext<'_>,
+        disabled: bool,
+        cx: &Context<Self>,
+    ) -> Div {
+        use marsa_ui::gpui_component::Icon;
+        let locale = screen.locale;
+        let owner = cx.weak_entity();
+        let current = editor.icon;
+        let labels = [
+            (EnvironmentIcon::Server, gui::GUI_ENVIRONMENT_ICON_SERVER),
+            (EnvironmentIcon::Rocket, gui::GUI_ENVIRONMENT_ICON_ROCKET),
+            (EnvironmentIcon::Globe, gui::GUI_ENVIRONMENT_ICON_GLOBE),
+            (EnvironmentIcon::Box, gui::GUI_ENVIRONMENT_ICON_BOX),
+        ];
+        let picker = Button::new("environment-icon")
+            .outline()
+            .icon(Icon::default().path(super::icon_path(current)))
+            .accessibility_label(gui::GUI_ENVIRONMENT_ICON.text(locale))
+            .tooltip(gui::GUI_ENVIRONMENT_ICON.text(locale))
+            .disabled(disabled)
+            .dropdown_menu(move |menu, _, _| {
+                labels.into_iter().fold(menu, |menu, (icon, label)| {
+                    let owner = owner.clone();
+                    menu.item(
+                        PopupMenuItem::new(label.text(locale))
+                            .checked(current == icon)
+                            .on_click(move |_, _, cx| {
+                                let _ = owner.update(cx, |this, cx| {
+                                    if let Some(editor) = &mut this.environment_settings.editor {
+                                        editor.icon = icon;
+                                        cx.notify();
+                                    }
+                                });
+                            }),
+                    )
+                })
+            });
+        row(locale)
+            .items_end()
+            .gap_2()
+            .child(picker)
+            .child(div().flex_1().min_w_0().child(input_field(
+                screen,
+                gui::GUI_DESKTOP_NAME,
+                &editor.name,
+                disabled,
+                false,
+                cx,
+            )))
+    }
+
+    pub(super) fn presentation_draft(
+        &self,
+        cx: &Context<Self>,
+    ) -> Option<(EditorTarget, String, EnvironmentIcon)> {
+        let editor = self.environment_settings.editor.as_ref()?;
+        Some((
+            editor.target.clone(),
+            editor.name.read(cx).value().trim().to_owned(),
+            editor.icon,
         ))
     }
 
@@ -899,6 +955,59 @@ impl SystemView {
                 ),
         )
     }
+}
+
+fn transport_picker(
+    id: &'static str,
+    title: TextKey,
+    screen: &ScreenContext<'_>,
+    disabled: bool,
+    cx: &Context<SystemView>,
+    selected: &'static str,
+    options: &[(Transport, &'static str, bool)],
+) -> Div {
+    let locale = screen.locale;
+    let owner = cx.weak_entity();
+    let options = options.to_vec();
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(settings_text(
+            screen,
+            Role::Label,
+            title.text(locale),
+            ColorToken::TextPrimary,
+        ))
+        .child(
+            Button::new(id)
+                .outline()
+                .w_full()
+                .icon(IconName::ChevronDown)
+                .label(selected)
+                .accessibility_label(title.text(locale))
+                .disabled(disabled)
+                .dropdown_menu(move |menu, _, _| {
+                    options
+                        .iter()
+                        .copied()
+                        .fold(menu, |menu, (transport, label, active)| {
+                            let owner = owner.clone();
+                            menu.item(PopupMenuItem::new(label).checked(active).on_click(
+                                move |_, _, cx| {
+                                    let _ = owner.update(cx, |this, cx| {
+                                        if let Some(editor) = &mut this.environment_settings.editor
+                                        {
+                                            editor.transport = transport;
+                                            this.environment_settings.feedback = None;
+                                            cx.notify();
+                                        }
+                                    });
+                                },
+                            ))
+                        })
+                }),
+        )
 }
 
 fn input_field(

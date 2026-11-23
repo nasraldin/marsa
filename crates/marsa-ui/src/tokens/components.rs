@@ -1,15 +1,21 @@
 //! Resolve GPUI Component control states from the Figma semantic palette.
 
-use gpui::{App, Hsla};
+use gpui::{App, Hsla, px};
 use gpui_component::Theme;
+use marsa_core::settings::DisplaySettings;
 use marsa_l10n::Locale;
 
-use super::{ColorToken, Palette, typography::Family};
+use super::{
+    ColorToken, Palette,
+    typography::{Family, Role, rem_size},
+};
 
 impl Palette {
     /// Synchronize component surfaces, focus indicators and fonts with the workspace.
-    pub fn apply_to_components(self, locale: Locale, cx: &mut App) {
+    pub fn apply_to_components(self, locale: Locale, display: DisplaySettings, cx: &mut App) {
         use ColorToken::*;
+
+        Theme::set_scrollbar_mode(gpui_component::scroll::ScrollbarMode::Always, cx);
 
         let c = |token| -> Hsla { self.color(token).into() };
         Theme::update(cx, |theme| {
@@ -71,12 +77,12 @@ impl Palette {
             colors.chart_3 = c(ChartNetwork);
             colors.chart_4 = c(ChartDisk);
             colors.chart_grid = c(BorderSubtle);
-            theme.font_family = match locale {
-                Locale::Arabic => Family::SansArabic,
-                Locale::EnglishUs => Family::Sans,
-            }
-            .name()
-            .into();
+            theme.font_family = Role::Body
+                .with_ui_font(locale == Locale::Arabic, display.ui_font)
+                .family
+                .name()
+                .into();
+            theme.font_size = px(rem_size(display.ui_font_size));
             theme.mono_font_family = Family::Mono.name().into();
         });
     }

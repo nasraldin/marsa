@@ -195,3 +195,17 @@ fn compose_template_rejects_blank_oversized_and_nul_input() {
         ));
     }
 }
+
+#[test]
+fn display_preferences_are_optional_and_round_trip() {
+    let legacy = Settings::from_toml("[ui]\nlanguage = 'ar'").unwrap();
+    assert!(!legacy.to_toml().unwrap().contains("[ui.display]"));
+
+    let customized = Settings::from_toml(
+        "[ui.display]\nui_font = 'system'\nui_font_size = 'large'\nterminal_font = 'menlo'\ntime_format = 'twelve_hour'",
+    )
+    .unwrap();
+    let saved = customized.to_toml().unwrap();
+    assert!(saved.contains("time_format = \"twelve_hour\""));
+    assert_eq!(Settings::from_toml(&saved).unwrap(), customized);
+}

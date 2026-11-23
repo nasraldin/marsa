@@ -7,9 +7,9 @@ use marsa_client::api::{
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken, Locale,
-    gpui::{Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window, div, px},
+    gpui::{Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window},
     gpui_component::{Disableable, button::Button},
-    tokens::{scale::Space, typography::Role},
+    tokens::typography::Role,
 };
 
 use super::{
@@ -19,9 +19,13 @@ use super::{
 use crate::screens::common::{ScreenContext, row, technical};
 
 impl SystemView {
-    pub(super) fn docker(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
+    pub(super) fn docker_cli_integration(
+        &self,
+        screen: &ScreenContext<'_>,
+        cx: &Context<Self>,
+    ) -> Div {
         let locale = screen.locale;
-        let context = settings_card(screen)
+        settings_card(screen)
             .child(settings_heading(
                 screen,
                 gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale),
@@ -89,8 +93,16 @@ impl SystemView {
                                 );
                             })),
                     ),
-            );
-        let registry = settings_card(screen)
+            )
+    }
+
+    pub(super) fn registry_keychain(
+        &self,
+        screen: &ScreenContext<'_>,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let locale = screen.locale;
+        settings_card(screen)
             .child(settings_heading(
                 screen,
                 gui::GUI_DESKTOP_REGISTRY_CREDENTIALS.text(locale),
@@ -106,13 +118,7 @@ impl SystemView {
                             this.confirm_keychain(locale, window, cx)
                         })),
                 ),
-            );
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(Space::S16.pixels() + Space::S4.pixels()))
-            .child(context)
-            .child(registry)
+            )
     }
 
     fn confirm_keychain(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {

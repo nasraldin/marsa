@@ -2,11 +2,16 @@
 
 use std::sync::Arc;
 
+use marsa_client::docker::LogTimestamp;
 use marsa_ui::{
     ColorToken, Locale, Palette,
     gpui::{App, Div, Entity, Hsla, SharedString, Styled, Window, div, px},
     gpui_component::input::{Input, InputState},
-    tokens::scale::Space,
+    preferences::{DisplaySettings, TimeFormat},
+    tokens::{
+        scale::Space,
+        typography::{Role, TypeStyle},
+    },
 };
 
 use crate::{services::Services, store::AppState};
@@ -18,8 +23,39 @@ pub(crate) fn message(locale: Locale, key: marsa_ui::TextKey) -> SharedString {
 pub(crate) struct ScreenContext<'a> {
     pub(crate) locale: Locale,
     pub(crate) palette: Palette,
+    pub(crate) display: DisplaySettings,
     pub(crate) state: &'a AppState,
     pub(crate) services: Option<&'a Arc<Services>>,
+}
+
+impl ScreenContext<'_> {
+    pub(crate) fn typography(&self, role: Role) -> TypeStyle {
+        role.with_ui_font(self.locale == Locale::Arabic, self.display.ui_font)
+    }
+}
+
+/// Format a Docker timestamp using the display's hour cycle and log time zone.
+pub(crate) fn log_time(
+    locale: Locale,
+    format: TimeFormat,
+    local: bool,
+    timestamp: LogTimestamp,
+) -> String {
+    match format {
+        TimeFormat::TwentyFourHour => timestamp.format(local),
+        TimeFormat::TwelveHour => {
+            let (am, pm) = day_periods(locale);
+            timestamp.format_12_hour(local, am, pm)
+        }
+    }
+}
+
+/// The locale's markers for the two halves of a 12-hour clock.
+pub(crate) fn day_periods(locale: Locale) -> (&'static str, &'static str) {
+    (
+        marsa_ui::gui_keys::GUI_CLOCK_AM.text(locale),
+        marsa_ui::gui_keys::GUI_CLOCK_PM.text(locale),
+    )
 }
 
 pub(crate) fn copy(locale: Locale, en: &'static str, ar: &'static str) -> &'static str {
@@ -71,5 +107,22 @@ pub(crate) fn update_input_placeholder(
 ) {
     if state.read(cx).presentation().placeholder() != value {
         state.update(cx, |state, cx| state.set_placeholder(value, window, cx));
+    }
+}
+
+pub(crate) fn disk_bytes(value: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut amount = value as f64;
+    let mut unit = 0;
+    while amount >= 1024. && unit + 1 < UNITS.len() {
+        amount /= 1024.;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{value} B")
+    } else if amount.fract() == 0. {
+        format!("{amount:.0} {}", UNITS[unit])
+    } else {
+        format!("{amount:.1} {}", UNITS[unit])
     }
 }

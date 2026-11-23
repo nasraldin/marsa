@@ -84,6 +84,30 @@ async fn truncated_export_does_not_publish_an_archive() {
 }
 
 #[tokio::test]
+async fn oversized_export_does_not_publish_an_archive() {
+    let (directory, listener, client) = endpoint();
+    let destination = directory.path().join("image.tar");
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        request_headers(&mut socket).await;
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/x-tar\r\nTransfer-Encoding: chunked\r\n\r\n4\r\n1234\r\n4\r\n5678\r\n0\r\n\r\n")
+            .await
+            .unwrap();
+    });
+    let image = ImageId::parse(format!("sha256:{ID}")).unwrap();
+    assert!(matches!(
+        client
+            .export_image_with_limit(&image, &destination, 5)
+            .await,
+        Err(DockerError::ImageArchive(_))
+    ));
+    server.await.unwrap();
+    assert!(!destination.exists());
+    assert_eq!(directory.path().read_dir().unwrap().count(), 1);
+}
+
+#[tokio::test]
 async fn complete_export_publishes_an_owner_only_archive() {
     let (directory, listener, client) = endpoint();
     let destination = directory.path().join("image.tar");

@@ -11,7 +11,7 @@ use marsa_ui::{
 
 use crate::screens::common::{ScreenContext, align, color, row, technical};
 
-use super::{Desktop, Route, status, type_role};
+use super::{Desktop, Route, status};
 
 impl Desktop {
     pub(super) fn external_screen(
@@ -42,7 +42,8 @@ impl Desktop {
         };
         let connection = card(gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale))
             .child(
-                type_role(Role::Title, locale)
+                screen
+                    .typography(Role::Title)
                     .apply(div())
                     .child(workspace.map_or_else(
                         || selection.display(),
@@ -80,63 +81,24 @@ impl Desktop {
                         .on_click(cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx))),
                 ),
             );
-        let Some(workspace) = workspace else {
+        if workspace.is_none() {
             return if engine == Some(EngineState::Starting) {
                 body
             } else {
                 body.child(gui::GUI_ENVIRONMENT_OFFLINE.text(locale))
             };
-        };
-        match route {
-            Route::Overview => {
-                let state = &workspace.state;
-                let counts = [
-                    (Route::Containers, Some(state.containers().len())),
-                    (Route::Images, Some(state.images().len())),
-                    (
-                        Route::Volumes,
-                        workspace.volumes_available.then(|| state.volumes().len()),
-                    ),
-                    (
-                        Route::Networks,
-                        workspace.networks_available.then(|| state.networks().len()),
-                    ),
-                    (Route::Compose, Some(state.compose_projects().len())),
-                ];
-                body = body.child(row(locale).flex_wrap().gap_3().children(counts.map(
-                    |(route, count)| {
-                        card(route.name(locale))
-                            .child(type_role(Role::Title, locale).apply(div()).child(
-                                count.map_or_else(
-                                    || gui::GUI_DESKTOP_UNAVAILABLE.text(locale).into(),
-                                    |count| count.to_string(),
-                                ),
-                            ))
-                            .child(
-                                Button::new(("environment-resource", route as usize))
-                                    .ghost()
-                                    .label(route.name(locale))
-                                    .on_click(cx.listener(move |desktop, _, _, cx| {
-                                        desktop.navigate(route, cx)
-                                    })),
-                            )
-                    },
-                )));
-            }
-            Route::Disk => {
-                body = body
-                    .child(gui::GUI_ENVIRONMENT_DISK_HELP.text(locale))
-                    .child(
-                        Button::new("external-disk-open-volumes")
-                            .outline()
-                            .label(Route::Volumes.name(locale))
-                            .on_click(cx.listener(|desktop, _, _, cx| {
-                                desktop.navigate(Route::Volumes, cx)
-                            })),
-                    );
-            }
-            Route::Activity => body = body.child(gui::GUI_ENVIRONMENT_ACTIVITY_HELP.text(locale)),
-            _ => {}
+        }
+        if route == Route::Disk {
+            body = body
+                .child(gui::GUI_ENVIRONMENT_DISK_HELP.text(locale))
+                .child(
+                    Button::new("external-disk-open-volumes")
+                        .outline()
+                        .label(Route::Volumes.name(locale))
+                        .on_click(
+                            cx.listener(|desktop, _, _, cx| desktop.navigate(Route::Volumes, cx)),
+                        ),
+                );
         }
         body
     }

@@ -1,11 +1,10 @@
 //! Mirrored workspace sidebar and live engine indicator.
 
-use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken,
     gpui::{
-        Anchor, Context, Div, FontWeight, InteractiveElement, ParentElement,
-        StatefulInteractiveElement, Styled, div, img, prelude::FluentBuilder, px, svg,
+        Anchor, Context, Div, FontWeight, InteractiveElement, ParentElement, Styled, div, img,
+        prelude::FluentBuilder, px, svg,
     },
     gpui_component::{
         Icon, IconName, Selectable,
@@ -13,8 +12,11 @@ use marsa_ui::{
         menu::{DropdownMenu as _, PopupMenuItem},
     },
 };
+use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
 
 use crate::screens::common::{align, color, row};
+
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
 
 use super::{Desktop, Environment, navigation::Route, status};
 
@@ -48,7 +50,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         .child(img("marsa/harbor.png").size(px(30.)))
         .children((!desktop.collapsed).then(|| {
             div()
-                .text_size(px(20.))
+                .text_size(ui_size(20.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(gui::GUI_DESKTOP_MARSA.text(locale))
         }));
@@ -56,7 +58,6 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         .id("sidebar-navigation")
         .flex_1()
         .min_h_0()
-        .overflow_y_scroll()
         .flex()
         .flex_col()
         .gap_2();
@@ -77,7 +78,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 .gap(px(1.))
                 .children((!desktop.collapsed).then(|| {
                     align(
-                        div().text_size(px(11.)).text_color(foreground).px_2(),
+                        div().text_size(ui_size(11.)).text_color(foreground).px_2(),
                         locale,
                     )
                     .child(title)
@@ -105,7 +106,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                             .w_full()
                             .when(desktop.collapsed, |row| row.justify_center())
                             .gap_2()
-                            .text_size(px(13.))
+                            .text_size(ui_size(13.))
                             .text_color(label_color)
                             .child(
                                 svg()
@@ -149,7 +150,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 .child(row(locale).h(px(40.)).justify_end().child(collapse))
                 .child(row(locale).px_2().pb_3().child(brand))
         })
-        .child(navigation)
+        .child(navigation.overflow_y_scrollbar())
         .child(footer)
 }
 
@@ -158,24 +159,30 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
     let palette = desktop.palette;
     let engine = desktop.context_engine(cx);
     let current = desktop.environment.read(cx).clone();
-    let context = desktop
+    let workspace = desktop
         .external_inventory
         .iter()
-        .find(|workspace| current.includes_external(workspace))
-        .map_or_else(
-            || current.display(),
-            |workspace| crate::screens::common::technical(&workspace.source),
-        );
+        .find(|workspace| current.includes_external(workspace));
+    let context = if current.includes_marsa() || workspace.is_some() {
+        let (name, _) = desktop
+            .system
+            .read(cx)
+            .environment_presentation(workspace.map(AsRef::as_ref));
+        crate::screens::common::technical(&name)
+    } else {
+        current.display()
+    };
     let label = gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale);
     let state_text = desktop.context_status_text(engine, cx);
     let description = format!("{label}: {context} · {state_text}");
-    let choices = std::iter::once(Environment::Marsa)
-        .chain(
-            desktop
-                .external_inventory
-                .iter()
-                .map(|workspace| Environment::from(workspace.as_ref())),
-        )
+    let system = desktop.system.read(cx);
+    let choices = std::iter::once((Environment::Marsa, system.environment_presentation(None).0))
+        .chain(desktop.external_inventory.iter().map(|workspace| {
+            (
+                Environment::from(workspace.as_ref()),
+                system.environment_presentation(Some(workspace)).0,
+            )
+        }))
         .collect::<Vec<_>>();
     let desktop_entity = cx.entity().downgrade();
     let button = Button::new("sidebar-engine-state")
@@ -222,11 +229,11 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
         marsa_ui::Locale::EnglishUs => Anchor::BottomLeft,
     };
     button.dropdown_menu_with_anchor(anchor, move |menu, _, _| {
-        let menu = choices.iter().fold(menu, |menu, choice| {
+        let menu = choices.iter().fold(menu, |menu, (choice, name)| {
             let picked = choice.clone();
             let desktop = desktop_entity.clone();
             menu.item(
-                PopupMenuItem::new(choice.display())
+                PopupMenuItem::new(crate::screens::common::technical(name))
                     .checked(choice.same_identity(&current))
                     .on_click(move |_, _, cx| {
                         let _ = desktop.update(cx, |desktop, cx| {
@@ -256,6 +263,8 @@ fn route_icon_color(route: Route, selected: bool) -> ColorToken {
         Route::Volumes | Route::Disk => ColorToken::ChartDisk,
         Route::Networks => ColorToken::ChartNetwork,
         Route::Containers | Route::Machine => ColorToken::ChartCpu,
-        Route::Overview | Route::Activity | Route::Settings => ColorToken::TextMuted,
+        Route::Overview | Route::Activity | Route::Reports | Route::Settings => {
+            ColorToken::TextMuted
+        }
     }
 }

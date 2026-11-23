@@ -16,6 +16,7 @@ pub(crate) enum Route {
     Machine,
     Disk,
     Activity,
+    Reports,
     Settings,
 }
 
@@ -28,8 +29,13 @@ impl Route {
         Self::Networks,
         Self::Compose,
     ];
-    pub(crate) const SYSTEM: [Self; 4] =
-        [Self::Machine, Self::Disk, Self::Activity, Self::Settings];
+    pub(crate) const SYSTEM: [Self; 5] = [
+        Self::Machine,
+        Self::Disk,
+        Self::Activity,
+        Self::Reports,
+        Self::Settings,
+    ];
 
     pub(crate) fn name(self, locale: Locale) -> &'static str {
         let (en, ar) = match self {
@@ -42,6 +48,7 @@ impl Route {
             Self::Machine => ("Machine", "الجهاز"),
             Self::Disk => ("Disk & cleanup", "القرص والتنظيف"),
             Self::Activity => ("Activity", "النشاط"),
+            Self::Reports => ("Reports", "التقارير"),
             Self::Settings => ("Settings", "الإعدادات"),
         };
         copy(locale, en, ar)
@@ -49,10 +56,7 @@ impl Route {
 
     pub(crate) fn description(self, locale: Locale) -> &'static str {
         let (en, ar) = match self {
-            Self::Overview => (
-                "Local engine, resources, and recent activity.",
-                "المحرّك المحلي والموارد والنشاط الأخير.",
-            ),
+            Self::Overview => return marsa_ui::gui_keys::GUI_OVERVIEW_DESCRIPTION.text(locale),
             Self::Containers => (
                 "Containers and Compose projects on this Mac.",
                 "الحاويات ومشاريع Compose على هذا الـ Mac.",
@@ -82,6 +86,10 @@ impl Route {
                 "Review engine events and decisions for agent requests.",
                 "راجع أحداث المحرّك والقرارات بشأن طلبات الوكلاء.",
             ),
+            Self::Reports => (
+                "Review the active engine’s inventory.",
+                "راجع قائمة موارد المحرّك النشط.",
+            ),
             Self::Settings => (
                 "Manage how Marsa runs on this Mac.",
                 "إدارة طريقة تشغيل مرسى على هذا الـ Mac.",
@@ -101,6 +109,7 @@ impl Route {
             Self::Machine => "icons/server.svg",
             Self::Disk => "icons/chart-no-axes-combined.svg",
             Self::Activity => "icons/activity.svg",
+            Self::Reports => "icons/file-text.svg",
             Self::Settings => "icons/sliders-horizontal.svg",
         }
     }

@@ -1,26 +1,26 @@
-//! Read current events and inventory from the environment the editor was opened for.
+//! Read current events and inventory for the active environment.
 
-use marsa_client::docker::{DockerActivity, EnvironmentReport};
+use marsa_client::{
+    api::EngineState,
+    docker::{DockerActivity, EnvironmentReport, ExternalEndpoint},
+};
 use marsa_ui::{
     ColorToken, TextKey,
-    gpui::{ClipboardItem, Context, Div, ParentElement as _, Styled as _, Window, div},
+    gpui::{ClipboardItem, Context, Div, ParentElement as _, Styled as _, div},
     gpui_component::{Disableable as _, button::Button},
     gui_keys as gui,
     tokens::typography::Role,
 };
 
-use super::{
-    SystemView,
-    editor::{Editor, EditorTarget},
-    settings_text,
-};
+use super::{SystemView, settings_text};
 use crate::screens::{
     common::{ScreenContext, color, row, technical},
     system::activity::utc_time,
 };
 
 #[derive(Default)]
-pub(super) struct Observations {
+pub(in crate::screens::system) struct Observations {
+    target: Option<ExternalEndpoint>,
     activity: Load<Vec<DockerActivity>>,
     report: Load<EnvironmentReport>,
 }
@@ -40,38 +40,87 @@ enum ResultPage {
 }
 
 impl SystemView {
-    pub(super) fn load_environment_observations(
+    pub(crate) fn environment_observations_page(
         &mut self,
         report: bool,
-        window: &mut Window,
+        local: bool,
+        target: Option<ExternalEndpoint>,
+        screen: &ScreenContext<'_>,
         cx: &mut Context<Self>,
-    ) {
-        let Some(editor) = &mut self.environment_settings.editor else {
-            return;
+    ) -> Div {
+        if local {
+            let ready = screen.state.engine().is_some_and(|engine| {
+                matches!(engine.state(), EngineState::Ready | EngineState::Idle)
+            });
+            return if ready {
+                let containers = screen.state.containers();
+                let entries: Vec<_> = containers.values().cloned().collect();
+                let snapshot = EnvironmentReport::from_inventory(
+                    &entries,
+                    screen.state.images().len(),
+                    Some(screen.state.volumes().len()),
+                    Some(screen.state.networks().len()),
+                );
+                report_body(screen, div().flex().flex_col().gap_3(), &snapshot)
+            } else {
+                settings_text(
+                    screen,
+                    Role::Small,
+                    gui::GUI_DESKTOP_RESOURCES_ARE_AVAILABLE_WHEN_THE_ENGINE_IS_RUNNING
+                        .text(screen.locale),
+                    ColorToken::TextMuted,
+                )
+            };
+        }
+        let Some(target) = target else {
+            return settings_text(
+                screen,
+                Role::Small,
+                gui::GUI_ENVIRONMENT_OFFLINE.text(screen.locale),
+                ColorToken::TextMuted,
+            );
         };
+        if self.environment_observations.target.as_ref() != Some(&target) {
+            self.environment_observations = Observations {
+                target: Some(target),
+                ..Observations::default()
+            };
+        }
+        let load = if report {
+            matches!(self.environment_observations.report, Load::Empty)
+        } else {
+            matches!(self.environment_observations.activity, Load::Empty)
+        };
+        if load {
+            self.load_environment_observations(report, cx);
+        }
+        if report {
+            self.environment_report(screen, cx)
+        } else {
+            self.environment_activity(screen, cx)
+        }
+    }
+
+    fn load_environment_observations(&mut self, report: bool, cx: &mut Context<Self>) {
         let Some(services) = &self.services else {
             return;
         };
-        let Some(target) = editor
-            .workspace(cx)
-            .map(|workspace| Some(workspace.endpoint.clone()))
-            .or_else(|| matches!(editor.target, EditorTarget::Builtin).then_some(None))
-        else {
+        let Some(target) = self.environment_observations.target.clone() else {
             return;
         };
-        let docker = services.resource_docker(target);
+        let observations = &mut self.environment_observations;
+        let docker = services.resource_docker(Some(target.clone()));
         if report {
-            if matches!(editor.observations.report, Load::Loading) {
+            if matches!(observations.report, Load::Loading) {
                 return;
             }
-            editor.observations.report = Load::Loading;
+            observations.report = Load::Loading;
         } else {
-            if matches!(editor.observations.activity, Load::Loading) {
+            if matches!(observations.activity, Load::Loading) {
                 return;
             }
-            editor.observations.activity = Load::Loading;
+            observations.activity = Load::Loading;
         }
-        let token = editor.observations_token.clone();
         let mut pending = services.pending(async move {
             if report {
                 let containers = docker.containers().await?;
@@ -88,29 +137,24 @@ impl SystemView {
                 Ok(ResultPage::Activity(docker.recent_activity().await?))
             }
         });
-        cx.spawn_in(window, async move |this, cx| {
+        cx.spawn(async move |this, cx| {
             let result = pending.result().await;
-            let _ = cx.update(|window, cx| {
-                let _ = this.update(cx, |this, cx| {
-                    let Some(editor) = &mut this.environment_settings.editor else {
-                        return;
-                    };
-                    if !std::rc::Rc::ptr_eq(&editor.observations_token, &token) {
-                        return;
+            let _ = this.update(cx, |this, cx| {
+                let observations = &mut this.environment_observations;
+                if observations.target.as_ref() != Some(&target) {
+                    return;
+                }
+                match result {
+                    Some(Ok(ResultPage::Activity(events))) => {
+                        observations.activity = Load::Ready(events)
                     }
-                    match result {
-                        Some(Ok(ResultPage::Activity(events))) => {
-                            editor.observations.activity = Load::Ready(events)
-                        }
-                        Some(Ok(ResultPage::Report(snapshot))) => {
-                            editor.observations.report = Load::Ready(snapshot)
-                        }
-                        _ if report => editor.observations.report = Load::Failed,
-                        _ => editor.observations.activity = Load::Failed,
+                    Some(Ok(ResultPage::Report(snapshot))) => {
+                        observations.report = Load::Ready(snapshot)
                     }
-                    cx.notify();
-                });
-                window.refresh();
+                    _ if report => observations.report = Load::Failed,
+                    _ => observations.activity = Load::Failed,
+                }
+                cx.notify();
             });
         })
         .detach();
@@ -119,11 +163,10 @@ impl SystemView {
 
     pub(super) fn environment_activity(
         &self,
-        editor: &Editor,
         screen: &ScreenContext<'_>,
         cx: &Context<Self>,
     ) -> Div {
-        let page = &editor.observations.activity;
+        let page = &self.environment_observations.activity;
         let mut body = self.observation_header(
             screen,
             gui::GUI_ENVIRONMENT_ACTIVITY_PERIOD,
@@ -140,7 +183,11 @@ impl SystemView {
                         "{} / {} · {}",
                         event.kind,
                         event.action,
-                        utc_time(event.timestamp.saturating_mul(1000))
+                        utc_time(
+                            screen.locale,
+                            screen.display.time_format,
+                            event.timestamp.saturating_mul(1000)
+                        )
                     ),
                 )
             }));
@@ -153,14 +200,8 @@ impl SystemView {
         ))
     }
 
-    pub(super) fn environment_report(
-        &self,
-        editor: &Editor,
-        screen: &ScreenContext<'_>,
-        cx: &Context<Self>,
-    ) -> Div {
-        let page = &editor.observations.report;
-        let locale = screen.locale;
+    pub(super) fn environment_report(&self, screen: &ScreenContext<'_>, cx: &Context<Self>) -> Div {
+        let page = &self.environment_observations.report;
         let mut body = self.observation_header(
             screen,
             gui::GUI_ENVIRONMENT_REPORT_HELP,
@@ -169,51 +210,7 @@ impl SystemView {
             cx,
         );
         if let Load::Ready(snapshot) = page {
-            let mut lines = Vec::new();
-            for (label, count) in [
-                (gui::GUI_DESKTOP_CONTAINERS, Some(snapshot.containers.len())),
-                (gui::GUI_DESKTOP_IMAGES, Some(snapshot.image_count)),
-                (gui::GUI_DESKTOP_VOLUMES, snapshot.volume_count),
-                (gui::GUI_DESKTOP_NETWORKS, snapshot.network_count),
-            ] {
-                let value = count.map_or_else(
-                    || gui::GUI_DESKTOP_UNAVAILABLE.text(locale).to_owned(),
-                    |count| count.to_string(),
-                );
-                lines.push(format!("{}  {}", label.text(locale), value));
-            }
-            let mut clipboard = lines.join("\n");
-            for container in &snapshot.containers {
-                use std::fmt::Write as _;
-                let _ = write!(
-                    clipboard,
-                    "\n{}\t{}\t{}",
-                    container.name, container.image, container.state
-                );
-            }
-            body = body
-                .child(row(locale).gap_2().flex_wrap().children(
-                    lines.into_iter().map(|text| {
-                        settings_text(screen, Role::Label, text, ColorToken::TextPrimary)
-                    }),
-                ))
-                .child(
-                    row(locale).child(
-                        Button::new("copy-environment-report")
-                            .outline()
-                            .label(gui::GUI_ENVIRONMENT_REPORT_COPY.text(locale))
-                            .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(clipboard.clone()))
-                            }),
-                    ),
-                )
-                .children(snapshot.containers.iter().map(|container| {
-                    detail(
-                        screen,
-                        &container.name,
-                        &format!("{} · {}", container.state, container.image),
-                    )
-                }));
+            body = report_body(screen, body, snapshot);
         }
         body.children(status(screen, page, false, gui::GUI_ENVIRONMENT_NO_EVENTS))
     }
@@ -244,12 +241,62 @@ impl SystemView {
                         .outline()
                         .label(gui::GUI_DESKTOP_REFRESH.text(screen.locale))
                         .disabled(busy)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.load_environment_observations(report, window, cx)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.load_environment_observations(report, cx)
                         })),
                 ),
         )
     }
+}
+
+fn report_body(screen: &ScreenContext<'_>, body: Div, snapshot: &EnvironmentReport) -> Div {
+    let locale = screen.locale;
+    let mut lines = Vec::new();
+    for (label, count) in [
+        (gui::GUI_DESKTOP_CONTAINERS, Some(snapshot.containers.len())),
+        (gui::GUI_DESKTOP_IMAGES, Some(snapshot.image_count)),
+        (gui::GUI_DESKTOP_VOLUMES, snapshot.volume_count),
+        (gui::GUI_DESKTOP_NETWORKS, snapshot.network_count),
+    ] {
+        let value = count.map_or_else(
+            || gui::GUI_DESKTOP_UNAVAILABLE.text(locale).to_owned(),
+            |count| count.to_string(),
+        );
+        lines.push(format!("{}  {}", label.text(locale), value));
+    }
+    let mut clipboard = lines.join("\n");
+    for container in &snapshot.containers {
+        use std::fmt::Write as _;
+        let _ = write!(
+            clipboard,
+            "\n{}\t{}\t{}",
+            container.name, container.image, container.state
+        );
+    }
+    body.child(
+        row(locale).gap_2().flex_wrap().children(
+            lines
+                .into_iter()
+                .map(|text| settings_text(screen, Role::Label, text, ColorToken::TextPrimary)),
+        ),
+    )
+    .child(
+        row(locale).child(
+            Button::new("copy-environment-report")
+                .outline()
+                .label(gui::GUI_ENVIRONMENT_REPORT_COPY.text(locale))
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(clipboard.clone()))
+                }),
+        ),
+    )
+    .children(snapshot.containers.iter().map(|container| {
+        detail(
+            screen,
+            &container.name,
+            &format!("{} · {}", container.state, container.image),
+        )
+    }))
 }
 
 fn detail(screen: &ScreenContext<'_>, title: &str, metadata: &str) -> Div {

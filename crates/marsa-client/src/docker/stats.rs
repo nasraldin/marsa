@@ -40,8 +40,8 @@ impl StatsSample {
         let usage = self
             .cpu_stats
             .cpu_usage
-            .total_usage
-            .checked_sub(self.precpu_stats.cpu_usage.total_usage)?;
+            .total_usage?
+            .checked_sub(self.precpu_stats.cpu_usage.total_usage?)?;
         let cpus = self
             .cpu_stats
             .online_cpus
@@ -95,9 +95,8 @@ pub struct CpuStats {
 /// CPU usage reported for the container.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct CpuUsage {
-    /// Total container CPU time in nanoseconds.
-    #[serde(default)]
-    pub total_usage: u64,
+    /// Total container CPU time in nanoseconds, where reported.
+    pub total_usage: Option<u64>,
     /// Per-CPU time on kernels that report these counters.
     #[serde(default, deserialize_with = "null_to_default")]
     pub percpu_usage: Vec<u64>,

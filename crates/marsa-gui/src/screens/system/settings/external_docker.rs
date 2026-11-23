@@ -2,6 +2,8 @@
 
 mod editor;
 mod observations;
+mod security;
+pub(in crate::screens::system) use observations::Observations;
 mod table;
 mod vm;
 
@@ -24,7 +26,11 @@ use marsa_ui::{
 };
 
 use super::{SystemView, settings_text};
-use crate::screens::common::{ScreenContext, technical};
+use crate::screens::{
+    common::{ScreenContext, technical},
+    external_inventory::ExternalWorkspace,
+};
+use marsa_ui::preferences::{EnvironmentAppearance, EnvironmentIcon};
 
 #[derive(Default)]
 pub(in crate::screens::system) struct EnvironmentSettings {
@@ -168,6 +174,15 @@ impl SystemView {
         let Some(editor) = &self.environment_settings.editor else {
             return;
         };
+        if !test
+            && matches!(
+                editor.target,
+                EditorTarget::Builtin | EditorTarget::Discovered(_)
+            )
+        {
+            self.save_environment_presentation(window, cx);
+            return;
+        }
         if matches!(editor.target, EditorTarget::Builtin) {
             if let Some(services) = &self.services {
                 let mut check = check_builtin_connection(services);
@@ -221,6 +236,94 @@ impl SystemView {
         );
     }
 
+    fn editor_presentation(&self, target: &EditorTarget) -> (String, EnvironmentIcon) {
+        match target {
+            EditorTarget::Saved(entry, _) => (
+                entry.config.name.clone(),
+                parse_icon(entry.config.icon.as_deref()),
+            ),
+            EditorTarget::Discovered(workspace) => self.environment_presentation(Some(workspace)),
+            EditorTarget::Builtin => self.environment_presentation(None),
+            EditorTarget::Add => (String::new(), EnvironmentIcon::Server),
+        }
+    }
+
+    pub(crate) fn environment_presentation(
+        &self,
+        workspace: Option<&ExternalWorkspace>,
+    ) -> (String, EnvironmentIcon) {
+        if let Some(workspace) = workspace
+            && workspace.endpoint.managed_id().is_some()
+        {
+            return (
+                workspace.source.clone(),
+                parse_icon(workspace.endpoint.environment_icon()),
+            );
+        }
+        let key = appearance_key(workspace);
+        if let Some(entry) = self
+            .settings
+            .as_ref()
+            .and_then(|(settings, _)| settings.ui.environment_appearance.get(&key))
+        {
+            return (entry.name.clone(), entry.icon);
+        }
+        workspace.map_or_else(
+            || ("Marsa".to_owned(), EnvironmentIcon::Rocket),
+            |workspace| (workspace.source.clone(), EnvironmentIcon::Server),
+        )
+    }
+
+    fn save_environment_presentation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((target, name, icon)) = self.presentation_draft(cx) else {
+            return;
+        };
+        if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+            self.environment_settings.feedback =
+                Some(Feedback::Failed(gui::GUI_ENVIRONMENT_INVALID_NAME));
+            cx.notify();
+            return;
+        }
+        let key = appearance_key(target.workspace());
+        let Some((mut settings, expected_revision)) = self.settings.clone() else {
+            return;
+        };
+        settings
+            .ui
+            .environment_appearance
+            .insert(key, EnvironmentAppearance { name, icon });
+        let Ok(settings_toml) = settings.to_toml() else {
+            self.environment_settings.feedback =
+                Some(Feedback::Failed(gui::GUI_ENVIRONMENT_STORE_ERROR));
+            cx.notify();
+            return;
+        };
+        let Some(request_id) = self.mutation_id(cx) else {
+            return;
+        };
+        let window = window.window_handle();
+        self.request(
+            move |client| async move {
+                Ok(client
+                    .settings()
+                    .update(marsa_client::api::UpdateSettingsRequest {
+                        request_id,
+                        settings_toml,
+                        expected_revision,
+                    })
+                    .await?
+                    .into_inner())
+            },
+            move |this, snapshot, cx| {
+                this.accept_settings(snapshot);
+                this.environment_settings.editor = None;
+                this.environment_settings.feedback = Some(Feedback::Saved);
+                let _ = window.update(cx, |_, window, cx| window.close_dialog(cx));
+            },
+            cx,
+        );
+    }
+
     fn confirm_environment_removal(
         &mut self,
         id: String,
@@ -254,6 +357,48 @@ impl SystemView {
             }
         })
         .detach();
+    }
+}
+
+fn appearance_key(workspace: Option<&ExternalWorkspace>) -> String {
+    workspace.map_or_else(
+        || "marsa".to_owned(),
+        |workspace| {
+            format!(
+                "discovered:{}:{}:{}",
+                workspace.source.len(),
+                workspace.source,
+                workspace.endpoint.address()
+            )
+        },
+    )
+}
+
+fn parse_icon(icon: Option<&str>) -> EnvironmentIcon {
+    match icon {
+        Some("rocket") => EnvironmentIcon::Rocket,
+        Some("globe") => EnvironmentIcon::Globe,
+        Some("box") => EnvironmentIcon::Box,
+        _ => EnvironmentIcon::Server,
+    }
+}
+
+fn icon_id(icon: EnvironmentIcon) -> &'static str {
+    match icon {
+        EnvironmentIcon::Server => "server",
+        EnvironmentIcon::Rocket => "rocket",
+        EnvironmentIcon::Globe => "globe",
+        EnvironmentIcon::Box => "box",
+    }
+}
+
+/// Return a bundled icon for an environment label.
+pub(crate) fn icon_path(icon: EnvironmentIcon) -> &'static str {
+    match icon {
+        EnvironmentIcon::Server => "icons/server.svg",
+        EnvironmentIcon::Rocket => "icons/rocket.svg",
+        EnvironmentIcon::Globe => "icons/globe.svg",
+        EnvironmentIcon::Box => "icons/box.svg",
     }
 }
 

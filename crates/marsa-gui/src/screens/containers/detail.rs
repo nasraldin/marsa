@@ -1,5 +1,7 @@
 //! Container detail header, overview, and bounded inspection panels.
 
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+
 use crate::screens::common::message;
 use marsa_client::docker::{ContainerAction, ContainerDetails, ContainerSummary};
 use marsa_ui::gui_keys as gui;
@@ -8,14 +10,13 @@ use marsa_ui::{
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
         AnyElement, App, Context, Div, FontWeight, InteractiveElement as _, IntoElement,
-        ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
-        div, px,
+        ParentElement as _, SharedString, Styled as _, Window, div, px,
     },
     gpui_component::{
         Disableable as _, Icon, IconName, Sizable as _,
         button::{Button, ButtonVariants as _},
     },
-    tokens::typography::Role,
+    tokens::typography::{Role, ui_size},
 };
 
 use crate::screens::common::{ScreenContext, label, panel};
@@ -34,7 +35,8 @@ pub(super) fn render(
         .gap_2()
         .items_center()
         .child(
-            list::type_style(Role::Title, screen.locale)
+            screen
+                .typography(Role::Title)
                 .apply(div())
                 .min_w_0()
                 .child(isolate_technical_text(name(entry))),
@@ -147,7 +149,7 @@ pub(super) fn render(
             div()
                 .text_start(cx)
                 .font_family("IBM Plex Mono")
-                .text_size(px(12.))
+                .text_size(ui_size(12.))
                 .text_color(color(screen.palette, ColorToken::TextMuted))
                 .child(isolate_technical_text(&subtitle)),
         )
@@ -337,7 +339,7 @@ fn overview(
                 .text_start(cx)
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(ui_size(12.))
                         .text_color(color(screen.palette, ColorToken::TextMuted))
                         .child(message(screen.locale, gui::GUI_DESKTOP_REVIEW_OUTPUT_OPEN_A_SHELL_OR_CHECK_HOW_THE_CONTAINER_RUNS)),
                 )
@@ -364,7 +366,7 @@ fn inspect(
         .gap_3()
         .min_h_0()
         .id("inspect-scroll")
-        .overflow_y_scroll();
+        .overflow_y_scrollbar();
     let details = match inspection {
         Inspection::Ready(details) => details,
         Inspection::Failed => {
@@ -436,7 +438,7 @@ fn inspect(
                     div()
                         .flex_1()
                         .min_w_0()
-                        .text_size(px(12.))
+                        .text_size(ui_size(12.))
                         .font_family("IBM Plex Mono")
                         .child(isolate_technical_text(&summary)),
                 )
@@ -523,15 +525,9 @@ fn inspect(
             .child(
                 row(cx)
                     .items_center()
-                    .child(
-                        list::type_style(Role::Label, screen.locale)
-                            .apply(div())
-                            .flex_1()
-                            .child(
-                                gui::GUI_DESKTOP_CONTAINERS_INSPECT_REDACTED_JSON
-                                    .text(screen.locale),
-                            ),
-                    )
+                    .child(screen.typography(Role::Label).apply(div()).flex_1().child(
+                        gui::GUI_DESKTOP_CONTAINERS_INSPECT_REDACTED_JSON.text(screen.locale),
+                    ))
                     .child(
                         Button::new("copy-redacted-inspect")
                             .outline()
@@ -557,8 +553,8 @@ fn inspect(
                 div()
                     .id("redacted-inspect-preview")
                     .max_h(px(136.))
-                    .overflow_y_scroll()
-                    .text_size(px(12.))
+                    .overflow_y_scrollbar()
+                    .text_size(ui_size(12.))
                     .font_family("IBM Plex Mono")
                     .children(json.into_iter().flat_map(|json| {
                         json.lines()
@@ -636,7 +632,7 @@ pub(super) fn card(screen: &ScreenContext<'_>, en: &'static str, ar: &'static st
         .gap_2()
         .child(
             div()
-                .text_size(px(16.))
+                .text_size(ui_size(16.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(label(screen, en, ar)),
         )
@@ -657,7 +653,7 @@ fn field(
             div()
                 .w(px(118.))
                 .flex_shrink_0()
-                .text_size(px(12.))
+                .text_size(ui_size(12.))
                 .text_color(color(screen.palette, ColorToken::TextMuted))
                 .child(label(screen, en, ar)),
         )
@@ -665,7 +661,7 @@ fn field(
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(12.))
+                .text_size(ui_size(12.))
                 .font_family("IBM Plex Mono")
                 .child(value),
         )

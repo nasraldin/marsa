@@ -9,6 +9,7 @@ use super::*;
 
 fn unix(name: &str, socket: PathBuf) -> ManagedEndpointConfig {
     ManagedEndpointConfig {
+        icon: Default::default(),
         name: name.into(),
         transport: ManagedEndpointTransport::Unix { socket },
         labels: Vec::new(),
@@ -140,6 +141,7 @@ async fn malformed_addresses_cannot_be_saved_or_tested() {
         },
     ] {
         let config = ManagedEndpointConfig {
+            icon: Default::default(),
             name: "Work".into(),
             transport,
             labels: Vec::new(),

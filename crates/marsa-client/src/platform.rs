@@ -268,3 +268,6 @@ mod tests {
         );
     }
 }
+
+mod scanner;
+pub(crate) use scanner::scanner_executable;

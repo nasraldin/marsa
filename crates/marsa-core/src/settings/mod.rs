@@ -1,14 +1,18 @@
 //! Host settings validation and versioned TOML persistence format.
 
+mod environment_appearance;
 mod network;
+
+pub use environment_appearance::{EnvironmentAppearance, EnvironmentIcon};
 mod preferences;
 mod vm;
 
 pub use network::{NetworkMode, NetworkSettings, ProxySettings};
 pub use preferences::{
-    AccentColor, AgentSettings, DownloadFormat, Language, LogBufferSize, LogSettings,
-    NotificationSettings, OperateApproval, TelemetrySettings, Theme, UiSettings, UpdateChannel,
-    UpdateSettings, valid_compose_template,
+    AccentColor, AgentSettings, DisplaySettings, DownloadFormat, Language, LogBufferSize,
+    LogSettings, NotificationSettings, OperateApproval, TelemetrySettings, TerminalFont, Theme,
+    TimeFormat, UiFont, UiFontSize, UiSettings, UpdateChannel, UpdateSettings,
+    valid_compose_template,
 };
 pub use vm::{DiskSettings, VmBackend, VmSettings};
 
@@ -115,6 +119,21 @@ impl Settings {
             return Err(SettingsError::invalid(
                 "ui.container_config_sets",
                 "use unique names and valid, bounded container options",
+            ));
+        }
+        if self.ui.environment_appearance.len() > 128
+            || self.ui.environment_appearance.iter().any(|(key, entry)| {
+                key.is_empty()
+                    || key.len() > 4096
+                    || key.chars().any(char::is_control)
+                    || entry.name.trim().is_empty()
+                    || entry.name.len() > 256
+                    || entry.name.chars().any(char::is_control)
+            })
+        {
+            return Err(SettingsError::invalid(
+                "ui.environment_appearance",
+                "use valid names and bounded identifiers",
             ));
         }
         if self

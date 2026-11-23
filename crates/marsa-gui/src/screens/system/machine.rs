@@ -1,13 +1,16 @@
 //! Engine controls, resource preferences and startup diagnostics.
 
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+use marsa_ui::tokens::typography::ui_size;
+
 use std::{cell::Cell, path::Path, rc::Rc};
 
 use marsa_client::api::{CollectDiagnosticsRequest, EngineState, EngineStatus};
 use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
     gpui::{
-        Context, Div, FontWeight, InteractiveElement, IntoElement, ParentElement,
-        StatefulInteractiveElement, Styled, Window, div, px,
+        Context, Div, FontWeight, InteractiveElement, IntoElement, ParentElement, Styled, Window,
+        div, px,
     },
     gpui_component::{
         Disableable, Icon, IconName, Sizable, WindowExt,
@@ -211,7 +214,7 @@ impl SystemView {
                     .child(muted(palette, gui::GUI_SYSTEM_MACHINE_RESOURCE_NOTICE.text(locale))))
                 .children(resources)
                 .child(if self.restart_required {
-                    div().text_size(px(14.)).text_color(color(palette, ColorToken::AccentDefault))
+                    div().text_size(ui_size(14.)).text_color(color(palette, ColorToken::AccentDefault))
                         .child(gui::GUI_DESKTOP_RESOURCE_CHANGES_ARE_PENDING.text(locale))
                 } else {
                     row(locale).justify_end().child(Button::new("edit-machine-resources").outline().h(px(44.))
@@ -276,7 +279,7 @@ impl SystemView {
                             .child(
                                 row(locale)
                                     .gap_2()
-                                    .text_size(px(14.))
+                                    .text_size(ui_size(14.))
                                     .text_color(color(palette, ColorToken::StatusError))
                                     .child(gui::GUI_SYSTEM_MACHINE_FAILED_STAGE.text(locale))
                                     .children(caption.map(|stage| {
@@ -304,7 +307,7 @@ impl SystemView {
                                 .flex_1()
                                 .min_w_0()
                                 .gap_2()
-                                .text_size(px(13.))
+                                .text_size(ui_size(13.))
                                 .text_color(color(palette, tone))
                                 .child(system_icon(palette, icon))
                                 .child(label.text(locale))
@@ -323,7 +326,7 @@ impl SystemView {
                         div()
                             .id("failed-machine-boot-logs")
                             .max_h(px(316.))
-                            .overflow_y_scroll()
+                            .overflow_y_scrollbar()
                             .flex()
                             .flex_col()
                             .gap_1()
@@ -507,7 +510,7 @@ impl SystemView {
                         .child(
                             div()
                                 .id("machine-startup-output")
-                                .overflow_y_scroll()
+                                .overflow_y_scrollbar()
                                 .min_h(px(128.))
                                 .max_h(px(252.))
                                 .rounded(px(12.))
@@ -577,16 +580,16 @@ fn startup_copy(state: Option<EngineState>) -> TextKey {
 
 pub(super) fn title_text(text: &'static str) -> Div {
     div()
-        .text_size(px(16.))
-        .line_height(px(24.))
+        .text_size(ui_size(16.))
+        .line_height(ui_size(24.))
         .font_weight(FontWeight::MEDIUM)
         .child(text)
 }
 
 pub(super) fn dialog_title(text: &'static str) -> Div {
     div()
-        .text_size(px(27.))
-        .line_height(px(36.))
+        .text_size(ui_size(27.))
+        .line_height(ui_size(36.))
         .font_weight(FontWeight::SEMIBOLD)
         .child(text)
 }
@@ -595,15 +598,15 @@ pub(super) fn mono(value: &str) -> Div {
     div()
         .min_w_0()
         .font_family("IBM Plex Mono")
-        .text_size(px(12.))
-        .line_height(px(18.))
+        .text_size(ui_size(12.))
+        .line_height(ui_size(18.))
         .child(technical(value))
 }
 
 pub(super) fn muted(palette: Palette, value: &'static str) -> Div {
     div()
-        .text_size(px(12.))
-        .line_height(px(18.))
+        .text_size(ui_size(12.))
+        .line_height(ui_size(18.))
         .text_color(color(palette, ColorToken::TextMuted))
         .child(value)
 }

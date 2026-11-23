@@ -5,8 +5,8 @@ mod approvals;
 mod disk;
 mod machine;
 mod notifications;
-mod overview;
 mod settings;
+pub(crate) use settings::environment_icon_path;
 
 use marsa_ui::gui_keys as gui;
 use std::{
@@ -31,7 +31,7 @@ use marsa_ui::{
         AnyElement, Context, Div, EventEmitter, ParentElement, Styled, Task, Window, div, px, svg,
     },
     gpui_component::button::{Button, ButtonVariants},
-    preferences::{AccentColor, Language, Settings, Theme},
+    preferences::{AccentColor, DisplaySettings, Language, Settings, Theme},
 };
 
 use crate::{
@@ -64,6 +64,7 @@ pub(crate) struct SystemView {
     external_inventory: crate::screens::external_inventory::Workspaces,
     external_inventory_task: Option<Task<()>>,
     environment_settings: EnvironmentSettings,
+    environment_observations: settings::Observations,
     git_sources: GitSources,
     registry_settings: RegistrySettings,
     resource_inputs: ResourceInputs,
@@ -130,6 +131,7 @@ impl SystemView {
             external_inventory: Arc::from([]),
             external_inventory_task: None,
             environment_settings: EnvironmentSettings::default(),
+            environment_observations: settings::Observations::default(),
             git_sources: GitSources::default(),
             registry_settings: RegistrySettings::default(),
             resource_inputs: ResourceInputs::new(window, cx),
@@ -181,6 +183,14 @@ impl SystemView {
             .unwrap_or_default()
     }
 
+    pub(crate) fn display_settings(&self) -> DisplaySettings {
+        self.settings
+            .as_ref()
+            .map_or_else(DisplaySettings::default, |(settings, _)| {
+                settings.ui.display
+            })
+    }
+
     pub(crate) fn accent(&self) -> AccentColor {
         self.settings
             .as_ref()
@@ -220,7 +230,7 @@ impl SystemView {
                 Route::Settings
             }
             NotificationDestination::Network => {
-                self.settings_tab = SettingsTab::Network;
+                self.settings_tab = SettingsTab::Environments;
                 Route::Settings
             }
         }
@@ -241,7 +251,7 @@ impl SystemView {
             self.cleanup_selection.clear();
             self.vm_stats = None;
             self.vm_stats_task = None;
-        } else if matches!(self.route, Route::Overview | Route::Machine) {
+        } else if self.route == Route::Machine {
             self.watch_vm(cx);
         }
         if revision != self.revision {
@@ -259,12 +269,12 @@ impl SystemView {
     pub(crate) fn enter(&mut self, route: Route, cx: &mut Context<Self>) {
         self.route = route;
         self.route_load = None;
-        if !matches!(route, Route::Overview | Route::Machine) {
+        if route != Route::Machine {
             self.vm_stats_task = None;
             self.vm_stats = None;
         }
         match route {
-            Route::Overview | Route::Machine => {
+            Route::Machine => {
                 self.load_disk(cx);
                 self.watch_vm(cx);
             }
@@ -407,7 +417,6 @@ impl SystemView {
         cx: &mut Context<Self>,
     ) -> Div {
         let view = match route {
-            Route::Overview => self.overview(screen, history, cx),
             Route::Machine => self.machine(screen, cx),
             Route::Disk => self.disk(screen, cx),
             Route::Activity => self.activity(screen, history, cx),

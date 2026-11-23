@@ -59,6 +59,10 @@ Host API minor 12 adds the `ui.setup_complete` owner setting and optional
 `PrunePreviewResponse.observed_usage` with measured Docker category totals.
 The latter is read-only and does not authorize cleanup.
 
+Host API minor 13 adds the owner-only `Stats.DockerOverview` snapshot.
+The caller selects a fixed scope of Docker reads and receives bounded Engine
+JSON. The request requires an already-running VM and does not activate it.
+
 `Disk.Reclaim` requests discard of unused blocks from the current ready
 guest's data disk. It returns the guest's submitted discard bytes and the
 observed decrease in allocated bytes on the same host image. A stopped

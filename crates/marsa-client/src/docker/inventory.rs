@@ -31,6 +31,7 @@ pub struct ExternalEndpoint {
 
 #[derive(Debug)]
 struct EndpointMetadata {
+    icon: Option<String>,
     labels: Vec<String>,
     public_ip: Option<IpAddr>,
 }
@@ -73,6 +74,13 @@ impl ExternalEndpoint {
         self.context
             .as_deref()
             .filter(|id| managed::is_managed_id(id))
+    }
+
+    /// Return the ID of the saved display icon, if one was selected.
+    pub fn environment_icon(&self) -> Option<&str> {
+        self.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.icon.as_deref())
     }
 
     /// Return the saved environment labels, if any.
@@ -143,6 +151,10 @@ impl ExternalEndpoint {
     /// Recognize a local Lima Docker socket for owner-verified VM settings.
     pub fn lima_instance(&self) -> Option<super::LimaInstance> {
         self.socket().and_then(super::LimaInstance::from_socket)
+    }
+
+    pub(super) fn scanning_context(&self) -> Option<&str> {
+        self.context.as_deref()
     }
 
     /// Return the endpoint's address without displaying credentials.
@@ -283,7 +295,10 @@ pub(super) fn external_route(
     }
     match *method {
         Method::GET if !has_body => {
-            matches!(action, "json" | super::LOG_ENDPOINT | "stats?stream=true")
+            matches!(
+                action,
+                "json" | super::LOG_ENDPOINT | "stats?stream=true" | super::overview::STATS_PATH
+            )
         }
         Method::POST if has_body => action == "exec",
         Method::POST => matches!(action, "start" | "stop" | "restart" | "pause" | "unpause"),
@@ -315,11 +330,15 @@ fn resource_route(method: &Method, path: &str, has_body: bool) -> bool {
                     })
         }
         Method::GET if !has_body => {
-            path == "/system/df?type=volume&verbose=true"
-                || path
-                    .strip_prefix("/images/sha256:")
-                    .and_then(|digest| digest.strip_suffix("/json"))
-                    .is_some_and(valid_id)
+            matches!(
+                path,
+                "/system/df?type=volume&verbose=true"
+                    | super::overview::DISK_PATH
+                    | super::overview::VERSION_PATH
+            ) || path
+                .strip_prefix("/images/sha256:")
+                .and_then(|digest| digest.strip_suffix("/json"))
+                .is_some_and(valid_id)
         }
         Method::DELETE if !has_body => {
             path.strip_prefix("/images/sha256:")
@@ -494,12 +513,15 @@ pub async fn discover_external_inventories() -> Vec<ExternalInventory> {
                 .await
                 .unwrap_or(ExternalTransport::Unavailable);
             let config = endpoint.config;
-            let metadata = (!config.labels.is_empty() || config.public_ip.is_some()).then(|| {
-                Arc::new(EndpointMetadata {
-                    labels: config.labels,
-                    public_ip: config.public_ip,
-                })
-            });
+            let metadata =
+                (!config.labels.is_empty() || config.public_ip.is_some() || config.icon.is_some())
+                    .then(|| {
+                        Arc::new(EndpointMetadata {
+                            icon: config.icon,
+                            labels: config.labels,
+                            public_ip: config.public_ip,
+                        })
+                    });
             entries.push((
                 config.name,
                 ExternalEndpoint {

@@ -54,12 +54,12 @@ pub fn align_to_start(element: Div, locale: Locale) -> Div {
 
 /// Position the native macOS controls in the workspace's leading sidebar.
 pub fn position_window_controls(window: &Window, locale: Locale, compact: bool) {
-    let padding = if compact { 14. } else { 24. };
+    let padding = if compact { 18. } else { 24. };
     let inset = match locale {
         Locale::EnglishUs => px(padding),
         Locale::Arabic => window.viewport_size().width - px(padding + 58.),
     };
-    window.set_traffic_light_position(point(inset, px(32.)));
+    window.set_traffic_light_position(point(inset, px(30.)));
 }
 
 /// Return the sidebar toggle glyph for the current reading direction and state.

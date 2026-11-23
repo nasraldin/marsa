@@ -15,7 +15,7 @@ use marsa_ui::{
 
 use crate::{desktop::StartEngineFromScreen, screens::common::ScreenContext};
 
-use super::{ContainerView, StatusFilter, color, list::type_style};
+use super::{ContainerView, StatusFilter, color};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum TableState {
@@ -139,12 +139,14 @@ pub(super) fn render(
                 .child(Icon::empty().path(path)),
         )
         .child(
-            type_style(Role::Section, locale)
+            screen
+                .typography(Role::Section)
                 .apply(div())
                 .child(title.text(locale)),
         )
         .child(
-            type_style(Role::Small, locale)
+            screen
+                .typography(Role::Small)
                 .apply(div())
                 .text_color(muted)
                 .child(detail.text(locale)),

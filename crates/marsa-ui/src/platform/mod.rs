@@ -117,7 +117,7 @@ fn launch_window<T: Render>(
         titlebar: Some(TitlebarOptions {
             title: Some(keys::GUI_WINDOW_TITLE.text(locale).into()),
             appears_transparent: true,
-            traffic_light_position: Some(point(px(24.), px(32.))),
+            traffic_light_position: Some(point(px(24.), px(30.))),
         }),
         ..WindowOptions::default()
     };

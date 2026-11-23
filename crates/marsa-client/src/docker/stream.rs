@@ -213,6 +213,29 @@ impl LogTimestamp {
         // When UTC falls outside RFC 3339's year range, preserve the valid source offset.
         utc.format(&Rfc3339).unwrap_or_else(|_| self.0.to_string())
     }
+
+    /// Format the log timestamp in 12-hour time with caller-supplied day periods.
+    ///
+    /// Retains the date, fractional seconds, and UTC offset of the normal display.
+    pub fn format_12_hour(self, local: bool, am: &str, pm: &str) -> String {
+        let timestamp = self.format(local);
+        let Some((date, clock)) = timestamp.split_once('T') else {
+            return timestamp;
+        };
+        let Some(hour) = clock.get(..2).and_then(|hour| hour.parse::<u8>().ok()) else {
+            return timestamp;
+        };
+        let Some(zone_start) = clock.rfind(['Z', '+', '-']) else {
+            return timestamp;
+        };
+        let Some(minutes_and_seconds) = clock.get(2..zone_start) else {
+            return timestamp;
+        };
+        let zone = &clock[zone_start..];
+        let hour_12 = (hour + 11) % 12 + 1;
+        let period = if hour < 12 { am } else { pm };
+        format!("{date} {hour_12:02}{minutes_and_seconds} {period} {zone}")
+    }
 }
 
 /// One logical line of container output with its original stream.
@@ -315,5 +338,22 @@ impl DockerLogs {
             .ok_or(DockerError::LogFraming)?
             .into();
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod timestamp_tests {
+    use super::LogTimestamp;
+
+    #[test]
+    fn twelve_hour_log_timestamp_preserves_instant_and_fraction() {
+        for (source, expected) in [
+            ("2026-11-23T00:01:09.123Z", "2026-11-23 12:01:09.123 AM Z"),
+            ("2026-11-23T12:01:09Z", "2026-11-23 12:01:09 PM Z"),
+            ("2026-11-23T20:01:09+04:00", "2026-11-23 04:01:09 PM Z"),
+        ] {
+            let timestamp = LogTimestamp::parse(source).unwrap();
+            assert_eq!(timestamp.format_12_hour(false, "AM", "PM"), expected);
+        }
     }
 }

@@ -1,22 +1,23 @@
 //! Lifecycle history, redacted audit events and owner approvals.
 
 use crate::screens::common::message;
-use marsa_ui::gui_keys as gui;
+use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
 use std::collections::VecDeque;
 
 use marsa_client::api::{AgentAuditRecord, AuditDecision, EngineState, ListAgentAuditRequest};
 use marsa_ui::{
-    ColorToken,
+    ColorToken, Locale,
     gpui::{Context, Div, ParentElement, SharedString, Styled, div, px},
     gpui_component::{
         Disableable, Selectable,
         button::{Button, ButtonVariants},
     },
+    preferences::TimeFormat,
 };
 
 use crate::{
     desktop::status,
-    screens::common::{ScreenContext, color, panel, row},
+    screens::common::{ScreenContext, color, day_periods, panel, row},
 };
 
 use super::{
@@ -331,7 +332,7 @@ fn audit_row(screen: &ScreenContext<'_>, record: &AgentAuditRecord) -> Div {
         .child(
             div()
                 .w(px(112.))
-                .text_size(px(13.))
+                .text_size(ui_size(13.))
                 .text_color(color(palette, tone))
                 .child(decision(screen, result)),
         )
@@ -350,17 +351,27 @@ fn audit_row(screen: &ScreenContext<'_>, record: &AgentAuditRecord) -> Div {
                 ),
         )
         .children((record.received_at_unix_millis > 0).then(|| {
-            mono(&utc_time(record.received_at_unix_millis))
-                .text_color(color(palette, ColorToken::TextMuted))
+            mono(&utc_time(
+                locale,
+                screen.display.time_format,
+                record.received_at_unix_millis,
+            ))
+            .text_color(color(palette, ColorToken::TextMuted))
         }))
 }
 
-pub(super) fn utc_time(timestamp: i64) -> String {
+pub(super) fn utc_time(locale: Locale, format: TimeFormat, timestamp: i64) -> String {
     let seconds = timestamp.div_euclid(1000).rem_euclid(86400);
-    format!(
-        "{:02}:{:02}:{:02} UTC",
-        seconds / 3600,
-        seconds / 60 % 60,
-        seconds % 60
-    )
+    let hour = seconds / 3600;
+    let minute = seconds / 60 % 60;
+    let second = seconds % 60;
+    match format {
+        TimeFormat::TwentyFourHour => format!("{hour:02}:{minute:02}:{second:02} UTC"),
+        TimeFormat::TwelveHour => {
+            let (am, pm) = day_periods(locale);
+            let period = if hour < 12 { am } else { pm };
+            let hour_12 = (hour + 11) % 12 + 1;
+            format!("{hour_12:02}:{minute:02}:{second:02} {period} UTC")
+        }
+    }
 }

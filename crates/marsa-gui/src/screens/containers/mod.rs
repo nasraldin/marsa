@@ -111,6 +111,7 @@ pub(crate) struct ContainerView {
     config_sets: Vec<marsa_client::docker::container_config::ContainerConfigSet>,
     locale: Locale,
     palette: Palette,
+    display: marsa_ui::preferences::DisplaySettings,
     state: AppState,
     external_inventory: Workspaces,
     file_operation: Option<marsa_ui::gpui::Task<()>>,
@@ -126,6 +127,7 @@ pub(crate) struct ContainerView {
     descending: bool,
     mode: list::ViewMode,
     collapsed: BTreeSet<list::GroupKey>,
+    list_scroll: marsa_ui::gpui::UniformListScrollHandle,
     command_pending: bool,
     connection_waited: bool,
     command_failed: bool,
@@ -190,6 +192,7 @@ impl ContainerView {
             config_sets: Vec::new(),
             locale,
             palette,
+            display: Default::default(),
             state,
             input: None,
             query: String::new(),
@@ -203,6 +206,7 @@ impl ContainerView {
             descending: false,
             mode: list::ViewMode::default(),
             collapsed: BTreeSet::new(),
+            list_scroll: marsa_ui::gpui::UniformListScrollHandle::new(),
             command_pending: false,
             connection_waited: false,
             command_failed: false,
@@ -334,6 +338,17 @@ impl ContainerView {
         cx: &mut Context<Self>,
     ) {
         self.logs.set_settings(settings, cx);
+    }
+
+    pub(crate) fn set_display_settings(
+        &mut self,
+        settings: marsa_ui::preferences::DisplaySettings,
+        cx: &mut Context<Self>,
+    ) {
+        if self.display != settings {
+            self.display = settings;
+            cx.notify();
+        }
     }
 
     fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
@@ -654,6 +669,7 @@ impl ContainerView {
         ScreenContext {
             locale: self.locale,
             palette: self.palette,
+            display: self.display,
             state: &self.state,
             services: self.services.as_ref(),
         }

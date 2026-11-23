@@ -10,7 +10,7 @@ use marsa_ui::{
     },
     gui_keys as gui,
     preferences::Theme,
-    tokens::typography::Role,
+    tokens::typography::{Role, ui_size},
 };
 
 use crate::screens::common::{ScreenContext, align, color, panel, row, technical};
@@ -27,6 +27,7 @@ impl Desktop {
         let screen = ScreenContext {
             locale,
             palette,
+            display: self.display,
             state: &self.state,
             services: self.services.as_ref(),
         };
@@ -324,7 +325,7 @@ fn sharing(setup: &Setup, screen: &ScreenContext<'_>, cx: &Context<Desktop>) -> 
         .child(
             row(locale)
                 .gap_2()
-                .text_size(px(16.))
+                .text_size(ui_size(16.))
                 .font_weight(FontWeight::MEDIUM)
                 .child(
                     svg()
@@ -397,7 +398,9 @@ fn docker(screen: &ScreenContext<'_>) -> Div {
         .min_h(px(216.))
         .child(
             align(
-                div().font_weight(FontWeight::MEDIUM).text_size(px(16.)),
+                div()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_size(ui_size(16.)),
                 locale,
             )
             .child(gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale)),

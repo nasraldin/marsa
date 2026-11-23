@@ -267,9 +267,10 @@ impl SystemView {
             return;
         };
         let view = cx.weak_entity();
+        let display = self.display_settings();
         let state = service.store().select(Clone::clone).current().clone();
         window.open_dialog(cx, move |dialog, _, cx| {
-            let screen = ScreenContext { locale, palette, state: &state, services: Some(&service) };
+            let screen = ScreenContext { locale, palette, display, state: &state, services: Some(&service) };
             let title = if locale == Locale::Arabic { Role::Title } else { Role::Section };
             let busy = view.upgrade().is_none_or(|view| view.read(cx).busy());
             let paths = div().flex().flex_col()

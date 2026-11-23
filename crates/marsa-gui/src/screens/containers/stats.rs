@@ -1,7 +1,7 @@
 //! Live container metrics in bounded chronological charts.
 
 use crate::screens::common::message;
-use marsa_ui::gui_keys as gui;
+use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
 use std::{
     collections::VecDeque,
     time::{Duration, Instant},
@@ -146,7 +146,7 @@ pub(super) fn render(
             .gap_2()
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(ui_size(12.))
                     .text_start(cx)
                     .child(message(screen.locale, gui::GUI_DESKTOP_LAST_15_MINUTES)),
             )
@@ -190,7 +190,7 @@ pub(super) fn render(
         };
         body = body.child(
             div()
-                .text_size(px(12.))
+                .text_size(ui_size(12.))
                 .text_start(cx)
                 .child(label(screen, en, ar)),
         );
@@ -287,7 +287,7 @@ fn metric(
             div()
                 .font_family("IBM Plex Mono")
                 .font_weight(FontWeight::MEDIUM)
-                .text_size(px(13.))
+                .text_size(ui_size(13.))
                 .child(isolate_technical_text(&current)),
         )
         .child(chart(screen.palette, token, points))
@@ -295,7 +295,7 @@ fn metric(
             div()
                 .flex()
                 .justify_between()
-                .text_size(px(11.))
+                .text_size(ui_size(11.))
                 .font_family("IBM Plex Mono")
                 .text_color(color(screen.palette, ColorToken::TextMuted))
                 .child(isolate_technical_text(first))

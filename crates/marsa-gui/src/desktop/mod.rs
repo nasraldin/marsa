@@ -2,6 +2,9 @@
 
 mod background;
 mod environment;
+mod overview;
+
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
 mod navigation;
 mod onboarding;
 mod palette;
@@ -18,17 +21,16 @@ use marsa_ui::{
     ColorToken, Locale, Palette,
     gpui::{
         self, App, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-        KeyBinding, ParentElement, Pixels, Render, ScrollHandle, StatefulInteractiveElement,
-        Styled, Subscription, Task, WeakFocusHandle, Window, WindowAppearance, actions, div, px,
-        svg,
+        KeyBinding, ParentElement, Pixels, Render, ScrollHandle, Styled, Subscription, Task,
+        WeakFocusHandle, Window, WindowAppearance, actions, div, px, svg,
     },
     gpui_component::{
         IconName,
         button::{Button, ButtonVariants},
         input::InputState,
     },
-    preferences::{AccentColor, Language, Theme},
-    tokens::typography::Role,
+    preferences::{AccentColor, DisplaySettings, Language, Theme},
+    tokens::typography::{Role, rem_size},
 };
 
 use crate::{
@@ -68,16 +70,18 @@ pub(crate) fn bind_keys(cx: &mut App) {
 
 pub(crate) struct Desktop {
     route: Route,
+    overview: overview::Overview,
     focus: FocusHandle,
     collapsed: bool,
     locale: Locale,
     system_locale: Locale,
     palette: Palette,
-    themed_palette: Option<(Palette, Locale)>,
+    themed_palette: Option<(Palette, Locale, DisplaySettings)>,
     container_locale: Locale,
     controls_layout: Option<(Locale, Pixels, bool)>,
     appearance_preference: Theme,
     accent: AccentColor,
+    display: DisplaySettings,
     state: AppState,
     external_inventory: Workspaces,
     environment: Entity<Environment>,
@@ -144,9 +148,12 @@ impl Desktop {
         let _subscription = cx.observe(&system, |this, system, cx| {
             let preferences = system.read(cx).preferences();
             this.accent = system.read(cx).accent();
+            this.display = system.read(cx).display_settings();
             let log_settings = system.read(cx).log_settings();
-            this.containers
-                .update(cx, |view, cx| view.set_log_settings(log_settings, cx));
+            this.containers.update(cx, |view, cx| {
+                view.set_log_settings(log_settings, cx);
+                view.set_display_settings(this.display, cx);
+            });
             this.resources
                 .update(cx, |view, cx| view.set_log_settings(log_settings, cx));
             let config_sets = system.read(cx).config_sets();
@@ -225,6 +232,7 @@ impl Desktop {
             .map(|services| onboarding::probe(services, cx));
         Self {
             route: Route::Overview,
+            overview: overview::Overview::default(),
             focus,
             collapsed: false,
             locale,
@@ -235,6 +243,7 @@ impl Desktop {
             controls_layout: None,
             appearance_preference: Theme::System,
             accent: AccentColor::MarsaBlue,
+            display: DisplaySettings::default(),
             state,
             external_inventory: Arc::from([]),
             environment,
@@ -340,6 +349,7 @@ impl Desktop {
                     | Route::Machine
                     | Route::Disk
                     | Route::Activity
+                    | Route::Reports
             ) {
                 view.refresh_external_inventory(cx);
             }
@@ -372,12 +382,13 @@ impl Render for Desktop {
             marsa_ui::direction::position_window_controls(window, self.locale, self.collapsed);
         }
         let palette = palette_for(window, self.appearance_preference).with_accent(self.accent);
-        if self.themed_palette != Some((palette, self.locale)) {
-            self.themed_palette = Some((palette, self.locale));
+        if self.themed_palette != Some((palette, self.locale, self.display)) {
+            self.themed_palette = Some((palette, self.locale, self.display));
             self.resources
                 .update(cx, |view, cx| view.set_locale(self.locale, window, cx));
-            palette.apply_to_components(self.locale, cx);
+            palette.apply_to_components(self.locale, self.display, cx);
         }
+        window.set_rem_size(px(rem_size(self.display.ui_font_size)));
         if palette != self.palette || self.container_locale != self.locale {
             self.palette = palette;
             self.container_locale = self.locale;
@@ -385,9 +396,11 @@ impl Render for Desktop {
                 view.set_appearance(self.locale, palette, window, cx)
             });
         }
+        self.prepare_overview(cx);
         let screen = ScreenContext {
             locale: self.locale,
             palette,
+            display: self.display,
             state: &self.state,
             services: self.services.as_ref(),
         };
@@ -403,7 +416,8 @@ impl Render for Desktop {
             .child(
                 align(div().flex_1(), self.locale)
                     .child(
-                        type_role(Role::Title, self.locale)
+                        screen
+                            .typography(Role::Title)
                             .apply(div())
                             .child(if failed {
                                 gui::GUI_SYSTEM_ENGINE_FAILED_TITLE.text(self.locale)
@@ -467,9 +481,26 @@ impl Render for Desktop {
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.navigate(Route::Containers, cx)))
             }));
-        let view = if failed {
+        let view = if route == Route::Overview {
+            self.overview_screen(&screen, window, cx).into_any_element()
+        } else if failed {
             self.system.update(cx, |view, cx| {
                 view.failed_engine(&screen, cx).into_any_element()
+            })
+        } else if route == Route::Reports || (route == Route::Activity && !local) {
+            let endpoint = self
+                .active_workspace(cx)
+                .map(|workspace| workspace.endpoint.clone());
+            self.system.update(cx, |system, cx| {
+                system
+                    .environment_observations_page(
+                        route == Route::Reports,
+                        local,
+                        endpoint,
+                        &screen,
+                        cx,
+                    )
+                    .into_any_element()
             })
         } else if !local
             && (self.active_workspace(cx).is_none() && route != Route::Settings
@@ -525,9 +556,9 @@ impl Render for Desktop {
             .min_h_0()
             .child(view);
         let content = if route == Route::Containers && !failed {
-            content.overflow_hidden()
+            content.overflow_hidden().into_any_element()
         } else {
-            content.overflow_y_scroll()
+            content.overflow_y_scrollbar().into_any_element()
         };
         let main = div()
             .flex_1()
@@ -539,7 +570,8 @@ impl Render for Desktop {
             .p_4()
             .children((route != Route::Containers || failed).then_some(header))
             .child(content);
-        type_role(Role::Body, self.locale)
+        screen
+            .typography(Role::Body)
             .apply(div().id("marsa-desktop"))
             .track_focus(&self.focus)
             .key_context("MarsaDesktop")
@@ -598,12 +630,4 @@ fn palette_for(window: &Window, preference: Theme) -> Palette {
         _ => Appearance::Light,
     };
     Palette::resolve(preference, appearance)
-}
-
-fn type_role(role: Role, locale: Locale) -> marsa_ui::tokens::typography::TypeStyle {
-    if locale == Locale::Arabic {
-        role.arabic()
-    } else {
-        role.latin()
-    }
 }

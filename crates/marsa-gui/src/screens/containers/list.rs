@@ -1,7 +1,8 @@
 //! Searchable, virtualized container table and selection controls.
 
 use crate::screens::common::message;
-use marsa_ui::gui_keys as gui;
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::{IpAddr, SocketAddr},
@@ -257,7 +258,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         toolbar = if view.selected.is_empty() {
             toolbar.child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(ui_size(12.))
                     .text_color(color(palette, ColorToken::TextMuted))
                     .child(summary),
             )
@@ -276,12 +277,14 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                 .min_w_0()
                 .text_start(cx)
                 .child(
-                    type_style(Role::Title, locale)
+                    screen
+                        .typography(Role::Title)
                         .apply(div())
                         .child(message(locale, gui::GUI_DESKTOP_CONTAINERS)),
                 )
                 .child(
-                    type_style(Role::Small, locale)
+                    screen
+                        .typography(Role::Small)
                         .apply(div())
                         .text_color(color(palette, ColorToken::TextMuted))
                         .child(states::subtitle(status, locale)),
@@ -456,8 +459,17 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
             })
             .collect()
     })
+    .track_scroll(&view.list_scroll)
     .flex_1()
     .min_h_0();
+    let items = div()
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .child(items)
+        .vertical_scrollbar(&view.list_scroll);
     let table = div().flex().flex_col().flex_1().min_h_0().overflow_hidden();
     let table = if mode == ViewMode::Table {
         table
@@ -597,7 +609,7 @@ fn cell_row(palette: Palette, cx: &App) -> Div {
         .px_3()
         .gap_2()
         .items_center()
-        .text_size(px(12.))
+        .text_size(ui_size(12.))
         .text_start(cx)
         .border_b_1()
         .border_color(color(palette, ColorToken::BorderSubtle))
@@ -874,7 +886,7 @@ fn container_row(
             .min_w_0()
             .truncate()
             .font_family("IBM Plex Mono")
-            .text_size(px(11.))
+            .text_size(ui_size(11.))
             .text_color(color(palette, ColorToken::TextMuted))
             .child(image.clone())
     };
@@ -1058,7 +1070,7 @@ pub(super) fn state_pill(state: &str, palette: Palette, locale: Locale, cx: &App
         .rounded_full()
         .bg(color(palette, background))
         .text_color(color(palette, foreground))
-        .text_size(px(11.))
+        .text_size(ui_size(11.))
         .child(
             div()
                 .size(px(8.))
@@ -1079,7 +1091,7 @@ fn published_ports(
         .min_w_0()
         .truncate()
         .font_family("IBM Plex Mono")
-        .text_size(px(11.))
+        .text_size(ui_size(11.))
         .text_color(color(palette, ColorToken::AccentDefault));
     let Some(ip) = public_ip.filter(|ip| !ip.is_unspecified() && !ip.is_multicast()) else {
         return cell.child(ports);
@@ -1249,7 +1261,7 @@ fn bulk_toolbar(
     };
     let mut tools = row(cx).items_center().gap_2().child(
         div()
-            .text_size(px(12.))
+            .text_size(ui_size(12.))
             .text_color(color(screen.palette, ColorToken::AccentDefault))
             .child(summary),
     );
@@ -1326,12 +1338,4 @@ fn bulk_toolbar(
                     cx.notify();
                 })),
         )
-}
-
-pub(super) fn type_style(role: Role, locale: Locale) -> marsa_ui::tokens::typography::TypeStyle {
-    if locale == Locale::Arabic {
-        role.arabic()
-    } else {
-        role.latin()
-    }
 }

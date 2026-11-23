@@ -466,3 +466,14 @@ A disposable Lima container verified options including environment, labels, rest
   - Truncated transfers and existing destinations are preserved. Marsa does not unpack archive paths into the host filesystem.
 
 A disposable Lima container returned a binary file directly and a directory as TAR. The download refused to replace the existing destination. The pinned [Moby 29.10.0 schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml) documents the archive routes and path metadata header. The Mac locked before the final four-variant desktop checks.
+
+### M7-32 Connect to Hawser agents
+
+- **Status:** todo
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Implement Hawser Standard connections to a trusted agent and Hawser Edge connections through an authenticated reverse tunnel. Keep agent credentials in the platform credential store.
+- **Deliver:** Two tested agent connection types in the environment editor, wired to engine selection and resource views.
+- **Accept when:**
+  - Real Standard and Edge agents pass connection testing and can be selected as the active engine.
+  - Agent identity and authorization are checked before any Docker API request. Tests cover credential rejection, disconnect, and endpoint replacement while a request is in flight.

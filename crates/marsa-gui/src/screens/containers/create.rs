@@ -1,5 +1,7 @@
 //! Launch a container from an existing image on the pinned environment.
 
+use marsa_ui::gpui_component::scroll::ScrollableElement as _;
+
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -15,7 +17,7 @@ use marsa_ui::{
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
         App, Context, InteractiveElement as _, ParentElement as _, PromptButton, PromptLevel,
-        SharedString, StatefulInteractiveElement as _, Styled as _, WeakEntity, Window, div, px,
+        SharedString, Styled as _, WeakEntity, Window, div, px,
     },
     gpui_component::{
         Disableable as _, IconName, WindowExt as _,
@@ -270,7 +272,7 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
         let mut body = div()
             .id("create-container-options")
             .max_h(px(460.))
-            .overflow_y_scroll()
+            .overflow_y_scrollbar()
             .flex()
             .flex_col()
             .gap_3()
