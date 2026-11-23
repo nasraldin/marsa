@@ -330,7 +330,7 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 
 ### M7-21 Observe and maintain each environment
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [13 Testing](../13-testing-and-benchmarks.md)
 - **Do:** Surface container health, engine metrics, disk accounting, and events for the selected environment. Provide per-environment update and cleanup settings, collection and retention, and notifications and reports.

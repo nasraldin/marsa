@@ -220,6 +220,31 @@ flowchart LR
 
 Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
 
+Settings → Environments opens the same editor for adding a connection or
+editing a saved or discovered environment. Saved connections can carry up to
+ten labels and an optional IPv4 or IPv6 address for the Containers published
+TCP port menu. Opening a link leaves Docker's port bindings as configured.
+
+On macOS, a matching owner-managed Lima Docker VM exposes CPU, memory, and
+primary disk capacity in Resources, and supported host loopback access in
+Network. Stop the instance in Lima and refresh the dialog before applying
+a change. Lima takes the saved allocation on the next start and only grows
+the primary disk. Marsa also shows verified stopped Lima instances. These
+controls use separately installed Lima 2.3 or later in the 2.x series.
+[Primary disk resize](https://github.com/lima-vm/lima/blob/v2.3.0/website/content/en/docs/config/disk.md#resizing-the-vms-primary-disk)
+[User-mode network](https://github.com/lima-vm/lima/blob/v2.3.0/website/content/en/docs/config/network/user.md)
+
+For a selected external Docker environment, Activity shows the engine's recent
+events, newest first. Docker Engine keeps up to 256 events in memory. Marsa
+requests the events retained from the previous 24 hours and displays the resource,
+action and time. [Docker Engine event history](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/events/events.go#L12-L32),
+[Docker Engine date filtering](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L274-L305).
+
+External environment reports refresh the selected engine's container inventory
+and show container names, image references and lifecycle states, plus the
+latest available resource counts. Review the report in Marsa and copy it to
+the clipboard.
+
 Settings → Logs & files configures retention and timestamp display for container
 and stack logs. Its download format applies to the Files tab of a container.
 Enter an absolute path inside that container and choose a new destination on

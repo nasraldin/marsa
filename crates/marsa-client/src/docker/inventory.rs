@@ -3,7 +3,9 @@
 use std::{
     collections::HashSet,
     io,
+    net::IpAddr,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use hyper::Method;
@@ -20,11 +22,27 @@ use super::{
 use crate::platform;
 
 /// Authenticated endpoint captured by discovery. Operations never consult the current context again.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ExternalEndpoint {
     context: Option<String>,
     transport: ExternalTransport,
+    metadata: Option<Arc<EndpointMetadata>>,
 }
+
+#[derive(Debug)]
+struct EndpointMetadata {
+    labels: Vec<String>,
+    public_ip: Option<IpAddr>,
+}
+
+impl PartialEq for ExternalEndpoint {
+    fn eq(&self, other: &Self) -> bool {
+        // A metadata edit leaves the scope of an existing resource view intact.
+        self.context == other.context && self.transport == other.transport
+    }
+}
+
+impl Eq for ExternalEndpoint {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ExternalTransport {
@@ -39,9 +57,14 @@ pub(super) enum ExternalTransport {
 
 impl ExternalEndpoint {
     pub(super) fn managed(id: String, transport: ExternalTransport) -> Self {
+        Self::discovered(Some(id), transport)
+    }
+
+    fn discovered(context: Option<String>, transport: ExternalTransport) -> Self {
         Self {
-            context: Some(id),
+            context,
             transport,
+            metadata: None,
         }
     }
 
@@ -52,15 +75,41 @@ impl ExternalEndpoint {
             .filter(|id| managed::is_managed_id(id))
     }
 
+    /// Return the saved environment labels, if any.
+    pub fn labels(&self) -> &[String] {
+        self.metadata
+            .as_ref()
+            .map_or(&[], |metadata| metadata.labels.as_slice())
+    }
+
+    /// Return the saved IP address for links to published ports, if set.
+    pub fn public_ip(&self) -> Option<IpAddr> {
+        self.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.public_ip)
+    }
+
     pub(super) async fn pin_ssh(&mut self) {
         if let ExternalTransport::Ssh(ssh) = &mut self.transport {
             ssh.pin().await;
         }
     }
 
+    /// Test this captured connection and return its verified Docker Engine identity.
+    pub async fn test_connection(&self) -> Result<VerifiedEngine, ManagedEndpointError> {
+        self.verify_engine().await
+    }
+
     pub(super) async fn verify_engine(&self) -> Result<VerifiedEngine, ManagedEndpointError> {
+        let client = DockerClient {
+            scope: DockerScope::External {
+                endpoint: self.clone(),
+                containers: false,
+                probe_identity: true,
+            },
+        };
         let engine: VerifiedEngine =
-            self.client(false)
+            client
                 .snapshot("/info")
                 .await
                 .map_err(|error| match error {
@@ -78,6 +127,7 @@ impl ExternalEndpoint {
             scope: DockerScope::External {
                 endpoint: self.clone(),
                 containers,
+                probe_identity: false,
             },
         }
     }
@@ -88,6 +138,11 @@ impl ExternalEndpoint {
             ExternalTransport::Unix { socket, .. } => Some(socket),
             _ => None,
         }
+    }
+
+    /// Recognize a local Lima Docker socket for owner-verified VM settings.
+    pub fn lima_instance(&self) -> Option<super::LimaInstance> {
+        self.socket().and_then(super::LimaInstance::from_socket)
     }
 
     /// Return the endpoint's address without displaying credentials.
@@ -182,6 +237,10 @@ pub(super) fn external_route(
     }
     if !containers {
         return false;
+    }
+    if !has_body && method == Method::GET && super::environment_report::finite_activity_route(path)
+    {
+        return true;
     }
     if resource_route(method, path, has_body)
         || transfer::external_transfer_route(method, path, has_body)
@@ -404,36 +463,26 @@ pub async fn discover_external_inventories() -> Vec<ExternalInventory> {
         };
         entries.push((
             source,
-            ExternalEndpoint {
-                context: Some(context.name.clone()),
-                transport,
-            },
+            ExternalEndpoint::discovered(Some(context.name.clone()), transport),
             true,
         ));
     }
     for candidate in provider_candidates(&owner.dir).await {
-        let Ok(socket) = tokio::fs::canonicalize(candidate).await else {
-            continue;
+        let socket = match tokio::fs::canonicalize(&candidate).await {
+            Ok(socket) => socket,
+            Err(_) if super::LimaInstance::from_socket(&candidate).is_some() => candidate,
+            Err(_) => continue,
         };
         if !seen.insert(socket.clone()) {
             continue;
         }
-        let Ok(identity) = platform::socket_identity(&socket).await else {
+        let identity = platform::socket_identity(&socket).await.ok();
+        if identity.is_none() && super::LimaInstance::from_socket(&socket).is_none() {
             continue;
-        };
+        }
         let source = source_name(&socket, &owner.dir);
-        let transport = ExternalTransport::Unix {
-            socket,
-            identity: Some(identity),
-        };
-        entries.push((
-            source,
-            ExternalEndpoint {
-                context: None,
-                transport,
-            },
-            false,
-        ));
+        let transport = ExternalTransport::Unix { socket, identity };
+        entries.push((source, ExternalEndpoint::discovered(None, transport), false));
     }
     if let Ok(store) = ManagedEndpointStore::discover()
         && let Ok(managed) = store.list().await
@@ -444,9 +493,20 @@ pub async fn discover_external_inventories() -> Vec<ExternalInventory> {
                 .capture_transport()
                 .await
                 .unwrap_or(ExternalTransport::Unavailable);
+            let config = endpoint.config;
+            let metadata = (!config.labels.is_empty() || config.public_ip.is_some()).then(|| {
+                Arc::new(EndpointMetadata {
+                    labels: config.labels,
+                    public_ip: config.public_ip,
+                })
+            });
             entries.push((
-                endpoint.config.name,
-                ExternalEndpoint::managed(endpoint.id, transport),
+                config.name,
+                ExternalEndpoint {
+                    context: Some(endpoint.id),
+                    transport,
+                    metadata,
+                },
                 true,
             ));
         }
@@ -466,10 +526,17 @@ async fn probe_endpoints(entries: Vec<(String, ExternalEndpoint, bool)>) -> Vec<
             };
             probes.spawn(async move {
                 let inventory = probe_engine(source, endpoint).await;
-                (
-                    index,
-                    (inventory.reachable || show_offline).then_some(inventory),
-                )
+                let show = if inventory.reachable || show_offline {
+                    true
+                } else if let Some(instance) = inventory.endpoint.lima_instance() {
+                    instance
+                        .settings()
+                        .await
+                        .is_ok_and(|settings| settings.stopped)
+                } else {
+                    false
+                };
+                (index, show.then_some(inventory))
             });
         }
         let Some(result) = probes.join_next().await else {
@@ -533,8 +600,18 @@ async fn probe_engine(source: String, mut endpoint: ExternalEndpoint) -> Externa
 
 async fn provider_candidates(home: &Path) -> Vec<PathBuf> {
     let mut result: Vec<_> = candidates(home).into();
-    for (provider, socket) in [(".colima", "docker.sock"), (".lima", "sock/docker.sock")] {
-        let Ok(mut instances) = tokio::fs::read_dir(home.join(provider)).await else {
+    let mut providers = vec![
+        (home.join(".colima"), "docker.sock"),
+        (home.join(".lima"), "sock/docker.sock"),
+    ];
+    if let Some(root) = std::env::var_os("LIMA_HOME").map(PathBuf::from)
+        && root.is_absolute()
+        && root != home.join(".lima")
+    {
+        providers.push((root, "sock/docker.sock"));
+    }
+    for (directory, socket) in providers {
+        let Ok(mut instances) = tokio::fs::read_dir(directory).await else {
             continue;
         };
         for _ in 0..1024 {
@@ -600,13 +677,13 @@ mod tests {
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
 
         let identity = platform::socket_identity(&socket).await.unwrap();
-        let client = ExternalEndpoint {
-            context: None,
-            transport: ExternalTransport::Unix {
+        let client = ExternalEndpoint::discovered(
+            None,
+            ExternalTransport::Unix {
                 socket,
                 identity: Some(identity),
             },
-        }
+        )
         .client(false);
         assert!(
             client
@@ -633,6 +710,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn explicitly_tests_a_discovered_connection_without_a_managed_id() {
+        use std::{fs, os::unix::fs::PermissionsExt};
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::UnixListener,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("docker.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let endpoint = ExternalEndpoint::discovered(
+            None,
+            ExternalTransport::Unix {
+                identity: Some(platform::socket_identity(&socket).await.unwrap()),
+                socket,
+            },
+        );
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(stream.read_u8().await.unwrap());
+            }
+            assert!(request.starts_with(b"GET /info HTTP/1.1\r\n"));
+            let body = r#"{"ID":"test-id","Name":"discovered","ServerVersion":"29.9.2"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+        assert_eq!(endpoint.test_connection().await.unwrap().name, "discovered");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn lifecycle_uses_the_discovered_socket_and_rejects_its_replacement() {
         use std::{fs, os::unix::fs::PermissionsExt};
         use tokio::{
@@ -644,13 +758,13 @@ mod tests {
         let socket = directory.path().join("docker.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
-        let endpoint = ExternalEndpoint {
-            context: None,
-            transport: ExternalTransport::Unix {
+        let endpoint = ExternalEndpoint::discovered(
+            None,
+            ExternalTransport::Unix {
                 identity: Some(platform::socket_identity(&socket).await.unwrap()),
                 socket: socket.clone(),
             },
-        };
+        );
         let id = ContainerId::parse("a".repeat(64)).unwrap();
         let server_id = id.clone();
         let server = tokio::spawn(async move {
@@ -799,13 +913,13 @@ mod tests {
             fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
             endpoints.push((
                 label.into(),
-                ExternalEndpoint {
-                    context: Some(label.into()),
-                    transport: ExternalTransport::Unix {
+                ExternalEndpoint::discovered(
+                    Some(label.into()),
+                    ExternalTransport::Unix {
                         identity: Some(platform::socket_identity(&socket).await.unwrap()),
                         socket,
                     },
-                },
+                ),
                 true,
             ));
             servers.push(tokio::spawn(async move {
@@ -831,10 +945,7 @@ mod tests {
         }
         endpoints.push((
             "offline".into(),
-            ExternalEndpoint {
-                context: Some("offline".into()),
-                transport: ExternalTransport::Unavailable,
-            },
+            ExternalEndpoint::discovered(Some("offline".into()), ExternalTransport::Unavailable),
             true,
         ));
         let results = probe_endpoints(endpoints).await;

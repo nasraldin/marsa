@@ -3,7 +3,8 @@
 use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
+    net::{IpAddr, SocketAddr},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -862,6 +863,8 @@ fn container_row(
             )
         })
     };
+    let public_ip = target.endpoint().and_then(|endpoint| endpoint.public_ip());
+    let ports = published_ports(entry, public_ip, palette, locale);
     let lifecycle = action_button(entry, target, action, busy, (locale, palette), view)
         .ghost()
         .bg(color(palette, ColorToken::GlassControl));
@@ -876,7 +879,6 @@ fn container_row(
             .child(image.clone())
     };
     let pill = state_pill(&entry.state, palette, locale, cx);
-    let ports = port_text(entry);
     let row_id = format!(
         "{}:{}",
         source.map_or("marsa", |source| source.as_ref()),
@@ -919,13 +921,7 @@ fn container_row(
                     .gap_2()
                     .child(pill)
                     .child(div().flex_1())
-                    .child(
-                        div()
-                            .font_family("IBM Plex Mono")
-                            .text_size(px(11.))
-                            .text_color(color(palette, ColorToken::AccentDefault))
-                            .child(ports),
-                    ),
+                    .child(ports),
             )
             .child(
                 row(cx)
@@ -977,9 +973,11 @@ fn container_row(
     result = result
         .child(div().w(px(120.)).flex_shrink_0().child(pill))
         .child(
-            fixed_column(112., ports)
-                .font_family("IBM Plex Mono")
-                .text_color(color(palette, ColorToken::AccentDefault)),
+            div()
+                .w(px(112.))
+                .flex_shrink_0()
+                .overflow_hidden()
+                .child(ports),
         );
     if mode != ViewMode::Tree {
         result = result.child(fixed_column(78., age_text(entry.created, locale)));
@@ -1068,6 +1066,59 @@ pub(super) fn state_pill(state: &str, palette: Palette, locale: Locale, cx: &App
                 .bg(color(palette, foreground)),
         )
         .child(copy(locale, en, ar))
+}
+
+fn published_ports(
+    entry: &ContainerSummary,
+    public_ip: Option<IpAddr>,
+    palette: Palette,
+    locale: Locale,
+) -> Div {
+    let ports = port_text(entry);
+    let cell = div()
+        .min_w_0()
+        .truncate()
+        .font_family("IBM Plex Mono")
+        .text_size(px(11.))
+        .text_color(color(palette, ColorToken::AccentDefault));
+    let Some(ip) = public_ip.filter(|ip| !ip.is_unspecified() && !ip.is_multicast()) else {
+        return cell.child(ports);
+    };
+    let targets: BTreeSet<_> = entry
+        .ports
+        .iter()
+        .filter(|port| port.protocol == "tcp")
+        .filter_map(|port| port.public_port.filter(|port| *port != 0))
+        .map(|port| {
+            let scheme = if port == 443 { "https" } else { "http" };
+            format!("{scheme}://{}", SocketAddr::new(ip, port))
+        })
+        .collect();
+    if targets.is_empty() {
+        return cell.child(ports);
+    }
+    let help = gui::GUI_ENVIRONMENT_OPEN_PUBLISHED_PORT.text(locale);
+    cell.child(
+        Button::new((
+            ElementId::from("published-port-links"),
+            SharedString::from(entry.id.as_str().to_owned()),
+        ))
+        .ghost()
+        .small()
+        .label(ports)
+        .tooltip(help)
+        .accessibility_label(help)
+        .dropdown_menu(move |menu, _, _| {
+            targets.iter().fold(menu, |menu, url| {
+                let url = url.clone();
+                menu.item(PopupMenuItem::new(isolate_technical_text(&url)).on_click(
+                    move |_, _, cx| {
+                        cx.open_url(&url);
+                    },
+                ))
+            })
+        }),
+    )
 }
 
 pub(super) fn port_text(entry: &ContainerSummary) -> SharedString {

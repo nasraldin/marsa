@@ -2,6 +2,7 @@
 
 mod actions;
 mod contexts;
+mod environment_report;
 mod images;
 mod managed;
 mod registry;
@@ -30,10 +31,13 @@ use crate::{ClientError, docker_socket_path, platform};
 
 mod container_files;
 mod inventory;
+mod lima;
 pub use container_files::{ContainerFileFormat, ContainerPath};
+pub use environment_report::{DockerActivity, EnvironmentReport, EnvironmentReportContainer};
 pub use inventory::{
     ExternalEndpoint, ExternalInventory, discover_external_inventories, discover_external_inventory,
 };
+pub use lima::{LimaInstance, LimaSettings, LimaSettingsError, LimaSettingsUpdate};
 pub use managed::{
     ManagedEndpoint, ManagedEndpointConfig, ManagedEndpointError, ManagedEndpointStore,
     ManagedEndpointTransport, VerifiedEngine,
@@ -309,6 +313,7 @@ enum DockerScope {
     External {
         endpoint: ExternalEndpoint,
         containers: bool,
+        probe_identity: bool,
     },
 }
 
@@ -452,12 +457,12 @@ impl DockerClient {
             DockerScope::External {
                 endpoint,
                 containers,
+                probe_identity,
             } => {
-                let managed_probe = endpoint.managed_id().is_some()
-                    && *method == Method::GET
-                    && path == "/info"
-                    && !has_body;
-                if !managed_probe && !inventory::external_route(method, path, *containers, has_body)
+                let identity_probe =
+                    *probe_identity && *method == Method::GET && path == "/info" && !has_body;
+                if !identity_probe
+                    && !inventory::external_route(method, path, *containers, has_body)
                 {
                     return Err(DockerError::Socket(io::ErrorKind::PermissionDenied.into()));
                 }

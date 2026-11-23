@@ -3,6 +3,7 @@
 use std::{
     collections::HashSet,
     io,
+    net::IpAddr,
     path::{Path, PathBuf},
 };
 
@@ -43,6 +44,12 @@ pub struct ManagedEndpointConfig {
     pub name: String,
     /// The required transport and its connection settings.
     pub transport: ManagedEndpointTransport,
+    /// Up to ten labels displayed for this environment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
+    /// Optional IP address used when opening links for published ports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_ip: Option<IpAddr>,
 }
 
 /// Transports supported for manual Docker connections.
@@ -100,6 +107,9 @@ pub enum ManagedEndpointError {
     /// The display name is empty, too long, or contains unsafe characters.
     #[error("invalid Docker endpoint name")]
     InvalidName,
+    /// There are more than ten labels, or a label is empty, too long, or contains unsafe characters.
+    #[error("invalid Docker endpoint labels")]
+    InvalidLabels,
     /// The endpoint address is malformed for its selected transport.
     #[error("invalid Docker endpoint address")]
     InvalidAddress,
@@ -132,10 +142,21 @@ pub enum ManagedEndpointError {
 type Result<T> = std::result::Result<T, ManagedEndpointError>;
 
 impl ManagedEndpointConfig {
+    /// Maximum number of labels on an environment.
+    pub const MAX_LABELS: usize = 10;
+
     /// Check configuration fields without connecting to the engine.
     pub fn validate(&self) -> Result<()> {
         if !valid_text(&self.name, DISPLAY_LIMIT) {
             return Err(ManagedEndpointError::InvalidName);
+        }
+        if self.labels.len() > Self::MAX_LABELS
+            || self
+                .labels
+                .iter()
+                .any(|label| !valid_text(label, DISPLAY_LIMIT))
+        {
+            return Err(ManagedEndpointError::InvalidLabels);
         }
         match &self.transport {
             ManagedEndpointTransport::Unix { socket } if valid_path(socket) => Ok(()),

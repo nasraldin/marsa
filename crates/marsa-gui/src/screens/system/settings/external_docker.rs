@@ -1,10 +1,12 @@
 //! Connection settings keep saved endpoints separate from Docker CLI discovery.
 
 mod editor;
+mod observations;
+mod vm;
 
 use std::{future::Future, sync::Arc};
 
-use editor::Editor;
+use editor::{Appearance, Editor, EditorTarget};
 
 use marsa_client::docker::{
     ManagedEndpoint, ManagedEndpointError, ManagedEndpointStore, ManagedEndpointTransport,
@@ -17,7 +19,7 @@ use marsa_ui::{
         Task, Window, div, px,
     },
     gpui_component::{
-        Disableable as _, IconName,
+        Disableable as _, IconName, WindowExt as _,
         button::{Button, ButtonVariants as _},
     },
     gui_keys as gui,
@@ -41,6 +43,7 @@ pub(in crate::screens::system) struct EnvironmentSettings {
 
 enum Feedback {
     Verified(VerifiedEngine),
+    Connected,
     Saved,
     Removed,
     Failed(TextKey),
@@ -49,7 +52,9 @@ enum Feedback {
 enum Update {
     Listed(Vec<ManagedEndpoint>),
     Tested(VerifiedEngine),
+    MarsaTest(bool),
     Changed(Vec<ManagedEndpoint>, Feedback),
+    Closed(Vec<ManagedEndpoint>),
 }
 
 impl SystemView {
@@ -85,6 +90,7 @@ impl SystemView {
                     ManagedEndpointStore::discover()?.list().await?,
                 ))
             },
+            None,
             cx,
         );
     }
@@ -92,6 +98,7 @@ impl SystemView {
     fn update_environments(
         &mut self,
         work: impl Future<Output = Result<Update, ManagedEndpointError>> + Send + 'static,
+        window: Option<&mut Window>,
         cx: &mut Context<Self>,
     ) {
         let Some(services) = self.services.as_ref() else {
@@ -102,8 +109,10 @@ impl SystemView {
         }
         self.environment_settings.feedback = None;
         let mut pending = services.pending(async { Ok(work.await) });
+        let window = window.map(|window| window.window_handle());
         self.environment_settings.task = Some(cx.spawn(async move |this, cx| {
             let result = pending.result().await;
+            let close = matches!(&result, Some(Ok(Ok(Update::Closed(_)))));
             let _ = this.update(cx, |this, cx| {
                 let panel = &mut this.environment_settings;
                 panel.task = None;
@@ -112,10 +121,23 @@ impl SystemView {
                     Some(Ok(Ok(Update::Tested(engine)))) => {
                         panel.feedback = Some(Feedback::Verified(engine))
                     }
+                    Some(Ok(Ok(Update::MarsaTest(connected)))) => {
+                        panel.feedback = Some(if connected {
+                            Feedback::Connected
+                        } else {
+                            Feedback::Failed(gui::GUI_ENVIRONMENT_TEST_FAILED)
+                        });
+                    }
                     Some(Ok(Ok(Update::Changed(saved, feedback)))) => {
-                        panel.editor = None;
                         panel.saved = Some(saved);
                         panel.feedback = Some(feedback);
+                        this.external_inventory_task = None;
+                        this.refresh_external_inventory(cx);
+                    }
+                    Some(Ok(Ok(Update::Closed(saved)))) => {
+                        panel.editor = None;
+                        panel.saved = Some(saved);
+                        panel.feedback = Some(Feedback::Saved);
                         this.external_inventory_task = None;
                         this.refresh_external_inventory(cx);
                     }
@@ -126,16 +148,48 @@ impl SystemView {
                 }
                 cx.notify();
             });
+            if close && let Some(window) = window {
+                let _ = window.update(cx, |_, window, cx| window.close_dialog(cx));
+            }
         }));
         cx.notify();
     }
 
-    fn environment_submit(&mut self, test: bool, cx: &mut Context<Self>) {
+    fn environment_submit(&mut self, test: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(editor) = &self.environment_settings.editor else {
             return;
         };
+        if matches!(editor.target, EditorTarget::Builtin) {
+            if let Some(services) = &self.services {
+                let docker = services.resource_docker(None);
+                self.update_environments(
+                    async move { Ok(Update::MarsaTest(docker.containers().await.is_ok())) },
+                    Some(window),
+                    cx,
+                );
+            }
+            return;
+        }
+        if editor.target.is_discovered()
+            && let Some(workspace) = editor.target.workspace()
+        {
+            let endpoint = workspace.endpoint.clone();
+            self.update_environments(
+                async move { Ok(Update::Tested(endpoint.test_connection().await?)) },
+                Some(window),
+                cx,
+            );
+            return;
+        }
         let id = editor.id.clone();
-        let config = editor.config(cx);
+        let config = match editor.config(cx) {
+            Ok(config) => config,
+            Err(key) => {
+                self.environment_settings.feedback = Some(Feedback::Failed(key));
+                cx.notify();
+                return;
+            }
+        };
         self.update_environments(
             async move {
                 if test {
@@ -147,8 +201,9 @@ impl SystemView {
                 } else {
                     store.add(config).await?;
                 }
-                Ok(Update::Changed(store.list().await?, Feedback::Saved))
+                Ok(Update::Closed(store.list().await?))
             },
+            Some(window),
             cx,
         );
     }
@@ -179,6 +234,7 @@ impl SystemView {
                             store.remove(&id).await?;
                             Ok(Update::Changed(store.list().await?, Feedback::Removed))
                         },
+                        None,
                         cx,
                     )
                 });
@@ -195,6 +251,8 @@ impl SystemView {
         let locale = screen.locale;
         let panel = &self.environment_settings;
         let busy = panel.task.is_some();
+        let add_appearance = Appearance::from(screen);
+        let builtin_appearance = add_appearance.clone();
         let header = row(locale)
             .items_center()
             .justify_between()
@@ -222,11 +280,13 @@ impl SystemView {
                             .icon(IconName::Plus)
                             .label(gui::GUI_ENVIRONMENT_ADD.text(locale))
                             .disabled(busy || self.services.is_none() || panel.editor.is_some())
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.environment_settings.editor =
-                                    Some(Editor::new(None, window, cx));
-                                this.environment_settings.feedback = None;
-                                cx.notify();
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_environment_editor(
+                                    EditorTarget::Add,
+                                    add_appearance.clone(),
+                                    window,
+                                    cx,
+                                );
                             })),
                     ),
             );
@@ -238,9 +298,6 @@ impl SystemView {
                 gui::GUI_DESKTOP_WORKING.text(locale),
                 ColorToken::TextMuted,
             ));
-        }
-        if let Some(editor) = &panel.editor {
-            saved = saved.child(self.environment_editor(editor, screen, cx));
         }
         if let Some(feedback) = &panel.feedback {
             saved = saved.child(feedback_text(screen, feedback));
@@ -272,6 +329,20 @@ impl SystemView {
                         gui::GUI_ENVIRONMENT_BUILTIN_ENGINE.text(locale),
                         None,
                     ))
+                    .child(
+                        Button::new("edit-marsa-environment")
+                            .outline()
+                            .label(gui::GUI_ENVIRONMENT_EDIT.text(locale))
+                            .disabled(busy || panel.editor.is_some())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_environment_editor(
+                                    EditorTarget::Builtin,
+                                    builtin_appearance.clone(),
+                                    window,
+                                    cx,
+                                );
+                            })),
+                    )
                     .child(crate::desktop::status::compact_badge(
                         locale,
                         screen.palette,
@@ -310,6 +381,8 @@ impl SystemView {
             ));
         }
         for (i, engine) in sources.enumerate() {
+            let edit = Arc::clone(engine);
+            let appearance = Appearance::from(screen);
             discovered = discovered.child(
                 connection_row(screen)
                     .child(connection_label(
@@ -319,6 +392,20 @@ impl SystemView {
                         None,
                     ))
                     .child(connection_status(screen, Some(engine)))
+                    .child(
+                        Button::new(("edit-discovered-environment", i))
+                            .outline()
+                            .label(gui::GUI_ENVIRONMENT_EDIT.text(locale))
+                            .disabled(busy || panel.editor.is_some())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_environment_editor(
+                                    EditorTarget::Discovered(edit.clone()),
+                                    appearance.clone(),
+                                    window,
+                                    cx,
+                                );
+                            })),
+                    )
                     .child(select_button(
                         screen,
                         ("discovered-environment", i),
@@ -361,8 +448,27 @@ impl SystemView {
                 &address,
                 workspace.and_then(|value| value.verified_engine.as_ref()),
             ))
+            .children((!entry.config.labels.is_empty()).then(|| {
+                row(locale)
+                    .gap_1()
+                    .flex_wrap()
+                    .children(entry.config.labels.iter().map(|label| {
+                        settings_text(
+                            screen,
+                            Role::Small,
+                            technical(label),
+                            ColorToken::TextPrimary,
+                        )
+                        .px_2()
+                        .py_1()
+                        .rounded_full()
+                        .bg(color(screen.palette, ColorToken::AccentSubtle))
+                    }))
+            }))
             .child(connection_status(screen, workspace.map(Arc::as_ref)));
         let edit = entry.clone();
+        let edit_workspace = workspace.cloned();
+        let appearance = Appearance::from(screen);
         let test = entry.config.clone();
         let remove = entry.id.clone();
         let actions = row(locale)
@@ -388,6 +494,7 @@ impl SystemView {
                     let config = test.clone();
                     this.update_environments(
                         async move { Ok(Update::Tested(config.test().await?)) },
+                        None,
                         cx,
                     );
                 })),
@@ -398,10 +505,12 @@ impl SystemView {
                     .label(gui::GUI_ENVIRONMENT_EDIT.text(locale))
                     .disabled(disabled)
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.environment_settings.editor =
-                            Some(Editor::new(Some(&edit), window, cx));
-                        this.environment_settings.feedback = None;
-                        cx.notify();
+                        this.open_environment_editor(
+                            EditorTarget::Saved(edit.clone(), edit_workspace.clone()),
+                            appearance.clone(),
+                            window,
+                            cx,
+                        );
                     })),
             )
             .child(
@@ -493,7 +602,9 @@ fn select_button(
 
 fn feedback_text(screen: &ScreenContext<'_>, feedback: &Feedback) -> Div {
     let (key, token) = match feedback {
-        Feedback::Verified(_) => (gui::GUI_ENVIRONMENT_TEST_PASSED, ColorToken::StatusRunning),
+        Feedback::Verified(_) | Feedback::Connected => {
+            (gui::GUI_ENVIRONMENT_TEST_PASSED, ColorToken::StatusRunning)
+        }
         Feedback::Saved => (gui::GUI_ENVIRONMENT_SAVED, ColorToken::StatusRunning),
         Feedback::Removed => (gui::GUI_ENVIRONMENT_REMOVED, ColorToken::TextMuted),
         Feedback::Failed(key) => (*key, ColorToken::StatusWarning),
@@ -519,6 +630,7 @@ fn feedback_text(screen: &ScreenContext<'_>, feedback: &Feedback) -> Div {
 fn error_text(error: &ManagedEndpointError) -> TextKey {
     match error {
         ManagedEndpointError::InvalidName => gui::GUI_ENVIRONMENT_INVALID_NAME,
+        ManagedEndpointError::InvalidLabels => gui::GUI_ENVIRONMENT_INVALID_LABELS,
         ManagedEndpointError::InvalidAddress | ManagedEndpointError::LocalMarsa => {
             gui::GUI_ENVIRONMENT_INVALID_ADDRESS
         }

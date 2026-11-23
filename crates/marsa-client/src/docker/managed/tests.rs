@@ -11,6 +11,8 @@ fn unix(name: &str, socket: PathBuf) -> ManagedEndpointConfig {
     ManagedEndpointConfig {
         name: name.into(),
         transport: ManagedEndpointTransport::Unix { socket },
+        labels: Vec::new(),
+        public_ip: None,
     }
 }
 
@@ -45,6 +47,81 @@ async fn saved_edits_keep_identity_across_reopen_and_removal() {
 }
 
 #[tokio::test]
+async fn endpoint_metadata_defaults_for_existing_records_and_survives_edits() {
+    let scratch = tempfile::tempdir().unwrap();
+    let store = ManagedEndpointStore::at(scratch.path().to_path_buf());
+    let id = "managed:12345678-1234-4234-8234-123456789012";
+    let legacy = br#"[{
+        "id": "managed:12345678-1234-4234-8234-123456789012",
+        "config": {
+            "name": "Existing",
+            "transport": {"type": "unix", "socket": "/tmp/existing-docker.sock"}
+        }
+    }]"#;
+    platform::replace_docker_state(&scratch.path().join(STORE_FILE), legacy).unwrap();
+
+    let mut config = store.list().await.unwrap().remove(0).config;
+    assert!(config.labels.is_empty());
+    assert_eq!(config.public_ip, None);
+
+    config.labels = vec!["Production".into(), "فريق التطوير".into()];
+    config.public_ip = Some("2001:db8::3".parse().unwrap());
+    store.edit(id, config).await.unwrap();
+    let reopened = ManagedEndpointStore::at(scratch.path().to_path_buf());
+    let mut entries = reopened.list().await.unwrap();
+    assert_eq!(entries.len(), 1);
+    let saved = entries.remove(0);
+    assert_eq!(saved.id, id);
+    assert_eq!(saved.config.labels, ["Production", "فريق التطوير"]);
+    assert_eq!(saved.config.public_ip, Some("2001:db8::3".parse().unwrap()));
+}
+
+#[tokio::test]
+async fn invalid_labels_cannot_overwrite_saved_metadata() {
+    let scratch = tempfile::tempdir().unwrap();
+    let store = ManagedEndpointStore::at(scratch.path().to_path_buf());
+    let mut config = unix("Work", scratch.path().join("docker.sock"));
+    config.labels = (1..=10).map(|number| format!("label-{number}")).collect();
+    config.public_ip = Some("192.0.2.7".parse().unwrap());
+    let saved = store.add(config.clone()).await.unwrap();
+
+    let mut too_many = config.labels.clone();
+    too_many.push("label-11".into());
+    for labels in [
+        too_many,
+        vec![" ".into()],
+        vec!["unsafe\nlabel".into()],
+        vec!["x".repeat(257)],
+    ] {
+        config.labels = labels;
+        assert!(matches!(
+            store.edit(&saved.id, config.clone()).await,
+            Err(ManagedEndpointError::InvalidLabels)
+        ));
+    }
+    assert_eq!(store.list().await.unwrap(), [saved]);
+}
+
+#[tokio::test]
+async fn a_saved_public_ip_must_be_an_ip_literal() {
+    let scratch = tempfile::tempdir().unwrap();
+    let store = ManagedEndpointStore::at(scratch.path().to_path_buf());
+    let invalid = br#"[{
+        "id": "managed:12345678-1234-4234-8234-123456789012",
+        "config": {
+            "name": "Existing",
+            "transport": {"type": "unix", "socket": "/tmp/existing-docker.sock"},
+            "public_ip": "https://example.test"
+        }
+    }]"#;
+    platform::replace_docker_state(&scratch.path().join(STORE_FILE), invalid).unwrap();
+    assert!(matches!(
+        store.list().await,
+        Err(ManagedEndpointError::Store(_))
+    ));
+}
+
+#[tokio::test]
 async fn malformed_addresses_cannot_be_saved_or_tested() {
     let scratch = tempfile::tempdir().unwrap();
     let store = ManagedEndpointStore::at(scratch.path().to_path_buf());
@@ -65,6 +142,8 @@ async fn malformed_addresses_cannot_be_saved_or_tested() {
         let config = ManagedEndpointConfig {
             name: "Work".into(),
             transport,
+            labels: Vec::new(),
+            public_ip: None,
         };
         assert!(matches!(
             config.test().await,
