@@ -226,6 +226,11 @@ project directory. Marsa creates `compose.yaml` there and deploys it to the
 Docker environment shown in the dialog. If deployment fails, the file remains
 in the project directory for editing and retry.
 
+Settings → About shows the installed Marsa version, localized release notes,
+and the versions of bundled Docker tools without opening a daemon connection.
+The connected local daemon reports its own version and the guest components.
+Available inventories and third-party notices open in Finder.
+
 ## Feature priorities
 
 From the planning whiteboard.

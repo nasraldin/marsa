@@ -1,5 +1,6 @@
 //! Versioned preferences and owner controls.
 
+mod about;
 mod accents;
 mod compose_template;
 mod external_docker;
@@ -86,8 +87,8 @@ impl SettingsTab {
             Self::Logs => return gui::GUI_DESKTOP_LOG_SETTINGS_TITLE.text(locale),
             Self::Agents => ("Agents", "الوكلاء"),
             Self::Updates => ("Updates", "التحديثات"),
-            Self::About => ("About", "حول"),
             Self::ComposeTemplate => return gui::GUI_COMPOSE_TEMPLATE_TITLE.text(locale),
+            Self::About => return gui::GUI_SETTINGS_ABOUT.text(locale),
         };
         copy(locale, en, ar)
     }
@@ -251,7 +252,7 @@ impl SystemView {
                 }
                 SettingsTab::Updates => this.load_update_status(cx),
                 SettingsTab::Environments => this.refresh_environments(cx),
-                SettingsTab::About => this.load_version(cx),
+                SettingsTab::About => this.load_about(cx),
                 SettingsTab::General => this.load_login(cx),
                 _ => {}
             }

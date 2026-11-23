@@ -1,9 +1,8 @@
-//! Docker integration, release preferences, and component information.
+//! Docker integration and Keychain settings.
 
 use crate::screens::common::message;
 use marsa_client::api::{
     EnableRegistryKeychainRequest, EnsureDockerContextRequest, GetDockerEndpointRequest,
-    VersionResponse,
 };
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
@@ -17,7 +16,7 @@ use super::{
     super::{Notice, SystemView},
     settings_card, settings_heading, settings_text,
 };
-use crate::screens::common::{ScreenContext, color, row, technical};
+use crate::screens::common::{ScreenContext, row, technical};
 
 impl SystemView {
     pub(super) fn docker(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
@@ -156,117 +155,4 @@ impl SystemView {
             }
         }));
     }
-
-    pub(in crate::screens::system) fn load_version(&mut self, cx: &Context<Self>) {
-        let Some(services) = self.services.as_ref() else {
-            return;
-        };
-        let mut pending = services.request(|client| async move { Ok(client.version().clone()) });
-        self.route_load = Some(cx.spawn(async move |this, cx| {
-            if let Some(Ok(version)) = pending.result().await {
-                let _ = this.update(cx, |this, cx| {
-                    this.version = Some(version);
-                    cx.notify();
-                });
-            }
-        }));
-    }
-
-    pub(super) fn about(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
-        let locale = screen.locale;
-        settings_card(screen)
-            .child(settings_heading(
-                screen,
-                gui::GUI_DESKTOP_MARSA.text(locale),
-                gui::GUI_DESKTOP_MARSA_IS_RELEASED_UNDER_THE_MIT_LICENSE.text(locale),
-            ))
-            .child(
-                row(locale).child(
-                    Button::new("show-release-notices")
-                        .outline()
-                        .disabled(self.busy())
-                        .label(gui::GUI_DESKTOP_SHOW_RELEASE_NOTICES.text(locale))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.reveal_release_notices(locale, window, cx);
-                        })),
-                ),
-            )
-            .child(component_row(
-                screen,
-                gui::GUI_DESKTOP_MARSA.text(locale),
-                env!("CARGO_PKG_VERSION"),
-            ))
-            .children(self.version.as_ref().map(
-                |VersionResponse {
-                     daemon_version,
-                     components,
-                     ..
-                 }| {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .child(component_row(
-                            screen,
-                            gui::GUI_DESKTOP_DAEMON.text(locale),
-                            daemon_version,
-                        ))
-                        .children(components.iter().map(|component| {
-                            component_row(screen, &component.name, &component.version)
-                        }))
-                },
-            ))
-    }
-
-    fn reveal_release_notices(
-        &mut self,
-        locale: Locale,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let path = cx
-            .app_path()
-            .ok()
-            .map(|app| app.join("Contents/Resources/licenses/THIRD-PARTY-NOTICES.txt"));
-        let check = cx
-            .background_executor()
-            .spawn(async move { path.filter(|path| path.is_file()) });
-        cx.spawn_in(window, async move |_, cx| {
-            let path = check.await;
-            let _ = cx.update(|window, cx| {
-                if let Some(path) = path {
-                    cx.reveal_path(&path);
-                } else {
-                    drop(window.prompt(
-                        PromptLevel::Info,
-                        gui::GUI_DESKTOP_RELEASE_NOTICES_UNAVAILABLE.text(locale),
-                        Some(gui::GUI_DESKTOP_RELEASE_NOTICES_USE_SIGNED_RELEASE.text(locale)),
-                        &[PromptButton::Ok(gui::GUI_DESKTOP_CLOSE.text(locale).into())],
-                        cx,
-                    ));
-                }
-            });
-        })
-        .detach();
-    }
-}
-
-fn component_row(screen: &ScreenContext<'_>, component: &str, version: &str) -> Div {
-    row(screen.locale)
-        .justify_between()
-        .gap(px(Space::S16.pixels()))
-        .py(px(Space::S8.pixels()))
-        .border_t_1()
-        .border_color(color(screen.palette, ColorToken::BorderSubtle))
-        .child(settings_text(
-            screen,
-            Role::Label,
-            component.to_owned(),
-            ColorToken::TextMuted,
-        ))
-        .child(settings_text(
-            screen,
-            Role::Mono,
-            technical(version),
-            ColorToken::TextPrimary,
-        ))
 }

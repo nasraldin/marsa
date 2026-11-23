@@ -23,6 +23,7 @@ use marsa_client::{
         ListAgentAuditResponse, PrunePreviewResponse, SettingsSnapshot, VersionResponse,
         VmStatsSample,
     },
+    release::AboutAssets,
 };
 use marsa_ui::{
     Locale,
@@ -65,6 +66,8 @@ pub(crate) struct SystemView {
     environment_settings: EnvironmentSettings,
     resource_inputs: ResourceInputs,
     version: Option<VersionResponse>,
+    about_assets: Option<AboutAssets>,
+    about_assets_task: Option<Task<()>>,
     login: Option<marsa_client::login::LoginStatus>,
     disk: Option<DiskUsageResponse>,
     vm_stats: Option<VmStatsSample>,
@@ -127,6 +130,8 @@ impl SystemView {
             environment_settings: EnvironmentSettings::default(),
             resource_inputs: ResourceInputs::new(window, cx),
             version: None,
+            about_assets: None,
+            about_assets_task: None,
             login: None,
             disk: None,
             vm_stats: None,
@@ -209,6 +214,9 @@ impl SystemView {
     }
 
     pub(crate) fn observe(&mut self, snapshot: Option<&DaemonSnapshot>, cx: &mut Context<Self>) {
+        if snapshot.is_none() {
+            self.version = None;
+        }
         let revision = snapshot.map(|snapshot| snapshot.settings_revision);
         let ready = snapshot
             .and_then(|snapshot| snapshot.engine.as_ref())
@@ -251,7 +259,7 @@ impl SystemView {
             Route::Settings if self.settings_tab == SettingsTab::Updates => {
                 self.load_update_status(cx)
             }
-            Route::Settings if self.settings_tab == SettingsTab::About => self.load_version(cx),
+            Route::Settings if self.settings_tab == SettingsTab::About => self.load_about(cx),
             Route::Settings if self.settings_tab == SettingsTab::General => self.load_login(cx),
             Route::Activity => self.load_audit(cx),
             _ => {}

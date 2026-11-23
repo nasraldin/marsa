@@ -78,6 +78,7 @@ Marsa.app/
     │   ├── Marsa.icns
     │   ├── locales/
     │   ├── fonts/
+    │   ├── release-notes.json          # notes for the installed version
     │   └── licenses/                  # third-party notices and SBOM
     └── Library/
         └── LaunchAgents/
@@ -125,6 +126,11 @@ cargo xtask bundle \
   --licenses-dir "$release_workspace/notices" \
   --output "$release_workspace/Marsa.app"
 ```
+
+Maintain `packaging/release-notes/<version>.json` for the Cargo workspace
+version. Specify the version in `version` and plain-text summaries in `en-US`
+and `ar`. Bundle assembly includes that file in the signed app so that About
+can display the installed release's notes offline.
 
 For local qualification, `--licenses-dir` may be omitted. Public distribution
 requires the complete notice set. Use new output paths under a private workspace.

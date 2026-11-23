@@ -17,6 +17,8 @@ mod events;
 #[cfg(unix)]
 mod platform;
 #[cfg(unix)]
+pub mod release;
+#[cfg(unix)]
 pub mod runtime;
 
 #[cfg(unix)]
@@ -49,3 +51,6 @@ pub fn request_id() -> std::io::Result<String> {
 /// Login item configuration for the packaged macOS app.
 #[cfg(target_os = "macos")]
 pub mod login;
+
+#[cfg(all(test, unix))]
+mod release_tests;

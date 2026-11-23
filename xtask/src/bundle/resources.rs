@@ -248,10 +248,35 @@ pub(super) fn install_workspace_assets(
             0o644,
         )?;
     }
+    install_release_notes(workspace, output)?;
     if let Some(notices) = notices {
         install_notices(notices, &licenses)?;
     }
     Ok(())
+}
+
+fn install_release_notes(workspace: &Path, output: &Path) -> io::Result<()> {
+    let release_notes = platform::directory(&workspace.join("packaging/release-notes"))?;
+    let bytes = read_small(
+        platform::input_file(&release_notes, concat!(env!("CARGO_PKG_VERSION"), ".json"))?,
+        32 * 1024,
+    )?;
+    let notes: Value = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+    if notes.as_object().is_none_or(|notes| notes.len() != 3)
+        || notes["version"] != env!("CARGO_PKG_VERSION")
+        || ["en-US", "ar"].into_iter().any(|locale| {
+            notes[locale].as_str().is_none_or(|text| {
+                text.trim().is_empty()
+                    || text.len() > 8 * 1024
+                    || text.chars().any(|ch| ch.is_control() && ch != '\n')
+            })
+        })
+    {
+        return Err(invalid(
+            "expected release notes for the bundle version in en-US and ar",
+        ));
+    }
+    write_file(&output.join("release-notes.json"), &bytes, 0o644)
 }
 
 fn checksum_inventory(directory: &File) -> io::Result<String> {
