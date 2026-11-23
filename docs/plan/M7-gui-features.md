@@ -317,7 +317,7 @@ The signed desktop switched between stopped Marsa and reachable Lima, displayed 
 
 ### M7-20 Manage Docker environments
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Add, edit, and test Marsa-managed Docker endpoints. Show verified engine identity and connection status. Keep manual connection settings distinct from discovered Docker CLI contexts. Give Settings grouped navigation with a compact layout for narrow windows.
@@ -326,7 +326,7 @@ The signed desktop switched between stopped Marsa and reachable Lima, displayed 
   - Unix, SSH, and mutual TLS endpoints can be configured and tested with the existing endpoint trust requirements.
   - The engine reconnects with saved settings after relaunch. Editing or removing an environment does not retarget an in-flight action.
 
-Verified the engine identity fields against the [Moby 29.10.0 Engine API schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml). Saved settings retain a transport configuration and paths to TLS credential files. The files are read under the existing endpoint trust rules when connecting.
+Verified the engine identity fields against the [Moby 29.10.0 Engine API schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml). Saved settings retain a transport configuration and paths to TLS credential files. The files are read under the existing endpoint trust rules when connecting. The signed GUI tested, saved, renamed, selected, and restored a live Lima connection after relaunch. Environment settings were checked in both supported locales and appearances. Tests cover pinned targets, removal, and concurrent writes. A loopback mutual-TLS fixture verified both peers and rejected an invalid hostname and a broadly readable client key. The SSH checks covered transport configuration and untrusted-host rejection. A live connection to a trusted SSH server was unavailable during qualification.
 
 ### M7-21 Observe and maintain each environment
 
