@@ -142,7 +142,6 @@ impl SystemView {
                         SettingsTab::Sharing,
                         SettingsTab::Network,
                         SettingsTab::Docker,
-                        SettingsTab::ConfigSets,
                         SettingsTab::Agents,
                     ][..],
                 ),
