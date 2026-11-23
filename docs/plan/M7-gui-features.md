@@ -344,10 +344,10 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Status:** todo
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
-- **Do:** Manage registries, Git repositories and credentials, and supported deploy-time secret providers. Add reusable container configuration sets.
+- **Do:** Manage registries and supported deploy-time secret providers. Add reusable container configuration sets.
 - **Deliver:** Settings connected to the image pull and push, container creation, and Compose deploy workflows.
 - **Accept when:**
-  - Registry and Git connection tests use the configured credentials. Deployment resolves secrets without exposing stored credentials in logs or inspection output.
+  - Registry connection tests use the configured credentials. Deployment resolves secrets without exposing stored credentials in logs or inspection output.
   - Applying a named configuration set fills the container form and permits overrides before creation.
 
 ### M7-23 Configure scanning, jobs, and downloads
@@ -405,3 +405,24 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Accept when:**
   - Downloads use the selected container and its pinned environment. A single file can be saved directly, while directories use TAR.
   - Truncated transfers and existing destinations are preserved. Marsa does not unpack archive paths into the host filesystem.
+
+### M7-28 Save and check out HTTPS Git repositories
+
+- **Status:** in progress
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md#git-sources)
+- **Do:** Manage named HTTPS Git repository and branch references, test branch access, and create a checkout in a chosen folder for explicit selection by the Compose workflow.
+- **Deliver:** An owner-private repository list and checkout through the operating system's trusted Git client.
+- **Accept when:**
+  - Saved repository entries survive restart and can be edited and removed.
+  - Test verifies the branch exists. Checkout uses the selected reference and does not overwrite existing files.
+  - Git ignores ambient configuration. The desktop keeps checkout and engine-pinned Compose deployment as distinct owner actions.
+
+### M7-30 Authenticate Git sources
+
+- **Status:** todo
+- **Depends on:** M7-28
+- **Docs:** [11 Security](../11-security.md)
+- **Do:** Add HTTPS username and password or token credentials in macOS Keychain and SSH using verified host keys and an explicit private key reference.
+- **Deliver:** A Git credentials view and authenticated branch test and checkout.
+- **Accept when:** Tests and checkout use only the credential associated with the selected repository. No secret is written to settings or sent to Compose.
