@@ -1033,12 +1033,12 @@ gui-environment-table-total = الإجمالي
 gui-settings-ui-font = خط الواجهة
 gui-settings-ui-font-description = اختر خط التسميات وعناصر التحكم.
 gui-settings-ui-font-plex = IBM Plex Sans Arabic
-gui-settings-ui-font-system = خط نظام macOS
-gui-settings-ui-font-size = حجم خط الواجهة
+gui-settings-ui-font-system = خط واجهة النظام
+gui-settings-ui-font-size = حجم الخط
 gui-settings-ui-font-size-description = عيّن الحجم الأساسي لنص الواجهة.
-gui-settings-ui-font-size-small = ١٢ بكسل
-gui-settings-ui-font-size-default = ١٤ بكسل
-gui-settings-ui-font-size-large = ١٦ بكسل
+gui-settings-ui-font-size-small = صغير
+gui-settings-ui-font-size-default = عادي
+gui-settings-ui-font-size-large = كبير
 gui-settings-terminal-font = خط الطرفية
 gui-settings-terminal-font-description = اختر الخط أحادي العرض لجلسات الطرفية.
 gui-settings-terminal-font-plex = IBM Plex Mono
@@ -1117,3 +1117,28 @@ gui-environment-hawser-standard-help = أدخل عنوان HTTPS لوكيل Haws
 gui-environment-hawser-edge-help = أدخل عنوان IP ومنفذًا على جهاز Mac هذا. اضبط الوكيل على معرّف الوكيل والرمز المشترك نفسيهما. استخدم الصيغة أدناه لتعيين عنوان خادم يمكن للوكيل الوصول إليه، ثم شغّل الوكيل قبل الاختبار.
 gui-environment-hawser-keychain = تعذّر وصول مرسى إلى رمز Hawser في سلسلة المفاتيح. تحقّق من صلاحية الوصول وأعِد إدخال الرمز عند الحاجة.
 gui-environment-hawser-edge-failed = تعذّر على مرسى فتح مستمع Hawser الطرفي أو التحقّق من الوكيل. تحقّق من عنوان الاستماع والشهادة ومعرّف الوكيل والرمز المشترك.
+
+gui-workload-images-empty = لا توجد صور بعد
+gui-workload-volumes-empty = لا توجد وحدات تخزين بعد
+gui-workload-networks-empty = لا توجد شبكات بعد
+gui-workload-stacks-empty = لا توجد مكدسات بعد
+gui-workload-clear-filters = مسح عوامل التصفية
+
+gui-settings-section-support = التحديثات والدعم
+gui-settings-choose-section = اختر قسم الإعدادات
+gui-settings-appearance-section = المظهر
+gui-settings-typography-section = الخطوط
+gui-settings-region-section = اللغة والمنطقة
+gui-settings-startup-section = بدء التشغيل
+gui-settings-theme-help = اختر مظهرًا أو اتبع إعداد macOS.
+gui-settings-language-help = اختر اللغة المستخدمة في جميع أنحاء مرسى.
+gui-workload-external-offline = البيئة غير متصلة
+
+
+gui-environment-report-summary = ملخص المخزون
+gui-environment-report-no-containers = لا توجد حاويات في هذه البيئة.
+gui-settings-ui-font-size-extra-small = صغير جدًا
+gui-settings-ui-font-size-medium = متوسط
+gui-settings-ui-font-size-extra-large = كبير جدًا
+gui-settings-terminal-font-system = خط النظام أحادي العرض
+gui-workload-read-image-metadata = قراءة البيانات الوصفية للصورة

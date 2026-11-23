@@ -258,12 +258,15 @@ pub(super) fn render(
 ) -> AnyElement {
     let palette = screen.palette;
     let log = &view.logs;
-    let mut toolbar = row(cx).gap_2().items_center();
+    let mut toolbar = row(cx).gap_2().items_center().flex_wrap();
     if let Some(input) = log.search_input.as_ref() {
         toolbar = toolbar.child(
-            div()
-                .w(px(232.))
-                .child(Input::new(input).cleanable(true).prefix(IconName::Search)),
+            div().w(px(232.)).child(
+                Input::new(input)
+                    .cleanable(true)
+                    .prefix(IconName::Search)
+                    .aria_label(gui::GUI_DESKTOP_SEARCH_LOGS.text(screen.locale)),
+            ),
         );
     }
     let matches = log.matching.len();
@@ -372,9 +375,12 @@ pub(super) fn render(
     );
     let mut source_bar = row(cx)
         .items_center()
+        .flex_wrap()
         .gap_2()
         .child(
             div()
+                .min_w_0()
+                .truncate()
                 .font_family("IBM Plex Mono")
                 .text_size(ui_size(12.))
                 .child(sources),
@@ -436,6 +442,7 @@ pub(super) fn render(
         .child(
             row(cx)
                 .items_center()
+                .flex_wrap()
                 .gap_2()
                 .px_3()
                 .py_2()
@@ -479,18 +486,6 @@ pub(super) fn render(
                         ))
                         .disabled(snapshot.is_empty())
                         .on_click(cx.listener(|view, _, _, cx| save(view, cx))),
-                )
-                .child(div().flex_1())
-                .child(
-                    Button::new("load-older-logs")
-                        .link()
-                        .small()
-                        .disabled(true)
-                        .label(message(screen.locale, gui::GUI_DESKTOP_LOAD_EARLIER_LOGS))
-                        .tooltip(message(
-                            screen.locale,
-                            gui::GUI_DESKTOP_EARLIER_LOGS_AREN_T_AVAILABLE_FROM_THIS_CONNECTION,
-                        )),
                 ),
         );
 

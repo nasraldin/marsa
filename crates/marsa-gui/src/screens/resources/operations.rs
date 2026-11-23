@@ -86,18 +86,8 @@ impl ResourcesView {
         cx: &mut Context<Self>,
     ) {
         let (id, endpoint) = resource;
-        if self.selected_endpoint == endpoint
-            && !self.reveal_selection
-            && self
-                .selection
-                .as_ref()
-                .is_some_and(|(selected, current)| *selected == kind && current == &key)
-        {
-            return;
-        }
         self.selection = Some((kind, key.clone()));
         self.selected_endpoint = endpoint.clone();
-        self.reveal_selection = false;
         self.form = None;
         self.logs = None;
         self.inspection_task = None;
@@ -113,6 +103,7 @@ impl ResourcesView {
                             if view.selection.as_ref().is_some_and(|(selected, current)| {
                                 *selected == kind && current == &key
                             }) {
+                                view.inspection_task = None;
                                 match result {
                                     Some(Ok(details)) => view.inspect = Some(details),
                                     _ => view.inspection_failed = true,
@@ -465,7 +456,7 @@ pub(super) fn image_metadata(
     row: &ResourceRow,
     view: &ResourcesView,
 ) -> Option<Div> {
-    if view.inspection_task.is_none() && !view.inspection_failed {
+    if view.inspection_task.is_none() && view.inspect.is_none() && !view.inspection_failed {
         return None;
     }
     let Some(image) = view.inspect.as_ref().filter(|image| image.id == row.id) else {

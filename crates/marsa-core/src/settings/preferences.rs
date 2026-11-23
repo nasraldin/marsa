@@ -72,19 +72,69 @@ pub enum UiFont {
     IbmPlex,
     /// Use the operating system's interface face.
     System,
+    /// Use Geist.
+    Geist,
+    /// Use Inter.
+    Inter,
+    /// Use Plus Jakarta Sans.
+    PlusJakartaSans,
+    /// Use DM Sans.
+    DmSans,
+    /// Use Outfit.
+    Outfit,
+    /// Use Space Grotesk.
+    SpaceGrotesk,
+    /// Use Sofia Sans.
+    SofiaSans,
+    /// Use Nunito.
+    Nunito,
+    /// Use Poppins.
+    Poppins,
+    /// Use Montserrat.
+    Montserrat,
+    /// Use Raleway.
+    Raleway,
+    /// Use Manrope.
+    Manrope,
+    /// Use Roboto.
+    Roboto,
+    /// Use Open Sans.
+    OpenSans,
+    /// Use Lato.
+    Lato,
+    /// Use Source Sans 3.
+    SourceSans3,
+    /// Use Work Sans.
+    WorkSans,
+    /// Use Fira Sans.
+    FiraSans,
+    /// Use JetBrains Mono.
+    JetBrainsMono,
+    /// Use Fira Code.
+    FiraCode,
+    /// Use Quicksand.
+    Quicksand,
+    /// Use Comfortaa.
+    Comfortaa,
 }
 
 /// The desktop's base body text size, in logical pixels.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UiFontSize {
+    /// Use 11 pixels.
+    ExtraSmall,
     /// Use 12 pixels.
     Small,
     /// Use 14 pixels.
     #[default]
     Default,
+    /// Use 15 pixels.
+    Medium,
     /// Use 16 pixels.
     Large,
+    /// Use 18 pixels.
+    ExtraLarge,
 }
 
 /// Monospace face used in interactive terminal sessions.
@@ -96,6 +146,34 @@ pub enum TerminalFont {
     IbmPlexMono,
     /// Use the system-installed Menlo face.
     Menlo,
+    /// Use the platform's default monospace face.
+    System,
+    /// Use JetBrains Mono.
+    JetBrainsMono,
+    /// Use Fira Code.
+    FiraCode,
+    /// Use Source Code Pro.
+    SourceCodePro,
+    /// Use Cascadia Code.
+    CascadiaCode,
+    /// Use Roboto Mono.
+    RobotoMono,
+    /// Use Ubuntu Mono.
+    UbuntuMono,
+    /// Use Space Mono.
+    SpaceMono,
+    /// Use Inconsolata.
+    Inconsolata,
+    /// Use Anonymous Pro.
+    AnonymousPro,
+    /// Use DM Mono.
+    DmMono,
+    /// Use Red Hat Mono.
+    RedHatMono,
+    /// Use Consolas.
+    Consolas,
+    /// Use SF Mono.
+    SfMono,
 }
 
 /// Hour cycle used to display timestamps.

@@ -110,7 +110,7 @@ fn require_indexed_notices(licenses: &Path, root: &File) -> io::Result<()> {
     required_file(root, NOTICES, TEXT_LIMIT)?
         .take(TEXT_LIMIT + 1)
         .read_to_string(&mut index)?;
-    let mut groups = [false; 3];
+    let mut groups = [false; 4];
     for entry in index.lines().filter_map(|line| line.strip_prefix("  ")) {
         if matches!(entry, GUEST_NOTICES | "OFL-IBM-Plex.txt") {
             continue;
@@ -122,10 +122,15 @@ fn require_indexed_notices(licenses: &Path, root: &File) -> io::Result<()> {
         {
             return Err(invalid("the notice index contains an invalid text path"));
         }
-        let group = ["texts/rust", "texts/suppliers", "texts/icons"]
-            .iter()
-            .position(|prefix| path.starts_with(prefix))
-            .ok_or_else(|| invalid("the notice index contains an unexpected text path"))?;
+        let group = [
+            "texts/rust",
+            "texts/suppliers",
+            "texts/icons",
+            "texts/fonts",
+        ]
+        .iter()
+        .position(|prefix| path.starts_with(prefix))
+        .ok_or_else(|| invalid("the notice index contains an unexpected text path"))?;
         let parent = path
             .parent()
             .ok_or_else(|| invalid("incomplete notice text path"))?;
@@ -140,7 +145,7 @@ fn require_indexed_notices(licenses: &Path, root: &File) -> io::Result<()> {
         )?;
         groups[group] = true;
     }
-    if groups.contains(&false) {
+    if groups[..3].contains(&false) {
         return Err(invalid("the release dependency notice index is incomplete"));
     }
     Ok(())

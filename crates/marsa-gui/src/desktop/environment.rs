@@ -3,13 +3,21 @@
 use marsa_client::api::EngineState;
 use marsa_ui::{
     ColorToken,
-    gpui::{Context, Div, ParentElement as _, Styled as _, div, prelude::FluentBuilder as _, px},
-    gpui_component::button::{Button, ButtonVariants as _},
+    gpui::{
+        Context, Div, ParentElement as _, Styled as _, div, prelude::FluentBuilder as _, px, svg,
+    },
+    gpui_component::{
+        Disableable as _, IconName,
+        button::{Button, ButtonVariants as _},
+    },
     gui_keys as gui,
     tokens::typography::Role,
 };
 
-use crate::screens::common::{ScreenContext, align, color, row, technical};
+use crate::screens::{
+    common::{ScreenContext, align, color, panel, row, technical},
+    system::environment_icon_path,
+};
 
 use super::{Desktop, Route, status};
 
@@ -23,83 +31,123 @@ impl Desktop {
         let locale = screen.locale;
         let palette = screen.palette;
         let selection = self.environment.read(cx);
-        let workspace = self.active_workspace(cx);
+        let workspace = self
+            .external_inventory
+            .iter()
+            .find(|workspace| selection.includes_external(workspace));
         let engine = self.context_engine(cx);
-        let card = |label| {
-            align(div().flex().flex_col().gap_2(), locale)
-                .min_w(px(138.))
-                .rounded(px(10.))
-                .border_1()
-                .border_color(color(palette, ColorToken::BorderSubtle))
-                .bg(color(palette, ColorToken::BgSidebar))
-                .p_4()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(color(palette, ColorToken::TextMuted))
-                        .child(label),
-                )
+        let busy = matches!(engine, Some(EngineState::Starting));
+        let ready = engine == Some(EngineState::Ready);
+        let system = self.system.read(cx);
+        let identity = if let Some(workspace) = workspace {
+            let (name, icon) = system.environment_presentation(Some(workspace.as_ref()));
+            (technical(&name), environment_icon_path(icon))
+        } else {
+            (selection.display(), Route::Machine.icon())
         };
-        let connection = card(gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale))
+
+        let heading = row(locale)
+            .gap_3()
+            .flex_wrap()
+            .child(
+                svg()
+                    .path(identity.1)
+                    .size(px(20.))
+                    .text_color(color(palette, ColorToken::AccentDefault)),
+            )
             .child(
                 screen
                     .typography(Role::Title)
                     .apply(div())
-                    .child(workspace.map_or_else(
-                        || selection.display(),
-                        |workspace| technical(&workspace.source),
-                    )),
+                    .child(identity.0),
             )
             .child(status::inline_badge(
                 locale,
                 palette,
                 engine,
                 self.context_status_text(engine, cx),
-            ))
-            .when_some(workspace, |card, workspace| {
-                card.child(
-                    div()
-                        .text_sm()
-                        .child(technical(&workspace.endpoint.address())),
-                )
-            });
+            ));
+
         let refresh = Button::new("refresh-active-environment")
             .outline()
+            .icon(IconName::RefreshCw)
             .label(gui::GUI_DESKTOP_REFRESH.text(locale))
+            .disabled(busy)
             .on_click(cx.listener(|desktop, _, _, cx| {
                 desktop
                     .system
                     .update(cx, |system, cx| system.refresh_external_inventory(cx));
             }));
-        let mut body = align(div().flex().flex_col().gap_4().p_4(), locale)
-            .child(connection)
-            .child(
-                row(locale).gap_2().child(refresh).child(
-                    Button::new("manage-active-environment")
-                        .ghost()
-                        .label(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
-                        .on_click(cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx))),
-                ),
-            );
-        if workspace.is_none() {
-            return if engine == Some(EngineState::Starting) {
-                body
-            } else {
-                body.child(gui::GUI_ENVIRONMENT_OFFLINE.text(locale))
-            };
-        }
-        if route == Route::Disk {
-            body = body
-                .child(gui::GUI_ENVIRONMENT_DISK_HELP.text(locale))
+        let manage = Button::new("manage-active-environment")
+            .primary()
+            .label(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
+            .on_click(cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx)));
+
+        align(div().flex().flex_col(), locale).child(
+            panel(screen)
+                .gap_4()
                 .child(
-                    Button::new("external-disk-open-volumes")
-                        .outline()
-                        .label(Route::Volumes.name(locale))
-                        .on_click(
-                            cx.listener(|desktop, _, _, cx| desktop.navigate(Route::Volumes, cx)),
-                        ),
-                );
-        }
-        body
+                    row(locale)
+                        .justify_between()
+                        .gap_3()
+                        .flex_wrap()
+                        .child(heading)
+                        .child(row(locale).gap_2().flex_wrap().child(refresh).child(manage)),
+                )
+                .when_some(workspace, |card, workspace| {
+                    card.child(
+                        row(locale)
+                            .gap_3()
+                            .flex_wrap()
+                            .child(
+                                screen
+                                    .typography(Role::Mono)
+                                    .apply(div().min_w_0().truncate())
+                                    .child(technical(&workspace.endpoint.address())),
+                            )
+                            .children(workspace.verified_engine.as_ref().map(|engine| {
+                                screen
+                                    .typography(Role::Small)
+                                    .apply(div())
+                                    .text_color(color(palette, ColorToken::TextMuted))
+                                    .child(technical(&format!("Docker {}", engine.version)))
+                            })),
+                    )
+                })
+                .when(!ready && !busy, |card| {
+                    card.child(
+                        screen
+                            .typography(Role::Small)
+                            .apply(div())
+                            .text_color(color(palette, ColorToken::StatusWarning))
+                            .child(gui::GUI_ENVIRONMENT_OFFLINE.text(locale)),
+                    )
+                })
+                .when(ready && route == Route::Disk, |card| {
+                    card.child(
+                        row(locale)
+                            .gap_3()
+                            .flex_wrap()
+                            .border_t_1()
+                            .border_color(color(palette, ColorToken::BorderSubtle))
+                            .pt_3()
+                            .child(
+                                screen
+                                    .typography(Role::Small)
+                                    .apply(div().flex_1().min_w(px(200.)))
+                                    .text_color(color(palette, ColorToken::TextMuted))
+                                    .child(gui::GUI_ENVIRONMENT_DISK_HELP.text(locale)),
+                            )
+                            .child(
+                                Button::new("external-disk-open-volumes")
+                                    .outline()
+                                    .label(Route::Volumes.name(locale))
+                                    .on_click(cx.listener(|desktop, _, _, cx| {
+                                        desktop.navigate(Route::Volumes, cx)
+                                    })),
+                            ),
+                    )
+                }),
+        )
     }
 }

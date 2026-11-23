@@ -86,11 +86,20 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 .children(routes.iter().copied().map(|route| {
                     let selected = route == desktop.route;
                     let label = route.name(locale);
-                    let icon_color = color(palette, route_icon_color(route, selected));
-                    let label_color = if selected { icon_color } else { foreground };
+                    let icon_color = if selected {
+                        color(palette, ColorToken::AccentDefault)
+                    } else {
+                        foreground
+                    };
+                    let label_color = if selected {
+                        icon_color
+                    } else {
+                        color(palette, ColorToken::TextPrimary)
+                    };
                     let item = Button::new(("route", route as usize))
                         .ghost()
                         .selected(selected)
+                        .toggled(selected)
                         .accessibility_label(label)
                         .tooltip(label)
                         .w_full()
@@ -131,8 +140,8 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         .p_2()
         .rounded(px(14.))
         .border_1()
-        .border_color(color(palette, ColorToken::GlassEdge))
-        .bg(color(palette, ColorToken::GlassRail))
+        .border_color(color(palette, ColorToken::BorderSubtle))
+        .bg(color(palette, ColorToken::BgSidebar))
         .child(if desktop.collapsed {
             div()
                 .flex()
@@ -208,14 +217,15 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
                 .gap_2()
                 .child(
                     align(div().min_w_0().flex_1().flex().flex_col().gap_1(), locale)
-                        .child(status::inline_badge(locale, palette, engine, state_text))
                         .child(
                             div()
                                 .truncate()
-                                .text_xs()
-                                .text_color(color(palette, ColorToken::TextMuted))
+                                .text_size(ui_size(13.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(color(palette, ColorToken::TextPrimary))
                                 .child(context),
-                        ),
+                        )
+                        .child(status::inline_badge(locale, palette, engine, state_text)),
                 )
                 .child(
                     Icon::new(IconName::ChevronUp)
@@ -251,20 +261,4 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
             ),
         )
     })
-}
-
-fn route_icon_color(route: Route, selected: bool) -> ColorToken {
-    if selected {
-        return ColorToken::AccentDefault;
-    }
-
-    match route {
-        Route::Images | Route::Compose => ColorToken::ChartMemory,
-        Route::Volumes | Route::Disk => ColorToken::ChartDisk,
-        Route::Networks => ColorToken::ChartNetwork,
-        Route::Containers | Route::Machine => ColorToken::ChartCpu,
-        Route::Overview | Route::Activity | Route::Reports | Route::Settings => {
-            ColorToken::TextMuted
-        }
-    }
 }

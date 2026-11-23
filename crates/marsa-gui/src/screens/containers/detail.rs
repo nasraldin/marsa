@@ -31,49 +31,22 @@ pub(super) fn render(
     cx: &mut Context<ContainerView>,
 ) -> AnyElement {
     let screen = view.screen();
-    let mut title = row(cx)
-        .gap_2()
-        .items_center()
-        .child(
-            screen
-                .typography(Role::Title)
-                .apply(div())
-                .min_w_0()
-                .child(isolate_technical_text(name(entry))),
-        )
-        .children((!view.external_inventory.is_empty()).then(|| {
-            let badge = target
-                .endpoint()
-                .and_then(|endpoint| view.workspace(endpoint))
-                .map_or_else(
-                    || "Marsa".into(),
-                    |inventory| isolate_technical_text(&inventory.source),
-                );
-            crate::screens::external_inventory::source_badge(screen.palette, badge)
-        }))
-        .child(list::state_pill(
-            &entry.state,
-            screen.palette,
-            screen.locale,
-            cx,
-        ))
-        .child(div().flex_1())
-        .child(
-            Button::new("detail-global-search")
-                .ghost()
-                .size(px(36.))
-                .p_0()
-                .bg(color(screen.palette, ColorToken::BgSubtle))
-                .icon(IconName::Search)
-                .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(screen.locale))
-                .accessibility_label(gui::GUI_DESKTOP_SEARCH_COMMANDS.text(screen.locale))
-                .on_click(|_, window, cx| {
-                    window.dispatch_action(Box::new(crate::desktop::OpenCommandPalette), cx)
-                }),
-        );
+    let mut actions = row(cx).gap_2().items_center().flex_shrink_0().child(
+        Button::new("detail-global-search")
+            .ghost()
+            .size(px(36.))
+            .p_0()
+            .bg(color(screen.palette, ColorToken::BgSubtle))
+            .icon(IconName::Search)
+            .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(screen.locale))
+            .accessibility_label(gui::GUI_DESKTOP_SEARCH_COMMANDS.text(screen.locale))
+            .on_click(|_, window, cx| {
+                window.dispatch_action(Box::new(crate::desktop::OpenCommandPalette), cx)
+            }),
+    );
     let entity = cx.entity();
     if super::eligible(entry, ContainerAction::Stop) {
-        title = title.child(list::action_button(
+        actions = actions.child(list::action_button(
             entry,
             target.clone(),
             ContainerAction::Stop,
@@ -82,7 +55,7 @@ pub(super) fn render(
             &entity,
         ));
     } else {
-        title = title.child(list::action_button(
+        actions = actions.child(list::action_button(
             entry,
             target.clone(),
             ContainerAction::Start,
@@ -91,7 +64,7 @@ pub(super) fn render(
             &entity,
         ));
     }
-    title = title.child(list::action_button(
+    actions = actions.child(list::action_button(
         entry,
         target.clone(),
         ContainerAction::Restart,
@@ -102,6 +75,59 @@ pub(super) fn render(
 
     let short_id = entry.id.as_str().get(..12).unwrap_or(entry.id.as_str());
     let subtitle = format!("{}  ·  {short_id}", entry.image);
+    let title = row(cx)
+        .gap_3()
+        .items_start()
+        .justify_between()
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    row(cx)
+                        .flex_wrap()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            screen
+                                .typography(Role::Title)
+                                .apply(div())
+                                .min_w_0()
+                                .truncate()
+                                .child(isolate_technical_text(name(entry))),
+                        )
+                        .child(list::state_pill(
+                            &entry.state,
+                            screen.palette,
+                            screen.locale,
+                            cx,
+                        ))
+                        .children((!view.external_inventory.is_empty()).then(|| {
+                            let badge = target
+                                .endpoint()
+                                .and_then(|endpoint| view.workspace(endpoint))
+                                .map_or_else(
+                                    || "Marsa".into(),
+                                    |inventory| isolate_technical_text(&inventory.source),
+                                );
+                            crate::screens::external_inventory::source_badge(screen.palette, badge)
+                        })),
+                )
+                .child(
+                    screen
+                        .typography(Role::MonoSmall)
+                        .apply(div())
+                        .min_w_0()
+                        .truncate()
+                        .text_start(cx)
+                        .text_color(color(screen.palette, ColorToken::TextMuted))
+                        .child(isolate_technical_text(&subtitle)),
+                ),
+        )
+        .child(actions);
     let tabs = row(cx)
         .flex_wrap()
         .gap_1()
@@ -120,11 +146,17 @@ pub(super) fn render(
             .map(|tab| tab_button(tab, tab == view.tab, &screen, cx)),
         );
     let content = match view.tab {
-        Tab::Overview => overview(entry, &view.inspection, &screen, cx).into_any_element(),
+        Tab::Overview => div()
+            .id("container-overview-scroll")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scrollbar()
+            .child(overview(entry, &view.inspection, &screen, window, cx))
+            .into_any_element(),
         Tab::Logs => logs::render(view, entry, &screen, cx),
         Tab::Terminal => super::terminal::render(view, entry, &screen, window, cx),
         Tab::Inspect => inspect(view, entry, &view.inspection, &screen, cx).into_any_element(),
-        Tab::Stats => stats::render(view, &screen, cx),
+        Tab::Stats => stats::render(view, &screen, window, cx),
         Tab::Files => super::files::render(view, &screen, cx).into_any_element(),
     };
     let root = div()
@@ -145,14 +177,6 @@ pub(super) fn render(
             ),
         )
         .child(title)
-        .child(
-            div()
-                .text_start(cx)
-                .font_family("IBM Plex Mono")
-                .text_size(ui_size(12.))
-                .text_color(color(screen.palette, ColorToken::TextMuted))
-                .child(isolate_technical_text(&subtitle)),
-        )
         .child(tabs);
 
     root.child(content).into_any_element()
@@ -188,6 +212,7 @@ fn tab_button(
         ),
     };
     let button = Button::new(id)
+        .toggled(active)
         .small()
         .icon(Icon::default().path(icon))
         .label(label(screen, en, ar));
@@ -206,38 +231,11 @@ fn tab_button(
     }))
 }
 
-fn overview_action(tab: Tab, screen: &ScreenContext<'_>, cx: &Context<ContainerView>) -> Button {
-    let (id, icon, label) = match tab {
-        Tab::Logs => (
-            "overview-logs",
-            "icons/list.svg",
-            gui::GUI_DESKTOP_CONTAINERS_LOGS_TAB.text(screen.locale),
-        ),
-        Tab::Terminal => (
-            "overview-terminal",
-            "icons/terminal.svg",
-            gui::GUI_DESKTOP_CONTAINERS_TERMINAL_TAB.text(screen.locale),
-        ),
-        _ => (
-            "overview-inspect",
-            "icons/info.svg",
-            gui::GUI_DESKTOP_CONTAINERS_INSPECT_TAB.text(screen.locale),
-        ),
-    };
-    Button::new(id)
-        .outline()
-        .size(px(36.))
-        .p_0()
-        .icon(Icon::empty().path(icon))
-        .tooltip(label)
-        .accessibility_label(label)
-        .on_click(cx.listener(move |view, _, _, cx| view.set_tab(tab, cx)))
-}
-
 fn overview(
     entry: &ContainerSummary,
     inspection: &Inspection,
     screen: &ScreenContext<'_>,
+    window: &Window,
     cx: &Context<ContainerView>,
 ) -> Div {
     let details = match inspection {
@@ -257,7 +255,6 @@ fn overview(
         .filter(|value| !value.is_empty());
     let state = super::state_label(&entry.state);
     let configuration = card(screen, "Container configuration", "إعدادات الحاوية")
-        .min_h(px(214.))
         .text_start(cx)
         .child(field(
             screen,
@@ -288,7 +285,6 @@ fn overview(
             technical(networks.as_deref()),
         ));
     let runtime = card(screen, "Runtime", "التشغيل")
-        .min_h(px(214.))
         .text_start(cx)
         .child(field(
             screen,
@@ -329,28 +325,12 @@ fn overview(
             "العمر",
             list::age_text(entry.created, screen.locale),
         ));
-    div()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(row(cx).gap_3().child(configuration).child(runtime))
-        .child(
-            card(screen, "Work with this container", "العمل مع هذه الحاوية")
-                .text_start(cx)
-                .child(
-                    div()
-                        .text_size(ui_size(12.))
-                        .text_color(color(screen.palette, ColorToken::TextMuted))
-                        .child(message(screen.locale, gui::GUI_DESKTOP_REVIEW_OUTPUT_OPEN_A_SHELL_OR_CHECK_HOW_THE_CONTAINER_RUNS)),
-                )
-                .child(
-                    row(cx).gap_2().children(
-                        [Tab::Logs, Tab::Terminal, Tab::Inspect]
-                            .into_iter()
-                            .map(|tab| overview_action(tab, screen, cx)),
-                    ),
-                ),
-        )
+    let layout = if window.viewport_size().width < px(1060.) {
+        div().flex().flex_col()
+    } else {
+        row(cx).items_start()
+    };
+    layout.gap_3().child(configuration).child(runtime)
 }
 
 fn inspect(

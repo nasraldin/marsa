@@ -7,8 +7,8 @@ use std::collections::VecDeque;
 use marsa_client::docker::{ContainerId, ExternalEndpoint, LogLine};
 use marsa_ui::{
     ColorToken,
-    gpui::{Context, Div, Entity, ParentElement, Styled, Task, div, px},
-    gpui_component::{Disableable, button::Button},
+    gpui::{Context, Div, Entity, InteractiveElement as _, ParentElement, Styled, Task, div, px},
+    gpui_component::{Disableable, button::Button, scroll::ScrollableElement as _},
     preferences::LogSettings,
     tokens::{scale::Space, typography::Role},
 };
@@ -124,6 +124,8 @@ pub(super) fn render(
     };
     target = target.child(
         logical_row(screen.locale)
+            .gap_2()
+            .flex_wrap()
             .justify_between()
             .child(text(
                 screen,
@@ -178,8 +180,11 @@ pub(super) fn render(
         } else {
             target = target.child(
                 div()
+                    .id("stack-log-output")
                     .flex()
                     .flex_col()
+                    .max_h(px(320.))
+                    .overflow_y_scrollbar()
                     .gap(px(Space::S4.pixels()))
                     .p(px(Space::S12.pixels()))
                     .bg(tone(screen, ColorToken::BgCode))
@@ -188,6 +193,8 @@ pub(super) fn render(
                             .gap(px(Space::S8.pixels()))
                             .child(
                                 text(screen, Role::Mono, service.clone())
+                                    .max_w(px(140.))
+                                    .truncate()
                                     .text_color(tone(screen, ColorToken::SourceApi)),
                             )
                             .children(line.timestamp.map(|timestamp| {
@@ -203,7 +210,11 @@ pub(super) fn render(
                                 )
                                 .text_color(tone(screen, ColorToken::TextMuted))
                             }))
-                            .child(text(screen, Role::Mono, line.text.clone()).flex_1())
+                            .child(
+                                text(screen, Role::Mono, line.text.clone())
+                                    .flex_1()
+                                    .min_w_0(),
+                            )
                     })),
             );
         }

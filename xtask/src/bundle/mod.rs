@@ -126,7 +126,7 @@ fn assemble(inputs: &Inputs<'_>, workspace: &Path) -> io::Result<u64> {
             &agents,
             &resources_dir.join("guest"),
             &resources_dir.join("bin/cli-plugins"),
-            &resources_dir.join("licenses"),
+            &resources_dir.join("licenses/font-notices"),
             &resources_dir.join("fonts"),
             &resources_dir.join("locales/en-US"),
             &resources_dir.join("locales/ar"),

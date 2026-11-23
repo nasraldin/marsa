@@ -479,3 +479,11 @@ A disposable Lima container returned a binary file directly and a directory as T
   - Agent identity and authorization are checked before any Docker API request. Tests cover credential rejection, disconnect, and endpoint replacement while a request is in flight.
 
 Verified both transports and terminal I/O against [Hawser upstream bca2770](https://github.com/Finsys/hawser/tree/bca2770d3c013f0559ac162372bca6ba75dfeed5) with private TLS fixtures. The tests reject incorrect tokens and verify that a disconnected Edge session cannot retarget an existing Docker request after reconnecting.
+
+### M7-33 Refine desktop screen hierarchy and typography controls
+
+- **Status:** in progress
+- **Depends on:** M7-20
+- **Docs:** [08 GUI](../08-gui.md)
+- **Do:** Review the desktop routes and refine task grouping, control placement, and readable states. Group desktop preferences and provide native font and size pickers.
+- **Accept when:** The typography controls persist and apply real fonts and sizes. Major route actions and states are discoverable, and scrollable content remains reachable in both supported languages and appearances.

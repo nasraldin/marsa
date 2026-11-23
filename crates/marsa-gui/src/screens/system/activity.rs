@@ -8,10 +8,7 @@ use marsa_client::api::{AgentAuditRecord, AuditDecision, EngineState, ListAgentA
 use marsa_ui::{
     ColorToken, Locale,
     gpui::{Context, Div, ParentElement, SharedString, Styled, div, px},
-    gpui_component::{
-        Disableable, Selectable,
-        button::{Button, ButtonVariants},
-    },
+    gpui_component::{Disableable, Selectable, button::Button},
     preferences::TimeFormat,
 };
 
@@ -44,10 +41,12 @@ impl SystemView {
                 .await?
                 .into_inner())
         });
+        self.audit = None;
         self.route_load = Some(cx.spawn(async move |this, cx| {
             let result = pending.result().await;
             let _ = this.update(cx, |this, cx| {
                 this.audit = result.and_then(Result::ok);
+                this.route_load = None;
                 cx.notify();
             });
         }));
@@ -66,7 +65,6 @@ impl SystemView {
         let disabled = self.busy() || snapshot.is_none();
         let palette = screen.palette;
         let pending_count = approvals.map_or(0, |items| items.approvals.len());
-        let audit_count = self.audit.as_ref().map_or(0, |items| items.records.len());
         div()
             .flex()
             .flex_col()
@@ -75,7 +73,6 @@ impl SystemView {
                 panel(screen)
                     .pt_3()
                     .gap_3()
-                    .min_h(px(260.))
                     .child(
                         div()
                             .flex()
@@ -93,7 +90,7 @@ impl SystemView {
                         div()
                             .flex()
                             .flex_col()
-                            .children((pending_count == 0 && audit_count == 0).then(|| {
+                            .children((pending_count == 0).then(|| {
                                 muted(
                                     palette,
                                     if snapshot.is_some() {
@@ -108,12 +105,6 @@ impl SystemView {
                                     .into_iter()
                                     .flat_map(|items| &items.approvals)
                                     .map(|approval| self.approval(screen, approval, cx)),
-                            )
-                            .children(
-                                self.audit
-                                    .iter()
-                                    .flat_map(|audit| audit.records.iter().take(8))
-                                    .map(|record| audit_row(screen, record)),
                             ),
                     ),
             )
@@ -160,16 +151,17 @@ impl SystemView {
                 panel(screen)
                     .pt_3()
                     .child(title_text(gui::GUI_DESKTOP_PROJECT_GRANTS.text(locale)))
-                    .children(
-                        grants
-                            .is_some_and(|items| items.grants.is_empty())
-                            .then(|| {
-                                muted(
-                                    palette,
-                                    gui::GUI_DESKTOP_NO_ACTIVE_PROJECT_GRANTS.text(locale),
-                                )
-                            }),
-                    )
+                    .children(grants.is_none_or(|items| items.grants.is_empty()).then(|| {
+                        muted(
+                            palette,
+                            if grants.is_some() {
+                                gui::GUI_DESKTOP_NO_ACTIVE_PROJECT_GRANTS
+                            } else {
+                                gui::GUI_DESKTOP_UNAVAILABLE
+                            }
+                            .text(locale),
+                        )
+                    }))
                     .child(
                         div().flex().flex_col().children(
                             grants
@@ -224,13 +216,18 @@ impl SystemView {
                     .child(
                         row(locale)
                             .justify_between()
+                            .gap_2()
+                            .flex_wrap()
                             .child(title_text(gui::GUI_DESKTOP_AGENT_AUDIT_LOG.text(locale)))
                             .child(
                                 Button::new("refresh-audit")
                                     .outline()
-                                    .disabled(snapshot.is_none())
+                                    .disabled(disabled || self.route_load.is_some())
                                     .label(gui::GUI_DESKTOP_REFRESH.text(locale))
-                                    .on_click(cx.listener(|this, _, _, cx| this.load_audit(cx))),
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.load_audit(cx);
+                                        cx.notify();
+                                    })),
                             ),
                     )
                     .child(
@@ -251,8 +248,9 @@ impl SystemView {
                                     |filter| decision(screen, filter),
                                 );
                                 Button::new(("audit-filter", index))
-                                    .ghost()
+                                    .outline()
                                     .selected(self.audit_filter == filter)
+                                    .toggled(self.audit_filter == filter)
                                     .label(text)
                                     .disabled(disabled)
                                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -268,7 +266,12 @@ impl SystemView {
                         || {
                             Some(muted(
                                 palette,
-                                gui::GUI_DESKTOP_AUDIT_LOG_UNAVAILABLE_TRY_REFRESHING.text(locale),
+                                if self.route_load.is_some() {
+                                    gui::GUI_DESKTOP_WORKING
+                                } else {
+                                    gui::GUI_DESKTOP_AUDIT_LOG_UNAVAILABLE_TRY_REFRESHING
+                                }
+                                .text(locale),
                             ))
                         },
                         |audit| {
@@ -297,6 +300,7 @@ impl SystemView {
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             this.audit_cursor = Some(cursor.clone());
                                             this.load_audit(cx);
+                                            cx.notify();
                                         })),
                                 )
                             }),

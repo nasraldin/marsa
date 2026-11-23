@@ -1030,15 +1030,15 @@ gui-environment-test-results = Connections verified
 gui-environment-test-unreachable = Test failed
 gui-environment-table-total = Total
 
-gui-settings-ui-font = UI font
+gui-settings-ui-font = Font
 gui-settings-ui-font-description = Choose the font for labels and controls.
 gui-settings-ui-font-plex = IBM Plex Sans
-gui-settings-ui-font-system = macOS System
-gui-settings-ui-font-size = UI font size
+gui-settings-ui-font-system = System UI
+gui-settings-ui-font-size = Font size
 gui-settings-ui-font-size-description = Set the base size of interface text.
-gui-settings-ui-font-size-small = 12 px
-gui-settings-ui-font-size-default = 14 px
-gui-settings-ui-font-size-large = 16 px
+gui-settings-ui-font-size-small = Small
+gui-settings-ui-font-size-default = Normal
+gui-settings-ui-font-size-large = Large
 gui-settings-terminal-font = Terminal font
 gui-settings-terminal-font-description = Choose the monospace font for terminal sessions.
 gui-settings-terminal-font-plex = IBM Plex Mono
@@ -1117,3 +1117,28 @@ gui-environment-hawser-standard-help = Enter the Hawser agent’s HTTPS URL and 
 gui-environment-hawser-edge-help = Enter an IP and port on this Mac. Configure the agent with the same Agent ID and shared token. Set its server URL to a reachable address using the format below, then start the agent before testing.
 gui-environment-hawser-keychain = Marsa couldn’t access the Hawser token in Keychain. Check access and enter the token again if needed.
 gui-environment-hawser-edge-failed = Marsa couldn’t open the Hawser Edge listener or verify an agent. Check the listener address, certificate, Agent ID, and shared token.
+
+gui-workload-images-empty = No images yet
+gui-workload-volumes-empty = No volumes yet
+gui-workload-networks-empty = No networks yet
+gui-workload-stacks-empty = No stacks yet
+gui-workload-clear-filters = Clear filters
+
+gui-settings-section-support = Updates and support
+gui-settings-choose-section = Choose settings section
+gui-settings-appearance-section = Appearance
+gui-settings-typography-section = Typography
+gui-settings-region-section = Language & region
+gui-settings-startup-section = Startup
+gui-settings-theme-help = Choose a theme or follow macOS.
+gui-settings-language-help = Set the language used throughout Marsa.
+gui-workload-external-offline = Environment offline
+
+
+gui-environment-report-summary = Inventory summary
+gui-environment-report-no-containers = This environment has no containers.
+gui-settings-ui-font-size-extra-small = Extra Small
+gui-settings-ui-font-size-medium = Medium
+gui-settings-ui-font-size-extra-large = Extra Large
+gui-settings-terminal-font-system = System Monospace
+gui-workload-read-image-metadata = Read image metadata

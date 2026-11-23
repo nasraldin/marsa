@@ -232,6 +232,7 @@ pub(super) fn install_workspace_assets(
     }
     let licenses = output.join("licenses");
     copy_asset(&fonts, &font_hashes, FONT_NOTICE, &licenses)?;
+    install_optional_fonts(workspace, output)?;
     copy_file(
         platform::input_file(&platform::directory(workspace)?, "LICENSE")?,
         &licenses.join(PROJECT_NOTICE),
@@ -251,6 +252,27 @@ pub(super) fn install_workspace_assets(
     install_release_notes(workspace, output)?;
     if let Some(notices) = notices {
         install_notices(notices, &licenses)?;
+    }
+    Ok(())
+}
+
+fn install_optional_fonts(workspace: &Path, output: &Path) -> io::Result<()> {
+    let catalog = platform::directory(&workspace.join("assets/fonts/catalog"))?;
+    let inventory = checksum_inventory(&catalog)?;
+    let fonts = output.join("fonts");
+    let notices = output.join("licenses/font-notices");
+    for line in inventory.lines() {
+        let (_, name) = line
+            .split_once("  ")
+            .ok_or_else(|| invalid("invalid optional font checksum line"))?;
+        let destination = if name.ends_with(".ttf") {
+            &fonts
+        } else if name.ends_with("-notice.txt") {
+            &notices
+        } else {
+            return Err(invalid("unexpected optional font asset"));
+        };
+        copy_asset(&catalog, &inventory, name, destination)?;
     }
     Ok(())
 }

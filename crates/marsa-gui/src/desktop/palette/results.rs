@@ -10,7 +10,10 @@ use marsa_ui::{
     gui_keys as gui,
 };
 
-use crate::{screens::resources::ResourceKind, services::EngineAction};
+use crate::{
+    screens::{resources::ResourceKind, system::SettingsTab},
+    services::EngineAction,
+};
 
 use super::super::{Desktop, Route};
 
@@ -19,6 +22,7 @@ const RESULT_LIMIT: usize = 40;
 #[derive(Clone)]
 pub(super) enum Destination {
     Navigate(Route),
+    Settings(SettingsTab),
     Engine(EngineAction),
     Diagnostics,
     Setup,
@@ -31,6 +35,12 @@ impl Destination {
         desktop.close_palette(window, cx);
         match self {
             Self::Navigate(route) => desktop.navigate(route, cx),
+            Self::Settings(section) => {
+                desktop.navigate(Route::Settings, cx);
+                desktop
+                    .system
+                    .update(cx, |system, cx| system.select_settings_tab(section, cx));
+            }
             Self::Engine(action) => desktop.request_engine(action, window, cx),
             Self::Diagnostics => {
                 desktop.navigate(Route::Machine, cx);
@@ -123,6 +133,19 @@ pub(super) fn search(desktop: &Desktop, value: &str, cx: &App) -> Vec<Entry> {
             .filter(|route| !matches!(route, Route::Containers | Route::Disk | Route::Settings))
             .map(|route| route_action(route, locale)),
     );
+    actions.extend(
+        SettingsTab::GROUPS
+            .into_iter()
+            .flat_map(|(_, sections)| sections.iter().copied())
+            .map(|section| {
+                let destination = Destination::Settings(section);
+                action(
+                    &action_title(&destination, locale),
+                    section.icon(),
+                    destination,
+                )
+            }),
+    );
     actions.retain(|entry| {
         entry.title.to_lowercase().contains(&value)
             || action_title(&entry.destination, Locale::EnglishUs)
@@ -131,6 +154,24 @@ pub(super) fn search(desktop: &Desktop, value: &str, cx: &App) -> Vec<Entry> {
             || action_title(&entry.destination, Locale::Arabic)
                 .to_lowercase()
                 .contains(&value)
+            || (matches!(
+                entry.destination,
+                Destination::Settings(SettingsTab::General)
+            ) && [
+                gui::GUI_SETTINGS_TYPOGRAPHY_SECTION,
+                gui::GUI_SETTINGS_UI_FONT,
+                gui::GUI_SETTINGS_UI_FONT_SIZE,
+                gui::GUI_SETTINGS_TERMINAL_FONT,
+                gui::GUI_SETTINGS_TIME_FORMAT,
+                gui::GUI_DESKTOP_SETTINGS_APPEARANCE,
+                gui::GUI_DESKTOP_SETTINGS_LANGUAGE,
+            ]
+            .into_iter()
+            .any(|key| {
+                [Locale::EnglishUs, Locale::Arabic]
+                    .into_iter()
+                    .any(|locale| key.text(locale).to_lowercase().contains(&value))
+            }))
     });
     append_resources(desktop, &value, &mut actions, cx);
     actions
@@ -165,6 +206,13 @@ fn action_title(destination: &Destination, locale: Locale) -> String {
         Destination::Navigate(Route::Disk) => gui::GUI_PALETTE_OPEN_DISK.text(locale),
         Destination::Navigate(Route::Settings) => gui::GUI_PALETTE_OPEN_SETTINGS.text(locale),
         Destination::Navigate(route) => return route.name(locale).into(),
+        Destination::Settings(section) => {
+            return format!(
+                "{} · {}",
+                Route::Settings.name(locale),
+                section.title(locale)
+            );
+        }
         Destination::Engine(EngineAction::Start) => gui::GUI_PALETTE_START.text(locale),
         Destination::Engine(EngineAction::Stop) => gui::GUI_PALETTE_STOP.text(locale),
         Destination::Engine(EngineAction::Restart) => gui::GUI_PALETTE_RESTART.text(locale),

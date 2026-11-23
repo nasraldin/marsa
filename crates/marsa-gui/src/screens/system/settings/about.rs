@@ -3,7 +3,7 @@
 use marsa_client::release::{AboutAssets, Evidence};
 use marsa_ui::{
     ColorToken,
-    gpui::{Context, Div, ParentElement, Styled, div, px},
+    gpui::{Context, Div, ParentElement, Styled, div, img, px},
     gpui_component::button::Button,
     gui_keys as gui,
     tokens::{scale::Space, typography::Role},
@@ -150,26 +150,38 @@ impl SystemView {
             evidence.child(muted(screen, gui::GUI_SETTINGS_ABOUT_LOADING))
         };
 
-        let release = settings_card(screen)
-            .child(
-                component_row(
-                    screen,
-                    gui::GUI_SETTINGS_ABOUT_VERSION.text(locale),
-                    env!("CARGO_PKG_VERSION"),
+        let installed = settings_card(screen).child(
+            row(locale)
+                .gap_4()
+                .flex_wrap()
+                .child(img("marsa/harbor.png").size(px(48.)).flex_shrink_0())
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(settings_text(
+                            screen,
+                            Role::Lead,
+                            gui::GUI_DESKTOP_MARSA.text(locale),
+                            ColorToken::TextPrimary,
+                        ))
+                        .child(muted(
+                            screen,
+                            gui::GUI_DESKTOP_MARSA_IS_RELEASED_UNDER_THE_MIT_LICENSE,
+                        )),
                 )
-                .border_t_0(),
-            )
-            .child(muted(
-                screen,
-                gui::GUI_DESKTOP_MARSA_IS_RELEASED_UNDER_THE_MIT_LICENSE,
-            ))
-            .child(settings_text(
-                screen,
-                Role::Lead,
-                gui::GUI_SETTINGS_ABOUT_RELEASE_NOTES.text(locale),
-                ColorToken::TextPrimary,
-            ))
-            .child(settings_text(
+                .child(settings_text(
+                    screen,
+                    Role::Mono,
+                    env!("CARGO_PKG_VERSION"),
+                    ColorToken::AccentDefault,
+                )),
+        );
+        let notes =
+            about_section(screen, gui::GUI_SETTINGS_ABOUT_RELEASE_NOTES).child(settings_text(
                 screen,
                 Role::Body,
                 release.to_owned(),
@@ -179,10 +191,11 @@ impl SystemView {
             .flex()
             .flex_col()
             .gap(px(Space::S16.pixels()))
-            .child(release)
+            .child(installed)
+            .child(notes)
+            .child(daemon)
             .child(host)
             .child(evidence)
-            .child(daemon)
     }
 }
 

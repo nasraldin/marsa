@@ -262,7 +262,7 @@ impl Desktop {
                                         self.context_status_text(engine, cx),
                                     )),
                             )
-                            .child(
+                            .children((version_text.is_some() || platform.is_some()).then(|| {
                                 row(locale)
                                     .gap_2()
                                     .flex_wrap()
@@ -278,7 +278,12 @@ impl Desktop {
                                         platform
                                             .as_ref()
                                             .map(|value| quiet(screen).child(technical(value))),
-                                    ),
+                                    )
+                            }))
+                            .children(
+                                address.as_ref().map(|address| {
+                                    quiet(screen).truncate().child(technical(address))
+                                }),
                             ),
                     )
                     .child(
@@ -295,11 +300,6 @@ impl Desktop {
                                 ),
                         ),
                     ),
-            )
-            .children(
-                address
-                    .as_ref()
-                    .map(|address| quiet(screen).truncate().child(technical(address))),
             );
         let resources = row(locale).flex_wrap().gap_3().children(
             [

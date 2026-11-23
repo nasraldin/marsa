@@ -17,6 +17,8 @@ pub enum Family {
     System,
     /// The operating system's Menlo monospace face.
     Menlo,
+    /// The native family name of a bundled or installed optional typeface.
+    Named(&'static str),
 }
 
 impl Family {
@@ -28,14 +30,82 @@ impl Family {
             Self::Mono => "IBM Plex Mono",
             Self::System => ".SystemUIFont",
             Self::Menlo => "Menlo",
+            Self::Named(name) => name,
         }
     }
 
-    /// Resolve the terminal's monospace font family.
+    /// Resolve the user's font preference for interface text.
+    pub const fn interface(preference: UiFont, arabic: bool) -> Self {
+        match preference {
+            UiFont::IbmPlex if arabic => Self::SansArabic,
+            UiFont::IbmPlex => Self::Sans,
+            UiFont::System => Self::System,
+            UiFont::Geist => Self::Named("Geist"),
+            UiFont::Inter => Self::Named("Inter"),
+            UiFont::PlusJakartaSans => Self::Named("Plus Jakarta Sans"),
+            UiFont::DmSans => Self::Named("DM Sans"),
+            UiFont::Outfit => Self::Named("Outfit"),
+            UiFont::SpaceGrotesk => Self::Named("Space Grotesk"),
+            UiFont::SofiaSans => Self::Named("Sofia Sans"),
+            UiFont::Nunito => Self::Named("Nunito"),
+            UiFont::Poppins => Self::Named("Poppins"),
+            UiFont::Montserrat => Self::Named("Montserrat"),
+            UiFont::Raleway => Self::Named("Raleway"),
+            UiFont::Manrope => Self::Named("Manrope"),
+            UiFont::Roboto => Self::Named("Roboto"),
+            UiFont::OpenSans => Self::Named("Open Sans"),
+            UiFont::Lato => Self::Named("Lato"),
+            UiFont::SourceSans3 => Self::Named("Source Sans 3"),
+            UiFont::WorkSans => Self::Named("Work Sans"),
+            UiFont::FiraSans => Self::Named("Fira Sans"),
+            UiFont::JetBrainsMono => Self::Named("JetBrains Mono"),
+            UiFont::FiraCode => Self::Named("Fira Code"),
+            UiFont::Quicksand => Self::Named("Quicksand"),
+            UiFont::Comfortaa => Self::Named("Comfortaa"),
+        }
+    }
+
+    /// Find the terminal family requested by a saved preference.
     pub const fn terminal(preference: TerminalFont) -> Self {
         match preference {
             TerminalFont::IbmPlexMono => Self::Mono,
             TerminalFont::Menlo => Self::Menlo,
+            TerminalFont::System => Self::Named(".AppleSystemUIFontMonospaced"),
+            TerminalFont::JetBrainsMono => Self::Named("JetBrains Mono"),
+            TerminalFont::FiraCode => Self::Named("Fira Code"),
+            TerminalFont::SourceCodePro => Self::Named("Source Code Pro"),
+            TerminalFont::CascadiaCode => Self::Named("Cascadia Code"),
+            TerminalFont::RobotoMono => Self::Named("Roboto Mono"),
+            TerminalFont::UbuntuMono => Self::Named("Ubuntu Mono"),
+            TerminalFont::SpaceMono => Self::Named("Space Mono"),
+            TerminalFont::Inconsolata => Self::Named("Inconsolata"),
+            TerminalFont::AnonymousPro => Self::Named("Anonymous Pro"),
+            TerminalFont::DmMono => Self::Named("DM Mono"),
+            TerminalFont::RedHatMono => Self::Named("Red Hat Mono"),
+            TerminalFont::Consolas => Self::Named("Consolas"),
+            TerminalFont::SfMono => Self::Named("SF Mono"),
+        }
+    }
+
+    /// Return whether the optional family is provided by the app or the system.
+    #[cfg(target_os = "macos")]
+    pub fn available(self, cx: &gpui::App) -> bool {
+        match self {
+            Self::Named(name @ ("Consolas" | "SF Mono")) => cx
+                .try_global::<crate::assets::InstalledMonoFonts>()
+                .is_some_and(|fonts| fonts.contains(name)),
+            _ => true,
+        }
+    }
+
+    /// Keep the terminal monospace if a saved system font becomes unavailable.
+    #[cfg(target_os = "macos")]
+    pub fn available_terminal(preference: TerminalFont, cx: &gpui::App) -> Self {
+        let family = Self::terminal(preference);
+        if family.available(cx) {
+            family
+        } else {
+            Self::Mono
         }
     }
 
@@ -46,7 +116,9 @@ impl Family {
         font.fallbacks = Some(gpui::FontFallbacks::from_fonts(vec![
             match self {
                 Self::SansArabic => Self::Sans,
-                Self::Sans | Self::Mono | Self::System | Self::Menlo => Self::SansArabic,
+                Self::Sans | Self::Mono | Self::System | Self::Menlo | Self::Named(_) => {
+                    Self::SansArabic
+                }
             }
             .name()
             .to_owned(),
@@ -55,12 +127,15 @@ impl Family {
     }
 }
 
-/// GPUI rem size that scales with the selected 12, 14, or 16 pixel body style.
+/// GPUI rem size that scales with the selected body text preference.
 pub const fn rem_size(preference: UiFontSize) -> f32 {
     let body = match preference {
+        UiFontSize::ExtraSmall => 11.,
         UiFontSize::Small => 12.,
         UiFontSize::Default => 14.,
+        UiFontSize::Medium => 15.,
         UiFontSize::Large => 16.,
+        UiFontSize::ExtraLarge => 18.,
     };
     DEFAULT_REM * (body / 14.)
 }
@@ -148,8 +223,8 @@ impl Role {
     /// Resolve a locale's type role with the selected interface font.
     pub const fn with_ui_font(self, arabic: bool, preference: UiFont) -> TypeStyle {
         let mut style = self.style(arabic);
-        if matches!(preference, UiFont::System) && !matches!(self, Self::Mono | Self::MonoSmall) {
-            style.family = Family::System;
+        if !matches!(self, Self::Mono | Self::MonoSmall) {
+            style.family = Family::interface(preference, arabic);
         }
         style
     }

@@ -4,13 +4,13 @@ use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use marsa_client::api::EngineState;
 use marsa_ui::{
     ColorToken, Locale,
     gpui::{
-        Div, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
-        StatefulInteractiveElement, Styled, div, px,
+        Div, Entity, InteractiveElement, IntoElement, ParentElement, Role as AccessibleRole,
+        SharedString, StatefulInteractiveElement, Styled, div, px,
     },
+    gpui_component::{Icon, IconName},
     tokens::{
         scale::{Radius, Space},
         typography::Role,
@@ -125,16 +125,11 @@ impl ResourceRow {
                         id: self.id.clone(),
                         reference: self.action_target.clone(),
                     },
-                    FormKind::RemoveImage {
+                    FormKind::ExportImage {
                         id: self.id.clone(),
-                        reference: self.action_target.clone(),
-                        users: self.users.clone(),
+                        reference: self.display_name().to_owned(),
                     },
                 ];
-                actions.push(FormKind::ExportImage {
-                    id: self.id.clone(),
-                    reference: self.display_name().to_owned(),
-                });
                 if !self.action_target.is_empty()
                     && self.action_target != self.id
                     && !self.action_target.contains('@')
@@ -153,6 +148,11 @@ impl ResourceRow {
                         },
                     );
                 }
+                actions.push(FormKind::RemoveImage {
+                    id: self.id.clone(),
+                    reference: self.action_target.clone(),
+                    users: self.users.clone(),
+                });
                 actions
             }
             ResourceKind::Volumes => vec![FormKind::RemoveVolume {
@@ -217,7 +217,6 @@ pub(super) fn table(
     columns: &Columns,
     rows: &[&ResourceRow],
     view: &Entity<ResourcesView>,
-    selection: Option<&str>,
     show_sources: bool,
 ) -> Div {
     let border = tone(screen, ColorToken::BorderSubtle);
@@ -235,8 +234,9 @@ pub(super) fn table(
                 text(screen, Role::Caption, title.clone())
                     .text_color(tone(screen, ColorToken::TextMuted)),
             )
-        }));
-    let mut table = div()
+        }))
+        .child(div().w(px(16.)).flex_shrink_0());
+    let table = div()
         .flex()
         .flex_col()
         .w_full()
@@ -246,28 +246,8 @@ pub(super) fn table(
         .overflow_hidden()
         .bg(tone(screen, ColorToken::BgElevated))
         .child(header);
-    if rows.is_empty() {
-        let engine_ready = screen
-            .state
-            .engine()
-            .is_some_and(|engine| matches!(engine.state(), EngineState::Ready | EngineState::Idle));
-        let message = if engine_ready {
-            message(screen.locale, gui::GUI_DESKTOP_NO_MATCHING_RESOURCES)
-        } else {
-            message(
-                screen.locale,
-                gui::GUI_DESKTOP_RESOURCES_ARE_AVAILABLE_WHEN_THE_ENGINE_IS_RUNNING,
-            )
-        };
-        return table.child(
-            text(screen, Role::Body, message)
-                .text_color(tone(screen, ColorToken::TextMuted))
-                .p(px(Space::S16.pixels())),
-        );
-    }
-    table = table.children(rows.iter().enumerate().map(|(index, row)| {
-        let selected = selection == Some(row.key());
-        let id = row.key.clone();
+    table.children(rows.iter().enumerate().map(|(index, row)| {
+        let id = row.key().to_owned();
         let entry = logical_row(screen.locale)
             .items_center()
             .min_h(px(Space::S40.pixels() + Space::S4.pixels()))
@@ -276,11 +256,6 @@ pub(super) fn table(
             .border_color(border);
         let entry = if index + 1 < rows.len() {
             entry.border_b_1()
-        } else {
-            entry
-        };
-        let entry = if selected {
-            entry.bg(tone(screen, ColorToken::AccentSubtle))
         } else {
             entry
         };
@@ -297,6 +272,9 @@ pub(super) fn table(
         let entry = {
             entry
                 .tab_stop(true)
+                .role(AccessibleRole::Button)
+                .aria_label(row.display_name().to_owned())
+                .aria_description(gui::GUI_DESKTOP_OPEN_DETAILS.text(screen.locale))
                 .cursor_pointer()
                 .hover(|style| style.bg(tone(screen, ColorToken::BgHover)))
                 .focus_visible(|style| {
@@ -331,69 +309,78 @@ pub(super) fn table(
                     }
                 })
         };
-        entry.children(columns.0.iter().zip(&row.cells).enumerate().map(
-            |(index, ((_, width), value))| {
-                if let Some((foreground, background)) = row.status.filter(|_| index == 4) {
-                    let pill = logical_row(screen.locale)
-                        .gap(px(Space::S8.pixels()))
-                        .rounded(px(Radius::Full.pixels()))
-                        .px(px(Space::S8.pixels()))
-                        .py(px(Space::S4.pixels()))
-                        .bg(tone(screen, background))
-                        .child(
-                            div()
-                                .size(px(Space::S8.pixels()))
-                                .rounded_full()
-                                .bg(tone(screen, foreground)),
-                        )
-                        .child(
-                            text(screen, Role::Small, value.clone())
-                                .text_color(tone(screen, foreground)),
-                        );
-                    return column(*width, logical_row(screen.locale).child(pill))
-                        .into_any_element();
-                }
-                let cell = if index == 0 {
-                    logical_row(screen.locale)
-                        .gap(px(Space::S8.pixels()))
-                        .child(resource_icon(screen, kind))
-                        .child(
-                            text(screen, Role::Mono, value.clone())
-                                .flex_1()
-                                .min_w_0()
-                                .truncate(),
-                        )
-                        .children(show_sources.then(|| {
-                            super::super::external_inventory::source_badge(
-                                screen.palette,
-                                row.source()
-                                    .map_or_else(|| "Marsa".into(), |source| source.badge.clone()),
+        entry
+            .children(columns.0.iter().zip(&row.cells).enumerate().map(
+                |(index, ((_, width), value))| {
+                    if let Some((foreground, background)) = row.status.filter(|_| index == 4) {
+                        let pill = logical_row(screen.locale)
+                            .gap(px(Space::S8.pixels()))
+                            .rounded(px(Radius::Full.pixels()))
+                            .px(px(Space::S8.pixels()))
+                            .py(px(Space::S4.pixels()))
+                            .bg(tone(screen, background))
+                            .child(
+                                div()
+                                    .size(px(Space::S8.pixels()))
+                                    .rounded_full()
+                                    .bg(tone(screen, foreground)),
                             )
-                        }))
-                } else {
-                    let role = match (kind, index) {
-                        (ResourceKind::Images, 1)
-                        | (ResourceKind::Volumes | ResourceKind::Networks, 1 | 3) => Role::Mono,
-                        _ => Role::Small,
+                            .child(
+                                text(screen, Role::Small, value.clone())
+                                    .text_color(tone(screen, foreground)),
+                            );
+                        return column(*width, logical_row(screen.locale).child(pill))
+                            .into_any_element();
+                    }
+                    let cell = if index == 0 {
+                        logical_row(screen.locale)
+                            .gap(px(Space::S8.pixels()))
+                            .child(resource_icon(screen, kind))
+                            .child(
+                                text(screen, Role::Mono, value.clone())
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate(),
+                            )
+                            .children(show_sources.then(|| {
+                                super::super::external_inventory::source_badge(
+                                    screen.palette,
+                                    row.source().map_or_else(
+                                        || "Marsa".into(),
+                                        |source| source.badge.clone(),
+                                    ),
+                                )
+                            }))
+                    } else {
+                        let role = match (kind, index) {
+                            (ResourceKind::Images, 1)
+                            | (ResourceKind::Volumes | ResourceKind::Networks, 1 | 3) => Role::Mono,
+                            _ => Role::Small,
+                        };
+                        text(screen, role, value.clone())
+                            .text_color(tone(screen, ColorToken::TextMuted))
+                            .truncate()
                     };
-                    text(screen, role, value.clone())
-                        .text_color(tone(screen, ColorToken::TextMuted))
-                        .truncate()
-                };
-                column(*width, cell).into_any_element()
-            },
-        ))
-    }));
-    table
+                    column(*width, cell).into_any_element()
+                },
+            ))
+            .child(
+                div()
+                    .size(px(16.))
+                    .flex_shrink_0()
+                    .text_color(tone(screen, ColorToken::TextMuted))
+                    .child(Icon::new(IconName::ChevronRight)),
+            )
+    }))
 }
 
 fn column(width: f32, cell: Div) -> Div {
-    let wrapper = div().min_w_0().overflow_hidden().child(cell);
-    if width == 0. {
-        wrapper.flex_1()
-    } else {
-        wrapper.w(px(width)).flex_shrink_0()
-    }
+    div()
+        .min_w_0()
+        .overflow_hidden()
+        .flex_basis(px(0.))
+        .flex_grow(if width == 0. { 320. } else { width })
+        .child(cell)
 }
 
 pub(super) fn snapshot_rows(

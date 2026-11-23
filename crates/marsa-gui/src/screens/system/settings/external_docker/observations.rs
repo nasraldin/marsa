@@ -6,15 +6,15 @@ use marsa_client::{
 };
 use marsa_ui::{
     ColorToken, TextKey,
-    gpui::{ClipboardItem, Context, Div, ParentElement as _, Styled as _, div},
-    gpui_component::{Disableable as _, button::Button},
+    gpui::{ClipboardItem, Context, Div, ParentElement as _, SharedString, Styled as _, div, px},
+    gpui_component::{Disableable as _, IconName, button::Button},
     gui_keys as gui,
     tokens::typography::Role,
 };
 
 use super::{SystemView, settings_text};
 use crate::screens::{
-    common::{ScreenContext, color, row, technical},
+    common::{ScreenContext, color, panel, row, technical},
     system::activity::utc_time,
 };
 
@@ -61,7 +61,7 @@ impl SystemView {
                     Some(screen.state.volumes().len()),
                     Some(screen.state.networks().len()),
                 );
-                report_body(screen, div().flex().flex_col().gap_3(), &snapshot)
+                report_body(screen, div().flex().flex_col().gap_4(), &snapshot)
             } else {
                 settings_text(
                     screen,
@@ -174,23 +174,23 @@ impl SystemView {
             matches!(page, Load::Loading),
             cx,
         );
-        if let Load::Ready(events) = page {
-            body = body.children(events.iter().map(|event| {
+        if let Load::Ready(events) = page
+            && !events.is_empty()
+        {
+            body = body.child(panel(screen).gap_1().children(events.iter().map(|event| {
+                let time = utc_time(
+                    screen.locale,
+                    screen.display.time_format,
+                    event.timestamp.saturating_mul(1000),
+                );
                 detail(
                     screen,
                     &event.subject,
-                    &format!(
-                        "{} / {} · {}",
-                        event.kind,
-                        event.action,
-                        utc_time(
-                            screen.locale,
-                            screen.display.time_format,
-                            event.timestamp.saturating_mul(1000)
-                        )
-                    ),
+                    &format!("{} / {}", event.kind, event.action),
+                    technical(&time),
+                    ColorToken::TextMuted,
                 )
-            }));
+            })));
         }
         body.children(status(
             screen,
@@ -223,9 +223,10 @@ impl SystemView {
         busy: bool,
         cx: &Context<Self>,
     ) -> Div {
-        div().flex().flex_col().gap_3().child(
+        div().flex().flex_col().gap_4().child(
             row(screen.locale)
                 .gap_3()
+                .flex_wrap()
                 .items_center()
                 .child(
                     settings_text(
@@ -234,11 +235,13 @@ impl SystemView {
                         help.text(screen.locale),
                         ColorToken::TextMuted,
                     )
-                    .flex_1(),
+                    .flex_1()
+                    .min_w(px(200.)),
                 )
                 .child(
                     Button::new("refresh-environment-observations")
                         .outline()
+                        .icon(IconName::RefreshCw)
                         .label(gui::GUI_DESKTOP_REFRESH.text(screen.locale))
                         .disabled(busy)
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -251,21 +254,27 @@ impl SystemView {
 
 fn report_body(screen: &ScreenContext<'_>, body: Div, snapshot: &EnvironmentReport) -> Div {
     let locale = screen.locale;
-    let mut lines = Vec::new();
-    for (label, count) in [
+    let counts = [
         (gui::GUI_DESKTOP_CONTAINERS, Some(snapshot.containers.len())),
         (gui::GUI_DESKTOP_IMAGES, Some(snapshot.image_count)),
         (gui::GUI_DESKTOP_VOLUMES, snapshot.volume_count),
         (gui::GUI_DESKTOP_NETWORKS, snapshot.network_count),
-    ] {
+    ]
+    .map(|(key, count)| {
         let value = count.map_or_else(
             || gui::GUI_DESKTOP_UNAVAILABLE.text(locale).to_owned(),
             |count| count.to_string(),
         );
-        lines.push(format!("{}  {}", label.text(locale), value));
-    }
-    let mut clipboard = lines.join("\n");
-    for container in &snapshot.containers {
+        (key.text(locale), value)
+    });
+    let mut clipboard = counts
+        .iter()
+        .map(|(label, value)| format!("{label}  {value}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut containers = snapshot.containers.iter().collect::<Vec<_>>();
+    containers.sort_by(|first, second| first.name.cmp(&second.name));
+    for container in &containers {
         use std::fmt::Write as _;
         let _ = write!(
             clipboard,
@@ -273,52 +282,137 @@ fn report_body(screen: &ScreenContext<'_>, body: Div, snapshot: &EnvironmentRepo
             container.name, container.image, container.state
         );
     }
+
     body.child(
-        row(locale).gap_2().flex_wrap().children(
-            lines
-                .into_iter()
-                .map(|text| settings_text(screen, Role::Label, text, ColorToken::TextPrimary)),
-        ),
+        panel(screen)
+            .child(
+                row(locale)
+                    .gap_3()
+                    .flex_wrap()
+                    .justify_between()
+                    .child(settings_text(
+                        screen,
+                        Role::Lead,
+                        gui::GUI_ENVIRONMENT_REPORT_SUMMARY.text(locale),
+                        ColorToken::TextPrimary,
+                    ))
+                    .child(
+                        Button::new("copy-environment-report")
+                            .outline()
+                            .label(gui::GUI_ENVIRONMENT_REPORT_COPY.text(locale))
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(clipboard.clone()))
+                            }),
+                    ),
+            )
+            .child(
+                row(locale)
+                    .gap_3()
+                    .flex_wrap()
+                    .children(counts.map(|(label, value)| {
+                        div()
+                            .min_w(px(120.))
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .py_2()
+                            .border_t_1()
+                            .border_color(color(screen.palette, ColorToken::BorderSubtle))
+                            .child(settings_text(
+                                screen,
+                                Role::Small,
+                                label,
+                                ColorToken::TextMuted,
+                            ))
+                            .child(settings_text(
+                                screen,
+                                Role::Title,
+                                value,
+                                ColorToken::TextPrimary,
+                            ))
+                    })),
+            ),
     )
     .child(
-        row(locale).child(
-            Button::new("copy-environment-report")
-                .outline()
-                .label(gui::GUI_ENVIRONMENT_REPORT_COPY.text(locale))
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(clipboard.clone()))
-                }),
-        ),
+        panel(screen)
+            .gap_2()
+            .child(settings_text(
+                screen,
+                Role::Lead,
+                gui::GUI_DESKTOP_CONTAINERS.text(locale),
+                ColorToken::TextPrimary,
+            ))
+            .children(containers.is_empty().then(|| {
+                settings_text(
+                    screen,
+                    Role::Small,
+                    gui::GUI_ENVIRONMENT_REPORT_NO_CONTAINERS.text(locale),
+                    ColorToken::TextMuted,
+                )
+            }))
+            .children(containers.into_iter().map(|container| {
+                let (label, tone) = match container.state.as_str() {
+                    "running" => (
+                        gui::GUI_DESKTOP_RUNNING.text(locale).into(),
+                        ColorToken::StatusRunning,
+                    ),
+                    "exited" | "dead" => (
+                        gui::GUI_DESKTOP_STOPPED.text(locale).into(),
+                        ColorToken::TextMuted,
+                    ),
+                    "paused" => (
+                        gui::GUI_DESKTOP_PAUSED.text(locale).into(),
+                        ColorToken::StatusWarning,
+                    ),
+                    _ => (technical(&container.state), ColorToken::TextMuted),
+                };
+                detail(screen, &container.name, &container.image, label, tone)
+            })),
     )
-    .children(snapshot.containers.iter().map(|container| {
-        detail(
-            screen,
-            &container.name,
-            &format!("{} · {}", container.state, container.image),
-        )
-    }))
 }
 
-fn detail(screen: &ScreenContext<'_>, title: &str, metadata: &str) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap_1()
+fn detail(
+    screen: &ScreenContext<'_>,
+    title: &str,
+    metadata: &str,
+    annotation: SharedString,
+    tone: ColorToken,
+) -> Div {
+    row(screen.locale)
+        .flex_wrap()
+        .justify_between()
+        .gap_2()
         .py_2()
         .border_t_1()
         .border_color(color(screen.palette, ColorToken::BorderSubtle))
-        .child(settings_text(
-            screen,
-            Role::Label,
-            technical(title),
-            ColorToken::TextPrimary,
-        ))
-        .child(settings_text(
-            screen,
-            Role::Small,
-            technical(metadata),
-            ColorToken::TextMuted,
-        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .flex_1()
+                .min_w(px(185.))
+                .child(
+                    settings_text(
+                        screen,
+                        Role::Label,
+                        technical(title),
+                        ColorToken::TextPrimary,
+                    )
+                    .truncate(),
+                )
+                .child(
+                    settings_text(
+                        screen,
+                        Role::Small,
+                        technical(metadata),
+                        ColorToken::TextMuted,
+                    )
+                    .truncate(),
+                ),
+        )
+        .child(settings_text(screen, Role::Small, annotation, tone))
 }
 
 fn status<T>(

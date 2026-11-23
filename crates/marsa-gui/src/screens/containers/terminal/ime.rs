@@ -126,10 +126,11 @@ impl EntityInputHandler for ContainerView {
         _: Range<usize>,
         bounds: Bounds<Pixels>,
         window: &mut Window,
-        _: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let (row, column) = self.terminal.current()?.parser.screen().cursor_position();
-        let width = cell_width(window, Family::terminal(self.display.terminal_font));
+        let family = Family::available_terminal(self.display.terminal_font, cx);
+        let width = cell_width(window, family);
         let origin = Point {
             x: bounds.origin.x + width * f32::from(column),
             y: bounds.origin.y + CELL_HEIGHT * f32::from(row),

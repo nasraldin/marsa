@@ -12,10 +12,10 @@ use marsa_ui::{
     ColorToken, Palette,
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
-        AnyElement, App, Context, Div, FontWeight, IntoElement, ParentElement as _, PathBuilder,
-        Styled as _, Task, canvas, div, point, px,
+        AnyElement, App, Context, Div, FontWeight, InteractiveElement as _, IntoElement,
+        ParentElement as _, PathBuilder, Styled as _, Task, Window, canvas, div, point, px,
     },
-    gpui_component::{IconName, button::Button},
+    gpui_component::{IconName, button::Button, scroll::ScrollableElement as _},
 };
 
 use crate::{
@@ -137,6 +137,7 @@ pub(super) fn follow(mut stream: Batches<StatsSample>, cx: &Context<ContainerVie
 pub(super) fn render(
     view: &ContainerView,
     screen: &ScreenContext<'_>,
+    window: &Window,
     cx: &mut Context<ContainerView>,
 ) -> AnyElement {
     let samples = view.stats.paused.as_ref().unwrap_or(&view.stats.samples);
@@ -195,51 +196,63 @@ pub(super) fn render(
                 .child(label(screen, en, ar)),
         );
     }
-    body.child(
-        row(cx)
-            .gap_3()
-            .child(metric(
-                screen,
-                ("CPU", "المعالج"),
-                cx,
-                ColorToken::ChartCpu,
-                samples,
-                |sample| sample.cpu,
-                |value| format!("{value:.1}%"),
-            ))
-            .child(metric(
-                screen,
-                ("Memory", "الذاكرة"),
-                cx,
-                ColorToken::ChartMemory,
-                samples,
-                |sample| sample.memory,
-                |value| bytes(value, false),
-            )),
-    )
-    .child(
-        row(cx)
-            .gap_3()
-            .child(metric(
-                screen,
-                ("Network I/O", "نقل البيانات عبر الشبكة"),
-                cx,
-                ColorToken::ChartNetwork,
-                samples,
-                |sample| sample.network_rate,
-                |value| bytes(value, true),
-            ))
-            .child(metric(
-                screen,
-                ("Disk I/O", "قراءة القرص وكتابته"),
-                cx,
-                ColorToken::ChartDisk,
-                samples,
-                |sample| sample.disk_rate,
-                |value| bytes(value, true),
-            )),
-    )
-    .into_any_element()
+    let pair = || {
+        if window.viewport_size().width < px(1040.) {
+            div().flex().flex_col().gap_3()
+        } else {
+            row(cx).gap_3()
+        }
+    };
+    let charts = body
+        .child(
+            pair()
+                .child(metric(
+                    screen,
+                    ("CPU", "المعالج"),
+                    cx,
+                    ColorToken::ChartCpu,
+                    samples,
+                    |sample| sample.cpu,
+                    |value| format!("{value:.1}%"),
+                ))
+                .child(metric(
+                    screen,
+                    ("Memory", "الذاكرة"),
+                    cx,
+                    ColorToken::ChartMemory,
+                    samples,
+                    |sample| sample.memory,
+                    |value| bytes(value, false),
+                )),
+        )
+        .child(
+            pair()
+                .child(metric(
+                    screen,
+                    ("Network I/O", "نقل البيانات عبر الشبكة"),
+                    cx,
+                    ColorToken::ChartNetwork,
+                    samples,
+                    |sample| sample.network_rate,
+                    |value| bytes(value, true),
+                ))
+                .child(metric(
+                    screen,
+                    ("Disk I/O", "قراءة القرص وكتابته"),
+                    cx,
+                    ColorToken::ChartDisk,
+                    samples,
+                    |sample| sample.disk_rate,
+                    |value| bytes(value, true),
+                )),
+        );
+    div()
+        .id("container-statistics-scroll")
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scrollbar()
+        .child(charts)
+        .into_any_element()
 }
 
 fn metric(

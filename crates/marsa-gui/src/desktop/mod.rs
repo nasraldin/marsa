@@ -431,8 +431,6 @@ impl Render for Desktop {
                             .text_color(color(palette, ColorToken::TextMuted))
                             .child(if failed {
                                 gui::GUI_SYSTEM_ENGINE_FAILED_SUBTITLE.text(self.locale)
-                            } else if !local && route != Route::Settings {
-                                gui::GUI_ENVIRONMENT_SCOPE.text(self.locale)
                             } else {
                                 route.description(self.locale)
                             }),
@@ -561,12 +559,7 @@ impl Render for Desktop {
             .flex_1()
             .min_h_0()
             .child(view);
-        let content = if route == Route::Settings {
-            content.px_3()
-        } else {
-            content
-        };
-        let content = if route == Route::Containers && !failed {
+        let content = if route == Route::Settings || (route == Route::Containers && !failed) {
             content.overflow_hidden().into_any_element()
         } else {
             content.overflow_y_scrollbar().into_any_element()

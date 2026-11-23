@@ -58,12 +58,12 @@ impl Route {
         let (en, ar) = match self {
             Self::Overview => return marsa_ui::gui_keys::GUI_OVERVIEW_DESCRIPTION.text(locale),
             Self::Containers => (
-                "Containers and Compose projects on this Mac.",
-                "الحاويات ومشاريع Compose على هذا الـ Mac.",
+                "Inspect and manage containers in the active environment.",
+                "افحص الحاويات وأدِرها في البيئة النشطة.",
             ),
             Self::Images => (
-                "Manage local container images.",
-                "إدارة صور الحاويات المحلية.",
+                "Manage the images available to this engine.",
+                "أدِر الصور المتاحة لهذا المحرّك.",
             ),
             Self::Volumes => (
                 "Manage persistent container storage.",
@@ -79,8 +79,8 @@ impl Route {
                 "إدارة جهاز Linux الافتراضي الذي يشغّل مرسى.",
             ),
             Self::Disk => (
-                "Storage used by the local engine on this Mac.",
-                "مساحة التخزين التي يستخدمها المحرّك المحلي على هذا الـ Mac.",
+                "Review engine storage and recover unused space.",
+                "راجع مساحة تخزين المحرّك واستعِد المساحة غير المستخدمة.",
             ),
             Self::Activity => (
                 "Review engine events and decisions for agent requests.",
@@ -91,8 +91,8 @@ impl Route {
                 "راجع قائمة موارد المحرّك النشط.",
             ),
             Self::Settings => (
-                "Manage how Marsa runs on this Mac.",
-                "إدارة طريقة تشغيل مرسى على هذا الـ Mac.",
+                "Manage desktop preferences, environments, and integrations.",
+                "أدِر تفضيلات سطح المكتب والبيئات والتكاملات.",
             ),
         };
         copy(locale, en, ar)

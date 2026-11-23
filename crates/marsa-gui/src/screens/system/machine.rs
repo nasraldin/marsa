@@ -155,7 +155,8 @@ impl SystemView {
         });
         let resources = self.settings.as_ref().map(|(settings, _)| {
             row(locale)
-                .gap_4()
+                .flex_wrap()
+                .gap_3()
                 .child(resource(
                     screen,
                     "icons/cpu.svg",
@@ -182,54 +183,80 @@ impl SystemView {
                         .unwrap_or_else(|| gui::GUI_DESKTOP_UNAVAILABLE.text(locale).to_owned()),
                 ))
         });
-        let boot = startup_copy(state);
+        let actions = row(locale)
+            .gap_2()
+            .flex_wrap()
+            .children(controls.iter().copied().map(|action| {
+                let (id, key, glyph) = match action {
+                    EngineAction::Start => (
+                        "start-machine",
+                        gui::GUI_DESKTOP_START_MACHINE,
+                        IconName::Play,
+                    ),
+                    EngineAction::Stop => (
+                        "stop-machine",
+                        gui::GUI_DESKTOP_STOP_MACHINE,
+                        IconName::Square,
+                    ),
+                    EngineAction::Restart => (
+                        "restart-machine",
+                        gui::GUI_DESKTOP_RESTART_MACHINE,
+                        IconName::RefreshCw,
+                    ),
+                };
+                let button = Button::new(id)
+                    .icon(glyph)
+                    .disabled(self.busy())
+                    .label(key.text(locale))
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.engine(action, locale, window, cx)
+                    }));
+                if matches!(action, EngineAction::Start) {
+                    button.primary()
+                } else {
+                    button.outline()
+                }
+            }));
         let detail = engine.cloned();
         div().flex().flex_col().gap_4()
-            .child(panel(screen).gap_4().pt_3()
-                .child(row(locale).justify_between().items_start().gap_3()
-                    .child(div().flex().flex_col().gap_4()
-                        .child(row(locale).gap_2()
-                            .child(system_icon(screen.palette, "icons/server.svg"))
-                            .child(title_text(gui::GUI_DESKTOP_LINUX_VIRTUAL_MACHINE.text(locale))))
-                        .child(row(locale).child(status::compact_badge(locale, palette, state))))
-                    .child(row(locale).gap_2().children(controls.iter().copied().map(|action| {
-                        let (id, key) = match action {
-                            EngineAction::Start => ("start-machine", gui::GUI_DESKTOP_START_MACHINE),
-                            EngineAction::Stop => ("stop-machine", gui::GUI_DESKTOP_STOP_MACHINE),
-                            EngineAction::Restart => ("restart-machine", gui::GUI_DESKTOP_RESTART_MACHINE),
-                        };
-                        Button::new(id).outline().h(px(44.)).disabled(self.busy()).label(key.text(locale))
-                            .on_click(cx.listener(move |view, _, window, cx| view.engine(action, locale, window, cx)))
-                    }))))
-                .child(row(locale).gap_4().border_t_1().pt_2()
+            .child(panel(screen)
+                .child(row(locale).justify_between().gap_3().flex_wrap()
+                    .child(row(locale).gap_2().flex_wrap()
+                        .child(system_icon(palette, "icons/server.svg"))
+                        .child(title_text(gui::GUI_DESKTOP_LINUX_VIRTUAL_MACHINE.text(locale)))
+                        .child(status::compact_badge(locale, palette, state)))
+                    .child(actions))
+                .children(running.then(|| muted(palette, gui::GUI_DESKTOP_RUNNING_WORKLOADS_WILL_BE_INTERRUPTED_SAVE_YOUR_WORK_FIRST.text(locale))))
+                .child(row(locale).flex_wrap().gap_3().border_t_1().pt_3()
                     .border_color(color(palette, ColorToken::BorderSubtle))
                     .child(machine_fact(screen, gui::GUI_DESKTOP_BACKEND, backend))
                     .child(machine_fact(screen, gui::GUI_SYSTEM_MACHINE_ARCHITECTURE, host_architecture()))
-                    .child(machine_fact(screen, gui::GUI_DESKTOP_DOCKER_CONTEXT, if engine.is_some() { "marsa" } else { "—" })))
-                .children(running.then(|| muted(palette, gui::GUI_DESKTOP_RUNNING_WORKLOADS_WILL_BE_INTERRUPTED_SAVE_YOUR_WORK_FIRST.text(locale)))),
+                    .child(machine_fact(screen, gui::GUI_DESKTOP_DOCKER_CONTEXT, if engine.is_some() { "marsa" } else { "—" }))),
             )
-            .child(panel(screen).gap_4().pt_3()
-                .child(div().flex().flex_col().gap_1()
-                    .child(title_text(gui::GUI_DESKTOP_RESOURCES.text(locale)))
-                    .child(muted(palette, gui::GUI_SYSTEM_MACHINE_RESOURCE_NOTICE.text(locale))))
+            .child(panel(screen)
+                .child(row(locale).justify_between().gap_3().flex_wrap()
+                    .child(div().min_w_0().flex().flex_col().gap_1()
+                        .child(title_text(gui::GUI_DESKTOP_RESOURCES.text(locale)))
+                        .child(muted(palette, gui::GUI_SYSTEM_MACHINE_RESOURCE_NOTICE.text(locale))))
+                    .children((!self.restart_required).then(|| {
+                        Button::new("edit-machine-resources").outline()
+                            .disabled(self.settings.is_none() || self.busy())
+                            .label(gui::GUI_DESKTOP_EDIT_RESOURCES.text(locale))
+                            .on_click(cx.listener(move |view, _, window, cx| view.edit_machine_resources(locale, palette, window, cx)))
+                    })))
                 .children(resources)
-                .child(if self.restart_required {
-                    div().text_size(ui_size(14.)).text_color(color(palette, ColorToken::AccentDefault))
+                .children(self.restart_required.then(|| {
+                    div().text_sm().text_color(color(palette, ColorToken::StatusWarning))
                         .child(gui::GUI_DESKTOP_RESOURCE_CHANGES_ARE_PENDING.text(locale))
-                } else {
-                    row(locale).justify_end().child(Button::new("edit-machine-resources").outline().h(px(44.))
-                        .disabled(self.settings.is_none() || self.busy())
-                        .label(gui::GUI_DESKTOP_EDIT_RESOURCES.text(locale))
-                        .on_click(cx.listener(move |view, _, window, cx| view.edit_machine_resources(locale, palette, window, cx))))
-                }),
+                })),
             )
-            .child(panel(screen).child(row(locale).justify_between().gap_4()
-                .child(div().flex().flex_col().gap_1()
+            .child(panel(screen).child(row(locale).justify_between().gap_3().flex_wrap()
+                .child(div().min_w_0().flex().flex_col().gap_1()
                     .child(title_text(gui::GUI_DESKTOP_BOOT_DIAGNOSTICS.text(locale)))
-                    .child(muted(palette, boot.text(locale)))
+                    .child(muted(palette, startup_copy(state).text(locale)))
                     .children(matches!(state, Some(EngineState::Starting | EngineState::Booting | EngineState::Failed))
                         .then(|| engine.and_then(|engine| engine.boot_stage.as_deref())).flatten().map(mono)))
-                .child(Button::new("startup-details").outline().h(px(44.))
+                .child(Button::new("startup-details").outline()
                     .label(gui::GUI_DESKTOP_VIEW_STARTUP_DETAILS.text(locale))
                     .on_click(cx.listener(move |view, _, window, cx| view.startup_details(detail.clone(), locale, palette, window, cx))))),
             )
@@ -290,11 +317,33 @@ impl SystemView {
                     ),
             )
             .child(
+                row(locale)
+                    .gap_2()
+                    .flex_wrap()
+                    .child(
+                        Button::new("failed-machine-diagnostics")
+                            .outline()
+                            .icon(Icon::default().path("icons/download.svg"))
+                            .label(gui::GUI_DESKTOP_COLLECT_DIAGNOSTICS.text(locale))
+                            .disabled(self.busy() || self.services.is_none())
+                            .on_click(cx.listener(|view, _, _, cx| view.collect_diagnostics(cx))),
+                    )
+                    .child(
+                        Button::new("retry-failed-machine")
+                            .primary()
+                            .icon(Icon::default().path("icons/refresh-cw.svg"))
+                            .label(gui::GUI_DESKTOP_RETRY.text(locale))
+                            .disabled(self.busy() || self.services.is_none())
+                            .on_click(cx.listener(|view, _, _, cx| {
+                                view.run_engine(EngineAction::Start, cx)
+                            })),
+                    ),
+            )
+            .child(
                 panel(screen)
                     .rounded(px(8.))
-                    .min_h(px(126.))
                     .child(title_text(gui::GUI_SYSTEM_MACHINE_BOOT_STAGES.text(locale)))
-                    .child(row(locale).gap_4().py_3().children(
+                    .child(row(locale).gap_3().flex_wrap().children(
                         stages.into_iter().enumerate().map(|(index, label)| {
                             let (icon, tone) = if actual.0 == Some(index) {
                                 ("icons/triangle-alert.svg", ColorToken::StatusError)
@@ -305,7 +354,7 @@ impl SystemView {
                             };
                             row(locale)
                                 .flex_1()
-                                .min_w_0()
+                                .min_w(px(128.))
                                 .gap_2()
                                 .text_size(ui_size(13.))
                                 .text_color(color(palette, tone))
@@ -317,7 +366,6 @@ impl SystemView {
             .child(
                 panel(screen)
                     .rounded(px(8.))
-                    .min_h(px(198.))
                     .bg(color(palette, ColorToken::BgCode))
                     .child(title_text(
                         gui::GUI_SYSTEM_MACHINE_RECENT_BOOT_LOGS.text(locale),
@@ -337,32 +385,6 @@ impl SystemView {
                                     palette,
                                     gui::GUI_SYSTEM_MACHINE_NO_STARTUP_DETAILS.text(locale),
                                 )
-                            })),
-                    ),
-            )
-            .child(
-                row(locale)
-                    .justify_end()
-                    .gap_2()
-                    .pt_2()
-                    .child(
-                        Button::new("failed-machine-diagnostics")
-                            .outline()
-                            .icon(Icon::default().path("icons/download.svg"))
-                            .accessibility_label(gui::GUI_DESKTOP_COLLECT_DIAGNOSTICS.text(locale))
-                            .tooltip(gui::GUI_DESKTOP_COLLECT_DIAGNOSTICS.text(locale))
-                            .disabled(self.busy() || self.services.is_none())
-                            .on_click(cx.listener(|view, _, _, cx| view.collect_diagnostics(cx))),
-                    )
-                    .child(
-                        Button::new("retry-failed-machine")
-                            .primary()
-                            .icon(Icon::default().path("icons/refresh-cw.svg"))
-                            .accessibility_label(gui::GUI_DESKTOP_RETRY.text(locale))
-                            .tooltip(gui::GUI_DESKTOP_RETRY.text(locale))
-                            .disabled(self.busy() || self.services.is_none())
-                            .on_click(cx.listener(|view, _, _, cx| {
-                                view.run_engine(EngineAction::Start, cx)
                             })),
                     ),
             )
@@ -624,7 +646,7 @@ fn machine_fact(screen: &ScreenContext<'_>, key: TextKey, value: &str) -> Div {
         .flex_col()
         .gap_1()
         .flex_1()
-        .min_w_0()
+        .min_w(px(128.))
         .child(muted(screen.palette, key.text(screen.locale)))
         .child(mono(value))
 }
@@ -634,9 +656,9 @@ fn resource(screen: &ScreenContext<'_>, icon: &'static str, key: TextKey, value:
         .flex()
         .flex_col()
         .flex_1()
-        .min_w_0()
+        .min_w(px(128.))
         .p_3()
-        .gap_3()
+        .gap_2()
         .rounded(px(8.))
         .bg(color(screen.palette, ColorToken::BgSubtle))
         .child(
@@ -645,7 +667,12 @@ fn resource(screen: &ScreenContext<'_>, icon: &'static str, key: TextKey, value:
                 .child(system_icon(screen.palette, icon))
                 .child(muted(screen.palette, key.text(screen.locale))),
         )
-        .child(mono(&value))
+        .child(
+            screen
+                .typography(marsa_ui::tokens::typography::Role::Label)
+                .apply(div())
+                .child(technical(&value)),
+        )
 }
 
 fn cancel_button(id: &'static str, locale: Locale) -> Button {

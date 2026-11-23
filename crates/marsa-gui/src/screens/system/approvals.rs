@@ -36,14 +36,9 @@ impl SystemView {
         row(locale)
             .min_h(px(53.))
             .gap_3()
+            .py_2()
             .border_t_1()
             .border_color(color(palette, ColorToken::BorderSubtle))
-            .child(
-                div()
-                    .w(px(112.))
-                    .text_color(color(palette, ColorToken::StatusStarting))
-                    .child(gui::GUI_SYSTEM_ACTIVITY_PENDING.text(locale)),
-            )
             .child(
                 div()
                     .flex_1()
@@ -51,7 +46,18 @@ impl SystemView {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(mono(&approval.client_name))
+                    .child(
+                        row(locale)
+                            .gap_2()
+                            .flex_wrap()
+                            .child(mono(&approval.client_name))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(color(palette, ColorToken::StatusStarting))
+                                    .child(gui::GUI_SYSTEM_ACTIVITY_PENDING.text(locale)),
+                            ),
+                    )
                     .child(
                         mono(approval.operation().as_str_name())
                             .text_color(color(palette, ColorToken::TextMuted)),

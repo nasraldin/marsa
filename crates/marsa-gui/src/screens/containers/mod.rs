@@ -692,7 +692,7 @@ impl Render for ContainerView {
         }) {
             detail::render(self, target, entry, window, cx)
         } else {
-            list::render(self, cx)
+            list::render(self, window, cx)
         }
     }
 }

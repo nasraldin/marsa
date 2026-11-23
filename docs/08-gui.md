@@ -220,11 +220,15 @@ flowchart LR
 
 Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
 
-Settings → General lets you choose IBM Plex or the macOS system font for the
-interface, set the base text size, and use IBM Plex Mono or Menlo in the
-terminal. The 12-hour and 24-hour choices apply to the displayed times in
-activity, approvals, and logs. Log timestamps use the time zone configured
-under Logs & files. Copied and downloaded logs retain their RFC 3339 timestamps.
+Settings → General groups the interface and terminal font menus with six
+base text sizes. IBM Plex supplies the defaults and Arabic glyph fallback.
+The menus include native macOS system faces and the
+[optional bundled families](../assets/fonts/README.md#optional-typefaces).
+SF Mono and Consolas appear when the Mac supplies them. If an installed font
+is subsequently unavailable, the terminal uses IBM Plex Mono. The 12-hour
+and 24-hour choices apply to the displayed times in activity, approvals, and
+logs. Log timestamps use the time zone configured under Logs & files. Copied
+and downloaded logs retain their RFC 3339 timestamps.
 
 Settings → Environments lists the built-in Marsa engine, saved connections,
 and discovered Docker engines in one table. Test a row or use Test all to

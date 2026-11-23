@@ -19,14 +19,17 @@ use crate::screens::common::message;
 use marsa_client::api::UpdateSettingsRequest;
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
-    ColorToken, Locale,
+    ColorToken, Locale, TextKey,
+    direction::LogicalStyle,
     gpui::{
-        Context, Div, ParentElement, PromptButton, PromptLevel, SharedString, Styled, Window, div,
-        px, svg,
+        Anchor, Context, Div, InteractiveElement, ParentElement, PromptButton, PromptLevel,
+        SharedString, Styled, Window, div, px, svg,
     },
     gpui_component::{
         Disableable, Selectable,
         button::{Button, ButtonVariants, Toggle, ToggleGroup, ToggleVariants},
+        menu::{DropdownMenu, PopupMenuItem},
+        scroll::ScrollableElement,
         switch::Switch,
     },
     preferences::{DownloadFormat, Language, LogBufferSize, OperateApproval, Settings, Theme},
@@ -47,8 +50,9 @@ pub(super) use registries::RegistrySettings;
 pub(super) use resources::ResourceInputs;
 pub(super) use update::UpdatePanel;
 
+/// A destination in the Settings workspace.
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum SettingsTab {
+pub(crate) enum SettingsTab {
     General,
     Sharing,
     Environments,
@@ -64,7 +68,33 @@ pub(super) enum SettingsTab {
 }
 
 impl SettingsTab {
-    fn icon(self) -> &'static str {
+    /// The same destination groups used in the rail and compact picker.
+    pub(crate) const GROUPS: [(TextKey, &'static [Self]); 4] = [
+        (
+            gui::GUI_SETTINGS_SECTION_APPLICATION,
+            &[Self::General, Self::Notifications, Self::Logs],
+        ),
+        (
+            gui::GUI_SETTINGS_SECTION_INFRASTRUCTURE,
+            &[Self::Environments, Self::Sharing, Self::Agents],
+        ),
+        (
+            gui::GUI_SETTINGS_SECTION_DEPLOYMENT,
+            &[
+                Self::Registries,
+                Self::GitSources,
+                Self::ComposeTemplate,
+                Self::ConfigSets,
+            ],
+        ),
+        (
+            gui::GUI_SETTINGS_SECTION_SUPPORT,
+            &[Self::Updates, Self::About],
+        ),
+    ];
+
+    /// Icon shared by the Settings rail and command search.
+    pub(crate) fn icon(self) -> &'static str {
         match self {
             Self::General => "icons/sliders-horizontal.svg",
             Self::Sharing => "icons/folder-open.svg",
@@ -81,7 +111,8 @@ impl SettingsTab {
         }
     }
 
-    fn title(self, locale: Locale) -> &'static str {
+    /// Localized Settings destination label.
+    pub(crate) fn title(self, locale: Locale) -> &'static str {
         let (en, ar) = match self {
             Self::General => ("General", "عام"),
             Self::Sharing => ("Sharing", "المشاركة"),
@@ -108,67 +139,49 @@ impl SystemView {
         cx: &mut Context<Self>,
     ) -> Div {
         let locale = screen.locale;
-        let navigation = div().flex().flex_col().gap_4().flex_shrink_0();
-        let navigation = if compact {
-            navigation.w_full()
-        } else {
-            navigation.w(px(170.))
-        };
-        let navigation = navigation.children(
-            [
-                (
-                    gui::GUI_SETTINGS_SECTION_APPLICATION.text(locale),
-                    &[
-                        SettingsTab::General,
-                        SettingsTab::Notifications,
-                        SettingsTab::Logs,
-                        SettingsTab::Updates,
-                        SettingsTab::About,
-                    ][..],
-                ),
-                (
-                    gui::GUI_SETTINGS_SECTION_INFRASTRUCTURE.text(locale),
-                    &[
-                        SettingsTab::Environments,
-                        SettingsTab::Sharing,
-                        SettingsTab::Agents,
-                    ][..],
-                ),
-                (
-                    gui::GUI_SETTINGS_SECTION_DEPLOYMENT.text(locale),
-                    &[
-                        SettingsTab::Registries,
-                        SettingsTab::GitSources,
-                        SettingsTab::ComposeTemplate,
-                        SettingsTab::ConfigSets,
-                    ][..],
-                ),
-            ]
-            .into_iter()
-            .map(|(group, tabs)| {
+        let selected = self.settings_tab;
+        let navigation =
+            if compact {
                 div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
+                    .flex_shrink_0()
+                    .child(self.settings_section_picker(screen, cx))
+            } else {
+                div()
+                    .w(px(188.))
+                    .h_full()
+                    .flex_shrink_0()
+                    .border_end(px(1.), cx)
+                    .border_color(color(screen.palette, ColorToken::BorderSubtle))
                     .child(
-                        settings_text(screen, Role::Small, group, ColorToken::TextMuted)
+                        div()
+                            .id("settings-navigation")
+                            .h_full()
+                            .min_h_0()
                             .px_2()
-                            .pb_1(),
+                            .overflow_y_scrollbar()
+                            .child(div().flex().flex_col().gap_4().pb_3().children(
+                                SettingsTab::GROUPS.into_iter().map(|(group, tabs)| {
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .gap_1()
+                                        .child(
+                                            settings_text(
+                                                screen,
+                                                Role::Small,
+                                                group.text(locale),
+                                                ColorToken::TextMuted,
+                                            )
+                                            .px_2()
+                                            .pb_1(),
+                                        )
+                                        .children(tabs.iter().copied().map(|tab| {
+                                            self.settings_navigation_item(tab, screen, cx)
+                                        }))
+                                }),
+                            )),
                     )
-                    .child({
-                        let items = if compact {
-                            row(locale).flex_wrap().gap_1()
-                        } else {
-                            div().flex().flex_col().gap_1()
-                        };
-                        items.children(
-                            tabs.iter()
-                                .copied()
-                                .map(|tab| self.settings_navigation_item(tab, screen, compact, cx)),
-                        )
-                    })
-            }),
-        );
+            };
         let content = match self.settings_tab {
             SettingsTab::General => self.general(screen, cx),
             SettingsTab::Sharing => self.sharing(screen, cx),
@@ -193,28 +206,75 @@ impl SystemView {
         } else {
             row(locale).items_start()
         };
-        layout.gap_5().child(navigation).child(
+        layout.h_full().min_h_0().gap_4().child(navigation).child(
             div()
-                .flex()
-                .flex_col()
-                .gap_4()
+                .id(("settings-page", selected as usize))
                 .flex_1()
                 .min_w_0()
-                .child(settings_text(
-                    screen,
-                    Role::Title,
-                    self.settings_tab.title(locale),
-                    ColorToken::TextPrimary,
-                ))
-                .child(content),
+                .min_h_0()
+                .h_full()
+                .px_3()
+                .overflow_y_scrollbar()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_4()
+                        .w_full()
+                        .min_w_0()
+                        .pb_5()
+                        .child(settings_text(
+                            screen,
+                            Role::Lead,
+                            selected.title(locale),
+                            ColorToken::TextPrimary,
+                        ))
+                        .child(content),
+                ),
         )
+    }
+
+    fn settings_section_picker(
+        &self,
+        screen: &ScreenContext<'_>,
+        cx: &Context<Self>,
+    ) -> impl marsa_ui::gpui::IntoElement {
+        let locale = screen.locale;
+        let current = self.settings_tab;
+        let view = cx.weak_entity();
+        let anchor = match locale {
+            Locale::EnglishUs => Anchor::TopLeft,
+            Locale::Arabic => Anchor::TopRight,
+        };
+        Button::new("settings-section-picker")
+            .outline()
+            .icon(marsa_ui::gpui_component::Icon::default().path(current.icon()))
+            .label(current.title(locale))
+            .dropdown_caret(true)
+            .accessibility_label(gui::GUI_SETTINGS_CHOOSE_SECTION.text(locale))
+            .dropdown_menu_with_anchor(anchor, move |mut menu, _, _| {
+                for (label, items) in SettingsTab::GROUPS {
+                    menu = menu.label(label.text(locale));
+                    for &tab in items {
+                        let view = view.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(tab.title(locale))
+                                .checked(tab == current)
+                                .on_click(move |_, _, cx| {
+                                    let _ = view
+                                        .update(cx, |this, cx| this.select_settings_tab(tab, cx));
+                                }),
+                        );
+                    }
+                }
+                menu.max_h(px(420.))
+            })
     }
 
     fn settings_navigation_item(
         &self,
         tab: SettingsTab,
         screen: &ScreenContext<'_>,
-        compact: bool,
         cx: &Context<Self>,
     ) -> Button {
         let locale = screen.locale;
@@ -227,6 +287,8 @@ impl SystemView {
         let button = Button::new(("settings-tab", tab as usize))
             .ghost()
             .selected(selected)
+            .toggled(selected)
+            .w_full()
             .h(px(Space::S36.pixels()))
             .rounded(px(Radius::R8.pixels()))
             .px_2()
@@ -248,25 +310,27 @@ impl SystemView {
                         foreground,
                     )),
             );
-        let button = if compact { button } else { button.w_full() };
         let button = if selected {
             button.bg(color(screen.palette, ColorToken::AccentSubtle))
         } else {
             button
         };
-        button.on_click(cx.listener(move |this, _, _, cx| {
-            this.settings_tab = tab;
-            match tab {
-                SettingsTab::Updates => this.load_update_status(cx),
-                SettingsTab::Environments => this.refresh_environments(cx),
-                SettingsTab::About => this.load_about(cx),
-                SettingsTab::GitSources => this.load_git_sources(cx),
-                SettingsTab::Registries => this.load_registries(cx),
-                SettingsTab::General => this.load_login(cx),
-                _ => {}
-            }
-            cx.notify();
-        }))
+        button.on_click(cx.listener(move |this, _, _, cx| this.select_settings_tab(tab, cx)))
+    }
+
+    /// Open a Settings section and load its latest state when needed.
+    pub(crate) fn select_settings_tab(&mut self, tab: SettingsTab, cx: &mut Context<Self>) {
+        self.settings_tab = tab;
+        match tab {
+            SettingsTab::Updates => self.load_update_status(cx),
+            SettingsTab::Environments => self.refresh_environments(cx),
+            SettingsTab::About => self.load_about(cx),
+            SettingsTab::GitSources => self.load_git_sources(cx),
+            SettingsTab::Registries => self.load_registries(cx),
+            SettingsTab::General => self.load_login(cx),
+            _ => {}
+        }
+        cx.notify();
     }
 
     fn general(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
@@ -282,42 +346,15 @@ impl SystemView {
             (Theme::Light, gui::GUI_DESKTOP_LIGHT.text(locale)),
             (Theme::Dark, gui::GUI_DESKTOP_DARK.text(locale)),
         ];
-        let general = settings_card(screen)
-            .pb(px(Space::S24.pixels()))
-            .child(settings_heading(
+        let language = gui::GUI_DESKTOP_SETTINGS_LANGUAGE.text(locale);
+        let appearance = gui::GUI_DESKTOP_SETTINGS_APPEARANCE.text(locale);
+        let look = preference_section(screen, gui::GUI_SETTINGS_APPEARANCE_SECTION)
+            .child(setting_row(
                 screen,
-                gui::GUI_SETTINGS_PREFERENCES.text(locale),
-                gui::GUI_DESKTOP_CHANGES_APPLY_IMMEDIATELY.text(locale),
-            ))
-            .child(setting(
-                screen,
-                "Language",
-                "اللغة",
-                "Uses the selected language throughout the app.",
-                "تُستخدم اللغة المحدّدة في جميع أنحاء التطبيق.",
+                appearance,
+                gui::GUI_SETTINGS_THEME_HELP.text(locale),
                 setting_choices(
-                    (
-                        "language-picker",
-                        gui::GUI_DESKTOP_SETTINGS_LANGUAGE.text(locale),
-                    ),
-                    languages,
-                    preferences.map(|(language, _)| language),
-                    self.busy(),
-                    |settings, value| settings.ui.language = value,
-                    cx,
-                ),
-            ))
-            .child(setting(
-                screen,
-                "Appearance",
-                "المظهر",
-                "Choose a theme or follow macOS.",
-                "اختر مظهرًا أو اتبع إعداد macOS.",
-                setting_choices(
-                    (
-                        "appearance-picker",
-                        gui::GUI_DESKTOP_SETTINGS_APPEARANCE.text(locale),
-                    ),
+                    ("appearance-picker", appearance),
                     themes,
                     preferences.map(|(_, theme)| theme),
                     self.busy(),
@@ -325,14 +362,34 @@ impl SystemView {
                     cx,
                 ),
             ))
-            .children(self.appearance_settings(screen, cx))
+            .child(self.accent_picker(screen, cx));
+        let typography = preference_section(screen, gui::GUI_SETTINGS_TYPOGRAPHY_SECTION)
+            .children(self.typography_settings(screen, cx));
+        let region = preference_section(screen, gui::GUI_SETTINGS_REGION_SECTION)
+            .child(setting_row(
+                screen,
+                language,
+                gui::GUI_SETTINGS_LANGUAGE_HELP.text(locale),
+                setting_choices(
+                    ("language-picker", language),
+                    languages,
+                    preferences.map(|(language, _)| language),
+                    self.busy(),
+                    |settings, value| settings.ui.language = value,
+                    cx,
+                ),
+            ))
+            .child(self.time_format_setting(screen, cx));
+        let startup = preference_section(screen, gui::GUI_SETTINGS_STARTUP_SECTION)
             .child(self.login_setting(screen, cx));
         div()
             .flex()
             .flex_col()
-            .gap(px(Space::S16.pixels() + Space::S4.pixels()))
-            .child(general)
-            .child(self.accent_picker(screen, cx))
+            .gap_4()
+            .child(look)
+            .child(typography)
+            .child(region)
+            .child(startup)
     }
 
     fn log_settings_card(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
@@ -618,6 +675,18 @@ fn setting_choices<T: Copy + Eq + 'static, const N: usize>(
                     });
                 }
             }),
+    )
+}
+
+fn preference_section(screen: &ScreenContext<'_>, title: TextKey) -> Div {
+    settings_card(screen).gap_1().child(
+        settings_text(
+            screen,
+            Role::Label,
+            title.text(screen.locale),
+            ColorToken::TextPrimary,
+        )
+        .pb_2(),
     )
 }
 

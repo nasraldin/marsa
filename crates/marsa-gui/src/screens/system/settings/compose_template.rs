@@ -35,11 +35,40 @@ impl SystemView {
         let template = self.compose_template();
         let busy = self.busy() || template.is_none();
         settings_card(screen)
-            .child(settings_heading(
-                screen,
-                gui::GUI_COMPOSE_TEMPLATE_TITLE.text(locale),
-                gui::GUI_COMPOSE_TEMPLATE_HELP.text(locale),
-            ))
+            .child(
+                row(locale)
+                    .justify_between()
+                    .flex_wrap()
+                    .gap_3()
+                    .child(settings_heading(
+                        screen,
+                        gui::GUI_COMPOSE_TEMPLATE_TITLE.text(locale),
+                        gui::GUI_COMPOSE_TEMPLATE_HELP.text(locale),
+                    ))
+                    .child(
+                        row(locale)
+                            .flex_wrap()
+                            .gap_2()
+                            .child(
+                                Button::new("edit-compose-template")
+                                    .primary()
+                                    .label(gui::GUI_COMPOSE_TEMPLATE_EDIT.text(locale))
+                                    .disabled(busy)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.edit_compose_template(locale, window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("restore-compose-template")
+                                    .outline()
+                                    .label(gui::GUI_COMPOSE_TEMPLATE_RESTORE.text(locale))
+                                    .disabled(busy || !custom)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.restore_compose_template(locale, window, cx);
+                                    })),
+                            ),
+                    ),
+            )
             .children(template.map(|value| {
                 div()
                     .flex()
@@ -58,29 +87,6 @@ impl SystemView {
                             .then(|| settings_text(screen, Role::Mono, "…", ColorToken::TextMuted)),
                     )
             }))
-            .child(
-                row(locale)
-                    .flex_wrap()
-                    .gap_2()
-                    .child(
-                        Button::new("edit-compose-template")
-                            .primary()
-                            .label(gui::GUI_COMPOSE_TEMPLATE_EDIT.text(locale))
-                            .disabled(busy)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.edit_compose_template(locale, window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("restore-compose-template")
-                            .outline()
-                            .label(gui::GUI_COMPOSE_TEMPLATE_RESTORE.text(locale))
-                            .disabled(busy || !custom)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.restore_compose_template(locale, window, cx);
-                            })),
-                    ),
-            )
     }
 
     fn edit_compose_template(&self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {

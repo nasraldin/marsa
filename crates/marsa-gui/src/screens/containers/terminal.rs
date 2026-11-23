@@ -208,7 +208,7 @@ pub(super) fn render(
     let panel = &view.terminal;
     let palette = screen.palette;
     let id = entry.id.clone();
-    let mut buttons = row(cx).gap_2().items_center();
+    let mut buttons = row(cx).gap_2().items_center().flex_wrap();
     for session in &panel.sessions {
         let session_id = session.id;
         let title = isolate_technical_text(&format!("sh · {}", session_id + 1));
@@ -219,6 +219,7 @@ pub(super) fn render(
         .outline()
         .small()
         .label(title)
+        .toggled(panel.selected == Some(session_id))
         .disabled(panel.detached.is_some());
         buttons = buttons.child(
             if panel.selected == Some(session_id) {
@@ -245,7 +246,7 @@ pub(super) fn render(
                 .outline()
                 .small()
                 .icon(IconName::Plus)
-                .accessibility_label(message(screen.locale, gui::GUI_DESKTOP_NEW_SESSION))
+                .label(message(screen.locale, gui::GUI_DESKTOP_NEW_SESSION))
                 .disabled(
                     view.services.is_none()
                         || entry.state != "running"
@@ -283,16 +284,6 @@ pub(super) fn render(
                         ));
                     }
                 })),
-        )
-        .child(
-            div()
-                .px_2()
-                .py_1()
-                .rounded_md()
-                .border_1()
-                .border_color(color(palette, ColorToken::BorderSubtle))
-                .text_xs()
-                .child(isolate_technical_text("/bin/sh")),
         )
         .child(
             Button::new("end-terminal-shell")
@@ -403,7 +394,7 @@ impl Render for Detached {
                 let target = view.focused.as_ref()?;
                 let entry = view.target_state(target)?.container(target.id())?;
                 let palette = screen.palette;
-                let terminal_font = Family::terminal(screen.display.terminal_font);
+                let terminal_font = Family::available_terminal(screen.display.terminal_font, cx);
                 let heading = format!("{}  ·  /bin/sh", name(entry));
                 window.set_rem_size(px(rem_size(screen.display.ui_font_size)));
                 Some(
@@ -489,7 +480,7 @@ fn viewport(
 ) -> impl IntoElement {
     let panel = &view.terminal;
     let palette = screen.palette;
-    let family = Family::terminal(screen.display.terminal_font);
+    let family = Family::available_terminal(screen.display.terminal_font, cx);
     let cell_width = cell_width(window, family);
     let mut terminal = div()
         .id("container-terminal-viewport")

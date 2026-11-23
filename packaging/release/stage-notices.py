@@ -329,6 +329,29 @@ def font_components(stage, notes):
             yield record
     copy_notice(fonts / "OFL-IBM-Plex.txt", "OFL-IBM-Plex.txt", stage)
 
+    catalog = fonts / "catalog"
+    manifest = read_json(catalog / "manifest.json")
+    checksums = {}
+    for line in (catalog / "SHA256SUMS").read_text(encoding="ascii").splitlines():
+        expected, filename = line.split()
+        verify(catalog / safe_segment(filename), expected)
+        checksums[filename] = expected
+    for family in manifest["families"]:
+        name = family["name"]
+        license_id = family["license"]
+        original_notice = safe_segment(family["notice"])
+        require(original_notice in checksums, f"Missing font notice checksum: {original_notice}")
+        notice = copy_notice(catalog / original_notice, f"texts/fonts/{original_notice}", stage)
+        for asset in family["files"]:
+            filename = safe_segment(asset["file"])
+            checksum = checksums[filename]
+            require(checksum == asset["sha256"], f"Font manifest hash disagrees: {filename}")
+            notes.append((filename, license_id, [notice]))
+            record = component("data", f"font:{filename}", name, manifest["revision"], license_id,
+                               family["source"])
+            record["hashes"] = [{"alg": "SHA-256", "content": checksum}]
+            yield record
+
 
 def icon_component(stage, notes):
     candidates = list((ROOT / "third-party/gpui").glob("gpui-kit-assets-*/lucide.json"))

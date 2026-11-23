@@ -5,7 +5,7 @@ use std::path::Path;
 use marsa_client::docker::{ContainerFileFormat, ContainerPath};
 use marsa_ui::{
     ColorToken,
-    gpui::{AppContext as _, Context, Div, ParentElement as _, Styled as _, Window, div},
+    gpui::{AppContext as _, Context, Div, ParentElement as _, Styled as _, Window, div, px},
     gpui_component::{
         Disableable as _, WindowExt as _,
         button::{Button, ButtonVariants as _},
@@ -26,7 +26,14 @@ pub(super) fn render(
 ) -> Div {
     let locale = screen.locale;
     let mut pane = panel(screen)
-        .child(gui::GUI_CONTAINER_DOWNLOAD_HELP.text(locale))
+        .child(
+            screen
+                .typography(marsa_ui::tokens::typography::Role::Body)
+                .apply(div())
+                .max_w(px(480.))
+                .text_color(color(screen.palette, ColorToken::TextMuted))
+                .child(gui::GUI_CONTAINER_DOWNLOAD_HELP.text(locale)),
+        )
         .child(
             row(locale).child(
                 Button::new("container-download")

@@ -46,6 +46,7 @@ pub(super) fn render(palette: Palette, accent: AccentColor) -> Img {
         .absolute()
         .inset_0()
         .size_full()
+        .opacity(0.42)
 }
 
 fn tinted_svg(dark: bool, [red, green, blue]: [u8; 3]) -> String {

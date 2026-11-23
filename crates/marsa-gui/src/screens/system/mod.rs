@@ -6,7 +6,7 @@ mod disk;
 mod machine;
 mod notifications;
 mod settings;
-pub(crate) use settings::environment_icon_path;
+pub(crate) use settings::{SettingsTab, environment_icon_path};
 
 use marsa_ui::gui_keys as gui;
 use std::{
@@ -44,7 +44,7 @@ use crate::{
 };
 
 pub(crate) use notifications::{NotificationDestination, Notifications, notification_destination};
-use settings::{EnvironmentSettings, GitSources, RegistrySettings, ResourceInputs, SettingsTab};
+use settings::{EnvironmentSettings, GitSources, RegistrySettings, ResourceInputs};
 
 pub(crate) struct OpenRoute(pub(crate) Route);
 

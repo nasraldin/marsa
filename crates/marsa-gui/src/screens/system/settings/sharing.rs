@@ -41,12 +41,13 @@ impl SystemView {
         let disabled = self.busy() || snapshot.is_none();
         let title = gui::GUI_DESKTOP_SHARED_FOLDERS.text(locale);
         let folder_list = settings_card(screen)
-            .min_h(px(280.))
             .gap(px(Space::S16.pixels()))
             .child(
                 row(locale)
                     .justify_between()
                     .items_start()
+                    .flex_wrap()
+                    .gap_3()
                     .child(settings_heading(
                         screen,
                         title,

@@ -94,6 +94,7 @@ impl SystemView {
                         this.preview = inventory;
                     }
                 }
+                this.route_load = None;
                 cx.notify();
             });
         }));
@@ -250,13 +251,13 @@ impl SystemView {
             .gap_4()
             .child(
                 disk_panel(screen)
-                    .min_h(px(192.))
-                    .gap_5()
+                    .gap_4()
                     .child(
                         row(locale)
                             .items_start()
                             .justify_between()
-                            .gap_4()
+                            .gap_3()
+                            .flex_wrap()
                             .child(
                                 div()
                                     .flex()
@@ -294,11 +295,11 @@ impl SystemView {
             )
             .child(
                 disk_panel(screen)
-                    .min_h(px(184.))
                     .child(
                         row(locale)
                             .justify_between()
-                            .gap_4()
+                            .gap_3()
+                            .flex_wrap()
                             .child(
                                 div()
                                     .flex()
@@ -316,8 +317,12 @@ impl SystemView {
                                 Button::new("reload-disk-inventory")
                                     .outline()
                                     .small()
+                                    .disabled(self.route_load.is_some())
                                     .label(gui::GUI_DESKTOP_REFRESH.text(locale))
-                                    .on_click(cx.listener(|view, _, _, cx| view.load_disk(cx)))
+                                    .on_click(cx.listener(|view, _, _, cx| {
+                                        view.load_disk(cx);
+                                        cx.notify();
+                                    }))
                             })),
                     )
                     .children(inventory.is_none().then(|| {
@@ -325,6 +330,8 @@ impl SystemView {
                             palette,
                             if screen.state.daemon().is_none() {
                                 gui::GUI_SYSTEM_LOCAL_DAEMON_UNAVAILABLE
+                            } else if self.route_load.is_some() && ready {
+                                gui::GUI_DESKTOP_WORKING
                             } else if ready {
                                 gui::GUI_SYSTEM_DISK_INVENTORY_UNAVAILABLE
                             } else {
@@ -355,9 +362,17 @@ impl SystemView {
                                     .gap_3()
                                     .border_t_1()
                                     .border_color(color(palette, ColorToken::BorderSubtle))
-                                    .min_h(px(41.))
+                                    .min_h(px(52.))
+                                    .py_2()
                                     .child(
                                         Checkbox::new(id)
+                                            .accessibility_label(crate::screens::common::technical(
+                                                if candidate.name.is_empty() {
+                                                    &candidate.id
+                                                } else {
+                                                    &candidate.name
+                                                },
+                                            ))
                                             .checked(checked)
                                             .disabled(self.busy() || !ready)
                                             .on_click(cx.listener(
@@ -397,27 +412,34 @@ impl SystemView {
                                             }),
                                     )
                             }),
-                    ),
-            )
-            .child(
-                row(locale)
-                    .justify_between()
-                    .gap_3()
-                    .pt_2()
-                    .child(cleanup_summary(
-                        locale,
-                        palette,
-                        selected_count,
-                        selected_bytes,
-                    ))
-                    .child(
-                        Button::new("preview-cleanup")
-                            .primary()
-                            .disabled(self.busy() || !ready || selected_count == 0)
-                            .label(gui::GUI_DESKTOP_PREVIEW_CLEANUP.text(locale))
-                            .on_click(cx.listener(move |view, _, window, cx| {
-                                view.review_cleanup(locale, palette, window, cx)
-                            })),
+                    )
+                    .children(
+                        inventory
+                            .is_some_and(|preview| !preview.candidates.is_empty())
+                            .then(|| {
+                                row(locale)
+                                    .justify_between()
+                                    .gap_3()
+                                    .flex_wrap()
+                                    .pt_3()
+                                    .border_t_1()
+                                    .border_color(color(palette, ColorToken::BorderSubtle))
+                                    .child(cleanup_summary(
+                                        locale,
+                                        palette,
+                                        selected_count,
+                                        selected_bytes,
+                                    ))
+                                    .child(
+                                        Button::new("preview-cleanup")
+                                            .primary()
+                                            .disabled(self.busy() || !ready || selected_count == 0)
+                                            .label(gui::GUI_DESKTOP_PREVIEW_CLEANUP.text(locale))
+                                            .on_click(cx.listener(move |view, _, window, cx| {
+                                                view.review_cleanup(locale, palette, window, cx)
+                                            })),
+                                    )
+                            }),
                     ),
             )
             .child(
@@ -425,7 +447,8 @@ impl SystemView {
                     .child(
                         row(locale)
                             .justify_between()
-                            .gap_4()
+                            .gap_3()
+                            .flex_wrap()
                             .child(
                                 div()
                                     .flex()
@@ -542,7 +565,8 @@ fn candidate_key(candidate: &PruneCandidate) -> (i32, String) {
 
 fn cleanup_row(locale: Locale, palette: Palette, candidate: &PruneCandidate, exact: bool) -> Div {
     row(locale)
-        .min_h(px(44.))
+        .min_h(px(52.))
+        .py_2()
         .border_t_1()
         .border_color(color(palette, ColorToken::BorderSubtle))
         .child(cleanup_contents(locale, palette, candidate, exact))
@@ -572,17 +596,13 @@ fn cleanup_contents(
         .text_size(ui_size(13.))
         .child(
             div()
-                .w(px(216.))
-                .flex_shrink_0()
-                .child(category.text(locale)),
-        )
-        .child(
-            div()
                 .min_w_0()
                 .flex_1()
                 .flex()
                 .flex_col()
+                .gap_1()
                 .child(mono(name))
+                .child(muted(palette, category.text(locale)))
                 .children((exact && name != &candidate.id).then(|| {
                     mono(&candidate.id).text_color(color(palette, ColorToken::TextMuted))
                 })),

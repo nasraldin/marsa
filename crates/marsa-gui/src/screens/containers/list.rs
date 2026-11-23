@@ -16,7 +16,7 @@ use marsa_ui::{
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
         AnyElement, App, Context, Div, ElementId, InteractiveElement as _, IntoElement,
-        ParentElement as _, SharedString, Styled as _, div, px, uniform_list,
+        ParentElement as _, SharedString, Styled as _, Window, div, px, uniform_list,
     },
     gpui_component::{
         Disableable as _, Icon, IconName, Sizable as _,
@@ -65,11 +65,17 @@ enum TableRow {
     External(Box<ContainerSummary>, Arc<RowSource>),
 }
 
-pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> AnyElement {
+pub(super) fn render(
+    view: &ContainerView,
+    window: &Window,
+    cx: &mut Context<ContainerView>,
+) -> AnyElement {
     let screen = view.screen();
     let locale = screen.locale;
     let palette = screen.palette;
     let mode = view.mode;
+    let compact = window.viewport_size().width < px(1120.);
+    let card_columns = if compact { 2 } else { 3 };
     let filter = view.environment.read(cx);
     let mut rows = if filter.includes_marsa() {
         collect_rows(view, &view.state.containers(), None)
@@ -121,6 +127,13 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     let status = if external_count != 0 || !rows.is_empty() {
         states::TableState::Rows
     } else if !filter.includes_marsa()
+        && !view
+            .external_inventory
+            .iter()
+            .any(|workspace| workspace.reachable && filter.includes_external(workspace))
+    {
+        states::TableState::ExternalOffline
+    } else if !filter.includes_marsa()
         || (!view.external_inventory.is_empty()
             && (!view.query.is_empty() || view.filter != StatusFilter::All))
     {
@@ -147,7 +160,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     let collapsed = view.collapsed.clone();
     let entity = cx.entity();
     let item_count = if mode == ViewMode::Cards {
-        rows.len().div_ceil(3)
+        rows.len().div_ceil(card_columns)
     } else {
         rows.len()
     };
@@ -155,16 +168,12 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     let summary = container_count(total, locale);
 
     let loaded = status == states::TableState::Rows;
-    let mut toolbar =
-        row(cx)
-            .w_full()
-            .gap_2()
-            .items_center()
-            .h(px(if loaded && view.selected.is_empty() {
-                52.
-            } else {
-                46.
-            }));
+    let mut toolbar = row(cx)
+        .w_full()
+        .gap_2()
+        .items_center()
+        .flex_wrap()
+        .min_h(px(46.));
     let groups = rows
         .iter()
         .filter_map(|entry| match entry {
@@ -174,7 +183,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         .collect::<Vec<_>>();
     if loaded {
         toolbar = toolbar
-            .px_2()
+            .p_2()
             .rounded(px(12.))
             .border_1()
             .border_color(color(palette, ColorToken::BorderSubtle))
@@ -182,10 +191,11 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     }
     if let Some(input) = view.input.as_ref() {
         toolbar = toolbar.child(
-            div().w(px(if loaded { 216. } else { 244. })).child(
+            div().w(px(216.)).child(
                 resource_input(input)
                     .cleanable(true)
-                    .prefix(IconName::Search),
+                    .prefix(IconName::Search)
+                    .aria_label(gui::GUI_DESKTOP_SEARCH_CONTAINERS.text(locale)),
             ),
         );
     }
@@ -254,17 +264,13 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                         })
                     })
             }))
-            .child(div().flex_1());
-        toolbar = if view.selected.is_empty() {
-            toolbar.child(
+            .child(div().flex_1())
+            .child(
                 div()
                     .text_size(ui_size(12.))
                     .text_color(color(palette, ColorToken::TextMuted))
                     .child(summary),
-            )
-        } else {
-            toolbar.child(bulk_toolbar(view, &screen, cx))
-        };
+            );
     }
 
     let header = row(cx)
@@ -306,11 +312,9 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         .child(
             Button::new("new-container")
                 .primary()
-                .size(px(36.))
-                .p_0()
+                .h(px(36.))
                 .icon(IconName::Plus)
-                .accessibility_label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
-                .tooltip(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
+                .label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
                 .disabled(
                     view.services.is_none()
                         || !(local_status.is_some_and(states::TableState::can_create)
@@ -322,14 +326,21 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                 .on_click(cx.listener(|view, _, window, cx| super::create::open(view, window, cx))),
         );
 
-    let mut body = div()
+    let body = div()
         .flex()
         .flex_col()
         .size_full()
         .min_h_0()
         .gap_3()
         .child(header)
-        .child(toolbar);
+        .children(
+            matches!(
+                status,
+                states::TableState::Rows | states::TableState::NoMatches
+            )
+            .then_some(toolbar),
+        )
+        .children((loaded && !view.selected.is_empty()).then(|| bulk_toolbar(view, &screen, cx)));
 
     if !loaded {
         return body
@@ -392,10 +403,9 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
             112.,
             message(screen.locale, gui::GUI_DESKTOP_PORTS),
         ))
-        .child(fixed_column(
-            78.,
-            message(screen.locale, gui::GUI_DESKTOP_AGE),
-        ))
+        .children(
+            (!compact).then(|| fixed_column(78., message(screen.locale, gui::GUI_DESKTOP_AGE))),
+        )
         .child(div().w(px(80.)).flex_shrink_0());
 
     let local_source = (!view.external_inventory.is_empty()).then(|| SharedString::from("Marsa"));
@@ -403,14 +413,15 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         palette,
         locale,
         mode,
+        compact,
         view: entity,
     };
     let items = uniform_list("containers-table", item_count, move |range, _, cx| {
         if mode == ViewMode::Cards {
             return range
                 .map(|index| {
-                    let start = 3 * index;
-                    let entries = rows.iter().skip(start).take(3);
+                    let start = card_columns * index;
+                    let entries = rows.iter().skip(start).take(card_columns);
                     let mut cards = row(cx).h(px(150.)).w_full().gap_3().pb_3();
                     let mut count = 0;
                     for row in entries {
@@ -427,7 +438,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                         }
                     }
                     cards
-                        .children((count..3).map(|_| div().flex_1()))
+                        .children((count..card_columns).map(|_| div().flex_1()))
                         .into_any_element()
                 })
                 .collect();
@@ -481,15 +492,6 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     } else {
         table
     };
-    if mode == ViewMode::List {
-        body = body.child(
-            div()
-                .px_2()
-                .text_xs()
-                .text_color(color(palette, ColorToken::TextMuted))
-                .child(container_count(total, locale)),
-        );
-    }
     body.child(table.child(items)).into_any_element()
 }
 
@@ -562,6 +564,7 @@ struct RowPresentation {
     palette: Palette,
     locale: Locale,
     mode: ViewMode,
+    compact: bool,
     view: marsa_ui::gpui::Entity<ContainerView>,
 }
 
@@ -991,7 +994,7 @@ fn container_row(
                 .overflow_hidden()
                 .child(ports),
         );
-    if mode != ViewMode::Tree {
+    if mode != ViewMode::Tree && !presentation.compact {
         result = result.child(fixed_column(78., age_text(entry.created, locale)));
     }
     result.child(lifecycle).child(more).into_any_element()
@@ -1259,12 +1262,19 @@ fn bulk_toolbar(
         Locale::Arabic if count == 2 => "عنصران محددان".into(),
         Locale::Arabic => format!("{count} عناصر محددة"),
     };
-    let mut tools = row(cx).items_center().gap_2().child(
-        div()
-            .text_size(ui_size(12.))
-            .text_color(color(screen.palette, ColorToken::AccentDefault))
-            .child(summary),
-    );
+    let mut tools = row(cx)
+        .items_center()
+        .gap_2()
+        .flex_wrap()
+        .p_2()
+        .rounded_md()
+        .bg(color(screen.palette, ColorToken::AccentSubtle))
+        .child(
+            div()
+                .text_size(ui_size(12.))
+                .text_color(color(screen.palette, ColorToken::AccentDefault))
+                .child(summary),
+        );
     if count == 1 {
         tools = tools.child(
             Button::new("open-selected-container")

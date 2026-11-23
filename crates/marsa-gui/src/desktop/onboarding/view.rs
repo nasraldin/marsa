@@ -2,11 +2,13 @@
 
 use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
-    gpui::{Context, Div, FontWeight, ParentElement, Styled, div, img, px, svg},
+    gpui::{
+        Context, Div, FontWeight, InteractiveElement as _, ParentElement, Styled, div, img, px, svg,
+    },
     gpui_component::{
         Disableable, IconName,
         button::{Button, ButtonVariants},
-        checkbox::Checkbox,
+        scroll::ScrollableElement as _,
     },
     gui_keys as gui,
     preferences::Theme,
@@ -41,49 +43,62 @@ impl Desktop {
         row(locale)
             .size_full()
             .p_2()
-            .gap_6()
+            .gap_4()
             .child(step_rail(setup, palette))
             .child(
                 row(locale)
                     .h_full()
                     .flex_1()
                     .min_w_0()
-                    .gap_3()
                     .justify_center()
                     .child(
                         div()
-                            .w(px(680.))
+                            .w_full()
+                            .max_w(px(700.))
                             .min_w_0()
                             .h_full()
                             .flex()
                             .flex_col()
-                            .pt(px(116.))
-                            .pb_5()
-                            .child(align(heading(locale).child(title.text(locale)), locale))
+                            .px_3()
+                            .pt(px(64.))
+                            .pb_4()
                             .child(
-                                align(
-                                    div()
-                                        .pt_2()
-                                        .text_sm()
-                                        .text_color(color(palette, ColorToken::TextMuted)),
-                                    locale,
-                                )
-                                .child(help.text(locale)),
+                                div()
+                                    .id("setup-content")
+                                    .flex_1()
+                                    .min_h_0()
+                                    .px_3()
+                                    .overflow_y_scrollbar()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_4()
+                                    .child(
+                                        align(div().flex().flex_col().gap_2(), locale)
+                                            .child(heading(locale).child(title.text(locale)))
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(color(
+                                                        palette,
+                                                        ColorToken::TextMuted,
+                                                    ))
+                                                    .child(help.text(locale)),
+                                            ),
+                                    )
+                                    .child(content)
+                                    .children(setup.failed.then(|| {
+                                        align(
+                                            div().text_sm().text_color(color(
+                                                palette,
+                                                ColorToken::StatusError,
+                                            )),
+                                            locale,
+                                        )
+                                        .child(gui::GUI_SETUP_RETRY.text(locale))
+                                    })),
                             )
-                            .child(div().min_h(px(272.)).pt(px(44.)).child(content))
-                            .children(setup.failed.then(|| {
-                                align(
-                                    div()
-                                        .pb_2()
-                                        .text_sm()
-                                        .text_color(color(palette, ColorToken::StatusError)),
-                                    locale,
-                                )
-                                .child(gui::GUI_SETUP_RETRY.text(locale))
-                            }))
                             .child(setup_footer(setup, palette, cx)),
-                    )
-                    .child(div().w(px(70.)).flex_shrink(1.)),
+                    ),
             )
     }
 }
@@ -115,7 +130,7 @@ fn step_rail(setup: &Setup, palette: Palette) -> Div {
     let locale = setup.locale;
     div()
         .h_full()
-        .w(px(296.))
+        .w(px(248.))
         .flex_shrink_0()
         .p(px(12.))
         .rounded(px(16.))
@@ -234,7 +249,7 @@ fn language_options(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> D
 
 fn theme_options(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> Div {
     let locale = setup.locale;
-    row(locale).gap(px(24.)).children(
+    row(locale).gap_3().flex_wrap().children(
         [
             (Theme::System, gui::GUI_DESKTOP_SYSTEM, palette),
             (Theme::Light, gui::GUI_DESKTOP_LIGHT, Palette::Light),
@@ -246,8 +261,8 @@ fn theme_options(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> Div 
             let selected = setup.appearance == choice;
             option_button(("setup-theme", index), selected, palette)
                 .flex_1()
-                .min_w_0()
-                .h(px(180.))
+                .min_w(px(116.))
+                .h(px(156.))
                 .accessibility_label(name.text(locale))
                 .child(
                     div()
@@ -436,11 +451,6 @@ fn docker(screen: &ScreenContext<'_>) -> Div {
                 locale,
             )
             .child(
-                Checkbox::new("setup-cli-path")
-                    .disabled(true)
-                    .label(gui::GUI_SETUP_CLI_PATH.text(locale)),
-            )
-            .child(
                 div()
                     .text_xs()
                     .text_color(color(palette, ColorToken::TextMuted))
@@ -459,8 +469,9 @@ fn setup_footer(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> Div {
     row(locale)
         .justify_between()
         .gap_3()
-        .mt_4()
-        .pt(px(32.))
+        .mt_3()
+        .pt_3()
+        .flex_wrap()
         .border_t_1()
         .border_color(color(palette, ColorToken::BorderSubtle))
         .child(div().children((setup.step != Step::Language).then(|| {

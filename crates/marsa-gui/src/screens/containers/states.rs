@@ -25,6 +25,7 @@ pub(super) enum TableState {
     Empty,
     Stopped,
     Offline,
+    ExternalOffline,
     Failed,
     Paused,
 }
@@ -64,6 +65,7 @@ pub(super) fn subtitle(state: TableState, locale: Locale) -> &'static str {
         }
         TableState::Stopped | TableState::Paused => gui::GUI_DESKTOP_CONTAINERS_STOPPED_DESCRIPTION,
         TableState::Offline | TableState::Failed => gui::GUI_DESKTOP_CONTAINERS_OFFLINE_DESCRIPTION,
+        TableState::ExternalOffline => gui::GUI_WORKLOAD_EXTERNAL_OFFLINE,
         _ => gui::GUI_DESKTOP_CONTAINERS_EMPTY_DESCRIPTION,
     }
     .text(locale)
@@ -96,6 +98,11 @@ pub(super) fn render(
             gui::GUI_DESKTOP_CONTAINERS_SERVICE_UNAVAILABLE,
             gui::GUI_DESKTOP_CONTAINERS_SERVICE_UNAVAILABLE_BODY,
         ),
+        TableState::ExternalOffline => (
+            "icons/unplug.svg",
+            gui::GUI_WORKLOAD_EXTERNAL_OFFLINE,
+            gui::GUI_ENVIRONMENT_OFFLINE,
+        ),
         TableState::NoMatches => (
             "icons/search.svg",
             gui::GUI_DESKTOP_CONTAINERS_NO_MATCHES,
@@ -117,7 +124,11 @@ pub(super) fn render(
         .text_center()
         .gap_3()
         .w_full()
-        .pt_8()
+        .p_6()
+        .rounded_lg()
+        .border_1()
+        .border_color(color(palette, ColorToken::BorderSubtle))
+        .bg(color(palette, ColorToken::BgElevated))
         .child(
             div()
                 .flex()
@@ -128,7 +139,9 @@ pub(super) fn render(
                 .bg(color(
                     palette,
                     match state {
-                        TableState::Offline | TableState::Failed => ColorToken::StatusWarningBg,
+                        TableState::Offline | TableState::ExternalOffline | TableState::Failed => {
+                            ColorToken::StatusWarningBg
+                        }
                         TableState::Loading | TableState::Stopped | TableState::Paused => {
                             ColorToken::AccentSubtle
                         }
@@ -156,11 +169,8 @@ pub(super) fn render(
             content = content.child(
                 Button::new("start-engine-from-containers")
                     .primary()
-                    .size(px(36.))
-                    .p_0()
                     .icon(IconName::Play)
-                    .accessibility_label(gui::GUI_DESKTOP_CONTAINERS_START_ENGINE.text(locale))
-                    .tooltip(gui::GUI_DESKTOP_CONTAINERS_START_ENGINE.text(locale))
+                    .label(gui::GUI_DESKTOP_CONTAINERS_START_ENGINE.text(locale))
                     .on_click(|_, window, cx| {
                         window.dispatch_action(Box::new(StartEngineFromScreen), cx)
                     }),
@@ -170,11 +180,8 @@ pub(super) fn render(
             content = content.child(
                 Button::new("refresh-container-list")
                     .primary()
-                    .size(px(36.))
-                    .p_0()
                     .icon(IconName::RefreshCw)
-                    .accessibility_label(gui::GUI_DESKTOP_RETRY.text(locale))
-                    .tooltip(gui::GUI_DESKTOP_RETRY.text(locale))
+                    .label(gui::GUI_DESKTOP_RETRY.text(locale))
                     .disabled(view.services.is_none())
                     .on_click(cx.listener(|view, _, _, cx| {
                         if let Some(services) = view.services.clone() {
@@ -200,6 +207,21 @@ pub(super) fn render(
                             SAMPLE_COMMAND.to_owned(),
                         ))
                     }),
+            );
+        }
+        TableState::NoMatches => {
+            content = content.child(
+                Button::new("reset-container-filters")
+                    .outline()
+                    .label(gui::GUI_WORKLOAD_CLEAR_FILTERS.text(locale))
+                    .on_click(cx.listener(|view, _, window, cx| {
+                        view.filter = StatusFilter::All;
+                        view.query.clear();
+                        if let Some(input) = &view.input {
+                            input.update(cx, |input, cx| input.set_value("", window, cx));
+                        }
+                        cx.notify();
+                    })),
             );
         }
         TableState::Loading => {

@@ -11,7 +11,10 @@ use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
 use std::{collections::BTreeMap, sync::Arc};
 
-use marsa_client::docker::{ExternalEndpoint, ImageDetails, VolumeUsage};
+use marsa_client::{
+    api::EngineState,
+    docker::{ExternalEndpoint, ImageDetails, VolumeUsage},
+};
 
 use marsa_ui::{
     ColorToken, Locale, Palette,
@@ -20,7 +23,7 @@ use marsa_ui::{
         div, px, svg,
     },
     gpui_component::{
-        Disableable, IconName, WindowExt,
+        Disableable, Icon, IconName, WindowExt,
         button::{Button, ButtonVariants},
         input::InputState,
     },
@@ -62,6 +65,24 @@ impl ResourceKind {
         }
     }
 
+    fn title(self) -> marsa_ui::TextKey {
+        match self {
+            Self::Images => gui::GUI_DESKTOP_IMAGES,
+            Self::Volumes => gui::GUI_DESKTOP_VOLUMES,
+            Self::Networks => gui::GUI_DESKTOP_NETWORKS,
+            Self::Compose => gui::GUI_DESKTOP_STACKS,
+        }
+    }
+
+    fn empty_message(self) -> marsa_ui::TextKey {
+        match self {
+            Self::Images => gui::GUI_WORKLOAD_IMAGES_EMPTY,
+            Self::Volumes => gui::GUI_WORKLOAD_VOLUMES_EMPTY,
+            Self::Networks => gui::GUI_WORKLOAD_NETWORKS_EMPTY,
+            Self::Compose => gui::GUI_WORKLOAD_STACKS_EMPTY,
+        }
+    }
+
     fn main_action(self) -> Option<FormKind> {
         match self {
             Self::Images => Some(FormKind::Pull),
@@ -77,7 +98,6 @@ pub(crate) struct ResourcesView {
     filter: Entity<InputState>,
     selection: Option<(ResourceKind, String)>,
     selected_endpoint: Option<ExternalEndpoint>,
-    reveal_selection: bool,
     form: Option<Form>,
     logs: Option<logs::ProjectLogs>,
     log_settings: marsa_ui::preferences::LogSettings,
@@ -131,7 +151,6 @@ impl ResourcesView {
             filter,
             selection: None,
             selected_endpoint: None,
-            reveal_selection: false,
             form: None,
             logs: None,
             log_settings: Default::default(),
@@ -173,7 +192,6 @@ impl ResourcesView {
     ) {
         self.selection = Some((kind, key));
         self.selected_endpoint = endpoint;
-        self.reveal_selection = true;
         self.form = None;
         self.logs = None;
         self.inspect = None;
@@ -182,7 +200,7 @@ impl ResourcesView {
         cx.refresh_windows();
     }
 
-    /// Stop viewing resource details when leaving the route.
+    /// Apply the current stack log settings.
     pub(crate) fn set_log_settings(
         &mut self,
         settings: marsa_ui::preferences::LogSettings,
@@ -197,14 +215,19 @@ impl ResourcesView {
         }
     }
 
-    pub(crate) fn leave(&mut self) {
+    fn close_details(&mut self) {
         self.selection = None;
         self.selected_endpoint = None;
-        self.reveal_selection = false;
         self.form = None;
         self.logs = None;
         self.inspect = None;
+        self.inspection_failed = false;
         self.inspection_task = None;
+    }
+
+    /// Stop viewing resource details when leaving the route.
+    pub(crate) fn leave(&mut self) {
+        self.close_details();
         self.volume_scan = None;
         self.volume_scanning = false;
     }
@@ -269,7 +292,7 @@ pub(crate) fn render(
     cx: &App,
 ) -> Div {
     let data = view.read(cx);
-    let filter = data.filter.read(cx).value().to_lowercase();
+    let filter = data.filter.read(cx).value().trim().to_lowercase();
     let context = environment.read(cx);
     let selected_workspaces = external
         .iter()
@@ -280,20 +303,12 @@ pub(crate) fn render(
         .find(|workspace| workspace.reachable)
         .map(|workspace| ResourceSource::from(workspace.as_ref()));
     let available = context.includes_marsa() || active_source.is_some();
-    let mut toolbar = logical_row(screen.locale)
+    let mut actions = logical_row(screen.locale)
         .items_center()
         .gap(px(Space::S8.pixels()))
-        .flex_wrap()
-        .child(
-            div().w(px(216.)).child(
-                resource_input(&data.filter)
-                    .cleanable(true)
-                    .prefix(IconName::Search)
-                    .aria_label(message(screen.locale, gui::GUI_DESKTOP_FILTER_RESOURCES)),
-            ),
-        );
+        .flex_wrap();
     if let Some(action) = kind.main_action() {
-        toolbar = toolbar.child(primary_action(
+        actions = actions.child(primary_action(
             screen,
             view,
             action,
@@ -303,7 +318,7 @@ pub(crate) fn render(
     }
     if kind == ResourceKind::Compose {
         let available = available && data.busy.is_none();
-        toolbar = toolbar
+        actions = actions
             .child(primary_action(
                 screen,
                 view,
@@ -322,7 +337,7 @@ pub(crate) fn render(
             ));
     }
     if kind == ResourceKind::Images {
-        toolbar = toolbar.child(primary_action(
+        actions = actions.child(primary_action(
             screen,
             view,
             FormKind::ImportImage,
@@ -334,10 +349,11 @@ pub(crate) fn render(
     if kind == ResourceKind::Volumes {
         let service = screen.services.cloned();
         let view = view.clone();
-        let endpoint = active_source.map(|source| source.endpoint);
-        toolbar = toolbar.child(
+        let endpoint = active_source.as_ref().map(|source| source.endpoint.clone());
+        actions = actions.child(
             Button::new("measure-volume-usage")
                 .outline()
+                .icon(IconName::RefreshCw)
                 .h(px(Space::S36.pixels()))
                 .label(message(
                     screen.locale,
@@ -391,57 +407,92 @@ pub(crate) fn render(
         .iter()
         .filter(|row| row.matches(&filter))
         .collect::<Vec<_>>();
-    let resource_toolbar = logical_row(screen.locale)
-        .justify_between()
-        .flex_wrap()
-        .min_h(px(Space::S48.pixels()))
-        .px(px(Space::S8.pixels()))
-        .py(px(Space::S4.pixels()))
-        .gap(px(Space::S8.pixels()))
-        .rounded(px(Radius::R12.pixels()))
-        .border_1()
-        .border_color(tone(screen, ColorToken::GlassEdge))
-        .bg(tone(screen, ColorToken::GlassRail))
-        .child(toolbar)
-        .children(
-            (!resources.is_empty() || screen.state.engine().is_some()).then(|| {
-                text(screen, Role::Small, rows.len().to_string())
-                    .text_color(tone(screen, ColorToken::TextMuted))
-            }),
-        );
     let mut content = div()
         .flex()
         .flex_col()
         .w_full()
-        .gap(px(Space::S16.pixels()))
-        .child(resource_toolbar);
-    if selected_workspaces.iter().any(|engine| {
+        .min_w_0()
+        .gap(px(Space::S12.pixels()));
+    let incomplete_external = selected_workspaces.iter().any(|engine| {
         !engine.reachable
             || match kind {
                 ResourceKind::Volumes => !engine.volumes_available,
                 ResourceKind::Networks => !engine.networks_available,
                 _ => false,
             }
-    }) {
-        content = content.child(text(
-            screen,
-            Role::Small,
-            message(
-                screen.locale,
-                gui::GUI_DESKTOP_EXTERNAL_RESOURCE_UNAVAILABLE,
-            ),
-        ));
+    });
+
+    if let Some(row) = selected {
+        let back = view.clone();
+        content = content
+            .child(
+                logical_row(screen.locale).child(
+                    Button::new("back-to-resource-list")
+                        .ghost()
+                        .label(message(screen.locale, kind.title()))
+                        .icon(IconName::ChevronLeft)
+                        .on_click(move |_, _, cx| {
+                            back.update(cx, |view, cx| {
+                                view.close_details();
+                                cx.refresh_windows();
+                            });
+                        }),
+                ),
+            )
+            .child(details(screen, kind, row, view, data));
+        if kind == ResourceKind::Compose {
+            content = content.child(logs::render(
+                screen,
+                row,
+                view,
+                data.logs.as_ref(),
+                data.log_settings,
+            ));
+        }
+    } else {
+        let count = if filter.is_empty() {
+            rows.len().to_string()
+        } else {
+            format!("{} / {}", rows.len(), resources.len())
+        };
+        content = content.child(
+            logical_row(screen.locale)
+                .justify_between()
+                .items_center()
+                .flex_wrap()
+                .gap(px(Space::S12.pixels()))
+                .child(
+                    logical_row(screen.locale)
+                        .gap(px(Space::S8.pixels()))
+                        .child(
+                            div().w(px(224.)).child(
+                                resource_input(&data.filter)
+                                    .cleanable(true)
+                                    .prefix(IconName::Search)
+                                    .aria_label(
+                                        gui::GUI_DESKTOP_FILTER_RESOURCES.text(screen.locale),
+                                    ),
+                            ),
+                        )
+                        .children((!resources.is_empty()).then(|| {
+                            text(screen, Role::Small, count)
+                                .text_color(tone(screen, ColorToken::TextMuted))
+                        })),
+                )
+                .child(actions),
+        );
+        if incomplete_external {
+            content = content.child(
+                text(
+                    screen,
+                    Role::Small,
+                    gui::GUI_DESKTOP_EXTERNAL_RESOURCE_UNAVAILABLE.text(screen.locale),
+                )
+                .text_color(tone(screen, ColorToken::StatusWarning)),
+            );
+        }
     }
-    content = content.children(selected.map(|row| details(screen, kind, row, view, data)));
-    content = content.child(table(
-        screen,
-        kind,
-        &columns,
-        &rows,
-        view,
-        selected.map(|row| row.key()),
-        !external.is_empty(),
-    ));
+
     if kind == ResourceKind::Images {
         content = content.children(pull::render(
             screen,
@@ -458,25 +509,61 @@ pub(crate) fn render(
             text(
                 screen,
                 Role::Small,
-                message(
-                    screen.locale,
-                    gui::GUI_DESKTOP_DOCKER_DID_NOT_REPORT_VOLUME_SIZES,
-                ),
+                gui::GUI_DESKTOP_DOCKER_DID_NOT_REPORT_VOLUME_SIZES.text(screen.locale),
             )
             .text_color(tone(screen, ColorToken::StatusWarning)),
         );
     }
-    if let Some(row) = selected
-        && kind == ResourceKind::Compose
-    {
-        content = content.child(logs::render(
-            screen,
-            row,
-            view,
-            data.logs.as_ref(),
-            data.log_settings,
-        ));
+
+    if selected.is_none() {
+        let has_local_inventory = context.includes_marsa()
+            && screen.state.engine().is_some_and(|engine| {
+                matches!(engine.state(), EngineState::Ready | EngineState::Idle)
+            });
+        if rows.is_empty() {
+            let filtered = !filter.is_empty() && !resources.is_empty();
+            let instruction = if !available || (incomplete_external && !has_local_inventory) {
+                gui::GUI_ENVIRONMENT_OFFLINE
+            } else if !has_local_inventory && active_source.is_none() {
+                gui::GUI_DESKTOP_RESOURCES_ARE_AVAILABLE_WHEN_THE_ENGINE_IS_RUNNING
+            } else if filtered {
+                gui::GUI_DESKTOP_NO_MATCHING_RESOURCES
+            } else {
+                kind.empty_message()
+            };
+            let clear_filter = data.filter.clone();
+            let empty = crate::screens::common::panel(screen)
+                .items_center()
+                .text_center()
+                .py(px(Space::S32.pixels()))
+                .child(resource_icon(screen, kind))
+                .child(
+                    screen
+                        .typography(Role::Lead)
+                        .apply(div())
+                        .child(instruction.text(screen.locale)),
+                );
+            let empty = empty.children(filtered.then(|| {
+                Button::new("clear-resource-filter")
+                    .outline()
+                    .label(gui::GUI_WORKLOAD_CLEAR_FILTERS.text(screen.locale))
+                    .on_click(move |_, window, cx| {
+                        clear_filter.update(cx, |input, cx| input.set_value("", window, cx));
+                    })
+            }));
+            content = content.child(empty);
+        } else {
+            content = content.child(table(
+                screen,
+                kind,
+                &columns,
+                &rows,
+                view,
+                !external.is_empty(),
+            ));
+        }
     }
+
     content
 }
 
@@ -499,10 +586,15 @@ fn primary_action(
     .rounded(px(Radius::R8.pixels()))
     .label(title)
     .disabled(service.is_none() || !available);
-    let button = if matches!(action, FormKind::DeployStack) {
-        button.outline()
-    } else {
-        button.primary()
+    let button = match action {
+        FormKind::DeployStack => button.outline().icon(IconName::File),
+        FormKind::ImportImage => button
+            .outline()
+            .icon(Icon::default().path("icons/upload.svg")),
+        FormKind::Pull => button
+            .primary()
+            .icon(Icon::default().path("icons/download.svg")),
+        _ => button.primary().icon(IconName::Plus),
     };
     button
         .on_click(move |_, window, cx| {
@@ -538,8 +630,16 @@ fn details(
             let appearance = (locale, screen.palette, screen.display);
             let service = screen.services.cloned();
             let source = row.source().cloned();
-            Button::new(("resource-detail-action", index))
-                .label(action.title(locale))
+            let button = Button::new(("resource-detail-action", index)).label(action.title(locale));
+            let button = match action {
+                FormKind::Run { .. } | FormKind::ComposeUp { .. } => button.primary(),
+                FormKind::RemoveImage { .. }
+                | FormKind::RemoveVolume { .. }
+                | FormKind::RemoveNetwork { .. }
+                | FormKind::ComposeDown { volumes: true, .. } => button.danger(),
+                _ => button.outline(),
+            };
+            button
                 .disabled(screen.services.is_none())
                 .on_click(move |_, window, cx| {
                     if let Some(service) = &service {
@@ -579,6 +679,12 @@ fn details(
                         ),
                 ),
         )
+        .child(
+            logical_row(locale)
+                .gap(px(Space::S8.pixels()))
+                .flex_wrap()
+                .children(actions),
+        )
         .children(row.details.iter().cloned().map(|(name, value)| {
             logical_row(locale)
                 .justify_between()
@@ -589,14 +695,8 @@ fn details(
                 .child(
                     text(screen, Role::Label, name).text_color(tone(screen, ColorToken::TextMuted)),
                 )
-                .child(text(screen, Role::Mono, value).truncate())
-        }))
-        .child(
-            logical_row(locale)
-                .gap(px(Space::S8.pixels()))
-                .flex_wrap()
-                .children(actions),
-        );
+                .child(text(screen, Role::Mono, value).min_w_0().truncate())
+        }));
     if kind == ResourceKind::Compose
         && let Some(source) = row.source()
     {
@@ -653,7 +753,35 @@ fn details(
         );
     }
     if kind == ResourceKind::Images {
-        detail = detail.children(operations::image_metadata(screen, row, data));
+        let owner = view.clone();
+        let service = screen.services.cloned();
+        let key = row.key().to_owned();
+        let id = row.id.clone();
+        let endpoint = row.endpoint().cloned();
+        detail = detail
+            .children(operations::image_metadata(screen, row, data))
+            .children(
+                (data.inspect.is_none() && data.inspection_task.is_none()).then(|| {
+                    logical_row(locale).child(
+                        Button::new("read-selected-image")
+                            .outline()
+                            .icon(IconName::Info)
+                            .label(gui::GUI_WORKLOAD_READ_IMAGE_METADATA.text(locale))
+                            .disabled(service.is_none())
+                            .on_click(move |_, _, cx| {
+                                owner.update(cx, |view, cx| {
+                                    view.select(
+                                        kind,
+                                        key.clone(),
+                                        (&id, endpoint.clone()),
+                                        service.as_deref(),
+                                        cx,
+                                    )
+                                });
+                            }),
+                    )
+                }),
+            );
     }
     detail
 }
