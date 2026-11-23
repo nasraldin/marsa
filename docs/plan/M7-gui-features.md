@@ -303,7 +303,7 @@ The signed desktop was reviewed in English light, English dark, Arabic light, an
 
 ### M7-19 Active Docker environment
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-18
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Replace page-level context filters with an app-wide selection in the sidebar. Persist the selection and resolve external engines by both name and address. Keep each action pinned to the endpoint used to read the resource. Keep Marsa VM controls scoped to Marsa.
@@ -312,6 +312,8 @@ The signed desktop was reviewed in English light, English dark, Arabic light, an
   - Switching between stopped Marsa and reachable Lima changes the overview and resource action destinations. Both appear in the sidebar menu in English light, English dark, Arabic light, and Arabic dark.
   - The selected Lima environment survives relaunch. An unavailable selection does not route an operation to Marsa.
   - Search results and resource details carry the source endpoint. Existing per-row source badges remain visible.
+
+The signed desktop switched between stopped Marsa and reachable Lima, displayed a Lima destination on the volume form, and restored Lima after relaunch. The sidebar menu was checked in both languages and appearances. The repository check and all 35 targeted tests passed.
 
 ### M7-20 Manage Docker environments
 
