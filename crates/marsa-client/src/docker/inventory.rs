@@ -216,6 +216,12 @@ pub(super) fn external_route(
     if !valid_id(id) {
         return false;
     }
+    if !has_body
+        && matches!(*method, Method::GET | Method::HEAD)
+        && let Some(query) = action.strip_prefix("archive?path=")
+    {
+        return super::container_files::valid_query(query);
+    }
     match *method {
         Method::GET if !has_body => {
             matches!(action, "json" | super::LOG_ENDPOINT | "stats?stream=true")

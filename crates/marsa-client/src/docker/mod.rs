@@ -27,7 +27,9 @@ use tokio::{
 
 use crate::{ClientError, docker_socket_path, platform};
 
+mod container_files;
 mod inventory;
+pub use container_files::{ContainerFileFormat, ContainerPath};
 pub use inventory::{
     ExternalEndpoint, ExternalInventory, discover_external_inventories, discover_external_inventory,
 };
@@ -220,6 +222,12 @@ pub enum DockerError {
     /// Docker rejected an image archive import.
     #[error("Docker image load failed")]
     ImageLoad,
+    /// The requested container path is invalid.
+    #[error("container file requires an absolute path")]
+    ContainerFilePath,
+    /// A container archive could not be received or written.
+    #[error("could not download the selected container file")]
+    ContainerArchive(#[source] io::Error),
     /// An image archive could not be read or written.
     #[error("Docker image archive I/O failed")]
     ImageArchive(#[source] io::Error),

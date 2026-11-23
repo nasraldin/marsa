@@ -26,7 +26,7 @@ use marsa_ui::{
         menu::{DropdownMenu, PopupMenuItem},
         switch::Switch,
     },
-    preferences::{Language, LogBufferSize, OperateApproval, Settings, Theme},
+    preferences::{DownloadFormat, Language, LogBufferSize, OperateApproval, Settings, Theme},
     tokens::{
         scale::{Radius, Space},
         typography::Role,
@@ -383,6 +383,29 @@ impl SystemView {
                         })),
                 ),
             ))
+            .child(setting_row(
+                screen,
+                gui::GUI_CONTAINER_DOWNLOAD_FORMAT.text(locale),
+                gui::GUI_CONTAINER_DOWNLOAD_FORMAT_HELP.text(locale),
+                setting_picker(
+                    screen,
+                    (
+                        "download-format",
+                        gui::GUI_CONTAINER_DOWNLOAD_FORMAT.text(locale),
+                    ),
+                    [
+                        (DownloadFormat::Tar, "TAR"),
+                        (
+                            DownloadFormat::SingleFile,
+                            gui::GUI_CONTAINER_DOWNLOAD_PLAIN.text(locale),
+                        ),
+                    ],
+                    settings.map(|settings| settings.download_format),
+                    self.busy(),
+                    |settings, value| settings.ui.logs.download_format = value,
+                    cx,
+                ),
+            ))
     }
 
     pub(super) fn save_settings(
@@ -557,10 +580,10 @@ impl SystemView {
     }
 }
 
-fn setting_picker<T: Copy + Eq + 'static>(
+fn setting_picker<T: Copy + Eq + 'static, const N: usize>(
     screen: &ScreenContext<'_>,
     (id, name): (&'static str, &'static str),
-    options: [(T, &'static str); 3],
+    options: [(T, &'static str); N],
     selected: Option<T>,
     busy: bool,
     edit: fn(&mut Settings, T),

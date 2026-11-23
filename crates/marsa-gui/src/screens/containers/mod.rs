@@ -3,6 +3,7 @@
 mod ansi;
 mod create;
 mod detail;
+mod files;
 mod list;
 mod logs;
 mod removal;
@@ -56,9 +57,10 @@ enum Tab {
     Terminal,
     Inspect,
     Stats,
+    Files,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 enum ContainerTarget {
     Marsa(ContainerId),
     External {
@@ -110,6 +112,8 @@ pub(crate) struct ContainerView {
     palette: Palette,
     state: AppState,
     external_inventory: Workspaces,
+    file_operation: Option<marsa_ui::gpui::Task<()>>,
+    file_result: Option<(ContainerTarget, bool)>,
     environment: marsa_ui::gpui::Entity<Environment>,
     _context_subscription: Subscription,
     input: Option<Entity<InputState>>,
@@ -179,6 +183,8 @@ impl ContainerView {
             });
         });
         Self {
+            file_operation: None,
+            file_result: None,
             services,
             locale,
             palette,
@@ -404,7 +410,7 @@ impl ContainerView {
                 });
                 self.stream_tasks.push(task);
             }
-            Tab::Terminal => {}
+            Tab::Terminal | Tab::Files => {}
         }
         cx.notify();
     }

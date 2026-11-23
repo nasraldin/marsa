@@ -26,7 +26,8 @@ pub use {
 /// Typed preferences shared with the daemon.
 pub mod preferences {
     pub use marsa_core::settings::{
-        AccentColor, Language, LogBufferSize, LogSettings, NetworkMode, NotificationSettings,
-        OperateApproval, Settings, Theme, UpdateChannel, VmBackend, valid_compose_template,
+        AccentColor, DownloadFormat, Language, LogBufferSize, LogSettings, NetworkMode,
+        NotificationSettings, OperateApproval, Settings, Theme, UpdateChannel, VmBackend,
+        valid_compose_template,
     };
 }

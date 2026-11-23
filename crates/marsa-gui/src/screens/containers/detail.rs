@@ -101,6 +101,7 @@ pub(super) fn render(
     let short_id = entry.id.as_str().get(..12).unwrap_or(entry.id.as_str());
     let subtitle = format!("{}  ·  {short_id}", entry.image);
     let tabs = row(cx)
+        .flex_wrap()
         .gap_1()
         .pb_2()
         .border_b_1()
@@ -112,6 +113,7 @@ pub(super) fn render(
                 Tab::Terminal,
                 Tab::Inspect,
                 Tab::Stats,
+                Tab::Files,
             ]
             .map(|tab| tab_button(tab, tab == view.tab, &screen, cx)),
         );
@@ -121,6 +123,7 @@ pub(super) fn render(
         Tab::Terminal => super::terminal::render(view, entry, &screen, window, cx),
         Tab::Inspect => inspect(view, entry, &view.inspection, &screen, cx).into_any_element(),
         Tab::Stats => stats::render(view, &screen, cx),
+        Tab::Files => super::files::render(view, &screen, cx).into_any_element(),
     };
     let root = div()
         .flex()
@@ -175,6 +178,12 @@ fn tab_button(
         ),
         Tab::Inspect => ("container-inspect", "Inspect", "الفحص", "icons/info.svg"),
         Tab::Stats => ("container-stats", "Stats", "الإحصاءات", "icons/activity.svg"),
+        Tab::Files => (
+            "container-files",
+            "Files",
+            "الملفات",
+            "icons/folder-open.svg",
+        ),
     };
     let button = Button::new(id)
         .small()

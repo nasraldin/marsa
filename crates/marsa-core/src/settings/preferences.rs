@@ -142,6 +142,19 @@ pub struct LogSettings {
     pub buffer: LogBufferSize,
     /// Display engine timestamps in the system time zone instead of UTC.
     pub local_timestamps: bool,
+    /// Format used for a download from a container.
+    pub download_format: DownloadFormat,
+}
+
+/// Save every selection as TAR or save regular files directly.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadFormat {
+    /// Download regular files and directories as an archive.
+    #[default]
+    Tar,
+    /// Download regular files without archive wrapping. Directories use TAR.
+    SingleFile,
 }
 
 impl LogSettings {
