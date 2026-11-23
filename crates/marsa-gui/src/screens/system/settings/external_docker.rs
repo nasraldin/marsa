@@ -18,7 +18,8 @@ use marsa_client::docker::{
 use marsa_ui::{
     ColorToken, Locale, TextKey,
     gpui::{
-        Context, Div, ParentElement as _, PromptButton, PromptLevel, Styled as _, Task, Window, div,
+        Context, Div, ParentElement as _, PromptButton, PromptLevel, ScrollHandle, Styled as _,
+        Task, Window, div,
     },
     gpui_component::WindowExt as _,
     gui_keys as gui,
@@ -40,6 +41,7 @@ pub(in crate::screens::system) struct EnvironmentSettings {
     feedback: Option<Feedback>,
     checks: HashMap<ConnectionKey, ConnectionCheck>,
     checking: bool,
+    table_scroll: ScrollHandle,
 }
 
 enum Feedback {

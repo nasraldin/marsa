@@ -292,8 +292,17 @@ impl SystemView {
                     .id("environment-table-scroll")
                     .w_full()
                     .min_w_0()
-                    .overflow_x_scrollbar()
-                    .child(table),
+                    .relative()
+                    .child(
+                        div()
+                            .id("environment-table-viewport")
+                            .w_full()
+                            .min_w_0()
+                            .track_scroll(&panel.table_scroll)
+                            .overflow_x_scroll()
+                            .child(table),
+                    )
+                    .horizontal_scrollbar(&panel.table_scroll),
             )
     }
 
