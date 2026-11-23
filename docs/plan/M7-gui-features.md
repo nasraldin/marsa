@@ -339,27 +339,26 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
   - The dashboard and activity views are fed by the selected engine. They identify unavailable measurements and can recover from a disconnect.
   - A maintenance request targets the confirmed engine, previews destructive effects, and reports its outcome.
 
-### M7-22 Configure software sources and deployment inputs
+### M7-22 Configure deploy-time secret providers
 
 - **Status:** todo
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
-- **Do:** Manage supported deploy-time secret providers. Add reusable container configuration sets.
-- **Deliver:** Settings connected to container creation and Compose deployment.
+- **Do:** Manage supported deploy-time secret providers.
+- **Deliver:** Settings connected to Compose deployment.
 - **Accept when:**
   - Deployment resolves secrets without exposing stored credentials in logs or inspection output.
-  - Applying a named configuration set fills the container form and permits overrides before creation.
 
 ### M7-23 Configure scanning, jobs, and downloads
 
 - **Status:** todo
 - **Depends on:** M7-21
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
-- **Do:** Add image scanner settings and cache controls, system-job configuration, and download preferences.
+- **Do:** Add image scanner settings and cache controls, system-job configuration, and volume file downloads.
 - **Deliver:** Persisted settings consumed by the corresponding workflows.
 - **Accept when:**
   - Scanner settings affect a scan, maintenance schedules affect subsequent runs, and scan retention and cache cleanup report their outcomes.
-  - Download settings take effect in resource views.
+  - Volume file downloads use the saved download format when the selected environment supports secure read-only access.
 
 ### M7-24 Compose template and new stack creation
 
@@ -423,6 +422,18 @@ source evidence and allowed connection paths.
   - Saved repository entries survive restart and can be edited and removed.
   - Test verifies the branch exists. Checkout uses the selected reference and does not overwrite existing files.
   - Git ignores ambient configuration. The desktop keeps checkout and engine-pinned Compose deployment as distinct owner actions.
+
+### M7-29 Reusable container configuration sets
+
+- **Status:** in progress
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings), [11 Security](../11-security.md)
+- **Do:** Save named sets of container network, restart, environment, label, port and mount options. Let users apply and edit a copy before creating a container.
+- **Deliver:** Localized configuration-set management and a typed create request targeted at the selected engine.
+- **Accept when:**
+  - Sets can be added, edited and removed with confirmation. Saved sets survive relaunch.
+  - The create form shows the saved values and accepts overrides without changing the set. Docker receives the reviewed options for the selected engine.
+  - Local binds remain subject to Marsa's existing allowlist. An external bind requires confirmation of the destination engine, source path and access mode.
 
 ### M7-30 Authenticate Git sources
 
