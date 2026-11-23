@@ -42,10 +42,9 @@ pub(super) fn open(
     if view.command_pending || window.has_active_dialog(cx) {
         return;
     }
-    let inventory = view
-        .external_inventory
+    let inventory = endpoint
         .as_ref()
-        .filter(|inventory| Some(&inventory.endpoint) == endpoint.as_ref());
+        .and_then(|endpoint| view.workspace(endpoint));
     let state = match (&endpoint, inventory) {
         (None, _) => &view.state,
         (Some(_), Some(inventory)) => &inventory.state,
@@ -103,11 +102,7 @@ pub(super) fn open(
                         return false;
                     }
                     if let Some(endpoint) = &endpoint {
-                        let Some(inventory) = view
-                            .external_inventory
-                            .as_ref()
-                            .filter(|inventory| &inventory.endpoint == endpoint)
-                        else {
+                        let Some(inventory) = view.workspace(endpoint) else {
                             return false;
                         };
                         let [target] = targets_for_action.as_slice() else {

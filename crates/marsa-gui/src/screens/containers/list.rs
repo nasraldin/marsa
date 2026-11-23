@@ -13,8 +13,8 @@ use marsa_ui::{
     ColorToken, Locale, Palette,
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
-        AnyElement, App, Context, Div, ElementId, IntoElement, ParentElement as _, SharedString,
-        Styled as _, div, px, uniform_list,
+        AnyElement, App, Context, Div, ElementId, InteractiveElement as _, IntoElement,
+        ParentElement as _, SharedString, Styled as _, div, px, uniform_list,
     },
     gpui_component::{
         Disableable as _, Icon, IconName, Sizable as _,
@@ -25,7 +25,7 @@ use marsa_ui::{
     tokens::{scale::Space, typography::Role},
 };
 
-use crate::screens::common::{ScreenContext, copy, label, panel, resource_input};
+use crate::screens::common::{ScreenContext, copy, label, resource_input};
 
 use super::{
     ContainerTarget, ContainerView, StatusFilter, action_label, color, eligible, name, state_label,
@@ -43,13 +43,24 @@ pub(super) enum ViewMode {
     Tree,
 }
 
-pub(super) type GroupKey = (bool, Option<String>);
+pub(super) type GroupKey = (Option<String>, Option<String>);
+
+#[derive(Clone)]
+struct RowSource {
+    key: String,
+    badge: SharedString,
+    endpoint: marsa_client::docker::ExternalEndpoint,
+}
 
 #[derive(Clone)]
 enum TableRow {
-    Group { key: GroupKey, count: usize },
+    Group {
+        key: GroupKey,
+        count: usize,
+        source: Option<Arc<RowSource>>,
+    },
     Container(Box<ContainerSummary>),
-    External(Box<ContainerSummary>),
+    External(Box<ContainerSummary>, Arc<RowSource>),
 }
 
 pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> AnyElement {
@@ -57,25 +68,43 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
     let locale = screen.locale;
     let palette = screen.palette;
     let mode = view.mode;
-    let source = view.state.containers();
-    let mut rows = collect_rows(view, &source, false);
-    let local_status = states::TableState::from(view, !rows.is_empty());
-    if local_status != states::TableState::Rows {
+    let filter = view.context_filter.read(cx);
+    let mut rows = if filter.includes_marsa() {
+        collect_rows(view, &view.state.containers(), None)
+    } else {
+        Vec::new()
+    };
+    let local_status = filter
+        .includes_marsa()
+        .then(|| states::TableState::from(view, !rows.is_empty()));
+    if local_status != Some(states::TableState::Rows) {
         rows.clear();
     }
-    let external_source = view.external_inventory.as_ref().map(|inventory| {
-        rows.extend(collect_rows(view, &inventory.state.containers(), true));
-        isolate_technical_text(&inventory.source)
-    });
+    for (index, inventory) in view.external_inventory.iter().enumerate() {
+        if !filter.includes_external(inventory) {
+            continue;
+        }
+        let source = Arc::new(RowSource {
+            key: format!("{index}:{}", inventory.source),
+            badge: isolate_technical_text(&inventory.source),
+            endpoint: inventory.endpoint.clone(),
+        });
+        rows.extend(collect_rows(
+            view,
+            &inventory.state.containers(),
+            Some(source),
+        ));
+    }
     let grouped = matches!(mode, ViewMode::Table | ViewMode::Tree);
     let external_count = rows
         .iter()
         .map(|row| match row {
             TableRow::Group {
-                key: (true, _),
+                key: (Some(_), _),
                 count,
+                ..
             } => *count,
-            TableRow::External(_) if !grouped => 1,
+            TableRow::External(..) if !grouped => 1,
             _ => 0,
         })
         .sum::<usize>();
@@ -84,24 +113,28 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         .iter()
         .filter_map(|entry| match entry {
             TableRow::Container(item) => Some(item.id.clone()),
-            TableRow::Group { .. } | TableRow::External(_) => None,
+            TableRow::Group { .. } | TableRow::External(..) => None,
         })
         .collect::<Vec<_>>();
-    let status = if external_count != 0 {
+    let status = if external_count != 0 || !rows.is_empty() {
         states::TableState::Rows
-    } else if external_source.is_some()
-        && rows.is_empty()
-        && (!view.query.is_empty() || view.filter != StatusFilter::All)
+    } else if !filter.includes_marsa()
+        || (!view.external_inventory.is_empty()
+            && (!view.query.is_empty() || view.filter != StatusFilter::All))
     {
-        states::TableState::NoMatches
+        if view.query.is_empty() && view.filter == StatusFilter::All {
+            states::TableState::Empty
+        } else {
+            states::TableState::NoMatches
+        }
     } else {
-        local_status
+        local_status.unwrap_or(states::TableState::Empty)
     };
     let total = if grouped {
         rows.iter()
             .filter_map(|entry| match entry {
                 TableRow::Group { count, .. } => Some(count),
-                TableRow::Container(_) | TableRow::External(_) => None,
+                TableRow::Container(_) | TableRow::External(..) => None,
             })
             .sum::<usize>()
     } else {
@@ -130,6 +163,12 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
             } else {
                 46.
             }));
+    toolbar = toolbar.child(super::super::external_inventory::filter_button(
+        locale,
+        &view.context_filter,
+        &view.external_inventory,
+        cx,
+    ));
     let groups = rows
         .iter()
         .filter_map(|entry| match entry {
@@ -274,7 +313,14 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                 .icon(IconName::Plus)
                 .accessibility_label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
                 .tooltip(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
-                .disabled(view.services.is_none() || !local_status.can_create())
+                .disabled(
+                    view.services.is_none()
+                        || !(local_status.is_some_and(states::TableState::can_create)
+                            || !filter.includes_marsa()
+                                && view.external_inventory.iter().any(|workspace| {
+                                    workspace.reachable && filter.includes_external(workspace)
+                                })),
+                )
                 .on_click(cx.listener(|view, _, window, cx| super::create::open(view, window, cx))),
         );
 
@@ -287,22 +333,6 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         .child(header)
         .child(toolbar);
 
-    if view.command_failed {
-        body = body.child(
-            panel(&screen)
-                .text_color(color(palette, ColorToken::StatusError))
-                .child(message(
-                    screen.locale,
-                    gui::GUI_DESKTOP_THE_CONTAINER_ACTION_COULDN_T_BE_COMPLETED,
-                )),
-        );
-    }
-    if view.command_pending {
-        body = body.child(div().text_size(px(12.)).child(message(
-            screen.locale,
-            gui::GUI_DESKTOP_APPLYING_CONTAINER_ACTIONS,
-        )));
-    }
     if !loaded {
         return body
             .child(states::render(view, status, &screen, cx))
@@ -370,18 +400,12 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         ))
         .child(div().w(px(80.)).flex_shrink_0());
 
-    let local_source = external_source
-        .as_ref()
-        .map(|_| SharedString::from("Marsa"));
+    let local_source = (!view.external_inventory.is_empty()).then(|| SharedString::from("Marsa"));
     let presentation = RowPresentation {
         palette,
         locale,
         mode,
         view: entity,
-        endpoint: view
-            .external_inventory
-            .as_ref()
-            .map(|inventory| inventory.endpoint.clone()),
     };
     let items = uniform_list("containers-table", item_count, move |range, _, cx| {
         if mode == ViewMode::Cards {
@@ -397,7 +421,6 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                             &selected,
                             busy,
                             local_source.as_ref(),
-                            external_source.as_ref(),
                             &presentation,
                             cx,
                         ) {
@@ -414,14 +437,13 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
         range
             .filter_map(|index| rows.get(index))
             .map(|entry| match entry {
-                TableRow::Group { key, count } => group_row(
+                TableRow::Group { key, count, source } => group_row(
                     key,
                     *count,
-                    if key.0 {
-                        external_source.as_ref()
-                    } else {
-                        local_source.as_ref()
-                    },
+                    source
+                        .as_ref()
+                        .map(|source| &source.badge)
+                        .or(local_source.as_ref()),
                     collapsed.contains(key),
                     &presentation,
                     cx,
@@ -432,12 +454,10 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
                     &selected,
                     busy,
                     local_source.as_ref(),
-                    external_source.as_ref(),
                     &presentation,
                     cx,
                 )
-                .unwrap_or_else(div)
-                .into_any_element(),
+                .unwrap_or_else(|| div().into_any_element()),
             })
             .collect()
     })
@@ -469,7 +489,7 @@ pub(super) fn render(view: &ContainerView, cx: &mut Context<ContainerView>) -> A
 fn collect_rows(
     view: &ContainerView,
     source: &BTreeMap<ContainerId, ContainerSummary>,
-    external: bool,
+    engine: Option<Arc<RowSource>>,
 ) -> Vec<TableRow> {
     let mut projects: BTreeMap<Option<&str>, Vec<&ContainerSummary>> = BTreeMap::new();
     for item in source.values() {
@@ -494,24 +514,26 @@ fn collect_rows(
                     order
                 }
             });
-            let key = (external, project.map(str::to_owned));
+            let key = (
+                engine.as_ref().map(|source| source.key.clone()),
+                project.map(str::to_owned),
+            );
             let grouped = matches!(view.mode, ViewMode::Table | ViewMode::Tree);
             let collapsed = grouped && view.collapsed.contains(&key);
             let heading = grouped.then_some(TableRow::Group {
                 key,
                 count: items.len(),
+                source: engine.clone(),
             });
+            let engine = engine.clone();
             let entries = (!collapsed)
                 .then_some(items)
                 .into_iter()
                 .flatten()
                 .cloned()
-                .map(|item| {
-                    if external {
-                        TableRow::External(Box::new(item))
-                    } else {
-                        TableRow::Container(Box::new(item))
-                    }
+                .map(move |item| match &engine {
+                    Some(engine) => TableRow::External(Box::new(item), engine.clone()),
+                    None => TableRow::Container(Box::new(item)),
                 });
             heading.into_iter().chain(entries)
         })
@@ -530,7 +552,6 @@ fn matches_filter(view: &ContainerView, item: &ContainerSummary) -> bool {
 }
 
 struct RowPresentation {
-    endpoint: Option<marsa_client::docker::ExternalEndpoint>,
     palette: Palette,
     locale: Locale,
     mode: ViewMode,
@@ -542,31 +563,32 @@ fn render_entry(
     selected: &std::collections::BTreeSet<ContainerId>,
     busy: bool,
     local_source: Option<&SharedString>,
-    external_source: Option<&SharedString>,
     presentation: &RowPresentation,
     cx: &App,
-) -> Option<Div> {
-    let (entry, source, local) = match row {
+) -> Option<AnyElement> {
+    let (entry, source, local, target) = match row {
         TableRow::Container(entry) => (
             entry,
             local_source,
-            Some((selected.contains(&entry.id), busy)),
+            Some(selected.contains(&entry.id)),
+            ContainerTarget::Marsa(entry.id.clone()),
         ),
-        TableRow::External(entry) => (entry, external_source, None),
+        TableRow::External(entry, engine) => (
+            entry,
+            Some(&engine.badge),
+            None,
+            ContainerTarget::External {
+                id: entry.id.clone(),
+                endpoint: engine.endpoint.clone(),
+            },
+        ),
         TableRow::Group { .. } => return None,
-    };
-    let target = match row {
-        TableRow::External(_) => ContainerTarget::External {
-            id: entry.id.clone(),
-            endpoint: presentation.endpoint.as_ref()?.clone(),
-        },
-        _ => ContainerTarget::Marsa(entry.id.clone()),
     };
     Some(container_row(
         entry,
         target,
         source,
-        local.map(|(checked, _)| checked),
+        local,
         busy,
         presentation,
         cx,
@@ -618,11 +640,9 @@ fn group_row(
     let count = container_count(count, locale);
     let group = key.clone();
     let id = (
-        ElementId::from(if *external {
-            "external-group"
-        } else {
-            "marsa-group"
-        }),
+        ElementId::from(SharedString::from(
+            external.as_deref().unwrap_or("marsa-group").to_owned(),
+        )),
         SharedString::from(
             project.map_or_else(|| "standalone".into(), |name| format!("project:{name}")),
         ),
@@ -687,7 +707,7 @@ fn container_row(
     busy: bool,
     presentation: &RowPresentation,
     cx: &App,
-) -> Div {
+) -> AnyElement {
     let RowPresentation {
         palette,
         locale,
@@ -848,7 +868,7 @@ fn container_row(
             )
         })
     };
-    let lifecycle = action_button(entry, target, action, busy, locale, view)
+    let lifecycle = action_button(entry, target, action, busy, (locale, palette), view)
         .ghost()
         .bg(color(palette, ColorToken::GlassControl));
     let image = isolate_technical_text(&entry.image);
@@ -863,8 +883,15 @@ fn container_row(
     };
     let pill = state_pill(&entry.state, palette, locale, cx);
     let ports = port_text(entry);
+    let row_id = format!(
+        "{}:{}",
+        source.map_or("marsa", |source| source.as_ref()),
+        id.as_str()
+    );
     if mode == ViewMode::Cards {
         return div()
+            .id(SharedString::from(row_id))
+            .hover(|style| style.bg(color(palette, ColorToken::BgHover)))
             .flex_1()
             .min_w_0()
             .h_full()
@@ -912,9 +939,12 @@ fn container_row(
                     .justify_row_end()
                     .child(lifecycle)
                     .child(more),
-            );
+            )
+            .into_any_element();
     }
-    let mut result = cell_row(palette, cx);
+    let mut result = cell_row(palette, cx)
+        .id(SharedString::from(row_id))
+        .hover(|style| style.bg(color(palette, ColorToken::BgHover)));
     if mode == ViewMode::Table || checked {
         result = result.bg(color(palette, row_background));
     }
@@ -960,7 +990,7 @@ fn container_row(
     if mode != ViewMode::Tree {
         result = result.child(fixed_column(78., age_text(entry.created, locale)));
     }
-    result.child(lifecycle).child(more)
+    result.child(lifecycle).child(more).into_any_element()
 }
 
 fn action_icon(action: ContainerAction) -> IconName {
@@ -977,13 +1007,19 @@ pub(super) fn action_button(
     target: ContainerTarget,
     action: ContainerAction,
     busy: bool,
-    locale: Locale,
+    appearance: (Locale, Palette),
     entity: &marsa_ui::gpui::Entity<ContainerView>,
 ) -> Button {
+    let (locale, palette) = appearance;
     let id = entry.id.as_str().to_owned();
     let external = target.endpoint().is_some();
     let weak = entity.downgrade();
     let icon = action_icon(action);
+    let tint = match action {
+        ContainerAction::Start | ContainerAction::Unpause => ColorToken::StatusRunning,
+        ContainerAction::Stop | ContainerAction::Pause => ColorToken::StatusWarning,
+        ContainerAction::Restart => ColorToken::AccentDefault,
+    };
     let (en, ar) = action_label(action);
     Button::new((
         ElementId::from(if external {
@@ -996,7 +1032,14 @@ pub(super) fn action_button(
     .outline()
     .size(px(36.))
     .p_0()
-    .icon(icon)
+    .icon(Icon::new(icon).text_color(color(
+        palette,
+        if busy || !eligible(entry, action) {
+            ColorToken::TextMuted
+        } else {
+            tint
+        },
+    )))
     .tooltip(copy(locale, en, ar))
     .accessibility_label(copy(locale, en, ar))
     .disabled(busy || !eligible(entry, action))

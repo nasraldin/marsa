@@ -13,7 +13,7 @@ use marsa_ui::{
     gpui_component::{
         Disableable as _, IconName, WindowExt as _,
         button::{Button, ButtonVariants as _},
-        input::{Input, InputEvent, InputState},
+        input::{InputEvent, InputState},
         menu::{DropdownMenu as _, PopupMenuItem},
     },
     gui_keys as gui,
@@ -30,8 +30,28 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
     }
     let locale = view.locale;
     let palette = view.palette;
-    let entries = view
-        .state
+    let filter = view.context_filter.read(cx);
+    let source = view
+        .external_inventory
+        .iter()
+        .find(|workspace| filter.includes_external(workspace));
+    let source = if filter.includes_marsa() {
+        None
+    } else {
+        source.filter(|workspace| workspace.reachable).cloned()
+    };
+    if !filter.includes_marsa() && source.is_none() {
+        return;
+    }
+    let endpoint = source.as_ref().map(|source| source.endpoint.clone());
+    let badge = source.as_ref().map_or_else(
+        || "Marsa".into(),
+        |source| isolate_technical_text(&source.source),
+    );
+    let snapshot = source
+        .as_ref()
+        .map_or(&view.state, |workspace| &workspace.state);
+    let entries = snapshot
         .images()
         .values()
         .filter_map(|entry| {
@@ -63,6 +83,7 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
         let can_submit = selected_value.is_some() && !invalid;
         let owner = view.clone();
         let services = services.clone();
+        let endpoint = endpoint.clone();
         let submit = Rc::new(move |cx: &mut App| {
             let Some((id, _)) = selected_value.clone().filter(|_| can_submit) else {
                 return false;
@@ -77,14 +98,28 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
                     if view.command_pending {
                         return false;
                     }
+                    let endpoint = endpoint.clone();
+                    let docker = services.resource_docker(endpoint.clone());
                     view.command_pending = true;
                     view.command_failed = false;
                     cx.spawn(async move |view, cx| {
-                        let mut launch = services.run_image(id, name);
+                        let mut launch = services.pending(async move {
+                            Ok(docker.run_image(&id, name.as_ref()).await?)
+                        });
                         let result = launch.result().await;
-                        let mut refresh = services.refresh();
-                        let _ = refresh.result().await;
+                        let replacement = if let Some(endpoint) = &endpoint {
+                            let mut pending = services.external_containers(endpoint.clone());
+                            pending.result().await.and_then(Result::ok)
+                        } else {
+                            let _ = services.refresh().result().await;
+                            None
+                        };
                         let _ = view.update(cx, |view, cx| {
+                            if let (Some(endpoint), Some(containers)) =
+                                (endpoint.as_ref(), replacement)
+                            {
+                                view.replace_external_containers(endpoint, containers);
+                            }
                             view.command_pending = false;
                             view.command_failed = !matches!(result, Some(Ok(ImageRun::Started(_))));
                             cx.notify();
@@ -97,7 +132,17 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
                 .unwrap_or(false)
         });
         let click_submit = submit.clone();
-        let mut body = div().flex().flex_col().gap_3().text_start(cx);
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .text_start(cx)
+            .child(
+                row(cx).child(super::super::external_inventory::source_badge(
+                    palette,
+                    badge.clone(),
+                )),
+            );
         if entries.is_empty() {
             body = body.child(gui::GUI_DESKTOP_CONTAINERS_NEED_IMAGE.text(locale));
         } else {
@@ -127,7 +172,7 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
                             })
                         }),
                 )
-                .child(Input::new(&name));
+                .child(super::super::common::resource_input(&name));
             if invalid {
                 body = body.child(
                     div()

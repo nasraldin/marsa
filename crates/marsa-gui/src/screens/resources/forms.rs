@@ -24,6 +24,21 @@ use super::{ResourceKind, ResourcesView, logical_row, text, tone};
 #[derive(Clone)]
 pub(super) enum FormKind {
     Pull,
+    ImportImage,
+    PushImage {
+        id: String,
+        reference: String,
+    },
+    ExportImage {
+        id: String,
+        reference: String,
+    },
+    NetworkMembership {
+        id: String,
+        name: String,
+        attach: bool,
+    },
+    DeployStack,
     Run {
         id: String,
         reference: String,
@@ -64,6 +79,11 @@ pub(super) enum FormKind {
 impl FormKind {
     pub(super) fn page(&self) -> ResourceKind {
         match self {
+            Self::ImportImage | Self::PushImage { .. } | Self::ExportImage { .. } => {
+                ResourceKind::Images
+            }
+            Self::NetworkMembership { .. } => ResourceKind::Networks,
+            Self::DeployStack => ResourceKind::Compose,
             Self::Pull | Self::Run { .. } | Self::RemoveImage { .. } | Self::TagImage { .. } => {
                 ResourceKind::Images
             }
@@ -77,6 +97,16 @@ impl FormKind {
 
     pub(super) fn title(&self, locale: Locale) -> &'static str {
         match self {
+            Self::ImportImage => gui::GUI_DESKTOP_IMPORT_IMAGE.text(locale),
+            Self::PushImage { .. } => gui::GUI_DESKTOP_PUSH_IMAGE.text(locale),
+            Self::ExportImage { .. } => gui::GUI_DESKTOP_EXPORT_IMAGE.text(locale),
+            Self::NetworkMembership { attach: true, .. } => {
+                gui::GUI_DESKTOP_ATTACH_CONTAINER.text(locale)
+            }
+            Self::NetworkMembership { attach: false, .. } => {
+                gui::GUI_DESKTOP_DETACH_CONTAINER.text(locale)
+            }
+            Self::DeployStack => gui::GUI_DESKTOP_DEPLOY_STACK.text(locale),
             Self::Pull => gui::GUI_DESKTOP_PULL_IMAGE.text(locale),
             Self::Run { .. } => gui::GUI_DESKTOP_RUN_IMAGE.text(locale),
             Self::TagImage { .. } => gui::GUI_DESKTOP_TAG_IMAGE.text(locale),
@@ -98,6 +128,11 @@ impl FormKind {
 
     fn target(&self) -> Option<&str> {
         match self {
+            Self::PushImage { reference, .. } | Self::ExportImage { reference, .. } => {
+                Some(reference)
+            }
+            Self::NetworkMembership { name, .. } => Some(name),
+            Self::ImportImage | Self::DeployStack => None,
             Self::Run { reference, .. }
             | Self::RemoveImage { reference, .. }
             | Self::TagImage { reference, .. } => Some(reference),
@@ -111,6 +146,8 @@ impl FormKind {
 
     fn placeholder(&self, locale: Locale) -> Option<&'static str> {
         match self {
+            Self::DeployStack => Some(gui::GUI_DESKTOP_STACK_NAME.text(locale)),
+            Self::NetworkMembership { .. } => Some(gui::GUI_DESKTOP_NETWORK_CONTAINER.text(locale)),
             Self::Pull => Some(gui::GUI_DESKTOP_IMAGE_REFERENCE.text(locale)),
             Self::TagImage { .. } => Some(gui::GUI_DESKTOP_TARGET_IMAGE_TAG.text(locale)),
             Self::Run { .. } => Some(gui::GUI_DESKTOP_CONTAINER_NAME_OPTIONAL.text(locale)),
@@ -141,6 +178,7 @@ impl FormKind {
             Self::RemoveImage { .. }
                 | Self::RemoveVolume { .. }
                 | Self::RemoveNetwork { .. }
+                | Self::NetworkMembership { attach: false, .. }
                 | Self::ComposeDown { .. }
         )
     }
@@ -150,6 +188,18 @@ impl FormKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ResourceRequest {
     Pull(String),
+    ImportImage,
+    PushImage {
+        id: String,
+        reference: String,
+    },
+    ExportImage(String),
+    NetworkMembership {
+        network: String,
+        container: marsa_client::docker::ContainerId,
+        attach: bool,
+    },
+    DeployStack(String),
     Run {
         id: String,
         name: Option<String>,
@@ -210,7 +260,7 @@ impl Form {
         }
     }
 
-    fn request(&self, cx: &App) -> Option<ResourceRequest> {
+    fn request(&self, state: &crate::store::AppState, cx: &App) -> Option<ResourceRequest> {
         let value = self
             .input
             .as_ref()
@@ -219,6 +269,33 @@ impl Form {
         let trimmed = value.trim();
         let nonempty = || (!trimmed.is_empty()).then_some(trimmed);
         Some(match &self.kind {
+            FormKind::DeployStack => ResourceRequest::DeployStack(nonempty()?.to_owned()),
+            FormKind::ImportImage => ResourceRequest::ImportImage,
+            FormKind::PushImage { id, reference } => ResourceRequest::PushImage {
+                id: id.clone(),
+                reference: reference.clone(),
+            },
+            FormKind::ExportImage { id, .. } => ResourceRequest::ExportImage(id.clone()),
+            FormKind::NetworkMembership { id, attach, .. } => {
+                let selection = nonempty()?;
+                let container = state
+                    .containers()
+                    .values()
+                    .find(|container| {
+                        container.id.as_str() == selection
+                            || container
+                                .names
+                                .iter()
+                                .any(|name| name.trim_start_matches('/') == selection)
+                    })?
+                    .id
+                    .clone();
+                ResourceRequest::NetworkMembership {
+                    network: id.clone(),
+                    container,
+                    attach: *attach,
+                }
+            }
             FormKind::Pull => ResourceRequest::Pull(nonempty()?.to_owned()),
             FormKind::Run { id, .. } => ResourceRequest::Run {
                 id: id.clone(),
@@ -368,7 +445,8 @@ impl Form {
         let submit = view.clone();
         let service = screen.services.cloned();
         let locale = screen.locale;
-        let request = self.request(cx);
+        let request = self.request(screen.state, cx);
+        let snapshot = screen.state.clone();
         let submit_button = Button::new("submit-resource-action")
             .h(px(Space::S36.pixels()))
             .rounded(px(Radius::R8.pixels()))
@@ -406,7 +484,7 @@ impl Form {
                         let form = view.form.as_ref()?;
                         let request = (
                             form.kind.page(),
-                            form.request(cx)?,
+                            form.request(&snapshot, cx)?,
                             form.source.as_ref().map(|source| source.endpoint.clone()),
                         );
                         view.form = None;

@@ -35,11 +35,13 @@ impl ResourcesView {
     pub(super) fn run_compose(
         &mut self,
         project: String,
-        invocation: Invocation,
+        action: (Invocation, Option<marsa_client::docker::ExternalEndpoint>),
         service: Arc<Services>,
         locale: Locale,
         cx: &mut Context<Self>,
     ) {
+        let (invocation, endpoint) = action;
+        let external = endpoint.is_some();
         let chosen_file = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -89,7 +91,7 @@ impl ResourcesView {
             {
                 return;
             }
-            let mut stream = service.compose(command);
+            let mut stream = service.compose(command, endpoint);
             while let Some(batch) = stream.next().await {
                 let Ok(lines) = batch else {
                     finish(&view, cx, Some(Outcome::Rejected));
@@ -115,8 +117,13 @@ impl ResourcesView {
                     return;
                 }
             }
-            let _ = service.refresh().result().await;
+            if !external {
+                let _ = service.refresh().result().await;
+            }
             finish(&view, cx, Some(Outcome::Success));
+            if external {
+                let _ = view.update(cx, |_, cx| cx.emit(super::ExternalResourcesChanged));
+            }
         }));
         cx.refresh_windows();
     }

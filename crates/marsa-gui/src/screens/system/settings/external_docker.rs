@@ -4,14 +4,21 @@ use std::sync::Arc;
 
 use marsa_ui::{
     ColorToken,
-    gpui::{Context, Div, ParentElement as _},
-    gpui_component::{Disableable as _, button::Button},
+    gpui::{Context, Div, ParentElement as _, Styled as _},
+    gpui_component::{
+        Disableable as _,
+        button::{Button, ButtonVariants as _},
+    },
     gui_keys as gui,
     tokens::typography::Role,
 };
 
 use super::{SystemView, settings_card, settings_heading, settings_text};
-use crate::screens::common::{ScreenContext, row, technical};
+use crate::screens::{
+    common::{ScreenContext, row, technical},
+    external_inventory::ContextFilter,
+    system::SelectContext,
+};
 
 impl SystemView {
     pub(crate) fn refresh_external_inventory(&mut self, cx: &mut Context<Self>) {
@@ -25,10 +32,12 @@ impl SystemView {
         self.external_inventory_task = Some(cx.spawn(async move |this, cx| {
             let result = pending.result().await;
             let _ = this.update(cx, |this, cx| {
-                this.external_inventory = result
-                    .and_then(Result::ok)
-                    .flatten()
-                    .map(|inventory| Arc::new(inventory.into()));
+                if let Some(Ok(inventories)) = result {
+                    this.external_inventory = inventories
+                        .into_iter()
+                        .map(|inventory| Arc::new(inventory.into()))
+                        .collect();
+                }
                 this.external_inventory_checked = true;
                 this.external_inventory_task = None;
                 cx.notify();
@@ -46,7 +55,7 @@ impl SystemView {
         let mut card = settings_card(screen)
             .child(settings_heading(
                 screen,
-                gui::GUI_DESKTOP_EXTERNAL_DOCKER.text(locale),
+                gui::GUI_DESKTOP_CONTEXTS.text(locale),
                 gui::GUI_DESKTOP_EXTERNAL_DOCKER_HELP.text(locale),
             ))
             .child(
@@ -61,7 +70,7 @@ impl SystemView {
                 ),
             );
         if self.external_inventory_task.is_some()
-            || self.external_inventory_checked && self.external_inventory.is_none()
+            || self.external_inventory_checked && self.external_inventory.is_empty()
         {
             let label = if self.external_inventory_task.is_some() {
                 gui::GUI_DESKTOP_SCANNING_EXTERNAL_DOCKER
@@ -75,20 +84,65 @@ impl SystemView {
                 ColorToken::TextMuted,
             ));
         }
-        if let Some(inventory) = &self.external_inventory {
-            card = card
-                .child(settings_text(
-                    screen,
-                    Role::Label,
-                    technical(&inventory.source),
-                    ColorToken::TextPrimary,
-                ))
-                .child(settings_text(
-                    screen,
-                    Role::Mono,
-                    technical(&inventory.socket.to_string_lossy()),
-                    ColorToken::TextMuted,
-                ));
+        card = card.child(
+            row(locale)
+                .gap_2()
+                .child(
+                    Button::new("contexts-all")
+                        .outline()
+                        .label(gui::GUI_DESKTOP_ALL_CONTEXTS.text(locale))
+                        .on_click(
+                            cx.listener(|_, _, _, cx| cx.emit(SelectContext(ContextFilter::All))),
+                        ),
+                )
+                .child(
+                    Button::new("contexts-marsa")
+                        .ghost()
+                        .label("Marsa")
+                        .on_click(
+                            cx.listener(|_, _, _, cx| cx.emit(SelectContext(ContextFilter::Marsa))),
+                        ),
+                ),
+        );
+        for (index, inventory) in self.external_inventory.iter().enumerate() {
+            let state = if inventory.reachable {
+                gui::GUI_DESKTOP_RUNNING
+            } else {
+                gui::GUI_DESKTOP_UNAVAILABLE
+            };
+            let selection = ContextFilter::External {
+                endpoint: inventory.endpoint.clone(),
+                name: Arc::from(inventory.source.as_str()),
+            };
+            card = card.child(
+                row(locale)
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Button::new(("context-row", index))
+                            .ghost()
+                            .label(technical(&inventory.source))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.emit(SelectContext(selection.clone()))
+                            })),
+                    )
+                    .child(settings_text(
+                        screen,
+                        Role::Small,
+                        technical(&inventory.endpoint.address()),
+                        ColorToken::TextMuted,
+                    ))
+                    .child(settings_text(
+                        screen,
+                        Role::Small,
+                        state.text(locale),
+                        if inventory.reachable {
+                            ColorToken::StatusRunning
+                        } else {
+                            ColorToken::TextMuted
+                        },
+                    )),
+            );
         }
         card
     }

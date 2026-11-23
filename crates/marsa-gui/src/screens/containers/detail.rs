@@ -30,7 +30,6 @@ pub(super) fn render(
     cx: &mut Context<ContainerView>,
 ) -> AnyElement {
     let screen = view.screen();
-    let external = target.endpoint().is_some();
     let mut title = row(cx)
         .gap_2()
         .items_center()
@@ -40,15 +39,15 @@ pub(super) fn render(
                 .min_w_0()
                 .child(isolate_technical_text(name(entry))),
         )
-        .children(view.external_inventory.as_ref().map(|inventory| {
-            crate::screens::external_inventory::source_badge(
-                screen.palette,
-                if external {
-                    isolate_technical_text(&inventory.source)
-                } else {
-                    "Marsa".into()
-                },
-            )
+        .children((!view.external_inventory.is_empty()).then(|| {
+            let badge = target
+                .endpoint()
+                .and_then(|endpoint| view.workspace(endpoint))
+                .map_or_else(
+                    || "Marsa".into(),
+                    |inventory| isolate_technical_text(&inventory.source),
+                );
+            crate::screens::external_inventory::source_badge(screen.palette, badge)
         }))
         .child(list::state_pill(
             &entry.state,
@@ -77,7 +76,7 @@ pub(super) fn render(
             target.clone(),
             ContainerAction::Stop,
             view.command_pending,
-            screen.locale,
+            (screen.locale, screen.palette),
             &entity,
         ));
     } else {
@@ -86,7 +85,7 @@ pub(super) fn render(
             target.clone(),
             ContainerAction::Start,
             view.command_pending,
-            screen.locale,
+            (screen.locale, screen.palette),
             &entity,
         ));
     }
@@ -95,7 +94,7 @@ pub(super) fn render(
         target.clone(),
         ContainerAction::Restart,
         view.command_pending,
-        screen.locale,
+        (screen.locale, screen.palette),
         &entity,
     ));
 
@@ -123,7 +122,7 @@ pub(super) fn render(
         Tab::Inspect => inspect(view, entry, &view.inspection, &screen, cx).into_any_element(),
         Tab::Stats => stats::render(view, &screen, cx),
     };
-    let mut root = div()
+    let root = div()
         .flex()
         .flex_col()
         .size_full()
@@ -150,16 +149,7 @@ pub(super) fn render(
                 .child(isolate_technical_text(&subtitle)),
         )
         .child(tabs);
-    if view.command_failed {
-        root = root.child(
-            div()
-                .text_color(color(screen.palette, ColorToken::StatusError))
-                .child(message(
-                    screen.locale,
-                    gui::GUI_DESKTOP_THE_CONTAINER_ACTION_COULDN_T_BE_COMPLETED,
-                )),
-        );
-    }
+
     root.child(content).into_any_element()
 }
 

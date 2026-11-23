@@ -13,6 +13,7 @@ use std::{
     collections::{BTreeSet, VecDeque},
     future::Future,
     sync::Arc,
+    time::Duration,
 };
 
 use marsa_client::{
@@ -24,15 +25,20 @@ use marsa_client::{
     },
 };
 use marsa_ui::{
-    ColorToken,
-    gpui::{Context, Div, EventEmitter, ParentElement, Styled, Task, Window, div},
+    Locale,
+    gpui::{
+        AnyElement, Context, Div, EventEmitter, ParentElement, Styled, Task, Window, div, px, svg,
+    },
     gpui_component::button::{Button, ButtonVariants},
     preferences::{AccentColor, Language, Settings, Theme},
 };
 
 use crate::{
-    desktop::Route,
-    screens::common::{ScreenContext, align, color, row},
+    desktop::{
+        Route,
+        toast::{self, Tone},
+    },
+    screens::common::{ScreenContext, align},
     services::{Pending, Services},
 };
 
@@ -40,6 +46,10 @@ pub(crate) use notifications::{NotificationDestination, Notifications, notificat
 use settings::{ResourceInputs, SettingsTab};
 
 pub(crate) struct OpenRoute(pub(crate) Route);
+
+pub(crate) struct SelectContext(pub(crate) crate::screens::external_inventory::ContextFilter);
+
+impl EventEmitter<SelectContext> for SystemView {}
 
 impl EventEmitter<OpenRoute> for SystemView {}
 
@@ -50,7 +60,7 @@ pub(crate) struct SystemView {
     restart_required: bool,
     settings_tab: SettingsTab,
     update_panel: settings::UpdatePanel,
-    external_inventory: Option<Arc<crate::screens::external_inventory::ExternalWorkspace>>,
+    external_inventory: crate::screens::external_inventory::Workspaces,
     external_inventory_task: Option<Task<()>>,
     external_inventory_checked: bool,
     resource_inputs: ResourceInputs,
@@ -67,13 +77,17 @@ pub(crate) struct SystemView {
     audit_filter: Option<AuditDecision>,
     audit_cursor: Option<String>,
     notice: Option<Notice>,
+    presented_notice: Option<Notice>,
+    daemon_notice: Option<Notice>,
+    daemon_notice_dismissed: bool,
+    notice_timeout: Option<Task<()>>,
     command: Option<Task<()>>,
     settings_load: Option<Task<()>>,
     route_load: Option<Task<()>>,
     revision: Option<u64>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Notice {
     Working,
     Failed,
@@ -83,13 +97,13 @@ enum Notice {
     DiagnosticsSaved,
     ProxyPreviousPolicy,
     ProxyRecoveryRequired,
+    DaemonUnavailable,
+    EngineFailed,
 }
 
 impl SystemView {
-    pub(crate) fn external_inventory(
-        &self,
-    ) -> Option<&Arc<crate::screens::external_inventory::ExternalWorkspace>> {
-        self.external_inventory.as_ref()
+    pub(crate) fn external_inventory(&self) -> &crate::screens::external_inventory::Workspaces {
+        &self.external_inventory
     }
 
     pub(crate) fn new(
@@ -104,7 +118,7 @@ impl SystemView {
             restart_required: false,
             settings_tab: SettingsTab::General,
             update_panel: settings::UpdatePanel::default(),
-            external_inventory: None,
+            external_inventory: Arc::from([]),
             external_inventory_task: None,
             external_inventory_checked: false,
             resource_inputs: ResourceInputs::new(window, cx),
@@ -121,6 +135,10 @@ impl SystemView {
             audit_filter: None,
             audit_cursor: None,
             notice: None,
+            presented_notice: None,
+            daemon_notice: None,
+            daemon_notice_dismissed: false,
+            notice_timeout: None,
             command: None,
             settings_load: None,
             route_load: None,
@@ -140,6 +158,13 @@ impl SystemView {
             .map_or(AccentColor::MarsaBlue, |(settings, _)| {
                 settings.ui.accent_color
             })
+    }
+
+    /// Select the Docker settings tab and update the detected engine list.
+    pub(crate) fn select_docker_settings(&mut self, cx: &mut Context<Self>) {
+        self.settings_tab = SettingsTab::Docker;
+        self.refresh_external_inventory(cx);
+        cx.notify();
     }
 
     pub(crate) fn prepare_notification_destination(
@@ -341,79 +366,115 @@ impl SystemView {
         align(view, screen.locale)
     }
 
-    pub(crate) fn banner(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Option<Div> {
-        let locale = screen.locale;
-        let notice = self.notice;
-        let message = match notice {
-            Some(Notice::Working) => gui::GUI_DESKTOP_WORKING.text(locale),
-            Some(Notice::Failed) => {
-                gui::GUI_DESKTOP_THE_REQUEST_FAILED_CHECK_THE_ENGINE_STATE_AND_TRY_AGAIN
-                    .text(locale)
-            }
-            Some(Notice::InvalidSettings) => {
-                gui::GUI_DESKTOP_MARSA_COULD_NOT_READ_OR_VALIDATE_THESE_SETTINGS_REVIEW_THE_VAL
-                    .text(locale)
-            }
-            Some(Notice::Saved) => gui::GUI_DESKTOP_SETTINGS_SAVED.text(locale),
-            Some(Notice::AppliedNextStart) => {
-                gui::GUI_DESKTOP_SETTINGS_SAVED_RESOURCE_CHANGES_APPLY_AT_THE_NEXT_START
-                    .text(locale)
-            }
-            Some(Notice::ProxyPreviousPolicy) => {
-                gui::GUI_DESKTOP_PROXY_PREVIOUS_POLICY.text(locale)
-            }
-            Some(Notice::ProxyRecoveryRequired) => {
-                gui::GUI_DESKTOP_PROXY_RECOVERY_REQUIRED.text(locale)
-            }
-            Some(Notice::DiagnosticsSaved) => {
-                gui::GUI_DESKTOP_THE_DIAGNOSTICS_BUNDLE_WAS_CREATED_REVIEW_IT_IN_FINDER_BEFORE
-                    .text(locale)
-            }
-            None if screen.state.daemon().is_none() => {
-                gui::GUI_DESKTOP_CONNECTING_TO_THE_LOCAL_DAEMON_IF_THE_CONNECTION_STAYS_UNAVAIL
-                    .text(locale)
-            }
-            None if screen
-                .state
-                .engine()
-                .is_some_and(|engine| engine.state() == EngineState::Failed) =>
-            {
-                gui::GUI_DESKTOP_NOTIFICATION_ENGINE_BODY.text(locale)
-            }
-            _ => return None,
+    /// Present operation feedback above the workspace content.
+    pub(crate) fn toast(
+        &mut self,
+        screen: &ScreenContext<'_>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let daemon_notice = if screen.state.daemon().is_none() {
+            Some(Notice::DaemonUnavailable)
+        } else if screen
+            .state
+            .engine()
+            .is_some_and(|engine| engine.state() == EngineState::Failed)
+        {
+            Some(Notice::EngineFailed)
+        } else {
+            None
         };
-        let background = match notice {
-            Some(Notice::Failed | Notice::ProxyRecoveryRequired) => ColorToken::StatusErrorBg,
-            Some(Notice::InvalidSettings | Notice::ProxyPreviousPolicy) => {
-                ColorToken::StatusWarningBg
-            }
-            None if screen
-                .state
-                .engine()
-                .is_some_and(|engine| engine.state() == EngineState::Failed) =>
-            {
-                ColorToken::StatusErrorBg
-            }
-            _ => ColorToken::AccentSubtle,
-        };
-        let dismissible = notice.is_some() && !self.busy();
-        Some(
-            row(locale)
-                .justify_between()
-                .gap_2()
-                .p_2()
-                .rounded_md()
-                .bg(color(screen.palette, background))
-                .child(align(div().text_sm(), locale).child(message))
-                .children(dismissible.then(|| {
-                    Button::new("dismiss-notice")
-                        .ghost()
-                        .label(gui::GUI_DESKTOP_DISMISS.text(locale))
-                        .on_click(cx.listener(|this, _, _, cx| {
+        if self.daemon_notice != daemon_notice {
+            self.daemon_notice = daemon_notice;
+            self.daemon_notice_dismissed = false;
+        }
+
+        let operation_notice = self.notice;
+        let notice = operation_notice.or(daemon_notice.filter(|_| !self.daemon_notice_dismissed));
+        if self.presented_notice != notice {
+            self.presented_notice = notice;
+            self.notice_timeout = notice.filter(|notice| notice.transient()).map(|notice| {
+                let timer = cx.background_executor().timer(Duration::from_secs(6));
+                cx.spawn(async move |view, cx| {
+                    timer.await;
+                    let _ = view.update(cx, |this, cx| {
+                        if this.notice == Some(notice) {
                             this.notice = None;
                             cx.notify();
-                        }))
-                })),
+                        }
+                    });
+                })
+            });
+        }
+
+        let notice = notice?;
+        let locale = screen.locale;
+        let (message, tone) = notice.presentation(locale);
+        let dismiss = (notice != Notice::Working).then(|| {
+            let label = gui::GUI_DESKTOP_DISMISS.text(locale);
+            Button::new("dismiss-notice")
+                .ghost()
+                .size(px(22.))
+                .p_0()
+                .accessibility_label(label)
+                .tooltip(label)
+                .child(svg().path("icons/x.svg").size(px(14.)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if operation_notice.is_none() && this.daemon_notice == Some(notice) {
+                        this.daemon_notice_dismissed = true;
+                    } else if this.notice == operation_notice {
+                        this.notice = None;
+                    }
+                    cx.notify();
+                }))
+        });
+        Some(toast::render(
+            ("system-toast", notice as usize),
+            locale,
+            screen.palette,
+            tone,
+            message,
+            dismiss,
+            cx,
+        ))
+    }
+}
+
+impl Notice {
+    fn presentation(self, locale: Locale) -> (&'static str, Tone) {
+        let (message, tone) = match self {
+            Self::Working => (gui::GUI_DESKTOP_WORKING, Tone::Info),
+            Self::Failed => (
+                gui::GUI_DESKTOP_THE_REQUEST_FAILED_CHECK_THE_ENGINE_STATE_AND_TRY_AGAIN,
+                Tone::Error,
+            ),
+            Self::InvalidSettings => (
+                gui::GUI_DESKTOP_MARSA_COULD_NOT_READ_OR_VALIDATE_THESE_SETTINGS_REVIEW_THE_VAL,
+                Tone::Warning,
+            ),
+            Self::Saved => (gui::GUI_DESKTOP_SETTINGS_SAVED, Tone::Success),
+            Self::AppliedNextStart => (
+                gui::GUI_DESKTOP_SETTINGS_SAVED_RESOURCE_CHANGES_APPLY_AT_THE_NEXT_START,
+                Tone::Success,
+            ),
+            Self::ProxyPreviousPolicy => (gui::GUI_DESKTOP_PROXY_PREVIOUS_POLICY, Tone::Warning),
+            Self::ProxyRecoveryRequired => (gui::GUI_DESKTOP_PROXY_RECOVERY_REQUIRED, Tone::Error),
+            Self::DiagnosticsSaved => (
+                gui::GUI_DESKTOP_THE_DIAGNOSTICS_BUNDLE_WAS_CREATED_REVIEW_IT_IN_FINDER_BEFORE,
+                Tone::Success,
+            ),
+            Self::DaemonUnavailable => (
+                gui::GUI_DESKTOP_CONNECTING_TO_THE_LOCAL_DAEMON_IF_THE_CONNECTION_STAYS_UNAVAIL,
+                Tone::Info,
+            ),
+            Self::EngineFailed => (gui::GUI_DESKTOP_NOTIFICATION_ENGINE_BODY, Tone::Error),
+        };
+        (message.text(locale), tone)
+    }
+
+    fn transient(self) -> bool {
+        matches!(
+            self,
+            Self::Saved | Self::AppliedNextStart | Self::DiagnosticsSaved
         )
     }
 }

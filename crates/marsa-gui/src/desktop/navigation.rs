@@ -38,7 +38,7 @@ impl Route {
             Self::Images => ("Images", "الصور"),
             Self::Volumes => ("Volumes", "وحدات التخزين"),
             Self::Networks => ("Networks", "الشبكات"),
-            Self::Compose => ("Compose", "مشاريع Compose"),
+            Self::Compose => ("Stacks", "المكدسات"),
             Self::Machine => ("Machine", "الجهاز"),
             Self::Disk => ("Disk & cleanup", "القرص والتنظيف"),
             Self::Activity => ("Activity", "النشاط"),
@@ -67,8 +67,8 @@ impl Route {
             ),
             Self::Networks => ("Manage how containers connect.", "إدارة اتصالات الحاويات."),
             Self::Compose => (
-                "Manage services grouped by Compose project.",
-                "إدارة الخدمات المجمّعة حسب مشروع Compose.",
+                "Deploy and manage Docker Compose stacks.",
+                "انشر مكدسات Docker Compose وأدرها.",
             ),
             Self::Machine => (
                 "Manage the Linux virtual machine that runs Marsa.",

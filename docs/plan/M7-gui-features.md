@@ -255,7 +255,7 @@ app is still running. Notification actions reopen the relevant review screen.
   - Live stats use the selected socket and the existing bounded charts.
   - Group controls work across the visible Marsa and external Compose groups.
 
-On this Mac, the signed app opened an interactive shell and streamed live usage on Lima with the Marsa engine stopped. Expand and collapse worked on the selected group. The four-variant visual check remains open after the accessibility tool timed out.
+On this Mac, the signed app opened an interactive shell and streamed live usage on Lima with the Marsa engine stopped. Expand and collapse worked on the selected group. The later context qualification included the four appearance and language variants.
 
 ### M7-16 Manage resources on detected Docker engines
 
@@ -269,12 +269,12 @@ On this Mac, the signed app opened an interactive shell and streamed live usage 
   - Confirmations identify the engine before removing data.
   - Compose execution uses trusted local project configuration and an authenticated connection.
 
-Verified on Lima that the image tag resolves to the original image and volume creation uses the engine chosen in the dialog. External Compose currently operates on existing project containers. Deploying and bringing down a project from a trusted Compose file remain open.
+Verified on Lima that the image tag resolves to the original image and volume creation uses the engine chosen in the dialog. M7-17 adds external Compose deployment and teardown from a deliberately selected local file.
 
 
 ### M7-17 Capability and context coverage
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-16
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Add configured contexts, authenticated remote transports, and the remaining resource actions across engines. Keep context selection visible in project, registry, and destructive workflows.
@@ -283,3 +283,20 @@ Verified on Lima that the image tag resolves to the original image and volume cr
   - The desktop can show multiple configured engines simultaneously and scopes operations to the selected engine even when object identifiers coincide.
   - Authenticated remote transports use the selected context's identity and security settings.
   - Registry push, image import and export, and network attachment are available where the chosen engine supports them.
+
+Qualification used two isolated Unix test engines and an offline registered context, SSH with positive and negative host-trust checks, and a mutual-TLS proxy to Lima Docker Engine 29.9.2. The signed app deployed a disposable stack through the TLS context. The Lima fixture round-tripped an image archive, attached and detached a network, and pushed a test image to a loopback-only registry.
+
+
+### M7-18 Context navigation and desktop feedback
+
+- **Status:** done
+- **Depends on:** M7-17 context inventory
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Filter all inventory views by context. Open the context list from the compact sidebar status card. Present transient alerts as toasts, keep persistent faults actionable, use semantic icon colors, and make full container rows respond to hover. Keep movement brief and respect Reduce Motion.
+- **Deliver:** Desktop shell and inventory controls in English and Arabic.
+- **Accept when:**
+  - All four appearance and language combinations retain the current layout and expose context controls.
+  - Switching context matches the row badges, details, and action destinations.
+  - Toasts remain keyboard accessible and the sidebar status goes directly to the context list.
+
+The signed desktop was reviewed in English light, English dark, Arabic light, and Arabic dark using isolated preferences. The context card opened Docker settings, the context filter isolated the selected source, and the deployment surfaced a dismissible toast.

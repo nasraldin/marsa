@@ -7,6 +7,7 @@ mod palette;
 mod session;
 mod sidebar;
 pub(crate) mod status;
+pub(crate) mod toast;
 
 use marsa_ui::gui_keys as gui;
 use std::{collections::VecDeque, sync::Arc};
@@ -33,8 +34,9 @@ use crate::{
     screens::{
         common::{ScreenContext, align, color, row},
         containers::ContainerView,
+        external_inventory::{ContextFilter, Workspaces},
         resources::{self, ResourceKind, ResourcesView},
-        system::{OpenRoute, SystemView},
+        system::{OpenRoute, SelectContext, SystemView},
     },
     services::{EngineAction, Services},
     store::AppState,
@@ -76,7 +78,10 @@ pub(crate) struct Desktop {
     appearance_preference: Theme,
     accent: AccentColor,
     state: AppState,
-    external_inventory: Option<Arc<crate::screens::external_inventory::ExternalWorkspace>>,
+    external_inventory: Workspaces,
+    context_filter: Entity<ContextFilter>,
+    _context_subscription: Subscription,
+    _context_picker_subscription: Subscription,
     services: Option<Arc<Services>>,
     history: VecDeque<EngineState>,
     containers: Entity<ContainerView>,
@@ -105,9 +110,26 @@ impl Desktop {
         window.on_next_frame(move |window, cx| initial_focus.focus(window, cx));
         let services = session::attach(window, locale, cx);
         let palette = palette_for(window, Theme::System);
-        let containers = cx.new(|cx| ContainerView::new(services.clone(), locale, palette, cx));
+        let context_filter = cx.new(|_| ContextFilter::default());
+        let _context_subscription = cx.observe(&context_filter, |_, _, cx| cx.notify());
+        let containers = cx.new(|cx| {
+            ContainerView::new(
+                services.clone(),
+                locale,
+                palette,
+                context_filter.clone(),
+                cx,
+            )
+        });
         let resources = cx.new(|cx| ResourcesView::new(window, cx));
         let system = cx.new(|cx| SystemView::new(services.clone(), window, cx));
+        let _context_picker_subscription =
+            cx.subscribe(&system, |this, _, SelectContext(selection), cx| {
+                this.context_filter.update(cx, |filter, cx| {
+                    *filter = selection.clone();
+                    cx.notify();
+                });
+            });
         let query = cx.new(|cx| InputState::new(window, cx));
         let _resource_subscription = cx.subscribe(
             &resources,
@@ -123,13 +145,8 @@ impl Desktop {
             let preferences = system.read(cx).preferences();
             this.accent = system.read(cx).accent();
             let inventory = system.read(cx).external_inventory();
-            let changed = match (this.external_inventory.as_ref(), inventory) {
-                (Some(previous), Some(current)) => !Arc::ptr_eq(previous, current),
-                (None, None) => false,
-                _ => true,
-            };
-            if changed {
-                this.external_inventory = inventory.cloned();
+            if !Arc::ptr_eq(&this.external_inventory, inventory) {
+                this.external_inventory = inventory.clone();
                 this.containers.update(cx, |view, cx| {
                     view.set_external_inventory(this.external_inventory.clone(), cx);
                 });
@@ -208,7 +225,10 @@ impl Desktop {
             appearance_preference: Theme::System,
             accent: AccentColor::MarsaBlue,
             state,
-            external_inventory: None,
+            external_inventory: Arc::from([]),
+            context_filter,
+            _context_subscription,
+            _context_picker_subscription,
             services,
             history: VecDeque::new(),
             containers,
@@ -233,6 +253,36 @@ impl Desktop {
 
     fn engine(&self) -> Option<EngineState> {
         self.state.engine().map(|engine| engine.state())
+    }
+
+    fn context_label(&self, cx: &App) -> gpui::SharedString {
+        match self.context_filter.read(cx) {
+            ContextFilter::All | ContextFilter::Marsa => "marsa".into(),
+            filter => filter.display(self.locale),
+        }
+    }
+
+    fn context_engine(&self, cx: &App) -> Option<EngineState> {
+        let ContextFilter::External { endpoint, .. } = self.context_filter.read(cx) else {
+            return self.engine();
+        };
+        Some(
+            if self
+                .external_inventory
+                .iter()
+                .any(|workspace| &workspace.endpoint == endpoint && workspace.reachable)
+            {
+                EngineState::Ready
+            } else {
+                EngineState::Failed
+            },
+        )
+    }
+
+    fn open_contexts(&mut self, cx: &mut Context<Self>) {
+        self.system
+            .update(cx, |system, cx| system.select_docker_settings(cx));
+        self.navigate(Route::Settings, cx);
     }
 
     fn navigate(&mut self, route: Route, cx: &mut Context<Self>) {
@@ -308,7 +358,7 @@ impl Render for Desktop {
         };
         let route = self.route;
         let failed = (route == Route::Machine
-            || route == Route::Containers && self.external_inventory.is_none())
+            || route == Route::Containers && self.external_inventory.is_empty())
             && self.engine() == Some(EngineState::Failed);
         let sidebar = sidebar::render(self, cx);
         let header = row(self.locale)
@@ -396,7 +446,8 @@ impl Render for Desktop {
                         &screen,
                         kind,
                         &self.resources,
-                        self.external_inventory.as_deref(),
+                        &self.external_inventory,
+                        &self.context_filter,
                         cx,
                     )
                     .into_any_element()
@@ -408,7 +459,11 @@ impl Render for Desktop {
                 }),
             }
         };
-        let notice = self.system.update(cx, |view, cx| view.banner(&screen, cx));
+        let toast = self
+            .resources
+            .update(cx, |view, cx| view.toast(&screen, cx))
+            .or_else(|| self.containers.update(cx, |view, cx| view.toast(cx)))
+            .or_else(|| self.system.update(cx, |view, cx| view.toast(&screen, cx)));
         let content = div()
             .id(("screen", route as usize))
             .flex_1()
@@ -428,7 +483,6 @@ impl Render for Desktop {
             .gap_3()
             .p_4()
             .children((route != Route::Containers || failed).then_some(header))
-            .children((route != Route::Containers).then_some(notice).flatten())
             .child(content);
         type_role(Role::Body, self.locale)
             .apply(div().id("marsa-desktop"))
@@ -477,6 +531,7 @@ impl Render for Desktop {
                     .child(main)
                     .into_any_element()
             })
+            .children(self.onboarding.is_none().then_some(toast).flatten())
             .children(self.palette_open.then(|| self.command_palette(cx)))
     }
 }

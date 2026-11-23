@@ -203,7 +203,7 @@ flowchart LR
     shell --> img["Images"]
     shell --> vol["Volumes"]
     shell --> net["Networks"]
-    shell --> cmp["Compose projects"]
+    shell --> cmp["Stacks"]
     shell --> dsk["Disk and cleanup"]
     shell --> act["Activity and agent approvals"]
     shell --> set["Settings"]
@@ -247,7 +247,7 @@ From the planning whiteboard.
 
 ### Should have: soon after
 
-File browser for containers and volumes; build view (BuildKit progress and cache); registry sign-in and credentials; Docker contexts for remote engines over SSH; image layer inspector; crash and restart-loop notifications; clickable published ports.
+File browser for containers and volumes; build view (BuildKit progress and cache); registry sign-in and credentials; image layer inspector; crash and restart-loop notifications; clickable published ports.
 
 ### Later
 

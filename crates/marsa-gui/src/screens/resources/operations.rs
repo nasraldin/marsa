@@ -7,19 +7,21 @@ use std::sync::Arc;
 use marsa_client::{
     compose::ComposeOperation,
     docker::{
-        ContainerAction, ContainerId, ExternalEndpoint, ImageId, ImageRemoval, ImageRun,
-        NetworkRemoval, RemovalMode, ResourceName, VolumeRemoval,
+        ContainerAction, ContainerId, ExternalEndpoint, ImageId, ImageReference, ImageRemoval,
+        ImageRun, NetworkId, NetworkRemoval, RemovalMode, ResourceName, VolumeRemoval,
     },
 };
 use marsa_ui::{
     ColorToken, Locale,
-    gpui::{Context, Div, ParentElement, Styled, div, px},
+    gpui::{AnyElement, Context, Div, ParentElement, PathPromptOptions, Styled, div, px, svg},
+    gpui_component::button::{Button, ButtonVariants as _},
     tokens::{scale::Space, typography::Role},
 };
 
 use crate::{
-    screens::common::{ScreenContext, panel},
-    services::{Command, ServiceError, Services},
+    desktop::toast::{self, Tone},
+    screens::common::ScreenContext,
+    services::{ServiceError, Services},
 };
 
 use super::{
@@ -38,19 +40,32 @@ pub(super) enum Outcome {
 }
 
 impl ResourcesView {
-    pub(super) fn measure_volumes(&mut self, service: &Services, cx: &mut Context<Self>) {
+    pub(super) fn measure_volumes(
+        &mut self,
+        service: &Services,
+        endpoint: Option<ExternalEndpoint>,
+        cx: &mut Context<Self>,
+    ) {
         if self.volume_scanning {
             return;
         }
         self.volume_scanning = true;
         self.volume_scan_failed = false;
-        let mut request = service.volume_usage();
+        let mut request = service.volume_usage(endpoint.clone());
         self.volume_scan = Some(cx.spawn(async move |view, cx| {
             let result = request.result().await;
             let _ = view.update(cx, |view, cx| {
                 view.volume_scanning = false;
                 match result {
-                    Some(Ok(usage)) => view.volume_usage = usage,
+                    Some(Ok(usage)) => {
+                        if let Some(endpoint) = endpoint {
+                            view.external_volume_usage
+                                .retain(|(current, _)| current != &endpoint);
+                            view.external_volume_usage.push((endpoint, usage));
+                        } else {
+                            view.volume_usage = usage;
+                        }
+                    }
                     _ => view.volume_scan_failed = true,
                 }
                 cx.refresh_windows();
@@ -163,10 +178,10 @@ impl ResourcesView {
                 self.pull(reference, endpoint, service, cx);
                 return;
             }
-            ResourceRequest::ComposeUp(project) => {
+            ResourceRequest::DeployStack(project) | ResourceRequest::ComposeUp(project) => {
                 self.run_compose(
                     project,
-                    Invocation::Standard(ComposeOperation::Up),
+                    (Invocation::Standard(ComposeOperation::Up), endpoint),
                     service,
                     locale,
                     cx,
@@ -176,7 +191,7 @@ impl ResourcesView {
             ResourceRequest::ComposeRestart(project) => {
                 self.run_compose(
                     project,
-                    Invocation::Standard(ComposeOperation::Restart),
+                    (Invocation::Standard(ComposeOperation::Restart), endpoint),
                     service,
                     locale,
                     cx,
@@ -193,23 +208,49 @@ impl ResourcesView {
                 } else {
                     Invocation::Standard(ComposeOperation::Down)
                 };
-                self.run_compose(project, invocation, service, locale, cx);
+                self.run_compose(project, (invocation, endpoint), service, locale, cx);
                 return;
             }
             request => request,
         };
+        let import = matches!(request, ResourceRequest::ImportImage).then(|| {
+            cx.prompt_for_paths(PathPromptOptions {
+                files: true,
+                directories: false,
+                multiple: false,
+                prompt: Some(gui::GUI_DESKTOP_IMPORT_IMAGE.text(locale).into()),
+            })
+        });
+        let export = matches!(request, ResourceRequest::ExportImage(_))
+            .then(|| cx.prompt_for_new_path(std::path::Path::new("."), Some("image.tar")));
         self.pull = None;
         self.busy = Some(kind);
         self.outcome = None;
         self.operation = Some(cx.spawn(async move |view, cx| {
             let external = endpoint.is_some();
-            let result = match endpoint {
-                Some(endpoint) => dispatch_external(&service, endpoint, request).await,
-                None => dispatch(&service, request).await,
+            let file = match (import, export) {
+                (Some(prompt), _) => match prompt.await {
+                    Ok(Ok(files)) => files.and_then(|files| files.into_iter().next()),
+                    _ => None,
+                },
+                (_, Some(prompt)) => match prompt.await {
+                    Ok(Ok(file)) => file,
+                    _ => None,
+                },
+                _ => None,
+            };
+            let result = if matches!(
+                request,
+                ResourceRequest::ImportImage | ResourceRequest::ExportImage(_)
+            ) && file.is_none()
+            {
+                Ok(Some(Outcome::Cancelled))
+            } else {
+                dispatch(&service, endpoint, request, file).await
             };
             let outcome = match result {
                 Ok(Some(outcome)) => {
-                    if !external {
+                    if !external && !matches!(outcome, Outcome::Cancelled) {
                         let _ = service.refresh().result().await;
                     }
                     outcome
@@ -221,6 +262,7 @@ impl ResourcesView {
                 view.busy = None;
                 if kind == ResourceKind::Volumes && matches!(outcome, Outcome::Success) {
                     view.volume_usage.clear();
+                    view.external_volume_usage.clear();
                 }
                 view.outcome = Some((kind, outcome));
                 if external {
@@ -233,12 +275,13 @@ impl ResourcesView {
     }
 }
 
-async fn dispatch_external(
+async fn dispatch(
     service: &Services,
-    endpoint: ExternalEndpoint,
+    endpoint: Option<ExternalEndpoint>,
     request: ResourceRequest,
+    file: Option<std::path::PathBuf>,
 ) -> Result<Option<Outcome>, ServiceError> {
-    let docker = endpoint.management_client();
+    let docker = service.resource_docker(endpoint);
     service
         .pending(async move {
             match request {
@@ -253,6 +296,39 @@ async fn dispatch_external(
                             ImageRun::Created { .. } => Outcome::ImageCreated,
                         },
                     );
+                }
+                ResourceRequest::PushImage { id, reference } => {
+                    let current = docker.inspect_image(&ImageId::parse(id)?).await?;
+                    if !current.repo_tags.iter().any(|tag| tag == &reference) {
+                        return Err(marsa_client::docker::DockerError::ResourceIdentity.into());
+                    }
+                    docker
+                        .push_image(&ImageReference::parse(reference)?)
+                        .await?;
+                }
+                ResourceRequest::ImportImage => {
+                    let Some(file) = file else {
+                        return Ok(Outcome::Cancelled);
+                    };
+                    docker.import_image(&file).await?;
+                }
+                ResourceRequest::ExportImage(id) => {
+                    let Some(file) = file else {
+                        return Ok(Outcome::Cancelled);
+                    };
+                    docker.export_image(&ImageId::parse(id)?, &file).await?;
+                }
+                ResourceRequest::NetworkMembership {
+                    network,
+                    container,
+                    attach,
+                } => {
+                    let network = NetworkId::parse(network)?;
+                    if attach {
+                        docker.connect_network(&network, &container).await?;
+                    } else {
+                        docker.disconnect_network(&network, &container).await?;
+                    }
                 }
                 ResourceRequest::TagImage { id, destination } => {
                     docker.tag_image(&ImageId::parse(id)?, &destination).await?;
@@ -292,127 +368,71 @@ async fn dispatch_external(
         .transpose()
 }
 
-async fn dispatch(
-    service: &Services,
-    request: ResourceRequest,
-) -> Result<Option<Outcome>, ServiceError> {
-    if let ResourceRequest::Run { id, name } = request {
-        let name = name.map(ResourceName::parse).transpose()?;
-        let result = service
-            .run_image(ImageId::parse(id)?, name)
-            .result()
-            .await
-            .transpose()?;
-        return Ok(result.map(|result| match result {
-            ImageRun::Started(_) => Outcome::Success,
-            ImageRun::Created { .. } => Outcome::ImageCreated,
-        }));
-    }
-    let result = match request {
-        ResourceRequest::TagImage { id, destination } => {
-            service
-                .tag_image(ImageId::parse(id)?, destination)
-                .result()
-                .await
-        }
-        ResourceRequest::CreateVolume(name) => service
-            .create_volume(ResourceName::parse(name)?)
-            .result()
-            .await
-            .map(|result| result.map(|_| ())),
-        ResourceRequest::CreateNetwork(name) => service
-            .create_network(ResourceName::parse(name)?)
-            .result()
-            .await
-            .map(|result| result.map(|_| ())),
-        ResourceRequest::RemoveVolume { name, typed } => {
-            let removal = VolumeRemoval::confirm(ResourceName::parse(name)?, &typed)?;
-            service
-                .dispatch(Command::RemoveVolume(removal))
-                .result()
-                .await
-        }
-        ResourceRequest::RemoveNetwork(id) => {
-            let removal = NetworkRemoval::confirmed(id)?;
-            service
-                .dispatch(Command::RemoveNetwork(removal))
-                .result()
-                .await
-        }
-        ResourceRequest::RemoveImage { id, force } => {
-            let mode = if force {
-                RemovalMode::Force
-            } else {
-                RemovalMode::StoppedOnly
-            };
-            let removal = ImageRemoval::confirmed(ImageId::parse(id)?, mode);
-            service
-                .dispatch(Command::RemoveImage(removal))
-                .result()
-                .await
-        }
-        ResourceRequest::Pull(_)
-        | ResourceRequest::Run { .. }
-        | ResourceRequest::ComposeUp(_)
-        | ResourceRequest::ComposeRestart(_)
-        | ResourceRequest::ComposeDown { .. } => None,
-    };
-    result
-        .transpose()
-        .map(|result| result.map(|()| Outcome::Success))
-}
-
-pub(super) fn notice(
-    screen: &ScreenContext<'_>,
-    kind: ResourceKind,
-    view: &ResourcesView,
-) -> Option<Div> {
-    let (message, role) = if view.busy == Some(kind) {
-        (
-            message(screen.locale, gui::GUI_DESKTOP_WORKING),
-            ColorToken::TextMuted,
-        )
-    } else {
-        match view.outcome.filter(|(page, _)| *page == kind)?.1 {
+impl ResourcesView {
+    pub(crate) fn toast(
+        &self,
+        screen: &ScreenContext<'_>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let (_, outcome) = self.outcome?;
+        let (message, tone) = match outcome {
             Outcome::Success => (
                 message(screen.locale, gui::GUI_DESKTOP_OPERATION_COMPLETED),
-                ColorToken::StatusRunning,
+                Tone::Success,
             ),
             Outcome::Rejected => (
                 message(
                     screen.locale,
                     gui::GUI_DESKTOP_DOCKER_REJECTED_THE_OPERATION_CHECK_THE_SELECTED_RESOURCE_AND,
                 ),
-                ColorToken::StatusError,
+                Tone::Error,
             ),
             Outcome::ImageCreated => (
                 message(
                     screen.locale,
                     gui::GUI_DESKTOP_THE_CONTAINER_WAS_CREATED_BUT_DOCKER_COULD_NOT_START_IT,
                 ),
-                ColorToken::StatusWarning,
+                Tone::Warning,
             ),
             Outcome::UnsupportedImagePlatform => (
                 message(
                     screen.locale,
                     gui::GUI_DESKTOP_THIS_IMAGE_HAS_NO_LINUX_ARM64_VARIANT_CHOOSE_AN_ARM64_OR_MULTI,
                 ),
-                ColorToken::StatusError,
+                Tone::Error,
             ),
             Outcome::Cancelled => (
-                message(screen.locale, gui::GUI_DESKTOP_IMAGE_PULL_CANCELLED),
-                ColorToken::TextMuted,
+                message(screen.locale, gui::GUI_DESKTOP_OPERATION_CANCELLED),
+                Tone::Info,
             ),
             Outcome::Unavailable => (
                 message(
                     screen.locale,
                     gui::GUI_DESKTOP_THIS_OPERATION_IS_UNAVAILABLE,
                 ),
-                ColorToken::StatusWarning,
+                Tone::Warning,
             ),
-        }
-    };
-    Some(panel(screen).child(text(screen, Role::Body, message).text_color(tone(screen, role))))
+        };
+        let label = gui::GUI_DESKTOP_DISMISS.text(screen.locale);
+        let dismiss = Button::new("dismiss-resource-toast")
+            .ghost()
+            .accessibility_label(label)
+            .tooltip(label)
+            .child(svg().path("icons/x.svg").size(px(14.)))
+            .on_click(cx.listener(|view, _, _, cx| {
+                view.outcome = None;
+                cx.refresh_windows();
+            }));
+        Some(toast::render(
+            ("resource-toast", outcome as usize),
+            screen.locale,
+            screen.palette,
+            tone,
+            message,
+            Some(dismiss),
+            cx,
+        ))
+    }
 }
 
 pub(super) fn image_metadata(

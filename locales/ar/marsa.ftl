@@ -754,3 +754,17 @@ gui-desktop-scan-external-docker = ابحث عن Docker
 gui-desktop-scanning-external-docker = جارٍ فحص مقابس Docker المحلية…
 gui-desktop-no-external-docker = لم يستجب أي محرّك Docker منفصل مملوك للمستخدم.
 gui-desktop-external-resource-unavailable = لم يوفّر هذا المحرّك بيانات الموارد لهذه الصفحة.
+
+gui-desktop-all-contexts = كل السياقات
+gui-desktop-filter-by-context = صفِّ حسب السياق
+gui-desktop-contexts = السياقات
+gui-desktop-stacks = المكدسات
+gui-desktop-deploy-stack = انشر مكدسًا
+gui-desktop-stack-name = اسم المكدس
+gui-desktop-push-image = ادفع الصورة
+gui-desktop-export-image = صدّر الصورة
+gui-desktop-import-image = استورد صورة
+gui-desktop-attach-container = اربط حاوية
+gui-desktop-detach-container = افصل حاوية
+gui-desktop-network-container = اسم الحاوية أو معرّفها الكامل
+gui-desktop-operation-cancelled = أُلغيت العملية

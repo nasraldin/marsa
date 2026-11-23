@@ -7,7 +7,10 @@ use marsa_ui::{
         Context, Div, FontWeight, InteractiveElement, ParentElement, StatefulInteractiveElement,
         Styled, div, img, prelude::FluentBuilder, px, svg,
     },
-    gpui_component::button::{Button, ButtonVariants},
+    gpui_component::{
+        Icon, IconName, Selectable,
+        button::{Button, ButtonVariants},
+    },
 };
 
 use crate::screens::common::{align, color, row};
@@ -81,13 +84,11 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 .children(routes.iter().copied().map(|route| {
                     let selected = route == desktop.route;
                     let label = route.name(locale);
-                    let icon_color = if selected {
-                        color(palette, ColorToken::AccentDefault)
-                    } else {
-                        foreground
-                    };
+                    let icon_color = color(palette, route_icon_color(route, selected));
+                    let label_color = if selected { icon_color } else { foreground };
                     let item = Button::new(("route", route as usize))
                         .ghost()
+                        .selected(selected)
                         .accessibility_label(label)
                         .tooltip(label)
                         .w_full()
@@ -104,7 +105,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                             .when(desktop.collapsed, |row| row.justify_center())
                             .gap_2()
                             .text_size(px(13.))
-                            .text_color(icon_color)
+                            .text_color(label_color)
                             .child(
                                 svg()
                                     .path(route.icon())
@@ -117,49 +118,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 })),
         );
     }
-    let engine = desktop.engine();
-    let footer = if desktop.collapsed {
-        row(locale).justify_center().child(
-            Button::new("sidebar-engine-state")
-                .ghost()
-                .tooltip(status::text(locale, engine))
-                .accessibility_label(status::text(locale, engine))
-                .child(
-                    svg()
-                        .path("icons/server.svg")
-                        .size(px(17.))
-                        .text_color(foreground),
-                )
-                .on_click(cx.listener(|desktop, _, _, cx| desktop.navigate(Route::Machine, cx))),
-        )
-    } else {
-        div()
-            .rounded(px(10.))
-            .border_1()
-            .border_color(color(palette, ColorToken::GlassEdge))
-            .bg(color(palette, ColorToken::GlassControl))
-            .p_2()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(status::inline_badge(locale, palette, engine))
-            .child(
-                row(locale)
-                    .justify_between()
-                    .text_xs()
-                    .text_color(foreground)
-                    .child(gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale))
-                    .child("marsa"),
-            )
-            .child(
-                row(locale)
-                    .gap_3()
-                    .text_xs()
-                    .text_color(foreground)
-                    .child("arm64")
-                    .child(gui::GUI_DESKTOP_LOCAL_ENGINE.text(locale)),
-            )
-    };
+    let footer = context_card(desktop, cx);
     div()
         .flex()
         .flex_col()
@@ -191,4 +150,67 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         })
         .child(navigation)
         .child(footer)
+}
+
+fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> Button {
+    let locale = desktop.locale;
+    let palette = desktop.palette;
+    let engine = desktop.context_engine(cx);
+    let context = desktop.context_label(cx);
+    let label = gui::GUI_DESKTOP_DOCKER_CONTEXT.text(locale);
+    let description = format!("{label}: {context} · {}", status::text(locale, engine));
+    let button = Button::new("sidebar-engine-state")
+        .ghost()
+        .w_full()
+        .rounded(px(10.))
+        .border_1()
+        .border_color(color(palette, ColorToken::GlassEdge))
+        .bg(color(palette, ColorToken::GlassControl))
+        .accessibility_label(description.clone())
+        .tooltip(description)
+        .on_click(cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx)));
+    if desktop.collapsed {
+        return button.h(px(36.)).child(
+            svg()
+                .path("icons/server.svg")
+                .size(px(17.))
+                .text_color(color(palette, status::foreground(engine))),
+        );
+    }
+
+    button.h(px(52.)).px_2().child(
+        row(locale)
+            .w_full()
+            .gap_2()
+            .child(
+                align(div().min_w_0().flex_1().flex().flex_col().gap_1(), locale)
+                    .child(status::inline_badge(locale, palette, engine))
+                    .child(
+                        div()
+                            .truncate()
+                            .text_xs()
+                            .text_color(color(palette, ColorToken::TextMuted))
+                            .child(context),
+                    ),
+            )
+            .child(
+                Icon::new(IconName::ChevronRight)
+                    .size(px(14.))
+                    .text_color(color(palette, ColorToken::TextMuted)),
+            ),
+    )
+}
+
+fn route_icon_color(route: Route, selected: bool) -> ColorToken {
+    if selected {
+        return ColorToken::AccentDefault;
+    }
+
+    match route {
+        Route::Images | Route::Compose => ColorToken::ChartMemory,
+        Route::Volumes | Route::Disk => ColorToken::ChartDisk,
+        Route::Networks => ColorToken::ChartNetwork,
+        Route::Containers | Route::Machine => ColorToken::ChartCpu,
+        Route::Overview | Route::Activity | Route::Settings => ColorToken::TextMuted,
+    }
 }

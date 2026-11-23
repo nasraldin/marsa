@@ -24,9 +24,15 @@ If you have no Docker command on your PATH, use the bundled client.
 
 The corresponding Marsa command is at `/Applications/Marsa.app/Contents/MacOS/marsa`. Run it as `marsa` in the examples below if you have already put it on your PATH. Run `marsa env` to see the shell export for Marsa’s private Docker socket. If your shell sets `DOCKER_CONTEXT`, it takes precedence over `DOCKER_HOST`.
 
-Marsa scans for a local Docker engine and shows its resources on the **Containers**, **Images**, **Volumes**, **Networks**, and **Compose** pages. The source badge identifies the engine. Open a container to inspect it, follow logs, use its terminal, or view live stats. The row menu includes lifecycle controls and removal with confirmation. Use **Group actions** to expand or collapse the groups shown by the current filter.
+The desktop shows resources from Marsa, detected local providers, and configured Docker contexts. Use **Filter by context** to show one engine, or choose **All contexts** for a combined inventory. The source badge identifies each row’s engine. Click the context card in the sidebar to open **Settings → Docker** and scan or choose an engine.
 
-Select a resource row to open its actions. Images support inspection, run, tag, and removal. Volumes and networks support removal with confirmation. Use the source menu on **Pull image**, **Create volume**, or **Create network** to choose the destination engine. Compose projects on an external engine support combined logs and start, stop, or restart of existing project containers. **Settings → Docker** shows the discovered socket and lets you scan again.
+External connections support user-owned Unix sockets, SSH with a known host, and mutually authenticated TLS. Configure remote credentials and host trust using Docker and OpenSSH. Contexts using plain TCP or skipping certificate verification appear unavailable. Marsa does not change the Docker CLI’s active context.
+
+Open a container to inspect it, view logs, use its terminal, or see live stats. The row menu has lifecycle actions and confirmed removal. **Group actions** expands or collapses the visible groups.
+
+Select an image for inspect, run, tag, push, export, or removal. Use **Pull image** or **Import image** and choose the destination engine. Exports use the selected immutable image ID. Apply a tag after importing if the image archive has no tag. Push supports anonymous registries, matching Docker auth-file entries, and the bundled macOS Keychain credential helper. Configure other credential helpers through the Docker CLI.
+
+Volumes and networks support creation and confirmed removal. A network can attach or detach a container identified by name or full ID on the same engine. **Stacks** deploys from a local Compose file you select and supports logs and lifecycle controls for deployed projects.
 
 The **Containers**, **Images**, **Volumes**, and **Networks** screens show resources from the connected engine. Docker Compose projects appear when Docker has containers with Compose labels. When the app asks you to choose a Compose file for an operation, select the file that belongs to the project. **Down** keeps named volumes by default. Removing the volumes requires typing the project name.
 

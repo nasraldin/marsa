@@ -83,7 +83,7 @@ impl ResourceRow {
     }
 
     pub(super) fn with_source(mut self, source: ResourceSource) -> Self {
-        self.key = external_key(&self.key);
+        self.key = external_key(&source.key, &self.key);
         self.source = Some(source);
         self
     }
@@ -118,9 +118,6 @@ impl ResourceRow {
     }
 
     pub(super) fn actions(&self, kind: ResourceKind) -> Vec<FormKind> {
-        if self.source.is_some() && kind == ResourceKind::Compose {
-            return Vec::new();
-        }
         match kind {
             ResourceKind::Images => {
                 let mut actions = vec![
@@ -134,6 +131,19 @@ impl ResourceRow {
                         users: self.users.clone(),
                     },
                 ];
+                actions.push(FormKind::ExportImage {
+                    id: self.id.clone(),
+                    reference: self.display_name().to_owned(),
+                });
+                if !self.action_target.is_empty()
+                    && self.action_target != self.id
+                    && !self.action_target.contains('@')
+                {
+                    actions.push(FormKind::PushImage {
+                        id: self.id.clone(),
+                        reference: self.action_target.clone(),
+                    });
+                }
                 if !self.action_target.is_empty() {
                     actions.insert(
                         0,
@@ -150,11 +160,33 @@ impl ResourceRow {
                 users: self.users.clone(),
                 in_use: self.references.is_some_and(|count| count != 0),
             }],
-            ResourceKind::Networks => vec![FormKind::RemoveNetwork {
-                id: self.id.clone(),
-                name: self.action_target.clone(),
-                users: self.users.clone(),
-            }],
+            ResourceKind::Networks => vec![
+                FormKind::NetworkMembership {
+                    id: self.id.clone(),
+                    name: self.action_target.clone(),
+                    attach: true,
+                },
+                FormKind::NetworkMembership {
+                    id: self.id.clone(),
+                    name: self.action_target.clone(),
+                    attach: false,
+                },
+                FormKind::RemoveNetwork {
+                    id: self.id.clone(),
+                    name: self.action_target.clone(),
+                    users: self.users.clone(),
+                },
+            ],
+            ResourceKind::Compose if self.source.is_some() => vec![
+                FormKind::ComposeDown {
+                    project: self.id.clone(),
+                    volumes: false,
+                },
+                FormKind::ComposeDown {
+                    project: self.id.clone(),
+                    volumes: true,
+                },
+            ],
             ResourceKind::Compose => vec![
                 FormKind::ComposeUp {
                     project: self.id.clone(),
@@ -175,8 +207,8 @@ impl ResourceRow {
     }
 }
 
-fn external_key(key: &str) -> String {
-    format!("external:{key}")
+fn external_key(source: &str, key: &str) -> String {
+    format!("external:{}:{source}:{key}", source.len())
 }
 
 pub(super) fn table(
@@ -730,7 +762,7 @@ mod tests {
         };
         assert!(row.selected("database"));
         assert!(!row.actions(ResourceKind::Volumes).is_empty());
-        assert_ne!(external_key(row.key()), row.key());
-        assert!(!row.selected(&external_key(row.key())));
+        assert_ne!(external_key("Lima", row.key()), row.key());
+        assert!(!row.selected(&external_key("Lima", row.key())));
     }
 }

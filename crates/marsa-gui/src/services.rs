@@ -10,11 +10,10 @@ use marsa_client::{
     compose::{ComposeCommand, ComposeError, ComposeOutput, ComposeStream},
     docker::{
         ContainerAction, ContainerDetails, ContainerId, ContainerRemoval, ContainerSummary,
-        CreatedNetwork, DockerClient, DockerError, DockerLogs, DockerStats, EnvironmentReveal,
-        ExecControl, ExternalEndpoint, ImageDetails, ImageId, ImagePull, ImageReference,
-        ImageRemoval, ImageRun, ImageSummary, LogLine, MAX_TERMINAL_INPUT, NetworkRemoval,
-        NetworkSummary, PullProgress, ResourceName, RevealedEnvironment, StatsSample, TerminalSize,
-        VolumeRemoval, VolumeSummary, VolumeUsage,
+        DockerClient, DockerError, DockerLogs, DockerStats, EnvironmentReveal, ExecControl,
+        ExternalEndpoint, ImageDetails, ImageId, ImagePull, ImageReference, ImageSummary, LogLine,
+        MAX_TERMINAL_INPUT, NetworkSummary, PullProgress, RevealedEnvironment, StatsSample,
+        TerminalSize, VolumeSummary, VolumeUsage,
     },
     runtime::{Background, Cancellation, Receiver, Sender, Spawner, Task, delay, queue},
 };
@@ -51,12 +50,6 @@ pub enum Command {
     },
     /// Remove a container after the view confirms the selected removal mode.
     RemoveContainer(ContainerRemoval),
-    /// Remove an image after explicit confirmation.
-    RemoveImage(ImageRemoval),
-    /// Remove a network after explicit confirmation.
-    RemoveNetwork(NetworkRemoval),
-    /// Remove a volume after its canonical name has been typed.
-    RemoveVolume(VolumeRemoval),
 }
 
 /// Daemon lifecycle transitions available to desktop views.
@@ -177,8 +170,8 @@ impl Services {
     #[cfg(target_os = "macos")]
     pub(crate) fn external_inventory(
         &self,
-    ) -> Pending<Option<marsa_client::docker::ExternalInventory>> {
-        self.pending(async { Ok(marsa_client::docker::discover_external_inventory().await) })
+    ) -> Pending<Vec<marsa_client::docker::ExternalInventory>> {
+        self.pending(async { Ok(marsa_client::docker::discover_external_inventories().await) })
     }
 
     #[cfg(target_os = "macos")]
@@ -285,10 +278,19 @@ impl Services {
     }
 
     /// Run the explicitly selected Compose project and stream bounded output.
-    pub fn compose(&self, command: ComposeCommand) -> Batches<ComposeOutput> {
+    pub fn compose(
+        &self,
+        command: ComposeCommand,
+        endpoint: Option<ExternalEndpoint>,
+    ) -> Batches<ComposeOutput> {
         batch_stream(
             &self.session.runtime,
-            async move { command.start().await.map_err(ServiceError::Compose) },
+            async move {
+                command
+                    .start_on(endpoint)
+                    .await
+                    .map_err(ServiceError::Compose)
+            },
             Rate {
                 interval: Duration::from_millis(100),
                 maximum: 64,
@@ -296,6 +298,13 @@ impl Services {
                 latest: false,
             },
             |output| output.text.len(),
+        )
+    }
+
+    pub(crate) fn resource_docker(&self, endpoint: Option<ExternalEndpoint>) -> DockerClient {
+        endpoint.map_or_else(
+            || self.session.backend.docker.clone(),
+            |value| value.management_client(),
         )
     }
 
@@ -324,34 +333,21 @@ impl Services {
         )
     }
 
-    /// Run a container using an existing local image and its default command.
-    pub fn run_image(&self, image: ImageId, name: Option<ResourceName>) -> Pending<ImageRun> {
-        let docker = self.session.backend.docker.clone();
-        self.pending(async move { Ok(docker.run_image(&image, name.as_ref()).await?) })
-    }
-
-    /// Add an image tag through Marsa's engine.
-    pub fn tag_image(&self, image: ImageId, destination: String) -> Pending<()> {
-        let docker = self.session.backend.docker.clone();
-        self.pending(async move { Ok(docker.tag_image(&image, &destination).await?) })
-    }
-
-    /// Create a local volume with the chosen name.
-    pub fn create_volume(&self, name: ResourceName) -> Pending<VolumeSummary> {
-        let docker = self.session.backend.docker.clone();
-        self.pending(async move { Ok(docker.create_volume(&name).await?) })
+    #[cfg(target_os = "macos")]
+    pub(crate) fn external_containers(
+        &self,
+        endpoint: ExternalEndpoint,
+    ) -> Pending<Vec<ContainerSummary>> {
+        self.pending(async move { Ok(endpoint.containers().await?) })
     }
 
     /// Measure volume disk usage when requested by the storage view.
-    pub fn volume_usage(&self) -> Pending<BTreeMap<String, VolumeUsage>> {
-        let docker = self.session.backend.docker.clone();
+    pub fn volume_usage(
+        &self,
+        endpoint: Option<ExternalEndpoint>,
+    ) -> Pending<BTreeMap<String, VolumeUsage>> {
+        let docker = self.resource_docker(endpoint);
         self.pending(async move { Ok(docker.volume_usage().await?) })
-    }
-
-    /// Create a bridge network with the chosen name.
-    pub fn create_network(&self, name: ResourceName) -> Pending<CreatedNetwork> {
-        let docker = self.session.backend.docker.clone();
-        self.pending(async move { Ok(docker.create_network(&name).await?) })
     }
 
     pub(crate) fn pending<T: Send + 'static>(
@@ -831,9 +827,6 @@ impl Clients for LocalClients {
             }
             Command::Container { id, action } => self.docker.act(&id, action).await?,
             Command::RemoveContainer(confirmed) => self.docker.remove_container(confirmed).await?,
-            Command::RemoveImage(confirmed) => self.docker.remove_image(confirmed).await?,
-            Command::RemoveVolume(confirmed) => self.docker.remove_volume(confirmed).await?,
-            Command::RemoveNetwork(confirmed) => self.docker.remove_network(confirmed).await?,
         }
         Ok(())
     }

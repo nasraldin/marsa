@@ -102,12 +102,16 @@ impl StatusFilter {
     }
 }
 
+use super::external_inventory::{ContextFilter, ExternalWorkspace, Workspaces};
+
 pub(crate) struct ContainerView {
     services: Option<Arc<Services>>,
     locale: Locale,
     palette: Palette,
     state: AppState,
-    external_inventory: Option<Arc<crate::screens::external_inventory::ExternalWorkspace>>,
+    external_inventory: Workspaces,
+    context_filter: marsa_ui::gpui::Entity<ContextFilter>,
+    _context_subscription: Subscription,
     input: Option<Entity<InputState>>,
     query: String,
     filter: StatusFilter,
@@ -139,10 +143,15 @@ impl ContainerView {
         services: Option<Arc<Services>>,
         locale: Locale,
         palette: Palette,
+        context_filter: marsa_ui::gpui::Entity<ContextFilter>,
         cx: &mut Context<Self>,
     ) -> Self {
         cx.on_release(|view, cx| view.terminal.close_detached(cx))
             .detach();
+        let _context_subscription = cx.observe(&context_filter, |view, _, cx| {
+            view.selected.clear();
+            cx.notify();
+        });
         let mut state = AppState::default();
         let store_task = services.as_ref().map(|services| {
             let mut selection = services.store().select(|state| Snapshot(state.clone()));
@@ -175,7 +184,9 @@ impl ContainerView {
             state,
             input: None,
             query: String::new(),
-            external_inventory: None,
+            external_inventory: Arc::from([]),
+            context_filter,
+            _context_subscription,
             filter: StatusFilter::All,
             selected: BTreeSet::new(),
             focused: None,
@@ -285,14 +296,19 @@ impl ContainerView {
         self.set_tab(Tab::Overview, cx);
     }
 
+    fn workspace(&self, endpoint: &ExternalEndpoint) -> Option<&ExternalWorkspace> {
+        self.external_inventory
+            .iter()
+            .find(|inventory| inventory.endpoint == *endpoint)
+            .map(Arc::as_ref)
+    }
+
     fn target_state(&self, target: &ContainerTarget) -> Option<&AppState> {
         match target {
             ContainerTarget::Marsa(_) => Some(&self.state),
-            ContainerTarget::External { endpoint, .. } => self
-                .external_inventory
-                .as_ref()
-                .filter(|inventory| inventory.endpoint == *endpoint)
-                .map(|inventory| &inventory.state),
+            ContainerTarget::External { endpoint, .. } => {
+                self.workspace(endpoint).map(|inventory| &inventory.state)
+            }
         }
     }
 
@@ -446,11 +462,7 @@ impl ContainerView {
         if self.command_pending {
             return;
         }
-        let Some(inventory) = self
-            .external_inventory
-            .as_ref()
-            .filter(|inventory| inventory.endpoint == endpoint)
-        else {
+        let Some(inventory) = self.workspace(&endpoint) else {
             return;
         };
         if !inventory
@@ -482,13 +494,8 @@ impl ContainerView {
                 _ => (true, None),
             };
             let _ = view.update(cx, |view, cx| {
-                if let (Some(containers), Some(inventory)) =
-                    (containers, view.external_inventory.as_mut())
-                    && inventory.endpoint == endpoint
-                {
-                    Arc::make_mut(inventory)
-                        .state
-                        .replace_containers(containers);
+                if let Some(containers) = containers {
+                    view.replace_external_containers(&endpoint, containers);
                 }
                 view.command_pending = false;
                 view.command_failed = failed;
@@ -515,6 +522,21 @@ impl ContainerView {
         })
         .detach();
         cx.notify();
+    }
+
+    fn replace_external_containers(
+        &mut self,
+        endpoint: &ExternalEndpoint,
+        containers: Vec<ContainerSummary>,
+    ) {
+        if let Some(inventory) = Arc::make_mut(&mut self.external_inventory)
+            .iter_mut()
+            .find(|inventory| &inventory.endpoint == endpoint)
+        {
+            Arc::make_mut(inventory)
+                .state
+                .replace_containers(containers);
+        }
     }
 
     fn request_remove(
@@ -550,11 +572,7 @@ impl ContainerView {
         cx.notify();
     }
 
-    pub(crate) fn set_external_inventory(
-        &mut self,
-        inventory: Option<Arc<crate::screens::external_inventory::ExternalWorkspace>>,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn set_external_inventory(&mut self, inventory: Workspaces, cx: &mut Context<Self>) {
         self.external_inventory = inventory;
         if self.focused.as_ref().is_some_and(|target| {
             target.endpoint().is_some()
@@ -566,6 +584,33 @@ impl ContainerView {
             self.close_detail(cx);
         }
         cx.notify();
+    }
+
+    pub(crate) fn toast(&self, cx: &mut Context<Self>) -> Option<marsa_ui::gpui::AnyElement> {
+        use marsa_ui::gpui::{ParentElement, Styled, px, svg};
+        use marsa_ui::gpui_component::button::{Button, ButtonVariants};
+        if !self.command_failed {
+            return None;
+        }
+        let label = gui::GUI_DESKTOP_DISMISS.text(self.locale);
+        let dismiss = Button::new("dismiss-container-toast")
+            .ghost()
+            .accessibility_label(label)
+            .tooltip(label)
+            .child(svg().path("icons/x.svg").size(px(14.)))
+            .on_click(cx.listener(|view, _, _, cx| {
+                view.command_failed = false;
+                cx.notify();
+            }));
+        Some(crate::desktop::toast::render(
+            "container-toast",
+            self.locale,
+            self.palette,
+            crate::desktop::toast::Tone::Error,
+            gui::GUI_DESKTOP_THE_CONTAINER_ACTION_COULDN_T_BE_COMPLETED.text(self.locale),
+            Some(dismiss),
+            cx,
+        ))
     }
 
     fn screen(&self) -> ScreenContext<'_> {

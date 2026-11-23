@@ -32,7 +32,10 @@ use marsa_ui::{
 };
 
 use crate::{
-    screens::common::{ScreenContext, align, resource_input, row, technical},
+    screens::{
+        common::{ScreenContext, align, resource_input, row, technical},
+        external_inventory::{self, ContextFilter, ExternalWorkspace},
+    },
     services::Services,
 };
 
@@ -65,7 +68,7 @@ impl ResourceKind {
             Self::Images => Some(FormKind::Pull),
             Self::Volumes => Some(FormKind::CreateVolume),
             Self::Networks => Some(FormKind::CreateNetwork),
-            Self::Compose => None,
+            Self::Compose => Some(FormKind::DeployStack),
         }
     }
 }
@@ -87,6 +90,7 @@ pub(crate) struct ResourcesView {
     operation: Option<Task<()>>,
     compose_output: Option<compose::ComposeOutputPane>,
     volume_usage: BTreeMap<String, VolumeUsage>,
+    external_volume_usage: Vec<(ExternalEndpoint, BTreeMap<String, VolumeUsage>)>,
     volume_scan: Option<Task<()>>,
     volume_scanning: bool,
     volume_scan_failed: bool,
@@ -96,13 +100,17 @@ pub(crate) struct ResourcesView {
 struct ResourceSource {
     endpoint: ExternalEndpoint,
     badge: marsa_ui::gpui::SharedString,
+    key: String,
+    state: crate::store::AppState,
 }
 
-impl From<&crate::screens::external_inventory::ExternalWorkspace> for ResourceSource {
-    fn from(workspace: &crate::screens::external_inventory::ExternalWorkspace) -> Self {
+impl From<&ExternalWorkspace> for ResourceSource {
+    fn from(workspace: &ExternalWorkspace) -> Self {
         Self {
             endpoint: workspace.endpoint.clone(),
             badge: technical(&workspace.source),
+            key: format!("{}:{}", workspace.source, workspace.endpoint.address()),
+            state: workspace.state.clone(),
         }
     }
 }
@@ -135,6 +143,7 @@ impl ResourcesView {
             operation: None,
             compose_output: None,
             volume_usage: BTreeMap::new(),
+            external_volume_usage: Vec::new(),
             volume_scan: None,
             volume_scanning: false,
             volume_scan_failed: false,
@@ -195,10 +204,12 @@ impl ResourcesView {
     ) {
         let (kind, source) = action;
         let title = kind.title(locale);
+        let state = source.as_ref().map_or_else(
+            || service.store().select(Clone::clone).current().clone(),
+            |source| source.state.clone(),
+        );
         self.form = Some(Form::new(kind, source, locale, window, cx));
         let view = cx.entity();
-        let snapshot = service.store().select(Clone::clone);
-        let state = snapshot.current().clone();
         window.open_dialog(cx, move |dialog, _, cx| {
             let screen = ScreenContext {
                 locale,
@@ -225,11 +236,22 @@ pub(crate) fn render(
     screen: &ScreenContext<'_>,
     kind: ResourceKind,
     view: &Entity<ResourcesView>,
-    external: Option<&crate::screens::external_inventory::ExternalWorkspace>,
+    external: &[Arc<ExternalWorkspace>],
+    context_filter: &Entity<ContextFilter>,
     cx: &App,
 ) -> Div {
     let data = view.read(cx);
     let filter = data.filter.read(cx).value().to_lowercase();
+    let context = context_filter.read(cx);
+    let selected_workspaces = external
+        .iter()
+        .filter(|workspace| context.includes_external(workspace))
+        .collect::<Vec<_>>();
+    let choices = external
+        .iter()
+        .filter(|workspace| workspace.reachable)
+        .map(|workspace| ResourceSource::from(workspace.as_ref()))
+        .collect::<Vec<_>>();
     let mut toolbar = logical_row(screen.locale)
         .items_center()
         .gap(px(Space::S8.pixels()))
@@ -241,43 +263,100 @@ pub(crate) fn render(
                     .prefix(IconName::Search)
                     .aria_label(message(screen.locale, gui::GUI_DESKTOP_FILTER_RESOURCES)),
             ),
-        );
+        )
+        .child(external_inventory::filter_button(
+            screen.locale,
+            context_filter,
+            external,
+            cx,
+        ));
     if let Some(action) = kind.main_action() {
-        toolbar = toolbar.child(primary_action(screen, view, action, external));
+        toolbar = toolbar.child(primary_action(screen, view, action, choices.clone()));
+    }
+    if kind == ResourceKind::Images {
+        toolbar = toolbar.child(primary_action(screen, view, FormKind::ImportImage, choices));
     }
 
     if kind == ResourceKind::Volumes {
         let service = screen.services.cloned();
         let view = view.clone();
-        toolbar = toolbar.child(
-            Button::new("measure-volume-usage")
-                .outline()
-                .h(px(Space::S36.pixels()))
-                .label(message(
-                    screen.locale,
-                    gui::GUI_DESKTOP_MEASURE_VOLUME_SIZES,
-                ))
-                .disabled(service.is_none() || data.volume_scanning)
-                .loading(data.volume_scanning)
-                .on_click(move |_, _, cx| {
-                    if let Some(service) = &service {
-                        view.update(cx, |view, cx| view.measure_volumes(service, cx));
-                    }
-                }),
-        );
+        let choices = selected_workspaces
+            .iter()
+            .filter(|workspace| workspace.reachable)
+            .map(|workspace| {
+                (
+                    Some(workspace.endpoint.clone()),
+                    technical(&workspace.source),
+                )
+            });
+        let options = context
+            .includes_marsa()
+            .then(|| (None, "Marsa".into()))
+            .into_iter()
+            .chain(choices)
+            .collect::<Vec<_>>();
+        let button = Button::new("measure-volume-usage")
+            .outline()
+            .h(px(Space::S36.pixels()))
+            .label(message(
+                screen.locale,
+                gui::GUI_DESKTOP_MEASURE_VOLUME_SIZES,
+            ))
+            .disabled(service.is_none() || data.volume_scanning || options.is_empty())
+            .loading(data.volume_scanning);
+        if options.len() > 1 {
+            toolbar = toolbar.child(button.icon(IconName::ChevronDown).dropdown_menu(
+                move |menu, _, _| {
+                    options.iter().fold(menu, |menu, (endpoint, label)| {
+                        let service = service.clone();
+                        let view = view.clone();
+                        let endpoint = endpoint.clone();
+                        menu.item(PopupMenuItem::new(label.clone()).on_click(move |_, _, cx| {
+                            if let Some(service) = &service {
+                                view.update(cx, |view, cx| {
+                                    view.measure_volumes(service, endpoint.clone(), cx)
+                                });
+                            }
+                        }))
+                    })
+                },
+            ));
+        } else {
+            let endpoint = options
+                .into_iter()
+                .next()
+                .and_then(|(endpoint, _)| endpoint);
+            toolbar = toolbar.child(button.on_click(move |_, _, cx| {
+                if let Some(service) = &service {
+                    view.update(cx, |view, cx| {
+                        view.measure_volumes(service, endpoint.clone(), cx)
+                    });
+                }
+            }));
+        }
     }
     let columns = Columns::for_kind(screen, kind);
-    let mut resources = rows::snapshot_rows(screen, kind, &data.volume_usage);
-    if let Some(external) = external {
+    let mut resources = if context.includes_marsa() {
+        rows::snapshot_rows(screen, kind, &data.volume_usage)
+    } else {
+        Vec::new()
+    };
+    let no_usage = BTreeMap::new();
+    for external in &selected_workspaces {
         let foreign_screen = ScreenContext {
             state: &external.state,
             services: None,
             ..*screen
         };
+        let usage = data
+            .external_volume_usage
+            .iter()
+            .find(|(endpoint, _)| endpoint == &external.endpoint)
+            .map_or(&no_usage, |(_, usage)| usage);
         resources.extend(
-            rows::snapshot_rows(&foreign_screen, kind, &BTreeMap::new())
+            rows::snapshot_rows(&foreign_screen, kind, usage)
                 .into_iter()
-                .map(|row| row.with_source(external.into())),
+                .map(|row| row.with_source(external.as_ref().into())),
         );
     }
     let selected = data
@@ -317,10 +396,13 @@ pub(crate) fn render(
         .w_full()
         .gap(px(Space::S16.pixels()))
         .child(resource_toolbar);
-    if external.is_some_and(|engine| match kind {
-        ResourceKind::Volumes => !engine.volumes_available,
-        ResourceKind::Networks => !engine.networks_available,
-        _ => false,
+    if selected_workspaces.iter().any(|engine| {
+        !engine.reachable
+            || match kind {
+                ResourceKind::Volumes => !engine.volumes_available,
+                ResourceKind::Networks => !engine.networks_available,
+                _ => false,
+            }
     }) {
         content = content.child(text(
             screen,
@@ -339,7 +421,7 @@ pub(crate) fn render(
         &rows,
         view,
         selected.map(|row| row.key()),
-        external.is_some(),
+        !external.is_empty(),
     ));
     if kind == ResourceKind::Images {
         content = content.children(pull::render(
@@ -365,9 +447,6 @@ pub(crate) fn render(
             .text_color(tone(screen, ColorToken::StatusWarning)),
         );
     }
-    if let Some(notice) = operations::notice(screen, kind, data) {
-        content = content.child(notice);
-    }
     if let Some(row) = selected
         && kind == ResourceKind::Compose
     {
@@ -380,52 +459,49 @@ fn primary_action(
     screen: &ScreenContext<'_>,
     view: &Entity<ResourcesView>,
     action: FormKind,
-    external: Option<&crate::screens::external_inventory::ExternalWorkspace>,
+    external: Vec<ResourceSource>,
 ) -> impl marsa_ui::gpui::IntoElement {
     let state = view.clone();
     let locale = screen.locale;
     let palette = screen.palette;
     let service = screen.services.cloned();
     let title = action.title(locale);
-    let button = Button::new("primary-resource-action")
-        .primary()
-        .h(px(Space::S36.pixels()))
-        .rounded(px(Radius::R8.pixels()))
-        .label(title)
-        .disabled(service.is_none());
-    if let Some(external) = external {
-        let source = ResourceSource::from(external);
+    let button = Button::new(marsa_ui::gpui::SharedString::from(format!(
+        "primary-resource-action:{title}"
+    )))
+    .primary()
+    .h(px(Space::S36.pixels()))
+    .rounded(px(Radius::R8.pixels()))
+    .label(title)
+    .disabled(service.is_none());
+    if !external.is_empty() {
         return button
             .icon(IconName::ChevronDown)
             .dropdown_menu(move |menu, _, _| {
-                [
-                    (None, None),
-                    (Some(source.clone()), Some(source.badge.clone())),
-                ]
-                .into_iter()
-                .fold(menu, |menu, (source, badge)| {
-                    let state = state.clone();
-                    let service = service.clone();
-                    let action = action.clone();
-                    menu.item(
-                        PopupMenuItem::new(badge.unwrap_or_else(|| "Marsa".into())).on_click(
-                            move |_, window, cx| {
-                                if let Some(service) = &service {
-                                    state.update(cx, |state, cx| {
-                                        state.open_form(
-                                            (action.clone(), source.clone()),
-                                            locale,
-                                            palette,
-                                            Arc::clone(service),
-                                            window,
-                                            cx,
-                                        )
-                                    });
-                                }
-                            },
-                        ),
-                    )
-                })
+                std::iter::once(None)
+                    .chain(external.iter().cloned().map(Some))
+                    .fold(menu, |menu, source| {
+                        let badge = source
+                            .as_ref()
+                            .map_or_else(|| "Marsa".into(), |source| source.badge.clone());
+                        let state = state.clone();
+                        let service = service.clone();
+                        let action = action.clone();
+                        menu.item(PopupMenuItem::new(badge).on_click(move |_, window, cx| {
+                            if let Some(service) = &service {
+                                state.update(cx, |state, cx| {
+                                    state.open_form(
+                                        (action.clone(), source.clone()),
+                                        locale,
+                                        palette,
+                                        Arc::clone(service),
+                                        window,
+                                        cx,
+                                    )
+                                });
+                            }
+                        }))
+                    })
             })
             .into_any_element();
     }
@@ -586,6 +662,11 @@ fn details(
 }
 
 fn resource_icon(screen: &ScreenContext<'_>, kind: ResourceKind) -> Div {
+    let tint = match kind {
+        ResourceKind::Images | ResourceKind::Compose => ColorToken::AccentDefault,
+        ResourceKind::Volumes => ColorToken::StatusWarning,
+        ResourceKind::Networks => ColorToken::StatusRunning,
+    };
     div()
         .flex()
         .size(px(Space::S32.pixels()))
@@ -598,7 +679,7 @@ fn resource_icon(screen: &ScreenContext<'_>, kind: ResourceKind) -> Div {
             svg()
                 .path(kind.icon())
                 .size(px(Space::S16.pixels()))
-                .text_color(tone(screen, ColorToken::TextMuted)),
+                .text_color(tone(screen, tint)),
         )
 }
 

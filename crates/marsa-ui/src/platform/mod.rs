@@ -5,7 +5,8 @@ use std::{cell::Cell, process::ExitCode, rc::Rc};
 use gpui::{
     AnyWindowHandle, App, AppContext, Application, Bounds, Context, Entity, FocusHandle, Global,
     InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, QuitMode, Render,
-    Styled, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, point, px, size,
+    Styled, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div,
+    point, px, size,
 };
 use gpui_component::{Root, Theme};
 use marsa_l10n::{Locale, keys};
@@ -15,6 +16,7 @@ actions!(marsa, [CloseWindow, QuitMarsa]);
 struct MarsaWindow<T> {
     focus: FocusHandle,
     view: Entity<T>,
+    _activation: Subscription,
 }
 
 impl<T: Render> Render for MarsaWindow<T> {
@@ -124,7 +126,16 @@ fn launch_window<T: Render>(
         let content = cx.new(|cx| {
             let focus = cx.focus_handle();
             focus.focus(window, cx);
-            MarsaWindow { focus, view }
+            let activation = cx.observe_window_activation(window, |_, window, cx| {
+                if window.is_window_active() {
+                    gpui_base::apply_system_reduce_motion(cx);
+                }
+            });
+            MarsaWindow {
+                focus,
+                view,
+                _activation: activation,
+            }
         });
         cx.new(|cx| Root::new(content, window, cx))
     })?;

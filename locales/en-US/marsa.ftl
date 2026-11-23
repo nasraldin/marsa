@@ -754,3 +754,17 @@ gui-desktop-scan-external-docker = Scan for Docker
 gui-desktop-scanning-external-docker = Scanning local Docker sockets…
 gui-desktop-no-external-docker = No separate user-owned Docker engine responded.
 gui-desktop-external-resource-unavailable = This engine did not report resources for this page.
+
+gui-desktop-all-contexts = All contexts
+gui-desktop-filter-by-context = Filter by context
+gui-desktop-contexts = Contexts
+gui-desktop-stacks = Stacks
+gui-desktop-deploy-stack = Deploy stack
+gui-desktop-stack-name = Stack name
+gui-desktop-push-image = Push image
+gui-desktop-export-image = Export image
+gui-desktop-import-image = Import image
+gui-desktop-attach-container = Attach container
+gui-desktop-detach-container = Detach container
+gui-desktop-network-container = Container name or full ID
+gui-desktop-operation-cancelled = Operation cancelled

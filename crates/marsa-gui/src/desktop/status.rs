@@ -36,14 +36,23 @@ pub(crate) fn compact_badge(locale: Locale, palette: Palette, state: Option<Engi
 }
 
 pub(crate) fn inline_badge(locale: Locale, palette: Palette, state: Option<EngineState>) -> Div {
-    let (token, _) = themes(state);
-    let foreground = color(palette, token);
+    let foreground = color(palette, foreground(state));
     row(locale)
         .gap_2()
         .text_size(px(12.))
         .text_color(foreground)
-        .child(div().size(px(7.)).rounded_full().bg(foreground))
-        .child(text(locale, state))
+        .child(
+            div()
+                .size(px(7.))
+                .flex_shrink_0()
+                .rounded_full()
+                .bg(foreground),
+        )
+        .child(div().min_w_0().truncate().child(text(locale, state)))
+}
+
+pub(super) fn foreground(state: Option<EngineState>) -> ColorToken {
+    themes(state).0
 }
 
 fn badge_with_text(
