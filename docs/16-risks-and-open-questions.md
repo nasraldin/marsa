@@ -37,6 +37,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
+
 | V-07 | NAT attachment requirements; user-space attachment class | [06](06-networking.md) | M4-08, M4-10 |
 | V-09 | libkrun: current release, API, kernel requirements (own kernel or libkrunfw) | [04](04-virtualization-macos.md) | M11-02 |
 | V-10 | gpui-component's i18n and whether Fluent can coexist with it | [08](08-gui.md) | M6-04 |
