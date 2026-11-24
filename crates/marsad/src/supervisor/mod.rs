@@ -167,6 +167,9 @@ pub enum SupervisorError {
         /// Observed supervisor state.
         state: State,
     },
+    /// The running guest could not acknowledge a clock update after waking.
+    #[error("guest clock synchronization failed: {0}")]
+    Clock(#[source] Arc<io::Error>),
     /// The hypervisor rejected a lifecycle request.
     #[error(transparent)]
     Vm(#[from] Arc<VmError>),
@@ -211,6 +214,11 @@ pub trait GuestSession: Send {
 
     /// Verify agent engine health and the Docker API ping.
     async fn engine_ready(&mut self, vm: &dyn Vm) -> io::Result<()>;
+
+    /// Update the wall clock of a guest whose session remained active through sleep.
+    async fn synchronize_clock(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 
     /// Ask the guest to stop Docker and unmount its data disk before powering off.
     async fn shutdown(&mut self) -> io::Result<()> {
@@ -272,6 +280,7 @@ impl Supervisor {
         selection: network::Selection,
     ) -> Self {
         let console_log = spec.console_log.clone();
+        let pause_resume = backend.capabilities().pause_resume;
         let launch = launch::Launch {
             backend,
             spec,
@@ -283,6 +292,7 @@ impl Supervisor {
             launch::Runtime {
                 source: launch::Source::Fixed(Box::new(launch)),
                 console_log,
+                pause_resume,
             },
             probe,
             config,
@@ -293,6 +303,7 @@ impl Supervisor {
     pub(crate) fn spawn_packaged(
         prepare: launch::Prepare,
         console_log: PathBuf,
+        pause_resume: bool,
         probe: Arc<dyn GuestProbe>,
         config: SupervisorConfig,
         observer: Observer,
@@ -301,6 +312,7 @@ impl Supervisor {
             launch::Runtime {
                 source: launch::Source::Package(prepare),
                 console_log,
+                pause_resume,
             },
             probe,
             config,
@@ -434,6 +446,14 @@ impl Supervisor {
     /// Resume the guest and re-establish agent and engine readiness.
     pub async fn resume(&self) -> Result<(), SupervisorError> {
         self.request(actor::Command::Resume).await
+    }
+
+    pub(crate) async fn host_will_sleep(&self) -> Result<(), SupervisorError> {
+        self.request(actor::Command::HostWillSleep).await
+    }
+
+    pub(crate) async fn host_woke(&self) -> Result<(), SupervisorError> {
+        self.request(actor::Command::HostWoke).await
     }
 
     /// Report an observed Docker container count for idle detection.

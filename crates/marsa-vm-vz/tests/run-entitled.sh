@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and run the production VZ or daemon network test from the repository root.
+# Build and run a production VZ or daemon system test from the repository root.
 set -euo pipefail
 
 export MARSA_VZ_GUEST_DIR="${1:-"$PWD/target/guest"}"
@@ -11,7 +11,10 @@ fi
 package=marsa-vm-vz
 test_name=real_vm
 features=()
-if [[ ${MARSA_ENTITLED_DAEMON_NETWORK:-0} == 1 ]]; then
+if [[ ${MARSA_ENTITLED_DAEMON_POWER:-0} == 1 ]]; then
+    package=marsad
+    test_name=power_watcher
+elif [[ ${MARSA_ENTITLED_DAEMON_NETWORK:-0} == 1 ]]; then
     package=marsad
     test_name=network_boot
 elif [[ ${MARSA_ENTITLED_SSH_TRANSPORT:-0} == 1 ]]; then

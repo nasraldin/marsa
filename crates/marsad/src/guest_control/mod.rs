@@ -3,15 +3,20 @@
 use std::{
     io,
     sync::{Arc, Weak},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime},
 };
 
 use marsa_proto::guest::{
     CONTROL_PORT, DEFER_ENGINE_START_MINOR, ProtocolError, negotiate,
     v1::{
+<<<<<<< HEAD
+        CommandResult, CommandStatus, EgressStage, EngineHealth, HelloAck, PortEvent, TrimResult,
+        VmStats, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
+=======
         CommandResult, CommandStatus, ConfigureNetwork, EgressStage, EngineHealth, HelloAck,
         PortEvent, SetTime, Trim, TrimResult, VmStats, guest_envelope::Body as GuestBody,
         host_envelope::Body as HostBody,
+>>>>>>> origin/main
     },
 };
 use marsa_vm::{Vm, VmError, async_trait};
@@ -86,8 +91,8 @@ pub enum GuestControlError {
     /// A valid message arrived in an invalid session state.
     #[error("guest control protocol violation: {0}")]
     Sequence(&'static str),
-    /// Initial guest clock setup was rejected.
-    #[error("guest rejected initial clock setup ({0:?})")]
+    /// The guest rejected a clock update.
+    #[error("guest rejected clock update ({0:?})")]
     ClockRejected(CommandStatus),
     /// The running guest rejected orderly shutdown.
     #[error("guest rejected shutdown ({0:?})")]
@@ -251,6 +256,16 @@ impl GuestControl {
         )
         .await?;
 
+<<<<<<< HEAD
+        let session = session::Session::start(
+            stream,
+            self.active.clone(),
+            self.events.clone(),
+            deferred,
+            self.clock,
+        );
+        session.set_clock(HANDSHAKE_TIMEOUT).await?;
+=======
         let session =
             session::Session::start(stream, self.active.clone(), self.events.clone(), deferred);
         let now = (self.clock)()
@@ -292,6 +307,7 @@ impl GuestControl {
                 );
             }
         }
+>>>>>>> origin/main
         Ok(session)
     }
 }

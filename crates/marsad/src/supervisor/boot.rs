@@ -32,6 +32,9 @@ pub(super) struct LiveGuest {
 
 pub(super) enum Outcome {
     Ready(LiveGuest),
+    // Docker may already have started. Keep its VM and the selected attachment
+    // when the actor interrupts the readiness check for system sleep or stop.
+    Interrupted(LiveGuest),
     Failed {
         vm: Option<Box<dyn Vm>>,
         issue: Issue,
@@ -114,10 +117,21 @@ pub(super) async fn run(
     )
     .await;
     match result {
+<<<<<<< HEAD
+        Ok(mut outcome) => {
+            match &mut outcome {
+                Outcome::Ready(guest) | Outcome::Interrupted(guest) => {
+                    guest.applied = launch.applied
+                }
+                Outcome::Failed { .. } => {}
+            }
+            outcome
+=======
         Ok(mut guest) => {
             guest.applied = launch.applied;
             guest.configured_mode = configured_mode;
             Outcome::Ready(guest)
+>>>>>>> origin/main
         }
         Err(mut failure) => {
             if failure.issue.stage == BootStage::Handshake
@@ -216,7 +230,7 @@ async fn start_engine(
     deadline: Instant,
     cancel: &mut oneshot::Receiver<()>,
     progress: &watch::Sender<BootStage>,
-) -> Result<LiveGuest, Failed> {
+) -> Result<Outcome, Failed> {
     let Some(session) = guest.session.as_deref_mut() else {
         return Err(Failed {
             vm: Some(guest.vm),
@@ -236,19 +250,18 @@ async fn start_engine(
         ),
     )
     .await;
+    if guest.network_lost {
+        guest.network.result = match guest.network.result {
+            NetworkResult::Fallback(native) => NetworkResult::AlternateFailed {
+                native,
+                alternate: AlternateFailure::Transport,
+            },
+            _ => NetworkResult::TransportUnavailable,
+        };
+    }
     match ready {
-        Ok(()) => {
-            if guest.network_lost {
-                guest.network.result = match guest.network.result {
-                    NetworkResult::Fallback(native) => NetworkResult::AlternateFailed {
-                        native,
-                        alternate: AlternateFailure::Transport,
-                    },
-                    _ => NetworkResult::TransportUnavailable,
-                };
-            }
-            Ok(guest)
-        }
+        Ok(()) => Ok(Outcome::Ready(guest)),
+        Err(issue) if matches!(issue.reason, Reason::Canceled) => Ok(Outcome::Interrupted(guest)),
         Err(issue) => Err(Failed {
             vm: Some(guest.vm),
             issue,

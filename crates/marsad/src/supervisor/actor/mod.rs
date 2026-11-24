@@ -40,6 +40,8 @@ pub(super) enum Command {
     Restart(Reply),
     Pause(Reply),
     Resume(Reply),
+    HostWillSleep(Reply),
+    HostWoke(Reply),
     ContainerCount(u32, Reply),
     IdlePolicy(bool, Duration, Reply),
 }
@@ -81,7 +83,13 @@ pub(super) struct Actor {
     idle_at: Option<Instant>,
     sample_at: Option<Instant>,
     empty: bool,
+<<<<<<< HEAD
+    paused_for_sleep: bool,
+    host_asleep: bool,
+    boot_after_wake: bool,
+=======
     maintenance: Option<maintenance::Reservation>,
+>>>>>>> origin/main
 }
 
 impl Actor {
@@ -112,7 +120,13 @@ impl Actor {
             idle_at: None,
             sample_at: None,
             empty: false,
+<<<<<<< HEAD
+            paused_for_sleep: false,
+            host_asleep: false,
+            boot_after_wake: false,
+=======
             maintenance: None,
+>>>>>>> origin/main
         }
     }
 
@@ -231,9 +245,13 @@ impl Actor {
     }
 
     fn begin(&mut self) {
+        self.retry_at = None;
+        if self.host_asleep {
+            self.boot_after_wake = true;
+            return;
+        }
         let (cancel_boot, cancel) = oneshot::channel();
         let (progress, updates) = watch::channel(BootStage::Create);
-        self.retry_at = None;
         self.idle_at = None;
         self.sample_at = None;
         self.empty = false;
@@ -257,6 +275,10 @@ impl Actor {
     }
 
     fn ready(&mut self) {
+        if let Some(applied) = self.guest.as_mut().and_then(|guest| guest.applied.take()) {
+            applied();
+        }
+
         self.set_state(State::Ready, None);
         self.sample_at = Some(Instant::now());
         self.reset_idle();

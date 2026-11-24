@@ -51,13 +51,34 @@ pub(super) fn run() -> Result<(), DaemonError> {
     let vm_settings = settings.vm.clone();
     let api = TypedApi::new(paths.clone(), uid, settings)?;
     let _logging = logging::initialize(&paths, uid)?;
+<<<<<<< HEAD
+    let socket = instance.publish(&paths, uid)?;
+    #[cfg(target_os = "macos")]
+    let (_watcher, host_events) = match marsad::host_events::platform::Watcher::start() {
+        Ok((watcher, events)) => (Some(watcher), Some(events)),
+        Err(error) => {
+            tracing::warn!(%error, "host notifications unavailable");
+            (None, None)
+        }
+    };
+=======
     let (socket, docker, agent) = instance.publish(&paths, uid)?;
+>>>>>>> origin/main
     let serving = runtime.block_on(async {
         let socket = tokio::net::UnixListener::from_std(socket)?;
         let docker = tokio::net::UnixListener::from_std(docker)?;
         let agent = tokio::net::UnixListener::from_std(agent)?;
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+<<<<<<< HEAD
+        let api = configure_packaged_runtime(api, paths, uid, vm_settings)?;
+        #[cfg(target_os = "macos")]
+        if let Some(events) = host_events {
+            let api = api.clone();
+            tokio::spawn(async move { api.watch_host_events(events).await });
+        }
+=======
         let api = configure_packaged_runtime(api, paths, uid, vm_settings, &home).await?;
+>>>>>>> origin/main
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
         serve(socket, docker, agent, api, uid, signals).await
     });
