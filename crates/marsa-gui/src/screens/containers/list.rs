@@ -213,6 +213,8 @@ pub(super) fn render(
                     StatusFilter::Running,
                     StatusFilter::Paused,
                     StatusFilter::Stopped,
+                    StatusFilter::Healthy,
+                    StatusFilter::Unhealthy,
                 ]
                 .into_iter()
                 .fold(menu, |menu, filter| {
@@ -550,7 +552,7 @@ fn collect_rows(
 }
 
 fn matches_filter(view: &ContainerView, item: &ContainerSummary) -> bool {
-    view.filter.accepts(&item.state)
+    view.filter.accepts(item)
         && (view.query.is_empty()
             || name(item).to_lowercase().contains(&view.query)
             || item.image.to_lowercase().contains(&view.query)
@@ -1180,14 +1182,30 @@ fn fixed_column(width: f32, value: SharedString) -> Div {
     div().w(px(width)).flex_shrink_0().truncate().child(value)
 }
 
-fn filter_label(locale: Locale, filter: StatusFilter) -> &'static str {
+fn filter_label(locale: Locale, filter: StatusFilter) -> marsa_ui::gpui::SharedString {
     let (en, ar) = match filter {
         StatusFilter::All => ("All states", "كل الحالات"),
         StatusFilter::Running => ("Running", "قيد التشغيل"),
         StatusFilter::Paused => ("Paused", "متوقفة مؤقتًا"),
         StatusFilter::Stopped => ("Stopped", "متوقفة"),
+        StatusFilter::Healthy => {
+            let key = marsa_ui::gui_keys::GUI_OVERVIEW_HEALTHY;
+            (key.text(locale), "")
+        }
+        StatusFilter::Unhealthy => {
+            let key = marsa_ui::gui_keys::GUI_OVERVIEW_UNHEALTHY;
+            (key.text(locale), "")
+        }
     };
-    copy(locale, en, ar)
+    if matches!(filter, StatusFilter::Healthy | StatusFilter::Unhealthy) {
+        let key = if filter == StatusFilter::Healthy {
+            marsa_ui::gui_keys::GUI_OVERVIEW_HEALTHY
+        } else {
+            marsa_ui::gui_keys::GUI_OVERVIEW_UNHEALTHY
+        };
+        return marsa_ui::gpui::SharedString::from(key.text(locale));
+    }
+    marsa_ui::gpui::SharedString::from(copy(locale, en, ar))
 }
 
 fn view_mode_rail(mode: ViewMode, screen: &ScreenContext<'_>, cx: &Context<ContainerView>) -> Div {

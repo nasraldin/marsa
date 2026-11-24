@@ -182,7 +182,7 @@ fn push_usage(
 }
 
 /// Independent observations from a single selected Docker engine.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct OverviewSample {
     /// Lifecycle and health counts, or no counts when inventory could not be read.
     pub containers: Option<ContainerCounts>,
@@ -201,7 +201,7 @@ pub struct OverviewSample {
 }
 
 /// Counts of lifecycle and health states from a single listing.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ContainerCounts {
     /// All listed containers.
     pub total: usize,
@@ -260,7 +260,7 @@ impl ContainerCounts {
 }
 
 /// Sample coverage for the currently running containers.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct OverviewUtilization {
     /// Number of containers eligible for sampling.
     pub running: usize,
@@ -269,7 +269,7 @@ pub struct OverviewUtilization {
 }
 
 /// Measured resource use reported by Docker for one container.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ContainerUtilization {
     /// Full container ID, used to break ties reproducibly.
     pub id: ContainerId,
@@ -282,7 +282,7 @@ pub struct ContainerUtilization {
 }
 
 /// Docker Engine version and platform.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct EngineVersion {
     /// Docker Engine version.

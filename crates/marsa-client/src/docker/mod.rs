@@ -159,6 +159,16 @@ struct ContainerHealth {
 }
 
 impl ContainerSummary {
+    /// Machine-readable lifecycle state, such as `running` or `paused`.
+    pub fn state(&self) -> &str {
+        &self.state
+    }
+
+    /// Engine health check outcome, such as `healthy` or `unhealthy`.
+    pub fn health(&self) -> Option<&str> {
+        self.health.as_ref().map(|health| health.status.as_str())
+    }
+
     /// Compose project label when this container is a project member.
     pub fn compose_project(&self) -> Option<&str> {
         self.compose

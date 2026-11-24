@@ -85,21 +85,26 @@ impl ContainerTarget {
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum StatusFilter {
+pub(crate) enum StatusFilter {
     #[default]
     All,
     Running,
     Paused,
     Stopped,
+    Healthy,
+    Unhealthy,
 }
 
 impl StatusFilter {
-    fn accepts(self, state: &str) -> bool {
+    fn accepts(&self, summary: &ContainerSummary) -> bool {
+        let state = summary.state();
         match self {
             Self::All => true,
             Self::Running => state == "running",
             Self::Paused => state == "paused",
             Self::Stopped => !matches!(state, "running" | "paused"),
+            Self::Healthy => summary.health() == Some("healthy"),
+            Self::Unhealthy => summary.health() == Some("unhealthy"),
         }
     }
 }
@@ -250,6 +255,16 @@ impl ContainerView {
         }
         self.locale = locale;
         self.palette = palette;
+        cx.notify();
+    }
+
+    /// Focus the list on a lifecycle or health state, as asked from the
+    /// Overview cards.
+    /// Focus the list on a lifecycle or health state. Clickable from the
+    /// Overview containers card (a follow-up M7-34 task wires this up).
+    #[allow(dead_code)]
+    pub(crate) fn set_status_filter(&mut self, filter: StatusFilter, cx: &mut Context<Self>) {
+        self.filter = filter;
         cx.notify();
     }
 

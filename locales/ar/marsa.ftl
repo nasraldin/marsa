@@ -1145,3 +1145,7 @@ gui-settings-ui-font-size-extra-large = كبير جدًا
 gui-settings-terminal-font-system = خط النظام أحادي العرض
 gui-workload-read-image-metadata = قراءة البيانات الوصفية للصورة
 gui-workload-target-environment = البيئة المستهدفة
+gui-desktop-copy-command = نسخ الأمر
+gui-overview-live = مباشر
+gui-overview-machine = الجهاز
+gui-overview-engine-type = المحرّك
