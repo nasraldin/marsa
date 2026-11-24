@@ -1,17 +1,23 @@
 //! Serve typed host APIs from one state and a composable VM supervisor.
 
+mod agents;
+mod bind_policy;
+mod bind_prompts;
 mod diagnostics;
 mod disk;
+mod disk_preview;
 mod docker_discovery;
 mod engine;
 mod events;
 mod factory_reset;
 mod meta;
 mod network;
+mod proxy_activation;
 mod proxy_policy;
 mod requests;
 mod reset;
 mod settings;
+mod settings_feedback;
 mod shares;
 mod stats;
 
@@ -23,15 +29,19 @@ use marsa_core::{
 };
 use marsa_proto::host::v1::{
     CollectDiagnosticsResponse, ComponentVersion, EnsureDockerContextResponse,
+    agent_ops_server::AgentOpsServer, agents_server::AgentsServer,
     diagnostics_server::DiagnosticsServer, disk_server::DiskServer,
     docker_discovery_server::DockerDiscoveryServer, engine_server::EngineServer,
     events_server::EventsServer, meta_server::MetaServer, network_server::NetworkServer,
     settings_server::SettingsServer, shares_server::SharesServer, stats_server::StatsServer,
 };
-use marsa_share::SharePolicy;
+use marsa_share::{Allowlist, SharePolicy};
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
 use nix::unistd::{Uid, User};
-use tokio::{net::UnixListener, sync::watch};
+use tokio::{
+    net::UnixListener,
+    sync::{mpsc, watch},
+};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{
     Request, Status,
@@ -41,6 +51,7 @@ use tonic::{
 use crate::{
     agent_policy::GrantStore,
     guest_control::{GuestControl, GuestEvent},
+    host_events::{HostEvent, HostNotification},
     supervisor::{
         DockerStream, GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection,
     },
@@ -58,6 +69,7 @@ pub struct TypedApi {
     components: Arc<[ComponentVersion]>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
     verify_keychain: Option<docker_discovery::VerifyKeychain>,
+    proxy: Option<Arc<proxy_policy::RuntimeProxy>>,
     guest_control: Option<Arc<GuestControl>>,
 }
 
@@ -65,8 +77,15 @@ struct Shared {
     paths: MarsaPaths,
     uid: u32,
     events: events::Bus,
+    agents: agents::State,
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
+    proxy_requests: requests::Cache<
+        marsa_proto::host::v1::ActivateProxyRequest,
+        marsa_proto::host::v1::ProxyActivationResult,
+    >,
+    proxy_approval: std::sync::Mutex<Option<proxy_activation::Approval>>,
     settings_requests: requests::Cache<(u64, Arc<str>), marsa_proto::host::v1::SettingsSnapshot>,
+    network_mode_requests: requests::Cache<NetworkMode, marsa_proto::host::v1::NetworkStatus>,
     diagnostics_requests: requests::Cache<bool, CollectDiagnosticsResponse>,
     settings_reset: reset::SettingsReset,
     factory_reset: factory_reset::FactoryReset,
@@ -77,6 +96,8 @@ struct Shared {
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
     remove_share_requests: requests::Cache<String, marsa_proto::host::v1::RemoveShareResponse>,
+    bind_resolutions: requests::Cache<(String, i32), marsa_proto::host::v1::ResolveBindResponse>,
+    bind_edit: tokio::sync::Mutex<()>,
     docker_context_requests: requests::Cache<(), EnsureDockerContextResponse>,
     docker_keychain_requests: requests::Cache<(), bool>,
     edit: tokio::sync::Mutex<()>,
@@ -95,12 +116,16 @@ impl TypedApi {
         let (closing, _) = watch::channel(false);
         Ok(Self {
             inner: Arc::new(Shared {
+                agents: agents::State::new(paths.clone(), uid),
                 grants: GrantStore::new(paths.clone(), uid),
                 paths,
                 uid,
                 events: events::Bus::new(settings)?,
                 engine_requests: requests::Cache::new(),
+                proxy_requests: requests::Cache::new(),
+                proxy_approval: std::sync::Mutex::new(None),
                 settings_requests: requests::Cache::new(),
+                network_mode_requests: requests::Cache::new(),
                 diagnostics_requests: requests::Cache::new(),
                 settings_reset: reset::SettingsReset::new(),
                 factory_reset: factory_reset::FactoryReset::new(),
@@ -109,6 +134,8 @@ impl TypedApi {
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),
+                bind_resolutions: requests::Cache::new(),
+                bind_edit: tokio::sync::Mutex::new(()),
                 docker_context_requests: requests::Cache::new(),
                 docker_keychain_requests: requests::Cache::new(),
                 edit: tokio::sync::Mutex::new(()),
@@ -119,6 +146,7 @@ impl TypedApi {
             components: Arc::default(),
             docker_contexts: None,
             verify_keychain: None,
+            proxy: None,
             guest_control: None,
         })
     }
@@ -146,10 +174,32 @@ impl TypedApi {
             spec,
             config,
             Arc::new(move |transition| events.engine(transition)),
-            automatic,
+            Selection::new(automatic).with_configured_mode(settings.network.mode),
         );
         self.supervisor = Some(supervisor.clone());
         (self, supervisor)
+    }
+
+    /// Publish host notifications in arrival order and apply power changes to the active VM.
+    ///
+    /// The source closes when its watcher is dropped. Each sleep notification is
+    /// acknowledged to the watcher once the supervisor finishes handling it.
+    pub async fn watch_host_events(&self, mut source: mpsc::UnboundedReceiver<HostNotification>) {
+        while let Some(notification) = source.recv().await {
+            let event = notification.event;
+            self.inner.events.host(event.into());
+            if let Some(supervisor) = &self.supervisor {
+                let result = match event {
+                    HostEvent::WillSleep => supervisor.host_will_sleep().await,
+                    HostEvent::Woke => supervisor.host_woke().await,
+                    HostEvent::NetworkChanged => Ok(()),
+                };
+                if let Err(error) = result {
+                    tracing::warn!(?event, %error, "host power change failed");
+                }
+            }
+            notification.finish();
+        }
     }
 
     /// Install the runtime used by the bundled daemon.
@@ -157,11 +207,44 @@ impl TypedApi {
     /// The factory runs on a blocking worker at every cold activation. It sees
     /// one settings snapshot for the whole attempt, including network fallback.
     pub async fn with_packaged_runtime(
-        mut self,
+        self,
         capabilities: Capabilities,
         control: GuestControl,
         config: SupervisorConfig,
-        prepare: impl Fn(&Settings) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> + Send + Sync + 'static,
+        prepare: impl Fn(&Settings, &SharePolicy) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)>
+        + Send
+        + Sync
+        + 'static,
+    ) -> io::Result<Self> {
+        let observations = self.inner.events.clone();
+        let control = Arc::new(
+            control
+                .observe_active(move |event| match event {
+                    GuestEvent::Health(health) => engine::publish_health(&observations, health),
+                    GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
+                    GuestEvent::Port(_) => (),
+                })
+                .authorize_binds(bind_policy::Policy::new(
+                    self.inner.events.clone(),
+                    self.inner.share_policy.clone(),
+                )),
+        );
+        let mut api = self
+            .with_packaged_probe(capabilities, control.clone(), config, prepare)
+            .await?;
+        api.guest_control = Some(control);
+        Ok(api)
+    }
+
+    async fn with_packaged_probe(
+        mut self,
+        capabilities: Capabilities,
+        control: Arc<dyn GuestProbe>,
+        config: SupervisorConfig,
+        prepare: impl Fn(&Settings, &SharePolicy) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)>
+        + Send
+        + Sync
+        + 'static,
     ) -> io::Result<Self> {
         let paths = self.inner.paths.clone();
         let uid = self.inner.uid;
@@ -173,35 +256,49 @@ impl TypedApi {
         self.capabilities = Some(capabilities);
         let (desired, _) = events.settings();
         events.runtime_applied(&proxy.effective(desired));
+        let proxy = Arc::new(proxy_policy::RuntimeProxy::new(proxy));
+        self.proxy = Some(proxy.clone());
         let settings = events.clone();
+        let share_policy = self.inner.share_policy.clone();
         let preparation = Arc::new(move || {
-            let (desired, _) = settings.settings();
-            let effective = proxy.effective(desired);
-            let (backend, mut spec) = prepare(&effective)?;
+            let (desired, once) = settings.boot_configuration();
+            let configured_mode = desired.network.mode;
+            let (effective, reserved) = proxy.launch_settings(desired)?;
+            let mut startup = effective.clone();
+            startup.shares.extend(once.iter().cloned());
+            let (backend, mut spec) = prepare(&startup, &share_policy)?;
+            let mounted = Arc::new(
+                Allowlist::from_paths(
+                    share_policy.clone(),
+                    spec.shares.iter().map(|share| &share.host_path),
+                )
+                .map_err(io::Error::other)?,
+            );
             let automatic = select_network(&effective, &mut spec, backend.capabilities());
+            let network_policy = proxy_policy::BootProxy::from_draft(&effective.network.proxy)?
+                .guest_configuration();
             let bus = settings.clone();
             Ok(Launch {
                 backend,
                 spec,
-                selection: Selection::new(automatic),
-                network_policy: proxy.guest_configuration(),
-                applied: Some(Arc::new(move || bus.runtime_applied(&effective))),
+                selection: Selection::new(automatic).with_configured_mode(configured_mode),
+                network_policy,
+                applied: Some(Arc::new(move || {
+                    if !reserved {
+                        bus.runtime_applied(&effective);
+                    }
+                    bus.activate_binds(mounted.clone(), &once);
+                })),
             })
         });
-        let observations = self.inner.events.clone();
-        let control = Arc::new(control.observe_active(move |event| match event {
-            GuestEvent::Health(health) => engine::publish_health(&observations, health),
-            GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
-            GuestEvent::Port(_) => (),
-        }));
         let supervisor = Supervisor::spawn_packaged(
             preparation,
             self.inner.paths.console_log(),
-            control.clone(),
+            capabilities.pause_resume,
+            control,
             config,
             Arc::new(move |transition| events.engine(transition)),
         );
-        self.guest_control = Some(control);
         self.supervisor = Some(supervisor);
         Ok(self)
     }
@@ -243,6 +340,11 @@ impl TypedApi {
                     .max_encoding_message_size(CONFIG_LIMIT),
             )
             .add_service(
+                AgentsServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT * 2)
+                    .max_encoding_message_size(CONFIG_LIMIT),
+            )
+            .add_service(
                 DockerDiscoveryServer::new(self.clone())
                     .max_decoding_message_size(CONTROL_LIMIT)
                     .max_encoding_message_size(CONTROL_LIMIT),
@@ -259,6 +361,24 @@ impl TypedApi {
                 {
                     tracing::warn!(%error, "engine shutdown failed");
                 }
+            })
+            .await
+    }
+
+    /// Serve delegated agent operations on a separate owner-protected Unix socket.
+    pub async fn serve_agents(
+        &self,
+        listener: UnixListener,
+    ) -> Result<(), tonic::transport::Error> {
+        let mut closing = self.inner.closing.subscribe();
+        Server::builder()
+            .add_service(
+                AgentOpsServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT * 3)
+                    .max_encoding_message_size(CONTROL_LIMIT * 10),
+            )
+            .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
+                let _ = closing.wait_for(|closing| *closing).await;
             })
             .await
     }

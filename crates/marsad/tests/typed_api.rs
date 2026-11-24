@@ -2,6 +2,11 @@
 
 #![cfg(unix)]
 
+#[path = "typed_api/agent_approvals.rs"]
+mod agent_approvals;
+#[path = "typed_api/mcp_reads.rs"]
+mod mcp_reads;
+
 use std::{io, sync::Arc, time::Duration};
 
 use hyper_util::rt::TokioIo;
@@ -10,12 +15,12 @@ use marsa_proto::{
     guest::v1 as guest,
     host::v1::{
         AddShareRequest, CapabilitiesRequest, DaemonEvent, EngineActionRequest, EngineHealthState,
-        EngineState, EngineStatusRequest, GetSettingsRequest, ListSharesRequest, NetworkMode,
-        NetworkStatusRequest, RemoveShareRequest, SubscribeRequest, UpdateSettingsRequest,
-        VmStatsRequest, WatchSettingsRequest, daemon_event::Body, engine_client::EngineClient,
-        events_client::EventsClient, meta_client::MetaClient, network_client::NetworkClient,
-        network_server::Network, settings_client::SettingsClient, shares_client::SharesClient,
-        stats_client::StatsClient,
+        EngineState, EngineStatusRequest, GetSettingsRequest, HostEventKind, ListSharesRequest,
+        NetworkMode, NetworkStatusRequest, RemoveShareRequest, SubscribeRequest,
+        UpdateSettingsRequest, VmStatsRequest, WatchSettingsRequest, daemon_event::Body,
+        engine_client::EngineClient, events_client::EventsClient, meta_client::MetaClient,
+        network_client::NetworkClient, network_server::Network, settings_client::SettingsClient,
+        shares_client::SharesClient, stats_client::StatsClient,
     },
 };
 use marsa_vm::{
@@ -23,6 +28,7 @@ use marsa_vm::{
     fake::{AgentStep, FakeHypervisor, FakeScenario},
 };
 use marsad::{
+    host_events::{HostEvent, HostNotification},
     supervisor::{GuestProbe, GuestSession, Supervisor, SupervisorConfig},
     typed_api::TypedApi,
 };
@@ -30,7 +36,7 @@ use tempfile::TempDir;
 use tokio::{
     io::AsyncReadExt,
     net::{UnixListener, UnixStream},
-    sync::oneshot,
+    sync::{mpsc, oneshot},
     time::timeout,
 };
 use tonic::{
@@ -40,6 +46,18 @@ use tonic::{
 use tower::service_fn;
 
 const WAIT: Duration = Duration::from_secs(3);
+
+#[tokio::test]
+async fn local_owner_can_read_the_pending_agent_approval_snapshot() {
+    use marsa_proto::host::v1::{ListPendingApprovalsRequest, agents_client::AgentsClient};
+
+    let fixture = Fixture::new(vec![]).await;
+    let mut agents = AgentsClient::new(fixture.channel.clone());
+    let result = agents
+        .list_pending_approvals(ListPendingApprovalsRequest {})
+        .await;
+    assert!(result.unwrap().into_inner().approvals.is_empty());
+}
 
 #[tokio::test]
 async fn restart_has_one_activation_and_lifecycle_events_follow_the_same_cursor() {
@@ -178,6 +196,62 @@ async fn network_status_reports_current_guest_facts_and_clears_them_on_stop() {
             .into_inner(),
         stopped
     );
+}
+
+#[tokio::test]
+async fn host_notifications_publish_in_order_and_resume_only_the_host_pause() {
+    let fixture = Fixture::new(vec![AgentStep::Send(b"HR".to_vec())]).await;
+    fixture.supervisor.ensure_ready().await.unwrap();
+    let mut stream = fixture.events().await;
+    let initial = next(&mut stream).await;
+    let (send, receive) = mpsc::unbounded_channel();
+    let api = fixture.api.clone();
+    let watcher = tokio::spawn(async move { api.watch_host_events(receive).await });
+
+    for event in [
+        HostEvent::WillSleep,
+        HostEvent::Woke,
+        HostEvent::NetworkChanged,
+    ] {
+        send.send(HostNotification::from(event)).unwrap();
+    }
+    let expected = [
+        Expected::Host(HostEventKind::WillSleep),
+        Expected::Engine(EngineState::Paused),
+        Expected::Host(HostEventKind::Woke),
+        Expected::Engine(EngineState::Ready),
+        Expected::Host(HostEventKind::NetworkChanged),
+    ];
+    let mut sequence = initial.sequence;
+    for item in expected {
+        let event = next(&mut stream).await;
+        sequence += 1;
+        assert_eq!(event.sequence, sequence);
+        assert_eq!(event.stream_id, initial.stream_id);
+        match (item, event.body) {
+            (Expected::Host(expected), Some(Body::Host(host))) => assert_eq!(host.kind(), expected),
+            (Expected::Engine(expected), Some(Body::Engine(engine))) => {
+                assert_eq!(engine.state(), expected);
+            }
+            (_, actual) => panic!("unexpected event {actual:?}"),
+        }
+    }
+
+    fixture.supervisor.pause().await.unwrap();
+    for event in [HostEvent::WillSleep, HostEvent::Woke] {
+        send.send(HostNotification::from(event)).unwrap();
+    }
+    drop(send);
+    watcher.await.unwrap();
+    assert_eq!(
+        fixture.supervisor.snapshot().state,
+        marsad::supervisor::State::Paused
+    );
+}
+
+enum Expected {
+    Host(HostEventKind),
+    Engine(EngineState),
 }
 
 #[tokio::test]
@@ -442,6 +516,58 @@ async fn collects_one_private_archive_and_omits_secrets() {
 }
 
 #[tokio::test]
+async fn configuration_rejections_carry_safe_typed_details() {
+    use marsa_proto::host::v1::{ConfigurationIssue, configuration_issue::Reason};
+
+    let fixture = Fixture::new(vec![]).await;
+    let mut settings = SettingsClient::new(fixture.channel.clone());
+    let snapshot = settings
+        .get(GetSettingsRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    for (index, document, reason, field) in [
+        (
+            1,
+            "[vm]\ncpus = 0",
+            Reason::SettingsInvalidCpus,
+            Some("vm.cpus"),
+        ),
+        (
+            2,
+            "[network.proxy]\nhttps = 'http://secret-marker@proxy.invalid'",
+            Reason::SettingsInvalidProxy,
+            Some("network.proxy.https"),
+        ),
+        (3, "[broken\nsecret-marker", Reason::SettingsToml, None),
+    ] {
+        let error = settings
+            .update(UpdateSettingsRequest {
+                request_id: format!("90000000-0000-4000-8000-{index:012}"),
+                expected_revision: snapshot.revision,
+                settings_toml: document.into(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), Code::InvalidArgument);
+        let issue = ConfigurationIssue::from_status(&error).unwrap();
+        assert_eq!(issue.reason(), reason);
+        assert_eq!(issue.field.as_deref(), field);
+        assert!(!error.message().contains("secret-marker"));
+        assert!(!format!("{issue:?}").contains("secret-marker"));
+        if reason == Reason::SettingsToml {
+            assert!(issue.line.is_some() && issue.column.is_some());
+        }
+    }
+    let saved = settings
+        .get(GetSettingsRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(saved, snapshot);
+}
+
+#[tokio::test]
 async fn shares_validate_canonical_paths_and_share_settings_revisions() {
     let fixture = Fixture::new(Vec::new()).await;
     let mut shares = SharesClient::new(fixture.channel.clone());
@@ -465,10 +591,14 @@ async fn shares_validate_canonical_paths_and_share_settings_revisions() {
         ..Default::default()
     };
     for (id, path) in [(1, root.root()), (2, root.root().parent().unwrap())] {
+        let error = shares.add(add(id, path)).await.unwrap_err();
+        assert_eq!(error.code(), Code::PermissionDenied);
+        let issue = marsa_proto::host::v1::ConfigurationIssue::from_status(&error).unwrap();
         assert_eq!(
-            shares.add(add(id, path)).await.unwrap_err().code(),
-            Code::PermissionDenied
+            issue.reason(),
+            marsa_proto::host::v1::configuration_issue::Reason::ShareProtected
         );
+        assert!(issue.field.is_none());
     }
     let document = Settings::from_toml(&snapshot.settings_toml).unwrap();
     let mut unsafe_document = document.clone();
@@ -595,17 +725,37 @@ struct Fixture {
 
 impl Fixture {
     async fn new(steps: Vec<AgentStep>) -> Self {
-        Self::with_network_info(steps, None).await
+        Self::with_scenario(steps, Vec::new(), None).await
+    }
+
+    async fn with_docker(steps: Vec<AgentStep>, docker: Vec<AgentStep>) -> Self {
+        Self::with_scenario(steps, docker, None).await
     }
 
     async fn with_network_info(steps: Vec<AgentStep>, info: Option<NetworkInfo>) -> Self {
-        let mut scenario = FakeScenario::default().with_agent(5000, steps);
+        Self::with_scenario(steps, Vec::new(), info).await
+    }
+
+    async fn with_scenario(
+        steps: Vec<AgentStep>,
+        docker: Vec<AgentStep>,
+        info: Option<NetworkInfo>,
+    ) -> Self {
+        let mut scenario = FakeScenario::default()
+            .with_agent(5000, steps)
+            .with_agent(marsa_proto::guest::DOCKER_API_PORT, docker);
         if let Some(info) = info {
             scenario = scenario.with_network_info(info);
         }
         let home = TempDir::new_in("/tmp").unwrap();
         let paths = MarsaPaths::from_home(home.path()).unwrap();
-        std::fs::create_dir(paths.root()).unwrap();
+        use std::os::unix::fs::DirBuilderExt;
+        for directory in [paths.root(), &paths.state_dir()] {
+            std::fs::DirBuilder::new()
+                .mode(0o700)
+                .create(directory)
+                .unwrap();
+        }
         let path = home.path().join("grpc.sock");
         let listener = UnixListener::bind(&path).unwrap();
         let api =
@@ -829,6 +979,9 @@ mod settings_reset;
 #[path = "typed_api/factory_reset.rs"]
 mod factory_reset;
 
+#[path = "typed_api/network_mode.rs"]
+mod network_mode;
+
 #[tokio::test]
 async fn disk_reclaim_authenticates_request_ids_and_does_not_start_a_vm() {
     use marsa_proto::host::v1::{DiskReclaimRequest, disk_client::DiskClient, disk_server::Disk};
@@ -861,3 +1014,31 @@ async fn disk_reclaim_authenticates_request_ids_and_does_not_start_a_vm() {
         .into_inner();
     assert_eq!(engine.state(), EngineState::Stopped);
 }
+
+#[tokio::test]
+async fn disk_reclaim_cannot_admit_while_an_existing_permit_owns_a_ready_vm() {
+    use marsa_proto::host::v1::{DiskReclaimRequest, disk_client::DiskClient};
+
+    let fixture = Fixture::new(vec![AgentStep::Send(b"HR".to_vec())]).await;
+    let permit = fixture.supervisor.reserve(None).await.unwrap();
+    permit.start().await.unwrap();
+    let before = fixture.supervisor.snapshot();
+    assert_eq!(before.state, marsad::supervisor::State::Ready);
+
+    let mut disk = DiskClient::new(fixture.channel.clone());
+    let failure = disk
+        .reclaim(DiskReclaimRequest {
+            request_id: action(42).request_id,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(failure.code(), Code::ResourceExhausted);
+    assert_eq!(
+        fixture.supervisor.snapshot().lifecycle_revision,
+        before.lifecycle_revision
+    );
+    permit.stop().await.unwrap();
+}
+
+#[path = "typed_api/disk_preview.rs"]
+mod disk_preview;

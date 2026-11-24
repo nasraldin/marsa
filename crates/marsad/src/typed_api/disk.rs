@@ -20,7 +20,7 @@ use tonic::{Request, Response, Status};
 
 use crate::{guest_control::GuestControlError, supervisor::State};
 
-use super::TypedApi;
+use super::{TypedApi, engine::supervisor_status};
 
 #[tonic::async_trait]
 impl Disk for TypedApi {
@@ -66,8 +66,9 @@ impl Disk for TypedApi {
         &self,
         request: Request<PrunePreviewRequest>,
     ) -> Result<Response<PrunePreviewResponse>, Status> {
-        self.authorize(request)?;
-        Err(Status::unimplemented("prune preview is unavailable"))
+        let request = self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
+        self.preview_disk_cleanup(request).await.map(Response::new)
     }
 }
 
@@ -84,6 +85,14 @@ impl TypedApi {
             .as_ref()
             .filter(|supervisor| matches!(supervisor.snapshot().state, State::Ready | State::Idle))
             .ok_or_else(|| Status::failed_precondition("disk reclaim requires a ready VM"))?;
+        let _permit = supervisor.reserve(None).await.map_err(supervisor_status)?;
+        if *self.inner.closing.borrow()
+            || !matches!(supervisor.snapshot().state, State::Ready | State::Idle)
+        {
+            return Err(Status::unavailable(
+                "guest lifecycle changed before reclaim",
+            ));
+        }
         let control = self.guest_control.as_ref().ok_or_else(|| {
             Status::failed_precondition("there is no running guest control session")
         })?;
