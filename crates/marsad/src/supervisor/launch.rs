@@ -28,4 +28,5 @@ pub(super) enum Source {
 pub(super) struct Runtime {
     pub(super) source: Source,
     pub(super) console_log: PathBuf,
+    pub(super) pause_resume: bool,
 }
