@@ -164,9 +164,18 @@ impl ContainerSummary {
         &self.state
     }
 
-    /// Engine health check outcome, such as `healthy` or `unhealthy`.
+    /// Engine health check outcome, including the Docker status suffix when the
+    /// engine does not expose a structured health field.
     pub fn health(&self) -> Option<&str> {
-        self.health.as_ref().map(|health| health.status.as_str())
+        if let Some(health) = &self.health {
+            return Some(&health.status);
+        }
+        match self.status.rsplit_once(" (").map(|(_, suffix)| suffix) {
+            Some("healthy)") => Some("healthy"),
+            Some("unhealthy)") => Some("unhealthy"),
+            Some("health: starting)") => Some("starting"),
+            _ => None,
+        }
     }
 
     /// Compose project label when this container is a project member.

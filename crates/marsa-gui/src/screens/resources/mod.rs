@@ -26,6 +26,7 @@ use marsa_ui::{
         Disableable, Icon, IconName, WindowExt,
         button::{Button, ButtonVariants},
         input::InputState,
+        scroll::ScrollableElement as _,
     },
     tokens::{
         scale::{Radius, Space},
@@ -418,6 +419,8 @@ pub(crate) fn render(
         .filter(|row| row.matches(&filter))
         .collect::<Vec<_>>();
     let mut content = div()
+        .flex_1()
+        .min_h_0()
         .flex()
         .flex_col()
         .w_full()
@@ -432,11 +435,46 @@ pub(crate) fn render(
             }
     });
 
+    let feedback = match kind {
+        ResourceKind::Images => pull::render(
+            screen,
+            view,
+            data.pull.as_ref(),
+            data.busy == Some(ResourceKind::Images),
+        ),
+        ResourceKind::Compose => compose::render_output(screen, data),
+        ResourceKind::Volumes if data.volume_scan_failed => Some(
+            text(
+                screen,
+                Role::Small,
+                gui::GUI_DESKTOP_DOCKER_DID_NOT_REPORT_VOLUME_SIZES.text(screen.locale),
+            )
+            .text_color(tone(screen, ColorToken::StatusWarning)),
+        ),
+        _ => None,
+    };
+
     if let Some(row) = selected {
         let back = view.clone();
-        content = content
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .gap(px(Space::S12.pixels()))
+            .child(details(screen, kind, row, view, data));
+        if kind == ResourceKind::Compose {
+            body = body.child(logs::render(
+                screen,
+                row,
+                view,
+                data.logs.as_ref(),
+                data.log_settings,
+            ));
+        }
+        return content
             .child(
-                logical_row(screen.locale).child(
+                logical_row(screen.locale).flex_shrink_0().child(
                     Button::new("back-to-resource-list")
                         .ghost()
                         .label(message(screen.locale, kind.title()))
@@ -452,129 +490,102 @@ pub(crate) fn render(
                         }),
                 ),
             )
-            .child(details(screen, kind, row, view, data));
-        if kind == ResourceKind::Compose {
-            content = content.child(logs::render(
-                screen,
-                row,
-                view,
-                data.logs.as_ref(),
-                data.log_settings,
-            ));
-        }
-    } else {
-        let count = if filter.is_empty() {
-            rows.len().to_string()
-        } else {
-            format!("{} / {}", rows.len(), resources.len())
-        };
-        content = content.child(
-            logical_row(screen.locale)
-                .justify_between()
-                .items_center()
-                .flex_wrap()
-                .gap(px(Space::S12.pixels()))
-                .child(
-                    logical_row(screen.locale)
-                        .gap(px(Space::S8.pixels()))
-                        .child(
-                            div().w(px(224.)).child(
-                                resource_input(&data.filter)
-                                    .cleanable(true)
-                                    .prefix(IconName::Search)
-                                    .aria_label(
-                                        gui::GUI_DESKTOP_FILTER_RESOURCES.text(screen.locale),
-                                    ),
-                            ),
-                        )
-                        .children((!resources.is_empty()).then(|| {
-                            text(screen, Role::Small, count)
-                                .text_color(tone(screen, ColorToken::TextMuted))
-                        })),
-                )
-                .child(actions),
-        );
-        if incomplete_external {
-            content = content.child(
-                text(
-                    screen,
-                    Role::Small,
-                    gui::GUI_DESKTOP_EXTERNAL_RESOURCE_UNAVAILABLE.text(screen.locale),
-                )
-                .text_color(tone(screen, ColorToken::StatusWarning)),
+            .child(
+                body.children(feedback)
+                    .overflow_y_scrollbar()
+                    .id(("resource-details", kind as usize)),
             );
-        }
     }
 
-    if kind == ResourceKind::Images {
-        content = content.children(pull::render(
-            screen,
-            view,
-            data.pull.as_ref(),
-            data.busy == Some(ResourceKind::Images),
-        ));
-    }
-    if kind == ResourceKind::Compose {
-        content = content.children(compose::render_output(screen, data));
-    }
-    if kind == ResourceKind::Volumes && data.volume_scan_failed {
+    let count = if filter.is_empty() {
+        rows.len().to_string()
+    } else {
+        format!("{} / {}", rows.len(), resources.len())
+    };
+    content = content.child(
+        logical_row(screen.locale)
+            .flex_shrink_0()
+            .justify_between()
+            .items_center()
+            .flex_wrap()
+            .gap(px(Space::S12.pixels()))
+            .child(
+                logical_row(screen.locale)
+                    .gap(px(Space::S8.pixels()))
+                    .child(
+                        div().w(px(224.)).child(
+                            resource_input(&data.filter)
+                                .cleanable(true)
+                                .prefix(IconName::Search)
+                                .aria_label(gui::GUI_DESKTOP_FILTER_RESOURCES.text(screen.locale)),
+                        ),
+                    )
+                    .children((!resources.is_empty()).then(|| {
+                        text(screen, Role::Small, count)
+                            .text_color(tone(screen, ColorToken::TextMuted))
+                    })),
+            )
+            .child(actions),
+    );
+    if incomplete_external {
         content = content.child(
             text(
                 screen,
                 Role::Small,
-                gui::GUI_DESKTOP_DOCKER_DID_NOT_REPORT_VOLUME_SIZES.text(screen.locale),
+                gui::GUI_DESKTOP_EXTERNAL_RESOURCE_UNAVAILABLE.text(screen.locale),
             )
             .text_color(tone(screen, ColorToken::StatusWarning)),
         );
     }
 
-    if selected.is_none() {
-        let has_local_inventory = context.includes_marsa()
-            && screen.state.engine().is_some_and(|engine| {
-                matches!(engine.state(), EngineState::Ready | EngineState::Idle)
-            });
-        if rows.is_empty() {
-            let filtered = !filter.is_empty() && !resources.is_empty();
-            let instruction = if !available || (incomplete_external && !has_local_inventory) {
-                gui::GUI_ENVIRONMENT_OFFLINE
-            } else if !has_local_inventory && active_source.is_none() {
-                gui::GUI_DESKTOP_RESOURCES_ARE_AVAILABLE_WHEN_THE_ENGINE_IS_RUNNING
-            } else if filtered {
-                gui::GUI_DESKTOP_NO_MATCHING_RESOURCES
-            } else {
-                kind.empty_message()
-            };
-            let clear_filter = data.filter.clone();
-            let empty = crate::screens::common::panel(screen)
-                .items_center()
-                .text_center()
-                .py(px(Space::S32.pixels()))
-                .child(resource_icon(screen, kind))
-                .child(
-                    screen
-                        .typography(Role::Lead)
-                        .apply(div())
-                        .child(instruction.text(screen.locale)),
-                );
-            let empty = empty.children(filtered.then(|| {
-                Button::new("clear-resource-filter")
-                    .outline()
-                    .label(gui::GUI_WORKLOAD_CLEAR_FILTERS.text(screen.locale))
-                    .on_click(move |_, window, cx| {
-                        clear_filter.update(cx, |input, cx| input.set_value("", window, cx));
-                    })
-            }));
-            content = content.child(empty);
+    content = content.children(feedback);
+
+    let has_local_inventory = context.includes_marsa()
+        && screen
+            .state
+            .engine()
+            .is_some_and(|engine| matches!(engine.state(), EngineState::Ready | EngineState::Idle));
+    if rows.is_empty() {
+        let filtered = !filter.is_empty() && !resources.is_empty();
+        let instruction = if !available || (incomplete_external && !has_local_inventory) {
+            gui::GUI_ENVIRONMENT_OFFLINE
+        } else if !has_local_inventory && active_source.is_none() {
+            gui::GUI_DESKTOP_RESOURCES_ARE_AVAILABLE_WHEN_THE_ENGINE_IS_RUNNING
+        } else if filtered {
+            gui::GUI_DESKTOP_NO_MATCHING_RESOURCES
         } else {
-            content = content.child(table(
-                screen,
-                kind,
-                &columns,
-                &rows,
-                view,
-                !external.is_empty(),
-            ));
-        }
+            kind.empty_message()
+        };
+        let clear_filter = data.filter.clone();
+        let empty = crate::screens::common::panel(screen)
+            .items_center()
+            .text_center()
+            .py(px(Space::S32.pixels()))
+            .child(resource_icon(screen, kind))
+            .child(
+                screen
+                    .typography(Role::Lead)
+                    .apply(div())
+                    .child(instruction.text(screen.locale)),
+            );
+        let empty = empty.children(filtered.then(|| {
+            Button::new("clear-resource-filter")
+                .outline()
+                .label(gui::GUI_WORKLOAD_CLEAR_FILTERS.text(screen.locale))
+                .on_click(move |_, window, cx| {
+                    clear_filter.update(cx, |input, cx| input.set_value("", window, cx));
+                })
+        }));
+        content = content.child(empty);
+    } else {
+        content = content.child(table(
+            screen,
+            kind,
+            &columns,
+            &rows,
+            view,
+            !external.is_empty(),
+        ));
     }
 
     content

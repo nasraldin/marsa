@@ -220,6 +220,11 @@ flowchart LR
 
 Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
 
+Containers, Images, Volumes, Networks, and Stacks keep their page headings,
+filters, and table columns above the scrollable rows. Resource details scroll
+below their back control. Select the current sidebar route to return to its
+list.
+
 Settings → General groups the interface and terminal font menus with six
 base text sizes. IBM Plex supplies the defaults and Arabic glyph fallback.
 The menus include native macOS system faces and the
@@ -277,11 +282,16 @@ action and time. [Docker Engine event history](https://github.com/moby/moby/blob
 
 Overview shows the selected environment's lifecycle and health totals, resource
 counts, independently ranked CPU and memory samples, and Docker disk accounting.
-Sampling runs while Overview is visible and reports its coverage. A missing
-category or sample stays unavailable. The disk bars compare reported category
+Select a lifecycle or health count to open the matching Containers filter.
+The CPU and memory rankings show the last 12 collected samples for the selected
+engine. Sampling runs while Overview is visible and reports its coverage.
+A missing category or sample stays unavailable. The disk bars compare reported category
 sizes on a common scale because shared data can appear in more than one
 category. The built-in environment uses the owner API to query an already
-running guest without starting it.
+running guest without starting it. When the desktop opens on the built-in
+environment after setup, it requests a start once if the daemon reports a
+stopped engine. Overview also provides an explicit start control and reuses the
+Machine page's stop confirmation.
 [Moby 29.10.0 Engine API](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml),
 [Moby disk accounting compatibility](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L207-L248).
 

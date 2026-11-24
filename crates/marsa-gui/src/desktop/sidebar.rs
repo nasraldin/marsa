@@ -14,7 +14,11 @@ use marsa_ui::{
 };
 use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
 
-use crate::screens::common::{align, color, row};
+use crate::screens::{
+    common::{align, color, row},
+    external_inventory::ExternalWorkspace,
+    system::{SystemView, environment_icon_path},
+};
 
 use marsa_ui::gpui_component::scroll::ScrollableElement as _;
 
@@ -24,7 +28,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
     let locale = desktop.locale;
     let palette = desktop.palette;
     let foreground = color(palette, ColorToken::TextMuted);
-    let width = if desktop.collapsed { 78. } else { 216. };
+    let width = if desktop.collapsed { 72. } else { 216. };
     let collapse_label = if desktop.collapsed {
         gui::GUI_DESKTOP_EXPAND_SIDEBAR.text(locale)
     } else {
@@ -104,7 +108,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                         .tooltip(label)
                         .w_full()
                         .h(px(32.))
-                        .rounded(px(8.));
+                        .rounded(px(if desktop.collapsed { 10. } else { 8. }));
                     let item = if selected {
                         item.bg(color(palette, ColorToken::AccentSubtle))
                     } else {
@@ -115,6 +119,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                             .w_full()
                             .when(desktop.collapsed, |row| row.justify_center())
                             .gap_2()
+                            .items_center()
                             .text_size(ui_size(13.))
                             .text_color(label_color)
                             .child(
@@ -149,6 +154,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 .items_center()
                 .pt(px(36.))
                 .gap_2()
+                .pb_2()
                 .child(collapse)
                 .child(brand)
         } else {
@@ -185,14 +191,26 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
     let state_text = desktop.context_status_text(engine, cx);
     let description = format!("{label}: {context} · {state_text}");
     let system = desktop.system.read(cx);
-    let choices = std::iter::once((Environment::Marsa, system.environment_presentation(None).0))
-        .chain(desktop.external_inventory.iter().map(|workspace| {
-            (
-                Environment::from(workspace.as_ref()),
-                system.environment_presentation(Some(workspace)).0,
-            )
-        }))
-        .collect::<Vec<_>>();
+    let active_icon = if current.includes_marsa() {
+        "marsa/docker-engine.svg"
+    } else {
+        workspace.map_or("icons/server.svg", |workspace| {
+            context_icon(system, workspace)
+        })
+    };
+    let choices = std::iter::once((
+        Environment::Marsa,
+        system.environment_presentation(None).0,
+        "marsa/docker-engine.svg",
+    ))
+    .chain(desktop.external_inventory.iter().map(|workspace| {
+        (
+            Environment::from(workspace.as_ref()),
+            system.environment_presentation(Some(workspace)).0,
+            context_icon(system, workspace),
+        )
+    }))
+    .collect::<Vec<_>>();
     let desktop_entity = cx.entity().downgrade();
     let button = Button::new("sidebar-engine-state")
         .ghost()
@@ -214,8 +232,8 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
         .bg(color(palette, status_surface))
         .child(
             svg()
-                .path("marsa/docker-engine.svg")
-                .size(px(30.))
+                .path(active_icon)
+                .size(px(26.))
                 .text_color(color(palette, status_text)),
         );
     let button = if desktop.collapsed {
@@ -256,11 +274,12 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
         marsa_ui::Locale::EnglishUs => Anchor::BottomLeft,
     };
     button.dropdown_menu_with_anchor(anchor, move |menu, _, _| {
-        let menu = choices.iter().fold(menu, |menu, (choice, name)| {
+        let menu = choices.iter().fold(menu, |menu, (choice, name, icon)| {
             let picked = choice.clone();
             let desktop = desktop_entity.clone();
             menu.item(
                 PopupMenuItem::new(crate::screens::common::technical(name))
+                    .icon(Icon::default().path(*icon))
                     .checked(choice.same_identity(&current))
                     .on_click(move |_, _, cx| {
                         let _ = desktop.update(cx, |desktop, cx| {
@@ -278,4 +297,20 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
             ),
         )
     })
+}
+
+fn context_icon(system: &SystemView, workspace: &ExternalWorkspace) -> &'static str {
+    if workspace.endpoint.lima_instance().is_some() || workspace.source.starts_with("Colima · ") {
+        return "icons/laptop.svg";
+    }
+    if workspace.endpoint.managed_id().is_none() {
+        let source = workspace.source.to_ascii_lowercase();
+        if source.contains("podman") {
+            return "icons/box.svg";
+        }
+        if source == "docker desktop" || source == "desktop-linux" {
+            return "marsa/docker-engine.svg";
+        }
+    }
+    environment_icon_path(system.environment_presentation(Some(workspace)).1)
 }

@@ -490,7 +490,7 @@ Verified both transports and terminal I/O against [Hawser upstream bca2770](http
 
 ### M7-35 Restore desktop scrolling and finish the usability controls
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-19, M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Repair the workspace scroll areas affected by PR #116 and finish its Overview and sidebar controls.
@@ -499,3 +499,10 @@ Verified both transports and terminal I/O against [Hawser upstream bca2770](http
   - Resource details can scroll independently. Selecting the active sidebar route returns to its list.
   - Overview exposes the container filters and local engine lifecycle controls, shows measured history for top containers, and identifies the active environment.
   - Verify overflow and layout in English light, English dark, Arabic light, and Arabic dark.
+
+Native macOS QA reproduced the stuck Images rows on the merged PR and verified
+body scrolling in the rebuilt app with English light, English dark, Arabic
+light, and Arabic dark. The checks reached later rows in all five workspaces
+and the logs at the bottom of a 24-service stack detail. They also covered the
+Containers keyboard shortcut, sidebar return to list, live healthy and
+unhealthy filters, and the Overview stop confirmation.
