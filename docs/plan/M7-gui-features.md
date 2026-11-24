@@ -523,3 +523,15 @@ Verified the native Machine page in all four language and theme combinations. Th
 disposable Lima integration test covered graceful stop, allocation changes,
 startup, and restart. The Machine page started the same VM and named it in
 the restart confirmation.
+
+### M7-37 Unify Machine and Overview lifecycle controls
+
+- **Status:** in progress
+- **Depends on:** M7-36
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Use one Machine layout for the selected environment and expose its available lifecycle controls in the Overview card.
+- **Accept when:**
+  - Marsa, owner-managed Lima, and connection-only environments use the same Machine identity, resources, and diagnostics layout.
+  - Overview shows icon-only Start or Stop for the selected controllable VM, including an offline, stopped Lima instance.
+  - Resource edits and lifecycle confirmations stay bound to the selected provider. Connection-only environments show verified information where available.
+  - Check English and Arabic in light and dark mode.
