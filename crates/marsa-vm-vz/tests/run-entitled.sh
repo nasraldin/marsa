@@ -1,23 +1,32 @@
 #!/usr/bin/env bash
-# Build and run the production VZ or daemon network test from the repository root.
+# Build and run a production VZ or daemon system test from the repository root.
 set -euo pipefail
 
 export MARSA_VZ_GUEST_DIR="${1:-"$PWD/target/guest"}"
 if (( $# > 0 )); then
     shift
 fi
+<<<<<<< HEAD
+=======
 package=marsa-vm-vz
 test_name=real_vm
 features=()
-if [[ ${MARSA_ENTITLED_DAEMON_NETWORK:-0} == 1 ]]; then
+if [[ ${MARSA_ENTITLED_DAEMON_POWER:-0} == 1 ]]; then
+    package=marsad
+    test_name=power_watcher
+elif [[ ${MARSA_ENTITLED_DAEMON_NETWORK:-0} == 1 ]]; then
     package=marsad
     test_name=network_boot
+elif [[ ${MARSA_ENTITLED_SSH_TRANSPORT:-0} == 1 ]]; then
+    features=(--features ssh-transport-system-test)
+    set -- ssh_transport::host_initiated_signing_stays_with_the_approved_socket_peer --exact "$@"
 elif [[ ${MARSA_ENTITLED_NATIVE_IPV4:-0} == 1 ]]; then
     features=(--features native-ipv4-system-test)
     set -- native_ipv4::packaged_guest_nat_address_gateway_and_https --exact "$@"
 elif [[ -n "${MARSA_VZ_NETWORK_HELPER:-}" ]]; then
     features=(--features userspace-system-test)
 fi
+>>>>>>> origin/main
 test_executable=$(
     MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p "$package" \
         --test "$test_name" --no-run --message-format=json ${features[@]+"${features[@]}"} |

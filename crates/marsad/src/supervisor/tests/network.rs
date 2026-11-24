@@ -2,6 +2,7 @@
 
 use std::{collections::VecDeque, net::Ipv4Addr, sync::Mutex};
 
+use marsa_core::settings::NetworkMode;
 use marsa_proto::guest::v1::EgressStage;
 
 use super::*;
@@ -126,6 +127,20 @@ async fn boot_with_candidate(
     Option<BootNetwork>,
     Vec<&'static str>,
 ) {
+    let (supervisor, trace) = fixture(host, first_mode, scenario, userspace, attempts);
+    let result = supervisor.ensure_ready().await;
+    let network = supervisor.snapshot().network;
+    let steps = trace.lock().unwrap().clone();
+    (result, network, steps)
+}
+
+fn fixture(
+    host: Option<Arc<dyn HostCheck>>,
+    first_mode: NetworkSpec,
+    scenario: FakeScenario,
+    userspace: Option<FakeScenario>,
+    attempts: Vec<Option<Vec<EgressStage>>>,
+) -> (Supervisor, Trace) {
     let trace = Trace::default();
     let backend = Arc::new(Backend {
         trace: trace.clone(),
@@ -154,27 +169,61 @@ async fn boot_with_candidate(
         network: first_mode,
         console_log: "/fixture/console.log".into(),
     };
-    let supervisor =
-        Supervisor::spawn_inner(backend, probe, spec, config(), None, Selection { host });
-    let result = supervisor.ensure_ready().await;
-    let network = supervisor.snapshot().network;
-    let steps = trace.lock().unwrap().clone();
-    (result, network, steps)
+    let supervisor = Supervisor::spawn_inner(
+        backend,
+        probe,
+        spec,
+        config(),
+        None,
+        Selection {
+            host,
+            configured_mode: Some(NetworkMode::Auto),
+        },
+    );
+    (supervisor, trace)
 }
 
 #[tokio::test(start_paused = true)]
 async fn qualifies_userspace_before_releasing_the_engine() {
-    let (result, observed, trace) = boot(
+    let (supervisor, trace) = fixture(
         Some(Arc::new(AvailableHost)),
         NetworkSpec::Nat,
         FakeScenario::default(),
+        None,
         vec![
             Some(vec![EgressStage::Route; 2]),
             Some(vec![EgressStage::Healthy]),
         ],
-    )
-    .await;
-    result.unwrap();
+    );
+    let stopped = supervisor
+        .observe_network(NetworkMode::Userspace)
+        .await
+        .unwrap();
+    assert!(stopped.attachment.is_none());
+    assert_eq!(stopped.restart_pending, Some(false));
+
+    let mut state = supervisor.snapshots();
+    let launch = supervisor.clone();
+    let start = tokio::spawn(async move { launch.ensure_ready().await });
+    state.wait_for(|s| s.state == State::Booting).await.unwrap();
+    let starting = supervisor
+        .observe_network(NetworkMode::Userspace)
+        .await
+        .unwrap();
+    assert!(starting.attachment.is_none());
+    assert_eq!(starting.restart_pending, None);
+
+    start.await.unwrap().unwrap();
+    let fallback = supervisor.observe_network(NetworkMode::Auto).await.unwrap();
+    let changed = supervisor
+        .observe_network(NetworkMode::Userspace)
+        .await
+        .unwrap();
+    assert_eq!(fallback.restart_pending, Some(false));
+    assert_eq!(changed.restart_pending, Some(true));
+    assert_eq!(fallback.attachment, changed.attachment);
+    let observed = fallback.attachment.map(|(boot, _)| boot);
+    let trace = trace.lock().unwrap().clone();
     assert_eq!(
         observed,
         Some(BootNetwork {

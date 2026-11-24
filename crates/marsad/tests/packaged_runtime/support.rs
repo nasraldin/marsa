@@ -4,6 +4,10 @@ use super::*;
 
 pub(super) fn stage_bundle(scratch: &Path) -> (PathBuf, PathBuf) {
     let source = PathBuf::from(env::var_os("MARSA_VZ_GUEST_DIR").expect("set MARSA_VZ_GUEST_DIR"));
+    stage_bundle_from(scratch, &source)
+}
+
+pub(super) fn stage_bundle_from(scratch: &Path, source: &Path) -> (PathBuf, PathBuf) {
     let helper =
         PathBuf::from(env::var_os("MARSA_VZ_NETWORK_HELPER").expect("set MARSA_VZ_NETWORK_HELPER"));
     let app = scratch.join("Marsa.app");

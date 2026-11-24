@@ -16,3 +16,11 @@ toml = "1.2.2"
 
 [lints]
 workspace = true
+
+[target.'cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))'.dependencies]
+getrandom = "=0.4.3"
+nix = { version = "=0.32.0", features = ["dir", "user"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFDate", "CFDictionary", "CFString", "CFURL"] }
+objc2-security = { version = "=0.3.2", default-features = false, features = ["CSCommon", "SecCode", "SecStaticCode"] }

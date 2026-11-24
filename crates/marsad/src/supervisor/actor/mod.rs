@@ -2,6 +2,7 @@
 
 use std::{future::pending, io, sync::Arc, time::Duration};
 
+use marsa_core::settings::NetworkMode;
 use marsa_vm::{Vm, VsockStream};
 use tokio::{
     sync::{broadcast, mpsc, oneshot, watch},
@@ -10,24 +11,37 @@ use tokio::{
 };
 
 use super::{
-    BootFailure, BootStage, GuestProbe, Observer, Snapshot, State, SupervisorConfig,
-    SupervisorError, Transition,
+    BootFailure, BootStage, GuestProbe, NetworkObservation, Observer, Snapshot, State,
+    SupervisorConfig, SupervisorError, Transition,
     boot::{self, LiveGuest, Outcome},
     launch::Runtime,
 };
 
+mod maintenance;
 mod operations;
 
 pub(super) const CHANNEL_CAPACITY: usize = 64;
 pub(super) type Reply = oneshot::Sender<Result<(), SupervisorError>>;
+pub(super) type ReservationReply = oneshot::Sender<Result<u64, SupervisorError>>;
 
 pub(super) enum Command {
+    Reserve {
+        expected: Option<u64>,
+        release: oneshot::Receiver<()>,
+        reply: ReservationReply,
+    },
+    MaintenanceStart(u64, bool, Reply),
+    MaintenanceKeep(u64, Reply),
+    MaintenanceStop(u64, Reply),
     EnsureReady(Reply),
     ConnectDocker(oneshot::Sender<io::Result<VsockStream>>),
+    Network(NetworkMode, oneshot::Sender<NetworkObservation>),
     Stop(Reply),
     Restart(Reply),
     Pause(Reply),
     Resume(Reply),
+    HostWillSleep(Reply),
+    HostWoke(Reply),
     ContainerCount(u32, Reply),
     IdlePolicy(bool, Duration, Reply),
 }
@@ -38,6 +52,7 @@ enum Event {
     Boot(Result<Outcome, JoinError>),
     GuestExited(String),
     DockerClients,
+    ReleaseMaintenance,
     Workloads(Option<io::Result<u32>>),
     Retry,
     Idle,
@@ -68,6 +83,17 @@ pub(super) struct Actor {
     idle_at: Option<Instant>,
     sample_at: Option<Instant>,
     empty: bool,
+<<<<<<< HEAD
+    maintenance: Option<maintenance::Reservation>,
+=======
+<<<<<<< HEAD
+    paused_for_sleep: bool,
+    host_asleep: bool,
+    boot_after_wake: bool,
+=======
+    maintenance: Option<maintenance::Reservation>,
+>>>>>>> origin/main
+>>>>>>> origin/main
 }
 
 impl Actor {
@@ -98,27 +124,57 @@ impl Actor {
             idle_at: None,
             sample_at: None,
             empty: false,
+<<<<<<< HEAD
+            maintenance: None,
+=======
+<<<<<<< HEAD
+            paused_for_sleep: false,
+            host_asleep: false,
+            boot_after_wake: false,
+=======
+            maintenance: None,
+>>>>>>> origin/main
+>>>>>>> origin/main
         }
     }
 
     pub(super) async fn run(mut self) {
         loop {
+            if self.maintenance_released() {
+                self.release_maintenance().await;
+                continue;
+            }
             let sample = self
                 .sample_at
                 .map(|at| self.idle_at.map_or(at, |idle| idle.min(at)))
-                .filter(|_| self.docker_quiet());
-            let manual_idle = self.idle_at.filter(|_| self.sample_at.is_none());
+                .filter(|_| self.maintenance.is_none() && self.docker_quiet());
+            let manual_idle = self
+                .idle_at
+                .filter(|_| self.maintenance.is_none() && self.sample_at.is_none());
+            let ordinary = async {
+                tokio::select! {
+                    command = self.commands.recv() => Event::Command(command),
+                    stage = watch_progress(&mut self.progress) => Event::Progress(stage),
+                    outcome = wait_boot(&mut self.boot) => Event::Boot(outcome),
+                    guest = watch_guest(&mut self.guest, self.probe.as_ref(), sample) => guest,
+                    Ok(()) = self.docker_clients.changed() => Event::DockerClients,
+                    () = wait_deadline(self.retry_at) => Event::Retry,
+                    () = wait_deadline(manual_idle) => Event::Idle,
+                }
+            };
             let event = tokio::select! {
-                command = self.commands.recv() => Event::Command(command),
-                stage = watch_progress(&mut self.progress) => Event::Progress(stage),
-                outcome = wait_boot(&mut self.boot) => Event::Boot(outcome),
-                guest = watch_guest(&mut self.guest, self.probe.as_ref(), sample) => guest,
-                Ok(()) = self.docker_clients.changed() => Event::DockerClients,
-                () = wait_deadline(self.retry_at) => Event::Retry,
-                () = wait_deadline(manual_idle) => Event::Idle,
+                biased;
+                () = maintenance::wait_release(&mut self.maintenance) => Event::ReleaseMaintenance,
+                event = ordinary => event,
             };
             match event {
-                Event::Command(Some(command)) => self.command(command).await,
+                Event::Command(Some(command)) => {
+                    if self.maintenance_released() {
+                        self.release_maintenance().await;
+                    }
+                    self.command(command).await;
+                }
+                Event::ReleaseMaintenance => self.release_maintenance().await,
                 Event::Command(None) => {
                     let _ = self.stop().await;
                     return;
@@ -149,7 +205,14 @@ impl Actor {
         let previous = self.state();
         if previous != current {
             let network = self.guest.as_ref().map(|guest| guest.network);
+            let lifecycle_revision = self
+                .output
+                .snapshot
+                .borrow()
+                .lifecycle_revision
+                .saturating_add(1);
             self.output.snapshot.send_replace(Snapshot {
+                lifecycle_revision,
                 state: current,
                 failure: failure.clone(),
                 network,
@@ -165,6 +228,12 @@ impl Actor {
             }
             let _ = self.output.events.send(transition);
         }
+    }
+
+    fn bump_revision(&self) {
+        self.output.snapshot.send_modify(|value| {
+            value.lifecycle_revision = value.lifecycle_revision.saturating_add(1);
+        });
     }
 
     fn transition(&self, current: State) {
@@ -184,9 +253,13 @@ impl Actor {
     }
 
     fn begin(&mut self) {
+        self.retry_at = None;
+        if self.host_asleep {
+            self.boot_after_wake = true;
+            return;
+        }
         let (cancel_boot, cancel) = oneshot::channel();
         let (progress, updates) = watch::channel(BootStage::Create);
-        self.retry_at = None;
         self.idle_at = None;
         self.sample_at = None;
         self.empty = false;
@@ -210,6 +283,10 @@ impl Actor {
     }
 
     fn ready(&mut self) {
+        if let Some(applied) = self.guest.as_mut().and_then(|guest| guest.applied.take()) {
+            applied();
+        }
+
         self.set_state(State::Ready, None);
         self.sample_at = Some(Instant::now());
         self.reset_idle();
@@ -217,7 +294,11 @@ impl Actor {
     }
 
     fn reset_idle(&mut self) {
-        self.idle_at = (self.empty && self.docker_quiet() && self.state() == State::Ready)
+        self.idle_at = (self.maintenance.is_none()
+            && self.empty
+            && self.docker_quiet()
+            && (self.state() == State::Ready
+                || self.state() == State::Idle && self.config.idle_stop))
             .then(|| Instant::now() + self.config.idle_timeout);
     }
 

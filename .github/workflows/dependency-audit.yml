@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          submodules: true
 
       - name: Check Cargo.lock against RustSec
         shell: bash
@@ -35,4 +36,5 @@ jobs:
           printf '%s  %s\n' "$CARGO_AUDIT_SHA256" "$archive" | sha256sum --check --strict
           tar --extract --gzip --to-stdout --file="$archive" "$release/cargo-audit" > "$audit_dir/cargo-audit"
           chmod 0700 "$audit_dir/cargo-audit"
-          "$audit_dir/cargo-audit" audit --file Cargo.lock --deny warnings
+          python3 .github/scripts/audit-path-dependencies.py lock > "$audit_dir/Cargo.lock"
+          "$audit_dir/cargo-audit" audit --file "$audit_dir/Cargo.lock" --deny warnings

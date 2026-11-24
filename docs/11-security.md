@@ -85,8 +85,58 @@ See [07](07-file-sharing-and-storage.md#the-allowlist). Security-relevant points
 
 ## Registry credentials
 
-- `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS keychain. Marsa sets `credsStore` in the Docker CLI configuration only with the user's consent and never overwrites an existing store.
+- `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS Keychain when that helper is on the Docker CLI's `PATH`. The authenticated opt-in adds `credsStore = osxkeychain` to the configured Docker client file only after the caller obtains consent. Existing `credsStore` and `credHelpers` entries remain untouched. If Docker already holds credentials in the file, log out before enabling Keychain and log in again afterwards. [Docker login](https://docs.docker.com/reference/cli/docker/login/), [pinned helper source](https://github.com/docker/docker-credential-helpers/blob/v0.9.13/osxkeychain/osxkeychain.go).
 - The engine in the guest receives credentials per pull or push from the CLI, as in standard Docker. Nothing is persisted in the guest.
+
+## SSH agent access
+
+For builds, the Docker client selects the host agent and offers it through its own Buildx session. BuildKit makes the socket available to Dockerfile steps that request an SSH mount within that session. A build with an SSH grant can request signatures from the chosen agent for the lifetime of its session. The upstream provider permits signing without exporting private keys. Adding, removing and locking keys through the forwarded socket is refused by the upstream provider. [Pinned provider source](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).
+
+The Docker byte proxy has no independent indication that a client granted access to an arbitrary guest workload. A predictable guest listener would remain reachable to other guest processes with permission to mount or open it. Container-mounted forwarding requires a host-enforced, revocable grant and is tracked in [M4-17](plan/M4-docker-integration.md#m4-17-explicit-ssh-agent-access-for-containers).
+
+[M4-24](plan/M4-docker-integration.md#m4-24-qualify-ssh-agent-transport-and-guest-peer-identity)
+qualifies a host-opened vsock relay and Linux Unix-socket opener identity.
+A socket bind can be inherited, so an approved path does not establish that
+a new opener is the approved workload. The production grant must bind the
+opener to an immutable Docker ID and fail closed when that identity cannot
+be verified. An engine administrator can execute code in the approved
+container, and the approved workload can relay signing access while its
+grant is active. The transport fixture does not qualify those privileges,
+Mac socket selection policy, or container lifecycle revocation. [Pinned Moby mount inheritance](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/volumes.go)
+
+
+### Container agent grant boundary
+
+The container grant remains unavailable under the current trust model.
+The M4-24 fixture verified that the guest kernel can distinguish ordinary
+openers in separate cgroups and that closing the VZ stream disconnects the
+guest client. It used synthetic cgroups and a disposable host agent.
+[Entitled fixture](../crates/marsa-vm-vz/tests/real_vm/ssh_fixture/README.md)
+
+- The stock engine reports a full container ID and a numeric init PID.
+  The ID persists across restart. The API has no stable handle for one
+  process lifetime. A Linux pidfd can pin it inside the guest and prevent
+  numeric PID reuse from renewing a grant. Docker publishes its `die`
+  event after exit processing. Event delivery, names and timestamps cannot
+  establish a stable host-side lifetime. [Pinned inspect source](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/inspect.go) · [Pinned start source](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/start.go) · [Pinned exit processing](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/monitor.go) · [Pinned Linux socket peer code](https://github.com/gregkh/linux/blob/v7.3.5/net/core/sock.c)
+- `--volumes-from` can inherit a bind without listing its source in the new
+  request. A guest opener check addresses that case for ordinary workloads.
+  The supported guest Docker socket also grants engine administration.
+  Its holder can ask Docker to run a process in the approved container.
+  That process belongs to the approved task and can satisfy the opener
+  identity check. [Pinned mount inheritance](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/volumes.go) · [Pinned exec implementation](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/exec.go) · [Pinned runc cgroup placement](https://github.com/opencontainers/runc/blob/v1.5.3/libcontainer/process_linux.go)
+- A host-initiated VZ connection identifies the VM endpoint and provides
+  port information and a byte stream. It carries no host-authenticated
+  Docker ID, guest namespace or guest process lifetime. A compromised
+  guest can still send requests on a host-opened stream while that stream
+  exists. A bounded signing protocol limits operations, while the host
+  still lacks independent authorization for the requesting workload.
+  [Apple VZ connection contract](https://developer.apple.com/documentation/virtualization/vzvirtiosocketconnection)
+
+Reopen M4-17 when the host can verify a workload and its lifetime independently,
+or the owner approves a trust decision that explicitly scopes admin and
+compromised-guest access while a grant is active. BuildKit keeps its separate
+client-authorized session contract.
 
 ## Guest hardening
 

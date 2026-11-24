@@ -29,9 +29,10 @@ use crate::{
         OpenAgentSessionResponse, VersionRequest, VersionResponse,
         agent_ops_client::AgentOpsClient, agents_client::AgentsClient,
         diagnostics_client::DiagnosticsClient, disk_client::DiskClient,
-        engine_client::EngineClient, events_client::EventsClient, meta_client::MetaClient,
-        network_client::NetworkClient, settings_client::SettingsClient,
-        shares_client::SharesClient, stats_client::StatsClient, updates_client::UpdatesClient,
+        docker_discovery_client::DockerDiscoveryClient, engine_client::EngineClient,
+        events_client::EventsClient, meta_client::MetaClient, network_client::NetworkClient,
+        settings_client::SettingsClient, shares_client::SharesClient, stats_client::StatsClient,
+        updates_client::UpdatesClient,
     },
     events::EventSubscription,
     platform,
@@ -79,6 +80,13 @@ pub enum ClientError {
     /// The daemon failed to honor an event stream invariant.
     #[error("invalid Marsa daemon event stream: {0}")]
     EventProtocol(&'static str),
+}
+
+impl ClientError {
+    /// Whether the daemon does not currently implement the requested RPC.
+    pub fn is_unimplemented(&self) -> bool {
+        matches!(self, Self::Rpc(status) if status.code() == Code::Unimplemented)
+    }
 }
 
 impl From<Status> for ClientError {
@@ -279,6 +287,7 @@ impl MarsaClient {
         engine: EngineClient => "Access engine lifecycle and status RPCs.",
         settings: SettingsClient => "Access settings reads, writes and watches.",
         shares: SharesClient => "Access shared folder RPCs.",
+        docker_discovery: DockerDiscoveryClient => "Discover the Docker endpoint and register its context with host API minor 2 or later.",
         network: NetworkClient => "Access networking and forwarded port RPCs.",
         events: EventsClient => "Access the raw daemon event stream.",
         stats: StatsClient => "Access VM statistics.",
@@ -373,4 +382,10 @@ impl AgentClient {
             .insert("authorization", self.authorization.clone());
         Ok(self.operations.execute(request).await?.into_inner())
     }
+}
+
+/// Resolve the current user's Docker socket without starting a daemon.
+pub fn docker_socket_path() -> Result<PathBuf, ClientError> {
+    let home = std::env::home_dir().ok_or(ClientError::Home)?;
+    marsa_proto::host::docker_socket_path(home).map_err(|_| ClientError::Home)
 }

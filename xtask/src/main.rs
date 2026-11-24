@@ -1,6 +1,9 @@
 //! Build and verification commands used by Marsa contributors.
 
 mod guest;
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
+mod release_resources;
+mod release_signature;
 mod upstream;
 
 use std::env;
@@ -43,6 +46,11 @@ const COMMANDS: &[Subcommand] = &[
         action: Action::Deferred,
     },
     Subcommand {
+        name: "stage-release-resources",
+        description: "Stage verified guest and Docker resources",
+        action: Action::Deferred,
+    },
+    Subcommand {
         name: "bundle",
         description: "Assemble the macOS app bundle (pending)",
         action: Action::Deferred,
@@ -50,6 +58,11 @@ const COMMANDS: &[Subcommand] = &[
     Subcommand {
         name: "sign",
         description: "Sign and notarize the macOS app (pending)",
+        action: Action::Deferred,
+    },
+    Subcommand {
+        name: "verify-signature",
+        description: "Verify Developer ID and Hardened Runtime before notarization",
         action: Action::Deferred,
     },
     Subcommand {
@@ -77,6 +90,24 @@ fn main() -> ExitCode {
         .is_some_and(|argument| argument == "fetch-upstream")
     {
         return upstream::run(&arguments[1..]);
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "stage-release-resources")
+    {
+        #[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
+        return release_resources::run(&arguments[1..]);
+        #[cfg(not(any(target_os = "macos", all(target_os = "linux", target_env = "gnu"))))]
+        {
+            eprintln!("Release resource staging requires macOS or GNU/Linux.");
+            return ExitCode::FAILURE;
+        }
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "verify-signature")
+    {
+        return release_signature::run(&arguments[1..]);
     }
     match arguments.as_slice() {
         [] => print_help(),

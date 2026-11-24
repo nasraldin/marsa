@@ -26,6 +26,7 @@ use super::{
     Transition,
 };
 
+mod maintenance;
 mod network;
 
 const PORT: u32 = 5000;
@@ -384,6 +385,62 @@ async fn idle_stop_and_stop_during_boot_clean_up_the_guest() {
     assert!(matches!(boot.await.unwrap(), Err(SupervisorError::Stopped)));
     transition(&mut stream, State::Booting, State::Stopping).await;
     transition(&mut stream, State::Stopping, State::Stopped).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn host_sleep_defers_an_incomplete_handshake_and_preserves_start_waiters() {
+    let stalled = FakeScenario::default().with_agent(PORT, vec![AgentStep::Wait(STEP * 50)]);
+    let (supervisor, created) = create(
+        config(),
+        "/fixture/console.log".into(),
+        ready(),
+        Some(stalled),
+    );
+    let mut events = supervisor.events();
+    let boot = supervisor.clone();
+    let waiter = tokio::spawn(async move { boot.ensure_ready().await });
+    transition(&mut events, State::Stopped, State::Starting).await;
+    transition(&mut events, State::Starting, State::Booting).await;
+
+    supervisor.host_will_sleep().await.unwrap();
+    assert_eq!(supervisor.snapshot().state, State::Stopped);
+    advance(STEP * 100).await;
+    assert!(!waiter.is_finished());
+    assert_eq!(created.load(Ordering::Relaxed), 1);
+
+    supervisor.host_woke().await.unwrap();
+    timeout(STEP * 50, waiter).await.unwrap().unwrap().unwrap();
+    assert_eq!(created.load(Ordering::Relaxed), 2);
+    assert_eq!(supervisor.snapshot().state, State::Ready);
+}
+
+#[tokio::test(start_paused = true)]
+async fn host_sleep_pauses_the_existing_vm_if_docker_is_starting() {
+    let starting = FakeScenario::default().with_agent(
+        PORT,
+        vec![
+            AgentStep::Send(b"H".to_vec()),
+            AgentStep::Wait(STEP * 4),
+            AgentStep::Send(b"R".to_vec()),
+        ],
+    );
+    let (supervisor, created) = create(config(), "/fixture/console.log".into(), starting, None);
+    let mut events = supervisor.events();
+    let boot = supervisor.clone();
+    let waiter = tokio::spawn(async move { boot.ensure_ready().await });
+    transition(&mut events, State::Stopped, State::Starting).await;
+    transition(&mut events, State::Starting, State::Booting).await;
+    // Allow the scripted Hello to finish while its readiness marker is still delayed.
+    advance(STEP).await;
+
+    supervisor.host_will_sleep().await.unwrap();
+    assert_eq!(supervisor.snapshot().state, State::Paused);
+    assert!(!waiter.is_finished());
+    supervisor.host_woke().await.unwrap();
+
+    timeout(STEP * 50, waiter).await.unwrap().unwrap().unwrap();
+    assert_eq!(created.load(Ordering::Relaxed), 1);
+    assert_eq!(supervisor.snapshot().state, State::Ready);
 }
 
 #[tokio::test(start_paused = true)]

@@ -96,6 +96,12 @@ async fn run() -> Result<(), StartError> {
 
 #[cfg(unix)]
 fn text<'a>(english: &'a str, arabic: &'a str) -> &'a str {
+<<<<<<< HEAD
+=======
+    if std::env::var_os("MARSA_MCP_LANGUAGE").is_some_and(|value| value == "en-US") {
+        return english;
+    }
+>>>>>>> origin/main
     let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
         .into_iter()
         .filter_map(|key| std::env::var(key).ok())

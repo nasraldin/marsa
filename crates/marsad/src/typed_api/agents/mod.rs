@@ -2,10 +2,18 @@
 
 mod attempt;
 mod audit;
+<<<<<<< HEAD
 mod engine;
+=======
+>>>>>>> origin/main
 pub(super) mod queue;
 mod reads;
 mod sessions;
+
+#[cfg(test)]
+mod cli_acceptance;
+#[cfg(test)]
+mod tests;
 
 use std::{
     path::Path,
@@ -13,13 +21,20 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use marsa_core::settings::Language;
+use marsa_core::{paths::MarsaPaths, settings::Language};
 use marsa_proto::host::v1::{
     AffectedResource, AgentOperation, AgentOperationError, AgentOperationResponse, AgentOutput,
     ApproveRequest, AuditArguments, AuditDecision, DecisionResponse, DenyRequest,
+<<<<<<< HEAD
     ListAgentAuditRequest, ListAgentAuditResponse, ListGrantsRequest, ListGrantsResponse,
     ListPendingApprovalsRequest, ListPendingApprovalsResponse, OpenAgentSessionRequest,
     OpenAgentSessionResponse, PendingApproval, RevokeGrantRequest, RevokeGrantResponse,
+=======
+    ListAgentAuditRequest, ListAgentAuditResponse, ListAgentClientsRequest,
+    ListAgentClientsResponse, ListGrantsRequest, ListGrantsResponse, ListPendingApprovalsRequest,
+    ListPendingApprovalsResponse, OpenAgentSessionRequest, OpenAgentSessionResponse,
+    PendingApproval, RevokeGrantRequest, RevokeGrantResponse,
+>>>>>>> origin/main
     agent_operation_response::Result as WireResult, agents_server::Agents,
 };
 use serde::Deserialize;
@@ -28,7 +43,7 @@ use tokio::time::{Instant, timeout_at};
 use tonic::{Request, Response, Status};
 
 use super::{TypedApi, requests};
-use crate::agent_policy::{Decision, Effect, GrantScope, GrantStore, decide};
+use crate::agent_policy::{Decision, Effect, GrantScope, decide};
 use queue::Outcome;
 use sessions::Session;
 
@@ -37,7 +52,10 @@ const ARGUMENT_LIMIT: usize = 4096;
 pub(super) struct State {
     sessions: sessions::Sessions,
     audit: Arc<audit::Store>,
+<<<<<<< HEAD
     grants: GrantStore,
+=======
+>>>>>>> origin/main
     open: requests::Cache<OpenAgentSessionRequest, OpenAgentSessionResponse>,
     decisions: requests::Cache<(String, Outcome), DecisionResponse>,
     revoke: requests::Cache<String, RevokeGrantResponse>,
@@ -46,11 +64,15 @@ pub(super) struct State {
 }
 
 impl State {
-    pub(super) fn new(paths: marsa_core::paths::MarsaPaths, uid: u32) -> Self {
+    pub(super) fn new(paths: MarsaPaths, uid: u32) -> Self {
         Self {
             sessions: sessions::Sessions::default(),
+<<<<<<< HEAD
             audit: Arc::new(audit::Store::new(paths.clone(), uid)),
             grants: GrantStore::new(paths, uid),
+=======
+            audit: Arc::new(audit::Store::new(paths, uid)),
+>>>>>>> origin/main
             open: requests::Cache::new(),
             decisions: requests::Cache::new(),
             revoke: requests::Cache::new(),
@@ -63,7 +85,10 @@ impl State {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Prepared {
     EngineStatus,
+<<<<<<< HEAD
     StopContainer(String),
+=======
+>>>>>>> origin/main
     DockerRead(reads::Read),
 }
 
@@ -72,11 +97,6 @@ impl Prepared {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Empty {}
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Target {
-            container_id: String,
-        }
 
         if args.len() > ARGUMENT_LIMIT {
             return None;
@@ -86,6 +106,7 @@ impl Prepared {
                 serde_json::from_str::<Empty>(args).ok()?;
                 Some(Self::EngineStatus)
             }
+<<<<<<< HEAD
             AgentOperation::StopContainer => {
                 let target: Target = serde_json::from_str(args).ok()?;
                 let id = target.container_id;
@@ -95,6 +116,8 @@ impl Prepared {
                         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
                 .then_some(Self::StopContainer(id))
             }
+=======
+>>>>>>> origin/main
             _ => reads::Read::parse(operation, args).map(Self::DockerRead),
         }
     }
@@ -102,6 +125,7 @@ impl Prepared {
     const fn operation(&self) -> AgentOperation {
         match self {
             Self::EngineStatus => AgentOperation::EngineStatus,
+<<<<<<< HEAD
             Self::StopContainer(_) => AgentOperation::StopContainer,
             Self::DockerRead(read) => read.operation(),
         }
@@ -112,11 +136,14 @@ impl Prepared {
             Self::EngineStatus => AuditArguments::Empty,
             Self::StopContainer(_) => AuditArguments::ContainerTargetRedacted,
             Self::DockerRead(read) => read.audit_arguments(),
+=======
+            Self::DockerRead(read) => read.operation(),
+>>>>>>> origin/main
         }
     }
-
-    fn details(&self) -> (String, Vec<AffectedResource>) {
+    fn audit_arguments(&self) -> AuditArguments {
         match self {
+<<<<<<< HEAD
             Self::EngineStatus | Self::DockerRead(_) => ("{}".into(), Vec::new()),
             Self::StopContainer(id) => (
                 json!({"container_id": id}).to_string(),
@@ -126,6 +153,10 @@ impl Prepared {
                     ..Default::default()
                 }],
             ),
+=======
+            Self::EngineStatus => AuditArguments::Empty,
+            Self::DockerRead(read) => read.audit_arguments(),
+>>>>>>> origin/main
         }
     }
 }
@@ -194,6 +225,15 @@ impl Agents for TypedApi {
         Ok(Response::new(result))
     }
 
+    async fn list_clients(
+        &self,
+        request: Request<ListAgentClientsRequest>,
+    ) -> Result<Response<ListAgentClientsResponse>, Status> {
+        self.owner_request(request)?;
+        let clients = self.inner.agents.sessions.list()?;
+        Ok(Response::new(ListAgentClientsResponse { clients }))
+    }
+
     async fn list_pending_approvals(
         &self,
         request: Request<ListPendingApprovalsRequest>,
@@ -234,9 +274,12 @@ impl Agents for TypedApi {
         self.owner_request(request)?;
         let api = self.clone();
         Ok(Response::new(
-            tokio::task::spawn_blocking(move || api.read_grants())
-                .await
-                .map_err(|_| Status::internal("agent grants worker stopped"))??,
+            tokio::task::spawn_blocking(move || {
+                let _admission = api.inner.factory_reset.read()?;
+                api.read_grants()
+            })
+            .await
+            .map_err(|_| Status::internal("agent grants worker stopped"))??,
         ))
     }
 
@@ -254,13 +297,13 @@ impl Agents for TypedApi {
                 &request.request_id,
                 request.grant_id.clone(),
                 || async move {
+                    let _admission = api.inner.factory_reset.read()?;
                     let _edit = api.inner.agents.grant_admin.lock().await;
                     let admin = api.clone();
                     tokio::task::spawn_blocking(move || {
                         let api = admin;
                         if !api
                             .inner
-                            .agents
                             .grants
                             .update(|grants| Ok(grants.revoke(&request.grant_id)))
                             .map_err(|_| Status::internal("agent grants unavailable"))?
@@ -309,7 +352,6 @@ impl TypedApi {
     fn read_grants(&self) -> Result<ListGrantsResponse, Status> {
         let grants = self
             .inner
-            .agents
             .grants
             .load()
             .map_err(|_| Status::internal("agent grants unavailable"))?;
@@ -335,7 +377,19 @@ impl TypedApi {
         operation: Prepared,
         decision: &mut AuditDecision,
     ) -> AgentOperationResponse {
+<<<<<<< HEAD
         if let Err(result) = self.allow_operation(principal, &operation, decision).await {
+=======
+        if let Err(result) = self
+            .allow_operation(
+                principal,
+                operation.operation(),
+                || ("{}".into(), Vec::new()),
+                decision,
+            )
+            .await
+        {
+>>>>>>> origin/main
             return result;
         }
         match operation {
@@ -369,6 +423,7 @@ impl TypedApi {
                         "تعذّر على دوكر إكمال هذه القراءة.",
                         None,
                     ),
+<<<<<<< HEAD
                 }
             }
             Prepared::StopContainer(id) => match engine::stop_container(
@@ -380,47 +435,41 @@ impl TypedApi {
             {
                 Ok(engine::StopResult::Stopped) => {
                     output(json!({"container_id":id,"stopped":true}))
+=======
+>>>>>>> origin/main
                 }
-                Ok(engine::StopResult::AlreadyStopped) => {
-                    output(json!({"container_id":id,"already_stopped":true}))
-                }
-                Ok(engine::StopResult::NotFound) => self.operation_error(
-                    "not_found",
-                    "The container no longer exists.",
-                    "لم تعد الحاوية موجودة.",
-                    None,
-                ),
-                Ok(engine::StopResult::Refused) => self.policy_refusal(),
-                Err(_) => self.operation_error(
-                    "engine_error",
-                    "Docker could not confirm the container stopped.",
-                    "لم يتمكّن دوكر من تأكيد إيقاف الحاوية.",
-                    None,
-                ),
-            },
+            }
         }
     }
 
     async fn allow_operation(
         &self,
         principal: &Session,
+<<<<<<< HEAD
         operation: &Prepared,
+=======
+        kind: AgentOperation,
+        details: impl FnOnce() -> (String, Vec<AffectedResource>),
+>>>>>>> origin/main
         audit_decision: &mut AuditDecision,
     ) -> Result<(), AgentOperationResponse> {
         if !self.scope_is_current(principal).await {
             return Err(self.project_changed());
         }
-        let kind = operation.operation();
         let (settings, _) = self.inner.events.settings();
         match decide(kind, Effect::Ordinary, &settings.agents) {
             Decision::Allow => {
                 *audit_decision = AuditDecision::Allowed;
                 return Ok(());
             }
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/main
             Decision::Refuse(_) => return Err(self.policy_refusal()),
             Decision::Approve { tier, .. } => {
                 let expires = principal.expires.min(Instant::now() + queue::LIFETIME);
-                let (redacted_arguments_json, affected) = operation.details();
+                let (redacted_arguments_json, affected) = details();
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default();
@@ -439,8 +488,7 @@ impl TypedApi {
                     redacted_arguments_json,
                     affected,
                     expires_at_unix_millis,
-                    // The initial Docker lifecycle handler cannot establish project
-                    // ownership of a container, so the owner approves each target.
+                    // Reusable mutations require independently verified project scope.
                     can_grant_for_project: false,
                 };
                 let (id, answer) = self
@@ -503,20 +551,6 @@ impl TypedApi {
             return Err(self.policy_refusal());
         }
         Ok(())
-    }
-
-    async fn permission_still_valid(&self, principal: &Session, kind: AgentOperation) -> bool {
-        self.scope_is_current(principal).await
-            && principal.expires > Instant::now()
-            && !*self.inner.closing.borrow()
-            && !matches!(
-                decide(
-                    kind,
-                    Effect::Ordinary,
-                    &self.inner.events.settings().0.agents
-                ),
-                Decision::Refuse(_)
-            )
     }
 
     async fn scope_is_current(&self, principal: &Session) -> bool {

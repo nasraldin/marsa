@@ -73,10 +73,16 @@ impl TypedApi {
             ));
         }
         let operation = request.operation();
+<<<<<<< HEAD
         if operation != AgentOperation::EngineStatus
             && operation != AgentOperation::StopContainer
             && !reads::Read::supports(operation)
         {
+=======
+        // Unsupported operations receive a refusal receipt with arguments
+        // omitted. A full Docker ID does not make a stop an exact mutation.
+        if operation != AgentOperation::EngineStatus && !reads::Read::supports(operation) {
+>>>>>>> origin/main
             return Ok(self.operation_error(
                 "unsupported_operation",
                 "This agent operation is unavailable.",

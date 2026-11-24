@@ -16,7 +16,7 @@ flowchart TB
         legacy["Tools hard-coded to<br/>/var/run/docker.sock"]
     end
 
-    ctx["Docker context 'marsa'<br/>(created and selected by Marsa)"]
+    ctx["Docker context 'marsa'<br/>(registered on request)"]
     env["DOCKER_HOST<br/>(optional, via marsa env)"]
     link["/var/run/docker.sock symlink<br/>(opt-in, needs admin once)"]
     sock[("~/.marsa/run/docker.sock")]
@@ -31,11 +31,32 @@ flowchart TB
 
 | Mechanism | Default | Notes |
 |---|---|---|
-| Docker context `marsa` | Created at first run and made current, after asking if another context is active | The clean, standard way; no privileges needed |
-| `DOCKER_HOST` | Not set automatically | `marsa env` prints the export line for shells and CI |
-| `/var/run/docker.sock` | Off | An opt-in setting creates the symlink with a one-time administrator prompt. Needed only for tools that ignore contexts. This is the only action in Marsa that asks for administrator rights |
+| Docker context `marsa` | Registered on request | Use `docker --context marsa` for one command or explicitly run `docker context use marsa` to change your current context |
+| `DOCKER_HOST` | Set by the caller | Use `unix://$HOME/.marsa/run/docker.sock` with clients that take an endpoint. The host API supplies the exact value for `marsa env` |
+| `/var/run/docker.sock` | Off | The optional administrator action is tracked in M4-04. Q-08 governs where it is offered |
 
-**Verify:** which popular tools still ignore Docker contexts (historically some SDK-based tools did) and document the recommended setting for each.
+### Client discovery
+
+Docker CLI 29.10.0 accepts `--context marsa` and `DOCKER_CONTEXT=marsa`. In Docker CLI, `DOCKER_CONTEXT` takes precedence over the `DOCKER_HOST` environment variable and the saved current context. Use one selector in a given tool environment. [Docker CLI reference](https://docs.docker.com/reference/cli/docker/).
+
+| Client checked | How to target Marsa |
+|---|---|
+| Docker CLI and Compose plugin | Run `docker --context marsa …` or `docker --context marsa compose …`. [Docker CLI reference](https://docs.docker.com/reference/cli/docker/), [Compose reference](https://docs.docker.com/reference/cli/docker/compose/) |
+| Buildx | The default builder follows the Docker context. Explicitly selected builders can use another backend. [Docker builders](https://docs.docker.com/build/builders/) |
+| VS Code Dev Containers | Set `containers.environment.DOCKER_CONTEXT` to `marsa` with the Container Tools extension. Dev Containers uses the current context without Container Tools. [VS Code Dev Containers](https://code.visualstudio.com/remote/advancedcontainers/develop-remote-host#_connect-using-docker-contexts) |
+| JetBrains Docker integration | Set the Engine API URL to the Marsa `unix://` endpoint in the Docker connection settings. [JetBrains Docker connection settings](https://www.jetbrains.com/help/idea/settings-docker.html) |
+| Testcontainers for Java 2.0.5 | Set `DOCKER_HOST` to the Marsa endpoint. The environment strategy reads the host directly. [Java provider source](https://github.com/testcontainers/testcontainers-java/blob/2.0.5/core/src/main/java/org/testcontainers/dockerclient/EnvironmentAndSystemPropertyClientProviderStrategy.java) |
+| Testcontainers for Node.js 12.2.2 | Set `DOCKER_HOST` to the Marsa endpoint. The runtime configuration reads the host directly. [Node.js configuration source](https://github.com/testcontainers/testcontainers-node/blob/v12.2.2/packages/testcontainers/src/container-runtime/strategies/utils/config.ts) |
+| Testcontainers for Go 0.45.0 | Set `DOCKER_HOST` to the Marsa endpoint. Its context-based lookup uses a Go context value. [Go host discovery source](https://github.com/testcontainers/testcontainers-go/blob/v0.45.0/internal/core/docker_host.go) |
+| Testcontainers for Python 4.15.0 | Select the Marsa context or set `DOCKER_HOST` explicitly. The library checks `DOCKER_HOST` before looking up the Docker CLI context. [Python host discovery source](https://github.com/testcontainers/testcontainers-python/blob/testcontainers-v4.15.0/src/testcontainers/core/docker_client.py#L483-L508) |
+
+For a tool that only reads the Docker host, set it in that tool's environment.
+
+```sh
+export DOCKER_HOST="unix://$HOME/.marsa/run/docker.sock"
+```
+
+The daemon's authenticated `DockerDiscovery.GetEndpoint` call returns the exact socket path, `DOCKER_HOST` value, and context name. `EnsureContext` runs the verified bundled CLI against a private staging directory, then installs only its generated `marsa` metadata. The complete context directory is published in one exclusive rename. It uses the absolute `DOCKER_CONFIG` configured for the daemon or the daemon's `$HOME/.docker`. It preserves existing selection and stops if the name is occupied by another configuration. [Pinned metadata layout](https://github.com/docker/cli/blob/v29.10.0/cli/context/store/metadatastore.go).
 
 ## Bundled upstream binaries
 
@@ -81,6 +102,13 @@ rm "$config/config.json"
 rmdir "$config"
 ```
 
+To verify context registration with the staged CLI, run the signed fixture. It uses a temporary home and Docker configuration.
+
+```sh
+MARSA_TEST_DOCKER_CLI="$staged/bin/docker" cargo test --locked -p marsad \
+  --test lifecycle pinned_cli_sees_the_context_and_retains_user_selection -- --ignored
+```
+
 The staged executables retain their upstream bytes until app signing.
 Docker CLI 29.10.0 discovers plugins through its Docker config directory or
 `cliPluginsExtraDirs`, as shown in its [plugin manager source](https://github.com/docker/cli/blob/v29.10.0/cli-plugins/manager/manager.go#L35-L56).
@@ -122,11 +150,21 @@ Each difference is documented for users and returned as an explicit error, never
 
 ## SSH agent forwarding
 
-**Proposed:** expose the host SSH agent socket to the guest over vsock so `docker build --ssh default` and containers mounting the agent socket work, as Docker Desktop does. The socket path inside the guest is fixed and documented.
+For Docker builds, pass `docker build --ssh default` with `SSH_AUTH_SOCK` pointing to the intended host agent. A Dockerfile step requests access using `RUN --mount=type=ssh,required=true`. Buildx forwards agent requests through that build's session and BuildKit supplies the step's socket. The private key stays with the host agent. [Build secrets documentation](https://docs.docker.com/build/building/secrets/#ssh-mounts) · [Pinned BuildKit provider](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).
+
+M4-17 tracks opt-in forwarding for bind-mounted agent sockets in regular containers. It requires a separate authorization and transport design. See [SSH agent access](11-security.md#ssh-agent-access).
+
+Qualify build SSH forwarding on Apple silicon with the [signed VM test fixture](03-host-daemon.md#docker-socket-proxy). The test downloads checksum-pinned Alpine packages on the Mac, installs them without guest egress, and serves a disposable Git repository on the VM's loopback. Only the test public key is sent to that server. A separate macOS agent holds the fixture private key.
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
+  --test packaged_runtime packaged_buildkit_ssh_session -- --ignored --nocapture
+```
 
 ## The `marsa` CLI
 
-A thin client of the typed API. It never talks to the VM directly.
+A thin client of the typed API. It never talks to the VM directly. CLI help,
+messages and prompts are in English under every locale.
 
 ```text
 marsa status                    Engine and VM state, versions, resource use
@@ -134,14 +172,17 @@ marsa start | stop | restart    Control the engine VM
 marsa env                       Print DOCKER_HOST export for the current shell
 marsa config get|set|list       Read and change settings
 marsa share list|add|remove     Manage the shared-folder allowlist
+marsa share approvals           Review current Docker bind requests
+marsa share resolve ID DECISION Answer a request with once, always, or deny
 marsa disk usage                Show data-disk usage
 marsa disk cleanup [--dry-run]  Preview and run cleanup, then reclaim space
 marsa disk reclaim              Return freed space to macOS
-marsa network status|mode       Show or pin the network mode
+marsa network status            Show active networking and observed addresses
+marsa network mode [MODE]       Show or save the mode for the next start
 marsa logs [--follow]           Daemon and guest logs
 marsa diagnose                  Collect a diagnostics bundle
 marsa update check|apply        Updates
-marsa mcp                       Run the MCP server on stdio
+marsa mcp --client-id ID --project /absolute/project   Run the MCP server on stdio
 marsa agents list|approve|deny|revoke   Agent permissions
 marsa reset [--factory]         Reset settings or wipe the data disk (typed confirmation)
 marsa version                   Versions of every component
@@ -150,8 +191,41 @@ marsa completion <shell>        Shell completions
 
 CLI rules:
 
-- Every command supports `--json` for scripts and agents, with a stable schema.
+- Management commands support `--json` for scripts with a stable schema. `marsa mcp` reserves standard output for MCP messages and rejects `--json`.
 - [Exit codes and JSON response shapes](reference/cli-exit-codes.md) are stable.
-- Human output is localised (English and Arabic); `--json` output is not.
+- CLI output uses English in human-readable and JSON modes.
 - Destructive commands require an explicit flag or a typed confirmation, and never run destructively when stdin is not a terminal unless `--yes` is given.
 - `marsa` starts `marsad` if it is not running.
+
+Run `eval "$(marsa env)"` in a POSIX-compatible shell to export the per-user
+Docker socket for the current shell. `marsa env --json` returns the same
+address in the `docker_host` field. An existing `DOCKER_CONTEXT` setting
+continues to take precedence in the Docker client.
+
+`marsa start` shows progress on standard error and returns when the engine
+is ready. `marsa status --json` shows engine state, the installed component
+versions and the latest resource observation from the guest. `marsa logs`
+shows a bounded tail of classified daemon, guest console and engine records.
+Use `--follow` to continue receiving new records.
+
+Run `marsa network mode` to read the configured policy and active
+attachment. Pass `auto`, `nat`, or `userspace` to save a policy for the next
+ordinary start. A running guest keeps its existing attachment until that
+start. The command reports a pending restart when the running guest was
+launched under a different policy. With `auto`, the active attachment
+can be user-space while the current policy is still automatic.
+
+`marsa diagnose` creates a private local archive and prints its path. It
+works with the engine stopped. Review the archive before sharing it.
+
+At a terminal, `marsa reset` asks for `RESET SETTINGS` and
+`marsa reset --factory` asks for `FACTORY RESET`. Use `--yes` for an
+explicit non-interactive confirmation. [Factory reset](plan/M9-hardening.md#m9-18-recover-private-storage-with-confirmed-factory-reset) stops the guest, restores the default settings, clears grants and creates a fresh private data disk.
+
+### Agent access from the terminal
+
+Configure a trusted local MCP client to launch `marsa mcp --client-id ID --project /absolute/project`. The CLI runs the matching `marsa-mcp` installed beside it. The client ID and project path are launch settings. The daemon issues the restricted capability to the bridge at startup and keeps it out of the command arguments.
+
+Run `marsa agents list` to see client registrations, active grants and pending requests. `marsa agents approve REQUEST` displays the queued operation, project, arguments with sensitive values redacted and affected resources. Enter `yes` to approve that request once. The same review applies with `--yes`. A request may expire while the prompt is open.
+
+Use `marsa agents deny REQUEST` to deny a pending request. `marsa agents revoke GRANT` displays the grant and prompts before revocation. `marsa agents revoke GRANT --yes` is the explicit non-interactive form.

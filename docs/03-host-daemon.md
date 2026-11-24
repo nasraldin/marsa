@@ -169,6 +169,12 @@ Rules:
 - **Idle behaviour is a setting.** An active or waiting Docker connection keeps the engine available. Once the last connection closes, the supervisor checks the guest for running, paused, and restarting containers. The idle countdown starts after a successful empty snapshot, with a fresh successful check required at expiry. A failed or oversized snapshot keeps the VM running.
 - **Failures are visible.** Every transition is published, and `Failed` carries the failed stage and a bounded console tail. Retries use a bounded backoff and share a budget across one explicit activation. If VM cleanup fails, the supervisor retains it for another stop attempt before starting a replacement.
 
+### Exclusive maintenance
+
+The supervisor actor can reserve the lifecycle for a single daemon worker. The worker may supply the lifecycle revision from a preview. The actor checks the revision before granting the permit and changes it on grants, releases, and lifecycle transitions. Ordinary start, stop, restart, pause, resume, and new Docker connections report busy while the permit is held. Existing streams stay attached to their original VM until the worker stops it.
+
+The worker must wait for its permit's stop to complete before editing offline VM storage. The permit can also start a candidate from the stopped state without an automatic supervisor retry. Keep the permit through the entire maintenance operation. If the worker drops it before candidate readiness, the actor cancels and cleans up that start before reopening admission. Idle checks resume after release.
+
 ### Guest control
 
 `marsad::guest_control::GuestControl` implements the supervisor's guest probe. It applies the [shared protocol limits](../crates/marsa-proto/PROTOCOL.md#guest-message-limits) before allocating for a frame and before accepting a decoded message. One command is in flight at a time. Up to eight commands can wait, and the request deadline includes that queue time. A stalled or out-of-sequence reply closes the session to prevent late replies from matching future requests.
@@ -181,9 +187,10 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 
 | Service | Methods (summary) |
 |---|---|
-| `Engine` | `Status`, `Start`, `Stop`, `Restart`, `Reset` (factory reset with confirmation token) |
+| `Engine` | `Status`, `Start`, `Stop`, `Restart`, `Reset` (settings and factory modes with distinct confirmation types) |
 | `Settings` | `Get`, `Update`, `Watch` |
 | `Shares` | `List`, `Add`, `Remove` |
+| `DockerDiscovery` | `GetEndpoint` and explicit `EnsureContext` |
 | `Network` | `Status`, `SetMode`, `ListForwardedPorts` |
 | `Events` | `Subscribe` (server stream of all daemon events) |
 | `Stats` | `VmStats` (server stream: CPU, memory, disk) |
@@ -194,6 +201,16 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 | `AgentOps` | Engine operations performed on behalf of MCP clients. Every call names the client, passes through the policy engine and is written to the audit log. `marsad` executes the operation against dockerd itself; the MCP server never touches the Docker socket |
 | `Meta` | `Version`, `Capabilities` |
 
+`Network.Status` returns the current configured mode and, for an active guest, the actual attachment and any boot-time connectivity reason. Guest and gateway addresses come from the backend's latest observation. Callers can use `MarsaClient::network()` to query this status. The status call does not start the engine.
+
+`Network.SetMode` saves only the configured mode in the same transaction as
+other settings edits. It requires the socket owner and a request UUID. Its
+response pairs the saved mode with any independently observed attachment,
+addresses and boot reason. A stopped or unobservable guest has no active
+details. Replaying a request UUID returns the original response, while
+`Network.Status` reads the current observation. The change takes effect on
+the next cold activation.
+
 API rules:
 
 - Versioned package (`marsa.v1`). Additive changes only within a major version.
@@ -201,6 +218,23 @@ API rules:
 - `Events.Subscribe` takes a snapshot and its cursor together, then sends subsequent events in sequence order. A slow client whose buffer has filled reconnects for a new snapshot.
 - Engine lifecycle and settings update RPCs deduplicate retries by UUID for a bounded period within the daemon process. Stop can cancel a pending start. A restart with the same UUID joins or replays its earlier result.
 - The daemon accepts engine lifecycle commands when a VM runtime is attached. Stats and guest health reflect observations from the current guest session.
+
+For a settings reset, send `PrepareSettingsReset` with a fresh request UUID.
+After the user confirms, send `ResetSettings` with the returned token and a
+separate request UUID. The owner-only API allows one outstanding settings
+challenge, which expires after 60 seconds and is invalidated by a settings
+revision or configuration member change. Retrying the original confirmation
+UUID and payload replays its result without applying the reset again. The
+daemon persists the defaults atomically, then publishes the new settings
+revision. Settings reset leaves the VM disk and grants intact.
+
+Factory reset has separate preparation and confirmation messages. On
+confirmation the daemon reserves the supervisor, stops any guest and blocks
+new storage mutations and reads during replacement. It records the prior
+settings, raw disk and grants in a private journal before installing defaults.
+If interrupted before commit, it restores the original generation before
+serving either socket. After commit it completes backup cleanup. The next
+guest boot formats the fresh sparse disk.
 
 Clients use `marsa_client::DaemonEndpoint::discover()` to locate the current
 user's socket. The client checks the private socket and its kernel-reported
@@ -211,8 +245,9 @@ keep the original request ID and payload for interrupted mutations.
 
 The private `agent.sock` serves only `AgentOps`. Its clients authenticate
 with a short-lived capability from `Agents.OpenSession` on `marsad.sock`.
-The daemon selects the principal and project from that session and retains
-validated inputs while the owner reviews a pending approval. The owner socket
+The daemon selects the principal and project from that session. Delegated
+execution initially exposes engine status. The owner approval queue retains
+immutable request details for providers that support an identity-bound mutation. The owner socket
 authenticates the trusted local account through Unix peer credentials.
 Agent tokens do not authorize owner approval RPCs. The [approval design](10-mcp-server.md#approval-flow)
 describes the trust boundary and available operations.
@@ -321,6 +356,7 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 | `telemetry` | `enabled` (default false) |
 
 - VM defaults are two CPUs, automatic memory sizing at half of host RAM capped at 8 GiB, `vz`, and idle stop after 300 seconds. Explicit memory is in bytes and must be at least 512 MiB. The hypervisor validates resource limits at startup.
+- Idle stop releases the VZ worker and network helper when the idle timeout expires. See the [host footprint measurements](spikes/M9-04-memory.md).
 - Disk limits are specified in bytes. The default sparse disk limit is 64 GiB, with automatic reclaim enabled where supported. The minimum limit is 1 GiB.
 - Shares are empty by default. The settings parser checks absolute UTF-8 path syntax. The daemon checks changes to the share list against the canonical allowlist and protected directories. `Shares.List`, `Shares.Add`, and `Shares.Remove` manage persistent writable grants through the same settings revisions and atomic config file. M4-06 handles attachment and bind-mount prompts.
 - Networking defaults to `auto` with host DNS and proxy discovery. Override DNS with IP addresses in `network.dns`. Set `network.proxy.http` or `network.proxy.https` to an HTTP or HTTPS proxy URL. Credentials belong outside this file. Proxy injection into containers (`network.proxy.inject_into_containers`) requires opt-in.
@@ -386,7 +422,26 @@ The fixture uses an ad-hoc signature, a unique label and a temporary home. On ma
 |---|---|
 | Host will sleep | Pause the VM if the backend supports it |
 | Host woke | Resume the VM, send the current time to the agent, re-check network mode, refresh port forwards |
-| Network changed | Re-evaluate `auto` network mode, refresh DNS and proxy settings in the guest |
+| Network changed | Re-evaluate `auto` network mode and refresh DNS. Keep the current approved proxy |
+<<<<<<< HEAD
+=======
+
+On macOS, the daemon uses [IOKit sleep and wake notifications](https://developer.apple.com/library/archive/qa/qa1340/_index.html) on a private dispatch queue. It allows idle sleep immediately and gives the supervisor up to two seconds to finish a pause before acknowledging system sleep. A wake resumes a guest paused by the watcher. The resume handshake updates the guest clock before declaring the engine ready. If the guest stayed running, the daemon updates the clock on its active control session. A boot interrupted before Docker starts is cleaned up and restarted after wake. Once Docker may be running, the supervisor keeps the same VM and rechecks readiness after wake. Pending startup requests wait through either path.
+
+The daemon uses a [Network framework path monitor](https://developer.apple.com/documentation/network/nw_path_monitor_t?language=_5) for default network path changes. The initial snapshot establishes the baseline. Changes are coalesced and published as transient `HostEvent` messages on the same stream as sleep, wake, and engine state. Later network tasks consume these events for configuration and forwarding refreshes.
+
+### Manual sleep and wake test
+
+On a Mac with Apple silicon, use the packaged guest artefacts and the signed user-space network helper to run the entitled harness.
+
+```sh
+MARSA_ENTITLED_DAEMON_POWER=1 \
+MARSA_VZ_NETWORK_HELPER=/absolute/path/to/marsa-net-helper \
+  bash crates/marsa-vm-vz/tests/run-entitled.sh /absolute/path/to/guest
+```
+
+After the test prints `M3-11 ready for manual system sleep`, choose Sleep from the Apple menu. Wake the Mac within two minutes. The test requires the event stream to report host sleep, engine pause, host wake, and engine readiness in that order. It brackets Docker's guest `SystemTime` sample with host timestamps and checks both bounds against the one-second limit. Set `MARSA_POWER_WATCHER_PREFLIGHT=1` to verify guest boot, notification registration, and clock sampling before attempting a sleep cycle. [Pinned Docker clock source](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/info.go#L52)
+>>>>>>> origin/main
 
 ## Observability
 

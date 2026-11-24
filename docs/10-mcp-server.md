@@ -46,7 +46,7 @@ flowchart LR
     api --> audit
 ```
 
-- Configure a trusted local MCP host to launch `marsa-mcp --client-id ID --project /absolute/project`. The launch configuration supplies the identity and project. Protocol metadata can describe the peer but cannot change the registered identity. The bridge registers with the owner-only local daemon, then uses a restricted `AgentOps` capability for every read. M8-07 owns the `marsa mcp` wrapper.
+- Configure a trusted local MCP host to launch `marsa mcp --client-id ID --project /absolute/project`. The launch configuration supplies the identity and project. Protocol metadata can describe the peer but cannot change the registered identity. The CLI launches its sibling `marsa-mcp` binary. The bridge registers with the owner-only local daemon and uses a restricted `AgentOps` capability for every read.
 - Standard output carries one JSON-RPC message per line. The bridge accepts a maximum incoming message size of 64 KiB and eight in-flight read calls. The daemon permits eight concurrent Docker reads across sessions.
 - **Proposed:** an optional local HTTP transport bound to loopback with a per-client token, for clients that need it. Off by default.
 - The MCP server holds no privileges of its own. Every call goes through `marsad`'s policy engine.
@@ -99,8 +99,9 @@ sequenceDiagram
 - Requests time out (default a few minutes) and return a clear "not approved" result so the agent can continue or ask the user in its own interface.
 - If no GUI is open, the tray and CLI are planned owner clients for the same approval API.
 - The owner-only daemon socket serves `Agents.OpenSession` and approval decisions. A trusted local owner client registers the agent and project, then delegates a 12-hour capability to the restricted `agent.sock` endpoint. The agent capability authenticates `AgentOps` and has no owner permissions. Do not give an agent the owner connection or raw Docker socket.
-- This protects against an agent using only its delegated operations. Local processes running with the unrestricted owner's Unix access are inside the trusted host boundary. The daemon does not attest physical user presence. The owner GUI or CLI is responsible for collecting the user's decision.
-- M8-02 supports engine status and a reviewed stop for a full container ID. A stop requires approval each time because the handler cannot prove project ownership of a Docker container. The daemon verifies the target ID before issuing the stop.
+- This protects against an agent using only its delegated operations. Local processes running with the unrestricted owner's Unix access are inside the trusted host boundary. The daemon does not attest physical user presence. The owner GUI or CLI is responsible for collecting the user's decision. [Terminal approval](09-cli-and-docker-compat.md#agent-access-from-the-terminal) displays a queued request and accepts an explicit terminal response.
+- M8-02 implements scoped engine status and the owner approval queue. Container mutations require an engine provider that can bind execution to the immutable target reviewed by the owner.
+- The pinned Docker stop endpoint resolves the target again when applying the operation and may interpret a missing full ID as a name. A prior inspect cannot guarantee the stop targets the reviewed container. [Moby stop handler](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/stop.go#L25-L39), [Moby target resolution](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/container.go#L37-L53)
 - M8-10 enables requests that create bind mounts after the agent and active host share checks are integrated. Until then, the daemon refuses container creation through `AgentOps`.
 
 ## Tools
@@ -149,12 +150,13 @@ Logs, exec output, image labels and container names are data from the workload. 
 - Each MCP client is identified at first connection (name reported by the client, plus the launching process where it can be determined) and shown to the user.
 - Grants are stored per client and per project directory in `~/.marsa/state/grants.json`, visible and revocable in Settings and with `marsa agents`.
 - An approval can grant one ordinary Operate action for the authenticated client and the project directory. The daemon binds it to the canonical path and filesystem identity. Reusing the path for a different directory requires a new grant.
-- Grants expire after 30 days of disuse. An operation that actually uses a grant renews it. Factory reset clears the grants.
+- Grants expire after 30 days of disuse. An operation that actually uses a grant renews it. Factory reset clears the grants and publishes an empty grant list. Grant reads and revocation return an unavailable result while a factory reset is in progress or storage recovery is required.
+- Factory reset leaves current read-only sessions subject to their original expiry and project identity checks. These sessions can query engine status. They carry no grant-based authority to mutate workloads.
 - The daemon stores the versioned grant document with owner-only permissions and replaces it atomically. If the file is malformed or unsafe, the daemon treats it as unavailable for authorizing an operation.
 
 ## Audit log
 
-The daemon records one terminal entry per decoded `AgentOps.Execute` call. A retry gets its own entry even when the request ID replays a previous result. Each entry records receipt time, the registered client's fingerprint when authenticated, the typed operation and a redacted argument summary, the decision, the local owner role when someone decided, and the result. Argument values, tokens, client and container IDs, paths, and workload output are kept out of the audit log.
+The daemon records one terminal entry per decoded `AgentOps.Execute` call. A retry gets its own entry even when the request ID replays a previous result. Each entry records receipt time, the registered client's fingerprint when authenticated, the typed operation and a redacted argument summary, the decision, the local owner role when someone decided, and the result. Argument values, tokens, client and container IDs, paths, and workload output are kept out of the audit log. Unsupported operations record a refusal with the typed operation and omit all arguments.
 
 `Agents.ListAudit` is available on the owner connection. It pages newest completed entries first and filters by client fingerprint, operation, decision, and receipt time. Four owner-only JSON Lines files retain up to 2 MiB inside `~/.marsa/state`. If rotation removes a cursor, the owner client starts a new query. Reviewed execution checks that the audit storage is accessible first, and the daemon syncs its terminal entry before returning the result. A caller that disconnects during normal operation can still have a completed entry. An abrupt process or storage failure can interrupt an in-flight entry.
 

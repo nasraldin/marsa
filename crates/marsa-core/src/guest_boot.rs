@@ -1,9 +1,41 @@
 //! Parse only Marsa-owned parameters from the guest kernel command line.
 
-use std::{collections::HashSet, io, path::PathBuf};
+use std::{
+    collections::HashSet,
+    fmt::Write,
+    io,
+    path::{Path, PathBuf},
+};
 
 const MAX_CMDLINE: usize = 4096;
-const MAX_SHARES: usize = 16;
+/// Maximum number of filesystem shares supported in one VM boot.
+pub const MAX_SHARES: usize = 16;
+/// Default arguments for the packaged ARM64 Linux image.
+pub const PACKAGED_BOOT_ARGS: &str =
+    "console=hvc0 root=/dev/vda rootfstype=erofs ro init=/usr/bin/marsa-init panic=-1";
+/// Maximum text length supported by the packaged ARM64 kernel, including its NUL terminator.
+pub const ARM64_CMDLINE_BYTES: usize = 2048;
+
+/// Append one canonically encoded share argument to an ARM64 guest command line.
+pub fn append_share_arg(output: &mut String, tag: &str, path: &Path) -> io::Result<()> {
+    if !is_share_tag(tag) {
+        return invalid("invalid virtiofs tag");
+    }
+    let path = path
+        .to_str()
+        .ok_or_else(|| bad("share destination must be UTF-8"))?;
+    output.push_str(" marsa.share=");
+    output.push_str(tag);
+    output.push(':');
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._".contains(&byte) {
+            output.push(char::from(byte));
+        } else {
+            write!(output, "%{byte:02X}").map_err(io::Error::other)?;
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug, PartialEq, Eq)]
 /// An allowlisted virtiofs tag and its destination in the guest.

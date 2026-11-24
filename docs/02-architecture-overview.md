@@ -117,7 +117,8 @@ flowchart LR
 
 | Channel | Transport | Carries |
 |---|---|---|
-| Typed API | Unix socket, gRPC | VM lifecycle, settings, sharing, diagnostics, events |
+| Typed API | Owner Unix socket, gRPC | VM lifecycle, settings, sharing, diagnostics, events and owner approval decisions |
+| AgentOps | Separate private Unix socket, gRPC, delegated capability | Scoped agent reads. Mutation providers must bind the operation to the identity reviewed by the owner. |
 | Docker socket | Unix socket, HTTP | The standard Docker Engine API, proxied byte-for-byte to dockerd |
 | Control | vsock | Time sync, port events, mounts, certificates, shutdown, stats |
 | Docker API stream | vsock | The proxied Docker Engine API |
@@ -184,6 +185,7 @@ marsa/
 │   ├── marsa-share/            # shared-folder allowlist, virtiofs mapping
 │   ├── marsa-dockerproxy/      # Docker socket proxy and policy hooks
 │   ├── marsad/                 # host daemon binary
+│   ├── marsa-l10n/             # shared Fluent catalogs and typed message keys
 │   ├── marsa-client/           # typed API client used by GUI, CLI, MCP
 │   ├── marsa-cli/              # `marsa` binary
 │   ├── marsa-mcp/              # MCP server
@@ -216,6 +218,7 @@ flowchart TD
     share["marsa-share"]
     dproxy["marsa-dockerproxy"]
     d["marsad"]
+    l10n["marsa-l10n"]
     client["marsa-client"]
     cli["marsa-cli"]
     mcp["marsa-mcp"]
@@ -233,7 +236,6 @@ flowchart TD
     net --> core
     share --> core
     dproxy --> core
-    dproxy --> share
     d --> vm
     d --> vz
     d --> krun
@@ -243,6 +245,7 @@ flowchart TD
     d --> proto
     d --> core
     client --> proto
+    client --> l10n
     cli --> client
     mcp --> client
     gui --> client

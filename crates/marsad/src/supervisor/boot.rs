@@ -2,6 +2,8 @@
 
 use std::{future::Future, io, sync::Arc, time::Duration};
 
+use marsa_core::settings::NetworkMode;
+use marsa_proto::guest::v1::ConfigureNetwork;
 use marsa_vm::{Hypervisor, Vm, VmError, VmEvent, VmEventStream, VmExitCause, VmSpec, VmState};
 use tokio::{
     sync::{oneshot, watch},
@@ -13,6 +15,7 @@ use super::{
     AlternateFailure, BootNetwork, BootStage, GuestProbe, GuestSession, NetworkResult,
     launch::{Applied, Launch, Source},
     network::Selection,
+    platform,
 };
 
 mod selection;
@@ -22,12 +25,16 @@ pub(super) struct LiveGuest {
     pub session: Option<Box<dyn GuestSession>>,
     pub events: VmEventStream,
     pub network: BootNetwork,
+    pub configured_mode: Option<NetworkMode>,
     pub applied: Option<Applied>,
     network_lost: bool,
 }
 
 pub(super) enum Outcome {
     Ready(LiveGuest),
+    // Docker may already have started. Keep its VM and the selected attachment
+    // when the actor interrupts the readiness check for system sleep or stop.
+    Interrupted(LiveGuest),
     Failed {
         vm: Option<Box<dyn Vm>>,
         issue: Issue,
@@ -70,6 +77,7 @@ pub(super) struct Activation {
     pub(super) deadline: Instant,
     pub(super) stop_limit: Duration,
     pub(super) selection: Selection,
+    pub(super) network_policy: Option<ConfigureNetwork>,
 }
 
 pub(super) async fn run(
@@ -91,6 +99,9 @@ pub(super) async fn run(
             }
         }
     };
+    let console = launch.spec.console_log.clone();
+    let configured_mode = launch.selection.configured_mode;
+    let console_position = platform::console_position(&console).await;
     let result = selection::select_and_start(
         launch.backend.as_ref(),
         probe.as_ref(),
@@ -99,17 +110,44 @@ pub(super) async fn run(
             deadline,
             stop_limit,
             selection: launch.selection,
+            network_policy: launch.network_policy,
         },
         &mut cancel,
         &progress,
     )
     .await;
     match result {
+<<<<<<< HEAD
+        Ok(mut outcome) => {
+            match &mut outcome {
+                Outcome::Ready(guest) | Outcome::Interrupted(guest) => {
+                    guest.applied = launch.applied
+                }
+                Outcome::Failed { .. } => {}
+            }
+            outcome
+=======
         Ok(mut guest) => {
             guest.applied = launch.applied;
+            guest.configured_mode = configured_mode;
             Outcome::Ready(guest)
+>>>>>>> origin/main
         }
-        Err(failure) => failure.into(),
+        Err(mut failure) => {
+            if failure.issue.stage == BootStage::Handshake
+                && !matches!(failure.issue.reason, Reason::Canceled)
+                && let Some(schema) = platform::disk_schema_error(console, console_position).await
+            {
+                failure.issue = Issue::failed(
+                    BootStage::DataDisk,
+                    format!(
+                        "Data disk schema {} requires a newer release of Marsa (this release supports {}). Use a compatible release to open the disk. | يتطلب تنسيق قرص البيانات {} إصدارًا أحدث من مارسا (يدعم هذا الإصدار {}). استخدم إصدارًا متوافقًا لفتح القرص.",
+                        schema.found, schema.supported, schema.found, schema.supported,
+                    ),
+                );
+            }
+            failure.into()
+        }
     }
 }
 
@@ -136,6 +174,7 @@ async fn attach(
     backend: &dyn Hypervisor,
     probe: &dyn GuestProbe,
     spec: VmSpec,
+    network_policy: Option<&ConfigureNetwork>,
     deadline: Instant,
     cancel: &mut oneshot::Receiver<()>,
     progress: &watch::Sender<BootStage>,
@@ -162,7 +201,7 @@ async fn attach(
             vm.as_ref(),
             &mut events,
             &mut network_lost,
-            probe.handshake(vm.as_ref()),
+            probe.handshake_for_boot(vm.as_ref(), network_policy),
         ),
     )
     .await;
@@ -173,6 +212,7 @@ async fn attach(
             events,
             network_lost,
             applied: None,
+            configured_mode: None,
             network: BootNetwork {
                 active,
                 result: NetworkResult::Unchecked,
@@ -190,7 +230,7 @@ async fn start_engine(
     deadline: Instant,
     cancel: &mut oneshot::Receiver<()>,
     progress: &watch::Sender<BootStage>,
-) -> Result<LiveGuest, Failed> {
+) -> Result<Outcome, Failed> {
     let Some(session) = guest.session.as_deref_mut() else {
         return Err(Failed {
             vm: Some(guest.vm),
@@ -210,19 +250,18 @@ async fn start_engine(
         ),
     )
     .await;
+    if guest.network_lost {
+        guest.network.result = match guest.network.result {
+            NetworkResult::Fallback(native) => NetworkResult::AlternateFailed {
+                native,
+                alternate: AlternateFailure::Transport,
+            },
+            _ => NetworkResult::TransportUnavailable,
+        };
+    }
     match ready {
-        Ok(()) => {
-            if guest.network_lost {
-                guest.network.result = match guest.network.result {
-                    NetworkResult::Fallback(native) => NetworkResult::AlternateFailed {
-                        native,
-                        alternate: AlternateFailure::Transport,
-                    },
-                    _ => NetworkResult::TransportUnavailable,
-                };
-            }
-            Ok(guest)
-        }
+        Ok(()) => Ok(Outcome::Ready(guest)),
+        Err(issue) if matches!(issue.reason, Reason::Canceled) => Ok(Outcome::Interrupted(guest)),
         Err(issue) => Err(Failed {
             vm: Some(guest.vm),
             issue,
