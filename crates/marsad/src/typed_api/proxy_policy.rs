@@ -220,6 +220,13 @@ impl RuntimeProxy {
         self.state().approved = policy;
     }
 
+<<<<<<< HEAD
+    pub(super) fn launch_settings(&self, desired: Settings) -> (Settings, bool) {
+        let state = self.state();
+        match &state.candidate {
+            Some(candidate) => (candidate.clone(), true),
+            None => (state.approved.effective(desired), false),
+=======
     pub(super) fn has_approved_proxy(&self) -> bool {
         self.state().approved.has_proxy()
     }
@@ -237,6 +244,7 @@ impl RuntimeProxy {
                 ))
             }
             None => Ok((state.approved.effective(desired), false)),
+>>>>>>> origin/main
         }
     }
 

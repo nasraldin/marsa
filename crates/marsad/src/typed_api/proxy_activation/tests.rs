@@ -76,12 +76,18 @@ impl Fixture {
     async fn new() -> Self {
         use std::{fs, os::unix::fs::PermissionsExt};
         let home = tempfile::tempdir().unwrap();
+<<<<<<< HEAD
+        let paths = MarsaPaths::from_root(home.path().to_owned()).unwrap();
+        fs::create_dir(paths.state_dir()).unwrap();
+        fs::set_permissions(paths.state_dir(), fs::Permissions::from_mode(0o700)).unwrap();
+=======
         fs::set_permissions(home.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let paths = MarsaPaths::from_root(home.path().to_owned()).unwrap();
         for directory in [paths.state_dir(), paths.vm_dir()] {
             fs::create_dir(&directory).unwrap();
             fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
         }
+>>>>>>> origin/main
         let mut initial = Settings::default();
         initial.network.mode = NetworkMode::Userspace;
         let api = TypedApi::new(paths.clone(), nix::unistd::geteuid().as_raw(), initial).unwrap();
@@ -100,7 +106,11 @@ impl Fixture {
                     initial_backoff: Duration::ZERO,
                     maximum_backoff: Duration::ZERO,
                 },
+<<<<<<< HEAD
+                move |effective| Ok((backend.clone(), spec(&paths, effective))),
+=======
                 move |effective, _| Ok((backend.clone(), spec(&paths, effective))),
+>>>>>>> origin/main
             )
             .await
             .unwrap();
@@ -165,6 +175,9 @@ fn spec(paths: &MarsaPaths, settings: &Settings) -> VmSpec {
             path: paths.data_disk(),
             read_only: false,
         },
+<<<<<<< HEAD
+        shares: Vec::new(),
+=======
         shares: settings
             .shares
             .iter()
@@ -175,6 +188,7 @@ fn spec(paths: &MarsaPaths, settings: &Settings) -> VmSpec {
                 read_only: false,
             })
             .collect(),
+>>>>>>> origin/main
         network: NetworkSpec::Userspace,
         console_log: paths.console_log(),
     }
@@ -329,6 +343,8 @@ async fn disconnect_during_candidate_keeps_exclusive_admission_and_replays_commi
         [Some(WORKING.into())]
     );
 }
+<<<<<<< HEAD
+=======
 
 #[tokio::test(start_paused = true)]
 async fn factory_reset_clears_the_approved_proxy_from_storage_and_runtime() {
@@ -432,3 +448,4 @@ async fn a_proxy_candidate_applies_session_shares_only_after_commit() {
     assert_eq!(active.allowlist.roots(), &[path]);
     drop(permit);
 }
+>>>>>>> origin/main

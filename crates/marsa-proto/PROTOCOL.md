@@ -107,7 +107,11 @@ ignore both fields. Missing fields have the protobuf defaults of `false` and
 unspecified health. VM stats are live observations of the active guest.
 The stream starts with a sample only when the daemon has observed one.
 
+<<<<<<< HEAD
+API 1.2 adds `Network.PrepareProxyActivation` and `Network.ActivateProxy`.
+=======
 API 1.5 adds `Network.PrepareProxyActivation` and `Network.ActivateProxy`.
+>>>>>>> origin/main
 Clients read the current settings revision, request a preview, and show every
 reported potential interruption before asking the owner to approve. Apply
 only after approval using the preview token, the same settings revision and a
