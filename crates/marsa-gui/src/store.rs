@@ -163,6 +163,9 @@ impl Store {
                 Body::BindApprovals(approvals) => {
                     replace(&mut daemon.bind_approvals, Some(approvals))
                 }
+                // Host sleep, wake and network-change notices are transient:
+                // the engine state that follows them arrives as Body::Engine.
+                Body::Host(_) => false,
             }
         });
     }
