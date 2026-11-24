@@ -11,3 +11,16 @@ These unmodified TrueType files match the English, Arabic and monospace roles in
 All three packages carry the same original [SIL Open Font License 1.1 notice](OFL-IBM-Plex.txt). The copyright notice and reserved name are preserved. Copy only the verified native font files and the accompanying notice into the app bundle. No package lifecycle scripts are required.
 
 Run `shasum -a 256 -c SHA256SUMS` from this directory before packaging. For an upgrade, check the IBM package's stable version and corresponding upstream tag. Compare downloaded files to their Git blob IDs before updating the pinned commits, files and checksums. CoreText read all seven native font faces on Apple silicon macOS 27.2.1. HarfBuzz applied Arabic joining in all three Arabic weights without missing glyphs. In-app fallback and the four visual variants are checked when the fonts are registered in GPUI.
+
+## Optional typefaces
+
+Marsa keeps IBM Plex as its default typography. The selectable interface and
+terminal faces in [catalog/manifest.json](catalog/manifest.json) are unmodified
+upright fonts from [Google Fonts commit `06bfe0d`](https://github.com/google/fonts/tree/06bfe0d62a98375cb09c942fa18e68bd32cff057).
+The manifest records each family's source directory, exact upstream filename,
+license, and SHA-256. Every original notice ships with the app. Ubuntu Mono
+uses the Ubuntu Font Licence 1.0. The other optional bundled families use SIL
+Open Font License 1.1. macOS supplies System UI, System Monospace, and Menlo. SF Mono and Consolas
+appear when CoreText lists them on the Mac and are supplied by that installation.
+
+Run `shasum -a 256 -c SHA256SUMS` from `catalog/` to verify the fonts and notices.

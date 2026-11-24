@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "en-US": "Marsa runs Docker containers on Apple silicon using a Linux virtual machine. The desktop lets you work with containers, images, volumes, networks, and Compose projects. You can also connect to another Docker environment and manage its resources from the same window.",
+  "ar": "يشغّل مرسى حاويات Docker على أجهزة Apple silicon باستخدام جهاز Linux افتراضي. يمكنك من تطبيق سطح المكتب إدارة الحاويات والصور ووحدات التخزين والشبكات ومشاريع Compose. ويمكنك أيضًا الاتصال ببيئة Docker أخرى وإدارة مواردها من النافذة نفسها."
+}

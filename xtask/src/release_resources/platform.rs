@@ -23,7 +23,7 @@ const DIRECTORY_FLAGS: OFlag = OFlag::O_RDONLY
     .union(OFlag::O_NOFOLLOW)
     .union(OFlag::O_CLOEXEC);
 
-pub(super) fn directory(path: &Path) -> io::Result<File> {
+pub(crate) fn directory(path: &Path) -> io::Result<File> {
     let start = if path.is_absolute() { "/" } else { "." };
     let mut directory = open(start, DIRECTORY_FLAGS, Mode::empty())?;
     for part in path.components() {
@@ -43,7 +43,7 @@ pub(super) fn directory(path: &Path) -> io::Result<File> {
     Ok(directory.into())
 }
 
-pub(super) fn owned_output_parent(directory: &File) -> io::Result<()> {
+pub(crate) fn owned_output_parent(directory: &File) -> io::Result<()> {
     let metadata = directory.metadata()?;
     let user = geteuid();
     if user.is_root() || metadata.uid() != user.as_raw() || metadata.mode() & 0o022 != 0 {
@@ -115,7 +115,7 @@ fn reject_extended_acl(directory: &File) -> io::Result<()> {
 /// Use the already-open output parent as the base for all temporary paths,
 /// including paths passed to curl and tar. Only the synchronous xtask entry
 /// point calls this; it never changes cwd while another Rust task runs.
-pub(super) fn with_current_directory<T>(
+pub(crate) fn with_current_directory<T>(
     destination: &File,
     action: impl FnOnce() -> io::Result<T>,
 ) -> io::Result<T> {
@@ -126,11 +126,11 @@ pub(super) fn with_current_directory<T>(
     result
 }
 
-pub(super) struct Scratch(PathBuf);
+pub(crate) struct Scratch(PathBuf);
 
 impl Scratch {
     /// Called inside with_current_directory so even cleanup remains anchored.
-    pub(super) fn create() -> io::Result<Self> {
+    pub(crate) fn create() -> io::Result<Self> {
         let mut random = [0; 16];
         getrandom::fill(&mut random).map_err(io::Error::other)?;
         let suffix: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -143,7 +143,7 @@ impl Scratch {
         Ok(scratch)
     }
 
-    pub(super) fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.0
     }
 }
@@ -154,7 +154,7 @@ impl Drop for Scratch {
     }
 }
 
-pub(super) fn publish_release(
+pub(crate) fn publish_release(
     source: &File,
     target: &File,
     target_path: &Path,
@@ -176,7 +176,7 @@ pub(super) fn publish_release(
     publish(source, "publish", target, target_name)
 }
 
-pub(super) fn require_absent(directory: &File, name: &OsStr) -> io::Result<()> {
+pub(crate) fn require_absent(directory: &File, name: &OsStr) -> io::Result<()> {
     match fstatat(directory, name, AtFlags::AT_SYMLINK_NOFOLLOW) {
         Err(Errno::ENOENT) => Ok(()),
         Err(error) => Err(error.into()),
@@ -187,7 +187,7 @@ pub(super) fn require_absent(directory: &File, name: &OsStr) -> io::Result<()> {
     }
 }
 
-pub(super) fn require_names(directory: &File, allowed: &[&str]) -> io::Result<()> {
+pub(crate) fn require_names(directory: &File, allowed: &[&str]) -> io::Result<()> {
     let mut listing = Dir::openat(directory, ".", DIRECTORY_FLAGS, Mode::empty())?;
     let mut count = 0;
     for entry in listing.iter() {
@@ -213,7 +213,7 @@ pub(super) fn require_names(directory: &File, allowed: &[&str]) -> io::Result<()
     Ok(())
 }
 
-pub(super) fn input_file(directory: &File, name: &str) -> io::Result<File> {
+pub(crate) fn input_file(directory: &File, name: &str) -> io::Result<File> {
     let before = fstatat(directory, name, AtFlags::AT_SYMLINK_NOFOLLOW)?;
     if SFlag::from_bits_truncate(before.st_mode) & SFlag::S_IFMT != SFlag::S_IFREG {
         return Err(invalid_input_file(name));

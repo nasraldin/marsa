@@ -1,6 +1,6 @@
 //! Prepare the verified guest and Docker inputs consumed by macOS app assembly.
 
-mod platform;
+pub(crate) mod platform;
 
 use std::{
     ffi::OsString,

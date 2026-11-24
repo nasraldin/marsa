@@ -1,0 +1,27 @@
+cask "marsa" do
+  version "@VERSION@"
+  sha256 "@DMG_SHA256@"
+
+  url "https://github.com/nasraldin/marsa/releases/download/v#{version}/Marsa-#{version}.dmg"
+  name "Marsa"
+  desc "Docker-compatible container desktop"
+  homepage "https://github.com/nasraldin/marsa"
+
+  depends_on arch: :arm64
+  depends_on macos: :golden_gate
+
+  app "Marsa.app"
+  binary "#{appdir}/Marsa.app/Contents/MacOS/marsa"
+
+  uninstall quit:      "io.github.nasraldin.marsa",
+            launchctl: "io.github.nasraldin.marsa.marsad",
+            trash:     "~/Library/LaunchAgents/io.github.nasraldin.marsa.marsad.plist"
+
+  zap trash: [
+    "~/.marsa",
+    "~/Library/Application Support/io.github.nasraldin.marsa",
+    "~/Library/Caches/io.github.nasraldin.marsa",
+    "~/Library/Preferences/io.github.nasraldin.marsa.plist",
+    "~/Library/Saved Application State/io.github.nasraldin.marsa.savedState",
+  ]
+end

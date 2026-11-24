@@ -8,7 +8,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 
 ### M10-01 App bundle assembly
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-09, M10-12, M10-13
 - **Docs:** [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
 - **Do:** Implement `cargo xtask bundle`: assemble `Marsa.app` with the host binaries, the verified guest and upstream resources from M10-12, locales, fonts, the launch agent definition, `Info.plist`, icons and third-party licences.
@@ -18,9 +18,15 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
   - `marsad` loads the guest image from inside the bundle.
   - Bundle size is reported by the build and tracked in CI.
 
+The local qualification bundle was relocated to the user's Applications
+directory. The bundled daemon booted the rebuilt guest and ran a public
+ARM64 container on the physical Mac. Assembly reported 306,346,412 bytes
+before signing. Tier 2 records this size as a workflow artifact. A Tier 2 run
+and the combined M10-08 notices are still required before closing this task.
+
 ### M10-02 Signing and notarization pipeline
 
-- **Status:** todo
+- **Status:** blocked (clean-Mac qualification, Q-04 and complete release notices pending)
 - **Depends on:** M10-01, M3-10, M10-14, M10-15
 - **Docs:** [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization), Q-04
 - **Do:** Complete `cargo xtask sign`. Sign every binary inside-out with a secure timestamp, hardened runtime and per-binary entitlements. Re-sign bundled upstream binaries. Verify the final submission artifact in private staging without concurrent writers, bind verification to its SHA-256, and confirm the digest before submitting the same artifact. Notarize, staple, and verify with Gatekeeper tooling. Credentials come only from the release environment.
@@ -29,6 +35,10 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
   - The stapled app opens on a clean Mac without warnings and boots the VM.
   - A verification step in CI fails if any binary is unsigned or lacks hardened runtime.
   - A release with a missing secure timestamp or a changed submission digest fails before submission.
+
+The local signing mode passed the existing release signature policy for all
+nine native executables. The notarized installer and clean-Mac open remain
+subject to M3-10, Q-04, and the complete M10-08 notice handoff.
 
 ### M10-03 Updater design and manifest format
 
@@ -55,7 +65,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 
 ### M10-05 Update experience in GUI and CLI
 
-- **Status:** todo
+- **Status:** blocked (the verified daemon updater and production release trust are unavailable)
 - **Depends on:** M10-04, M7-10, M5-02
 - **Docs:** [12 Auto-update](../12-build-release-update.md#auto-update)
 - **Do:** Implement the update notice with release notes, install now or later, progress, and the rollback message in the GUI (four variants); `marsa update check|apply` in the CLI; channel selection in settings.
@@ -64,9 +74,13 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
   - The full update flow works from both the GUI and the CLI.
   - Release notes display in the selected language when a translation exists.
 
+The desktop presents updater availability, channel settings, localized release
+notes, progress, install confirmation and rollback status through the owner API.
+Installation remains disabled until M10-04 exposes the verified service.
+
 ### M10-06 DMG and Homebrew cask
 
-- **Status:** todo
+- **Status:** blocked (notarized distribution artifacts pending)
 - **Depends on:** M10-02
 - **Docs:** [12 Distribution channels](../12-build-release-update.md#distribution-channels)
 - **Do:** Implement `cargo xtask package` producing the signed DMG and the update archive, and write the Homebrew cask definition.
@@ -74,6 +88,10 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 - **Accept when:**
   - Installing from the DMG and from the cask both yield a working app.
   - The cask's uninstall stanza removes everything the uninstall test checks.
+
+Packaging rejects a local signed app without a notarization receipt. The
+installer, cask, and uninstall paths need qualification against signed,
+notarized distribution artifacts.
 
 ### M10-07 Release workflow
 
@@ -89,7 +107,7 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 
 ### M10-08 Licence notices, SBOM and source publication
 
-- **Status:** todo
+- **Status:** blocked (authenticated supplier and supplemental Cargo notices pending)
 - **Depends on:** M2-09, M10-01, Q-01
 - **Docs:** [05 Licence obligations](../05-guest-image.md#licence-obligations)
 - **Do:** Generate third-party notices for all Rust dependencies, bundled upstream binaries, fonts and guest contents; ship them in the app and show them in About. Publish the SBOM, the kernel source reference and the kernel config with each release automatically.
@@ -98,9 +116,15 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
   - Every shipped component appears in the notices with its licence.
   - The release workflow fails if the SBOM or source references are missing.
 
+Notice staging and the About action are implemented. The pinned Docker CLI
+has no embedded linked Go module list. The supplier handoff must include a
+trusted inventory for the exact binary and the notices for each linked
+component. It must also supply upstream notice files omitted from the locked
+Cargo packages before the full distribution can be prepared.
+
 ### M10-09 User documentation
 
-- **Status:** todo
+- **Status:** blocked (independent Arabic review and qualified agent operation pending)
 - **Depends on:** M7-14, M8-09
 - **Docs:** [09 Known and intended differences](../09-cli-and-docker-compat.md#known-and-intended-differences)
 - **Do:** Write the user guide in English and Arabic: install, first run, sharing folders, networking and VPNs, resource settings, disk cleanup, agents, updating, troubleshooting, differences from Docker Desktop, uninstall.
@@ -108,6 +132,9 @@ Design: [12 Build, release and update](../12-build-release-update.md), [11 Updat
 - **Accept when:**
   - Every intended difference and its error message is documented.
   - The Arabic guide is reviewed by the Arabic reviewer.
+
+English and Arabic drafts are available in `docs/user/`. The independent
+Arabic review and the qualified agent-operate walkthrough remain pending.
 
 ### M10-10 Beta release dry run (gate G7)
 

@@ -47,7 +47,7 @@ Arabic editing and VoiceOver integration.
 
 ### M6-02 Design tokens, themes and fonts
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-01, M6-13
 - **Docs:** [08 Design tokens](../08-gui.md#design-tokens), [08 Themes](../08-gui.md#themes)
 - **Do:** Define semantic tokens for colour, typography, spacing, radius, elevation and motion, each with light and dark values. Implement live theme switching and following the system appearance. Register and use the verified bundled font assets from M6-13. Add a contrast test for text and status colours in both themes.
@@ -71,7 +71,7 @@ Arabic editing and VoiceOver integration.
 
 ### M6-03 Direction layer
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-01
 - **Docs:** [08 Direction layer](../08-gui.md#direction-layer), D-015
 - **Do:** Implement the start and end layout API wrapping the framework's styling, automatic row reversal, the directional-icon mirroring registry, and a left-to-right isolation helper for technical text. Add a lint or test that fails the build if screen code uses left or right layout properties directly.
@@ -117,7 +117,7 @@ Arabic editing and VoiceOver integration.
 
 ### M6-07 App store and services
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-01, M5-01
 - **Docs:** [08 Data flow](../08-gui.md#data-flow)
 - **Do:** Implement the normalised app store with selectors, and the services layer: daemon client, Docker client, snapshot-then-events loading, batching and rate-capping of log and stats streams, command dispatch, and cancellation of all streams on window close.
@@ -126,6 +126,13 @@ Arabic editing and VoiceOver integration.
   - A burst of 100,000 log lines is delivered to the view layer in bounded batches without blocking the UI thread.
   - Views re-render only when their selected state changes (tested with counters).
   - Closing the window cancels every stream.
+
+The owner socket delivers ordered daemon snapshots and events. The desktop reads
+Docker collections on engine readiness and explicit refresh. A persistent
+subscription through the public Docker socket keeps its activity lease open
+and prevents idle shutdown. Live Docker collection invalidation needs a
+non-waking observer on the owner API before the event-driven acceptance is
+complete.
 
 ### M6-08 Keyboard and accessibility foundation
 
@@ -143,7 +150,7 @@ Arabic editing and VoiceOver integration.
 
 ### M6-09 App shell
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-05, M6-07, M6-08
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Build the shell: sidebar navigation, routing, content area, status bar with the engine indicator, global search entry point, the command palette listing every registered action, and the toast and error surface.
@@ -152,6 +159,11 @@ Arabic editing and VoiceOver integration.
   - Navigation works by mouse and keyboard; the sidebar is on the right in Arabic.
   - The command palette can run every registered action and is searchable in both languages.
   - The engine indicator reflects daemon events live.
+
+Compact navigation keeps centered route icons and reserves room for macOS
+window controls. The toggle mirrors with the reading direction. The workspace
+glow and rail use the same active accent as the controls.
+
 
 ### M6-10 Tray item
 
@@ -172,7 +184,7 @@ The tray stays in the daemon and runs with the GUI closed.
 
 ### M6-11 Onboarding
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-09, M4-04, M4-05
 - **Docs:** [08 Screens](../08-gui.md#screens), [07 The allowlist](../07-file-sharing-and-storage.md#the-allowlist)
 - **Do:** Build first-run onboarding: language, theme, choosing folders to share (nothing preselected beyond a suggestion the user confirms), Docker context setup, and optional CLI links on `PATH`.
@@ -181,6 +193,11 @@ The tray stays in the daemon and runs with the GUI closed.
   - Finishing onboarding leaves a working `docker` CLI with the `marsa` context.
   - No folder is shared without the user choosing it.
   - The flow can be completed by keyboard only.
+
+The workspace follows the Figma language, appearance, sharing and Docker setup
+frames. Host API revision 12 persists completion. Setup adds only the folders
+the user chose as read-only shares, and explicitly registers the local Docker
+context. CLI link management and four-variant acceptance remain open.
 
 ### M6-12 Shared Fluent catalogs and typed keys
 

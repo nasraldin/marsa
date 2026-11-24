@@ -72,7 +72,11 @@ flowchart TB
 
 - Anyone who can use the socket can run a container that mounts any shared folder and controls the VM. Treat socket access as full control of everything Marsa can reach.
 - The socket lives in `~/.marsa/run/` with directory mode 0700.
-- Marsa never exposes the engine over TCP. Remote access is a later feature and would use SSH.
+- Marsa never exposes its own engine over TCP. The desktop can connect to configured external engines using OpenSSH with verified host keys or mutual TLS with a configured CA, client certificate, and client key. Plain TCP and contexts that skip TLS verification remain unavailable. SSH resolves and pins the context identity before operations.
+- Hawser Standard requires HTTPS verified against the configured CA and the exact agent hostname or IP. Marsa sends the token on every request and verifies Hawser metadata before reading the Docker engine identity.
+- Hawser Edge listens in the open desktop session on an explicitly configured unprivileged address and port. The operator supplies the server certificate and an owner-private key. Configure the agent to trust that certificate and use `DOCKHAND_SERVER_URL=wss://host:port/api/hawser/edge`, with the exact `AGENT_ID` and shared token. Authentication uses Hawser's version 1.0 hello over TLS and a constant-time token digest comparison. An existing request is scoped to its WebSocket session, so reconnecting cannot move that request to a replacement session.
+- Hawser tokens use separate Keychain entries tied to the configured connection. The settings file holds only an opaque reference. Edge caps forwarded request bodies at 24 MiB and incoming WebSocket messages at 36 MiB. Larger archive operations may require a direct Docker connection.
+- Every external action captures the selected endpoint. Deployment uses an owner-only temporary Unix socket backed by that authenticated connection. Compose uses a local YAML file the user chose, or one the user reviewed and created in a chosen project directory. Template creation preserves any existing `compose.yaml`. The Compose process may read includes and associated files. Engine-provided project labels cannot select a local file.
 - Mounting the socket into a container (`-v /var/run/docker.sock:...`) works for compatibility, with the guest's socket, and is shown with a warning badge in the GUI. Agents are refused this by default.
 
 ## Shared folders
@@ -87,6 +91,40 @@ See [07](07-file-sharing-and-storage.md#the-allowlist). Security-relevant points
 
 - `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS Keychain when that helper is on the Docker CLI's `PATH`. The authenticated opt-in adds `credsStore = osxkeychain` to the configured Docker client file only after the caller obtains consent. Existing `credsStore` and `credHelpers` entries remain untouched. If Docker already holds credentials in the file, log out before enabling Keychain and log in again afterwards. [Docker login](https://docs.docker.com/reference/cli/docker/login/), [pinned helper source](https://github.com/docker/docker-credential-helpers/blob/v0.9.13/osxkeychain/osxkeychain.go).
 - The engine in the guest receives credentials per pull or push from the CLI, as in standard Docker. Nothing is persisted in the guest.
+- The desktop Registries settings use an isolated namespace in the same verified
+  Keychain helper. A replacement is written at a fresh key before the old key is
+  removed. Docker CLI configuration and its credential entries are independent.
+- Desktop registry connection tests use HTTPS from macOS without redirects or
+  a proxy, and never pass credentials in subprocess arguments. Private Basic
+  authentication goes directly to the selected authority. A private Bearer
+  challenge is accepted only if its token realm uses the same HTTPS authority.
+  Docker Hub uses its official HTTPS token service. [Docker registry auth](https://docs.docker.com/reference/api/registry/auth/)
+- Desktop image transfers have no independent address binding for a
+  registry-controlled token realm or for a redirected request. Stock Docker's
+  registry login passes credentials to a realm supplied by the registry. The
+  pinned containerd bearer authorizer checks hostname without restricting
+  scheme, and its resolver can reauthorize a redirect. Credentials saved in
+  desktop Registries settings therefore serve the direct connection test. Keep
+  private image pulls and Docker CLI credentialed pushes on the established
+  container workflow until a transfer path can enforce the same boundary.
+  [Pinned registry login](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/pkg/registry/auth.go) ·
+  [Pinned bearer handling](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/containerd/resolver.go) ·
+  [Pinned redirect handling](https://github.com/moby/moby/blob/docker-v29.10.0/vendor/github.com/containerd/containerd/v2/core/remotes/docker/resolver.go)
+
+## Git sources
+
+Settings saves the repository name, HTTPS URL and branch in an owner-private
+file. The desktop runs the root-owned macOS `/usr/bin/git` in a fresh private
+directory with the environment cleared, system and global Git configuration
+disabled, HTTPS certificate checks enforced, redirects and other protocols
+disabled, and no hooks, templates or submodule checkout. Tested with Apple
+Git 2.54.0. [Git environment options](https://git-scm.com/docs/git/2.54.0) ·
+[Git configuration](https://git-scm.com/docs/git-config/2.54.0).
+
+The branch test reads advertised references. A checkout creates a fresh
+child directory of the owner-selected folder. Review files in the checkout
+before using the usual Compose picker to select its YAML and confirm the
+target engine.
 
 ## SSH agent access
 

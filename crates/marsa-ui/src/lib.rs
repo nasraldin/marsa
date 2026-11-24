@@ -1,10 +1,34 @@
 //! Shared interface components, themes, and localization.
 
-// Keep the architecture's dependency edges until this crate uses them directly.
-use marsa_core as _;
+pub mod tokens;
+
+pub use tokens::{ColorToken, Palette};
 
 #[cfg(target_os = "macos")]
 mod platform;
 
 #[cfg(target_os = "macos")]
-pub use platform::run;
+pub mod direction;
+
+#[cfg(target_os = "macos")]
+mod assets;
+
+#[cfg(target_os = "macos")]
+pub use {
+    gpui,
+    gpui_base::{DialogClose, FocusTrapElement},
+    gpui_component,
+    marsa_l10n::{Locale, TextKey, keys as gui_keys},
+    platform::{run, show_workspace},
+    vt100,
+};
+
+/// Typed preferences shared with the daemon.
+pub mod preferences {
+    pub use marsa_core::settings::{
+        AccentColor, DisplaySettings, DownloadFormat, EnvironmentAppearance, EnvironmentIcon,
+        Language, LogBufferSize, LogSettings, NetworkMode, NotificationSettings, OperateApproval,
+        Settings, TerminalFont, Theme, TimeFormat, UiFont, UiFontSize, UpdateChannel, VmBackend,
+        valid_compose_template,
+    };
+}

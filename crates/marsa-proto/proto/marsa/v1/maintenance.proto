@@ -5,6 +5,8 @@ package marsa.v1;
 // VM utilization samples and storage maintenance.
 service Stats {
   rpc VmStats(VmStatsRequest) returns (stream VmStatsSample);
+  // Read a bounded snapshot from a guest which is already running.
+  rpc DockerOverview(DockerOverviewRequest) returns (DockerOverviewResponse);
 }
 
 service Disk {
@@ -38,6 +40,28 @@ message VmStatsSample {
   uint64 disk_total_bytes = 6;
   uint64 network_rx_bytes = 7;
   uint64 network_tx_bytes = 8;
+}
+
+enum DockerOverviewSection {
+  DOCKER_OVERVIEW_SECTION_UNSPECIFIED = 0;
+  DOCKER_OVERVIEW_SECTION_CONTAINERS = 1;
+  DOCKER_OVERVIEW_SECTION_IMAGES = 2;
+  DOCKER_OVERVIEW_SECTION_VOLUMES = 3;
+  DOCKER_OVERVIEW_SECTION_NETWORKS = 4;
+  DOCKER_OVERVIEW_SECTION_CONTAINER_STATS = 5;
+  DOCKER_OVERVIEW_SECTION_DISK = 6;
+  DOCKER_OVERVIEW_SECTION_VERSION = 7;
+}
+
+message DockerOverviewRequest {
+  DockerOverviewSection section = 1;
+  // Only valid for container stats, which require the full lowercase hex ID.
+  string container_id = 2;
+}
+
+message DockerOverviewResponse {
+  // Bounded Docker JSON for the requested section.
+  bytes json = 1;
 }
 
 message DiskUsageRequest {}
@@ -88,6 +112,17 @@ message PrunePreviewResponse {
   // Known guest estimate only when every selected estimate is available.
   optional uint64 estimated_reclaimable_bytes = 2;
   repeated DiskCategory unavailable_categories = 3;
+  PruneApplyCapability apply_capability = 4;
+  // Guest-engine category totals from the same inventory, where available.
+  repeated DiskCategoryUsage observed_usage = 5;
+}
+
+// The owner's ability to apply this preview through the daemon.
+enum PruneApplyCapability {
+  // Older daemons report no apply capability.
+  PRUNE_APPLY_CAPABILITY_UNSPECIFIED = 0;
+  // The current engine cannot atomically check the reviewed identity at deletion.
+  PRUNE_APPLY_CAPABILITY_EXACT_DELETION_UNSUPPORTED = 1;
 }
 
 message PruneCandidate {
@@ -118,6 +153,11 @@ message UpdateStatus {
   optional uint64 bytes_downloaded = 4;
   optional uint64 download_size_bytes = 5;
   optional string detail = 6;
+  // Only notes authenticated by the configured release trust root are returned.
+  // Each optional field is plain text and at most 8 KiB.
+  optional string notes_en_us = 7;
+  optional string notes_ar = 8;
+  bool security_recommended = 9;
 }
 
 enum UpdatePhase {
@@ -129,6 +169,8 @@ enum UpdatePhase {
   UPDATE_PHASE_READY_TO_APPLY = 5;
   UPDATE_PHASE_APPLYING = 6;
   UPDATE_PHASE_FAILED = 7;
+  UPDATE_PHASE_ROLLED_BACK = 8;
+  UPDATE_PHASE_INSTALLED = 9;
 }
 
 message CollectDiagnosticsRequest {

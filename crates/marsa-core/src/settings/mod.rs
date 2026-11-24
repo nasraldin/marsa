@@ -1,13 +1,18 @@
 //! Host settings validation and versioned TOML persistence format.
 
+mod environment_appearance;
 mod network;
+
+pub use environment_appearance::{EnvironmentAppearance, EnvironmentIcon};
 mod preferences;
 mod vm;
 
 pub use network::{NetworkMode, NetworkSettings, ProxySettings};
 pub use preferences::{
-    AgentSettings, Language, OperateApproval, TelemetrySettings, Theme, UiSettings, UpdateChannel,
-    UpdateSettings,
+    AccentColor, AgentSettings, DisplaySettings, DownloadFormat, Language, LogBufferSize,
+    LogSettings, NotificationSettings, OperateApproval, TelemetrySettings, TerminalFont, Theme,
+    TimeFormat, UiFont, UiFontSize, UiSettings, UpdateChannel, UpdateSettings,
+    valid_compose_template,
 };
 pub use vm::{DiskSettings, VmBackend, VmSettings};
 
@@ -15,6 +20,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::container_config::MAX_CONFIG_SETS;
 use crate::error::SettingsError;
 use crate::paths::validate_directory;
 
@@ -102,6 +108,45 @@ impl Settings {
         self.vm.validate()?;
         self.disk.validate()?;
         self.network.validate()?;
+        let mut config_names = std::collections::HashSet::new();
+        if self.ui.container_config_sets.len() > MAX_CONFIG_SETS
+            || self
+                .ui
+                .container_config_sets
+                .iter()
+                .any(|set| !config_names.insert(set.name.to_lowercase()) || set.validate().is_err())
+        {
+            return Err(SettingsError::invalid(
+                "ui.container_config_sets",
+                "use unique names and valid, bounded container options",
+            ));
+        }
+        if self.ui.environment_appearance.len() > 128
+            || self.ui.environment_appearance.iter().any(|(key, entry)| {
+                key.is_empty()
+                    || key.len() > 4096
+                    || key.chars().any(char::is_control)
+                    || entry.name.trim().is_empty()
+                    || entry.name.len() > 256
+                    || entry.name.chars().any(char::is_control)
+            })
+        {
+            return Err(SettingsError::invalid(
+                "ui.environment_appearance",
+                "use valid names and bounded identifiers",
+            ));
+        }
+        if self
+            .ui
+            .compose_template
+            .as_deref()
+            .is_some_and(|value| !valid_compose_template(value))
+        {
+            return Err(SettingsError::invalid(
+                "ui.compose_template",
+                "must be nonblank, at most 16 KiB, and contain no NUL bytes",
+            ));
+        }
         if self
             .shares
             .iter()
@@ -151,6 +196,54 @@ fn decode<T: serde::de::DeserializeOwned>(document: &str) -> Result<T, SettingsE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_view_preferences_keep_old_defaults_and_round_trip() {
+        let legacy = Settings::from_toml("[ui]\nlanguage = \"en-US\"").unwrap();
+        assert_eq!(legacy.ui.logs.buffer.container_lines(), 8_000);
+        assert_eq!(legacy.ui.logs.buffer.stack_lines(), 256);
+        assert!(!legacy.ui.logs.local_timestamps);
+
+        let settings = Settings::from_toml(
+            "schema_version = 1\n[ui.logs]\nbuffer = \"compact\"\nlocal_timestamps = true",
+        )
+        .unwrap();
+        assert_eq!(settings.ui.logs.buffer.container_lines(), 500);
+        assert_eq!(settings.ui.logs.buffer.stack_lines(), 64);
+        assert!(settings.ui.logs.local_timestamps);
+        assert_eq!(
+            Settings::from_toml(&settings.to_toml().unwrap()).unwrap(),
+            settings
+        );
+        assert!(Settings::from_toml("[ui.logs]\nbuffer = \"unlimited\"").is_err());
+    }
+
+    #[test]
+    fn container_config_sets_round_trip_and_validate_name_uniqueness() {
+        let data = r#"
+            [[ui.container_config_sets]]
+            name = "Web"
+            description = "Default web workload"
+            [ui.container_config_sets.options]
+            network = "bridge"
+            restart = "unless_stopped"
+            [[ui.container_config_sets.options.ports]]
+            host = 8080
+            container = 80
+            protocol = "tcp"
+        "#;
+        let settings = Settings::from_toml(data).unwrap();
+        assert_eq!(
+            settings.ui.container_config_sets[0].options.ports[0].host,
+            8080
+        );
+        assert_eq!(
+            Settings::from_toml(&settings.to_toml().unwrap()).unwrap(),
+            settings
+        );
+        assert!(Settings::from_toml(&format!("{data}{}", data.replace("Web", "web"))).is_err());
+        assert!(Settings::from_toml(&data.replace("8080", "0")).is_err());
+    }
 
     #[test]
     fn document_limit_is_checked_before_the_parser_runs() {

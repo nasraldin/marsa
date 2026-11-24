@@ -188,7 +188,17 @@ and [network lookup](https://github.com/moby/moby/blob/06db1734267bf7770914b417b
 addresses a name. [Containerd image deletion](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/containerd/image_delete.go#L415-L455)
 uses an image-store name without a target condition. [BuildKit cache pruning](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/vendor/github.com/moby/buildkit/cache/manager.go#L1357-L1368)
 can remove a companion record alongside a matching record. These operations
-lack the conditional deletion needed for a preview-bound apply.
+lack the conditional deletion needed for a preview-bound apply. A separate
+inventory recheck leaves a race before deletion, and non-forced deletion
+alone cannot bind a mutable name to the resource reviewed by the owner.
+
+The authenticated preview reports this engine capability explicitly. The
+desktop displays both the candidate name and its identifier when they
+differ, and keeps preview separate from explicit reclaim. Its usage chart
+shows the guest-engine totals from the same complete inventory. Host
+allocation remains the independently measured sparse-file allocation.
+Apply remains
+blocked until the engine supports conditional exact-identity deletion.
 
 ### Resizing
 

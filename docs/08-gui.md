@@ -203,7 +203,7 @@ flowchart LR
     shell --> img["Images"]
     shell --> vol["Volumes"]
     shell --> net["Networks"]
-    shell --> cmp["Compose projects"]
+    shell --> cmp["Stacks"]
     shell --> dsk["Disk and cleanup"]
     shell --> act["Activity and agent approvals"]
     shell --> set["Settings"]
@@ -215,10 +215,103 @@ flowchart LR
     cd --> stats["Stats"]
     cmp --> cpd["Project detail<br/>services, logs, actions"]
     img --> imd["Image detail"]
-    set --> s1["General, Resources, Sharing,<br/>Network, Agents, Updates, About"]
+    set --> s1["General, Environments, Sharing,<br/>Registries, Agents, Updates, About"]
 ```
 
 Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
+
+Settings → General groups the interface and terminal font menus with six
+base text sizes. IBM Plex supplies the defaults and Arabic glyph fallback.
+The menus include native macOS system faces and the
+[optional bundled families](../assets/fonts/README.md#optional-typefaces).
+SF Mono and Consolas appear when the Mac supplies them. If an installed font
+is subsequently unavailable, the terminal uses IBM Plex Mono. The 12-hour
+and 24-hour choices apply to the displayed times in activity, approvals, and
+logs. Log timestamps use the time zone configured under Logs & files. Copied
+and downloaded logs retain their RFC 3339 timestamps.
+
+Settings → Environments lists the built-in Marsa engine, saved connections,
+and discovered Docker engines in one table. Test a row or use Test all to
+check the listed connections and see the result beside each engine. Add and
+Edit open the same environment editor. Name and icon choices are stored
+independently of the discovered Docker context. Resource and Network controls
+are scoped to the environment in that editor. Its built-in connection also
+offers Docker CLI context registration and endpoint copy. Keychain
+configuration for Docker CLI credentials is in Settings → Registries. Saved connections can carry up to
+ten labels and an optional IPv4 or IPv6 address for the Containers published
+TCP port menu. Opening a link leaves Docker's port bindings as configured.
+
+Add or edit a connection to choose Unix socket, direct SSH or mutual TLS,
+Hawser Standard, or Hawser Edge. **Test connection** verifies the selected
+engine before saving. Standard goes to the agent over verified HTTPS. Edge
+opens a TLS listener in the desktop session and waits for a configured agent
+to connect. [Hawser connection requirements](11-security.md#the-docker-socket).
+
+On macOS, a matching owner-managed Lima Docker VM exposes CPU, memory, and
+primary disk capacity in Resources, and supported host loopback access in
+Network. Start and stop the verified Lima VM from its row or the editor's
+Resources and Network pages. Stop asks for confirmation and requests a
+graceful shutdown. After stopping, the editor reloads the allocation so you
+can apply changes and start the VM again. Lima takes the saved allocation on
+the next start and only grows the primary disk. Deleting a saved connection
+removes that record and keeps its VM and Docker resources.
+
+These controls use separately installed Lima 2.3 or later in the 2.x series.
+On macOS the lifecycle process prevents elevation and launchd delegation.
+This covers the ordinary user-mode VM while letting a VM that requires a
+privileged network, an elevated block device helper, or launchd autostart
+remain controlled by Lima. See the pinned [start command], [graceful stop],
+and [privileged network reconciliation] source.
+
+[start command]: https://github.com/lima-vm/lima/blob/v2.3.0/cmd/limactl/start.go
+[graceful stop]: https://github.com/lima-vm/lima/blob/v2.3.0/pkg/instance/stop.go
+[privileged network reconciliation]: https://github.com/lima-vm/lima/blob/v2.3.0/pkg/networks/reconcile/reconcile.go
+[Primary disk resize](https://github.com/lima-vm/lima/blob/v2.3.0/website/content/en/docs/config/disk.md#resizing-the-vms-primary-disk)
+[User-mode network](https://github.com/lima-vm/lima/blob/v2.3.0/website/content/en/docs/config/network/user.md)
+
+For the active external Docker environment, the Activity page shows the engine's recent
+events, newest first. Docker Engine keeps up to 256 events in memory. Marsa
+requests the events retained from the previous 24 hours and displays the resource,
+action and time. [Docker Engine event history](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/events/events.go#L12-L32),
+[Docker Engine date filtering](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L274-L305).
+
+Overview shows the selected environment's lifecycle and health totals, resource
+counts, independently ranked CPU and memory samples, and Docker disk accounting.
+Sampling runs while Overview is visible and reports its coverage. A missing
+category or sample stays unavailable. The disk bars compare reported category
+sizes on a common scale because shared data can appear in more than one
+category. The built-in environment uses the owner API to query an already
+running guest without starting it.
+[Moby 29.10.0 Engine API](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml),
+[Moby disk accounting compatibility](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L207-L248).
+
+The Reports page follows the active environment. Reports for an external engine
+refresh its container inventory
+and show container names, image references and lifecycle states, plus the
+latest available resource counts. Review the report in Marsa and copy it to
+the clipboard.
+
+Settings → Logs & files configures retention and timestamp display for container
+and stack logs. Its download format applies to the Files tab of a container.
+Enter an absolute path inside that container and choose a new destination on
+your Mac. Directories use TAR. In single-file mode, the app writes only the
+selected file's bytes.
+
+The Compose workspace can deploy an existing YAML file or start a new stack from
+the template saved in Settings. Review the initial YAML before choosing the
+project directory. Marsa creates `compose.yaml` there and deploys it to the
+Docker environment shown in the dialog. If deployment fails, the file remains
+in the project directory for editing and retry.
+
+Settings → About shows the installed Marsa version, localized release notes,
+and the versions of bundled Docker tools without opening a daemon connection.
+The connected local daemon reports its own version and the guest components.
+Available inventories and third-party notices open in Finder.
+
+Settings → Git Repositories saves named HTTPS repository branches. The branch
+test checks access and the checkout action creates a local copy in a selected
+folder. To deploy the checkout, review it and explicitly select its Compose
+file from the Compose page.
 
 ## Feature priorities
 
@@ -245,9 +338,15 @@ From the planning whiteboard.
 | Command palette and full keyboard use | Every action reachable without a mouse |
 | Auto-update and settings | See [12](12-build-release-update.md) |
 
-### Should have: soon after
+#Container creation opens on the selected engine. A named config set copies
+network, restart, environment, label, port and mount options into that draft.
+Edits to the draft apply to the new container. Review host mount paths and
+access modes before submitting to an external engine. Marsa's existing
+allowlist authorizes local host mounts.
 
-File browser for containers and volumes; build view (BuildKit progress and cache); registry sign-in and credentials; Docker contexts for remote engines over SSH; image layer inspector; crash and restart-loop notifications; clickable published ports.
+## Should have: soon after
+
+File browser for containers and volumes; build view (BuildKit progress and cache); registry sign-in and credentials; image layer inspector; crash and restart-loop notifications; clickable published ports.
 
 ### Later
 
@@ -258,7 +357,7 @@ In-app AI assistant; vulnerability scanning; volume backup, restore and export; 
 | Screen | Rule |
 |---|---|
 | Lists (containers, images) | Virtualised; only visible rows are built |
-| Logs | Bounded ring buffer per stream; virtualised rendering; search runs off the UI thread; ANSI colours parsed once on ingest |
+| Logs | Bounded log buffers, virtualised container rendering, background search, and UTC or system-local timestamps from Docker. General settings select capacity independently of the fixed byte and source limits. |
 | Stats | Sampled at a fixed interval; charts keep a bounded history |
 | Terminal | A real terminal emulator component with a bounded scrollback |
 | Start-up | First frame before any network call completes; data fills in from the snapshot |

@@ -168,3 +168,68 @@ fn non_utf8_share_paths_are_rejected_before_serialization() {
         })
     ));
 }
+
+#[test]
+fn compose_template_round_trips_and_can_be_restored() {
+    let mut settings = Settings::from_toml("schema_version = 1\n").unwrap();
+    assert_eq!(settings.ui.compose_template, None);
+    let source = "services:\n  app:\n    image: nginx:alpine\n# قالب المشروع\n";
+    settings.ui.compose_template = Some(source.to_owned());
+    let mut reloaded = Settings::from_toml(&settings.to_toml().unwrap()).unwrap();
+    assert_eq!(reloaded.ui.compose_template.as_deref(), Some(source));
+    reloaded.ui.compose_template = None;
+    assert!(!reloaded.to_toml().unwrap().contains("compose_template"));
+}
+
+#[test]
+fn compose_template_rejects_blank_oversized_and_nul_input() {
+    let mut settings = Settings::default();
+    for invalid in ["  \n".to_owned(), "a\0b".to_owned(), "a".repeat(16_385)] {
+        settings.ui.compose_template = Some(invalid);
+        assert!(matches!(
+            settings.to_toml(),
+            Err(SettingsError::InvalidValue {
+                field: "ui.compose_template",
+                ..
+            })
+        ));
+    }
+}
+
+#[test]
+fn display_preferences_are_optional_and_round_trip() {
+    let legacy = Settings::from_toml("[ui]\nlanguage = 'ar'").unwrap();
+    assert!(!legacy.to_toml().unwrap().contains("[ui.display]"));
+
+    let customized = Settings::from_toml(
+        "[ui.display]\nui_font = 'system'\nui_font_size = 'large'\nterminal_font = 'menlo'\ntime_format = 'twelve_hour'",
+    )
+    .unwrap();
+    let saved = customized.to_toml().unwrap();
+    assert!(saved.contains("time_format = \"twelve_hour\""));
+    assert_eq!(Settings::from_toml(&saved).unwrap(), customized);
+    assert_eq!(
+        customized.ui.display.ui_font_size,
+        marsa_core::settings::UiFontSize::Large,
+    );
+    let expanded = Settings::from_toml(
+        "[ui.display]\nui_font = 'plus_jakarta_sans'\nui_font_size = 'extra_large'\nterminal_font = 'jet_brains_mono'",
+    )
+    .unwrap();
+    assert_eq!(
+        expanded.ui.display.ui_font,
+        marsa_core::settings::UiFont::PlusJakartaSans
+    );
+    assert_eq!(
+        expanded.ui.display.ui_font_size,
+        marsa_core::settings::UiFontSize::ExtraLarge
+    );
+    assert_eq!(
+        expanded.ui.display.terminal_font,
+        marsa_core::settings::TerminalFont::JetBrainsMono
+    );
+    assert_eq!(
+        Settings::from_toml(&expanded.to_toml().unwrap()).unwrap(),
+        expanded
+    );
+}

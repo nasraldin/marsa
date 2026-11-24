@@ -1,0 +1,13 @@
+<svg viewBox="0 0 1280 800" width="1280" height="800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="edge" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="10" gradientTransform="matrix(56.94 -4.745 11.388 43.495 -66.05 58.837)">
+      <stop stop-color="#7cc4ff"/><stop offset="1" stop-color="#7cc4ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="center" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="10" gradientTransform="matrix(80.672 4.8019 -13.445 46.819 809.41 381.51)">
+      <stop stop-color="#7cc4ff"/><stop offset="1" stop-color="#7cc4ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path fill="#101827" d="M0 0h1280v800H0z"/>
+  <path fill="url(#center)" opacity="0.24" d="M0 0h1280v800H0z"/>
+  <path fill="url(#edge)" opacity="0.08" d="M0 0h1280v800H0z"/>
+</svg>

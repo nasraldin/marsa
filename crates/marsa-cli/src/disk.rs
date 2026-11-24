@@ -282,6 +282,7 @@ mod tests {
             }],
             estimated_reclaimable_bytes: None,
             unavailable_categories: vec![DiskCategory::BuildCache as i32],
+            ..Default::default()
         };
         let Outcome::Data { document, text } = cleanup_report(&preview) else {
             panic!("expected a read-only result");

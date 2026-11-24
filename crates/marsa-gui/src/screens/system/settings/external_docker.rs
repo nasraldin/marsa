@@ -1,0 +1,541 @@
+//! Manage Docker connections and their environment settings.
+
+mod editor;
+mod observations;
+mod security;
+pub(in crate::screens::system) use observations::Observations;
+mod table;
+mod vm;
+
+use std::{collections::HashMap, future::Future, sync::Arc};
+
+use editor::{Editor, EditorTarget};
+use table::{ConnectionCheck, ConnectionKey, check_builtin_connection};
+
+use marsa_client::docker::{
+    LimaInstance, LimaSettings, LimaSettingsError, ManagedEndpoint, ManagedEndpointError,
+    ManagedEndpointStore, VerifiedEngine,
+};
+use marsa_ui::{
+    ColorToken, Locale, TextKey,
+    gpui::{
+        Context, Div, ParentElement as _, PromptButton, PromptLevel, ScrollHandle, Styled as _,
+        Task, Window, div,
+    },
+    gpui_component::WindowExt as _,
+    gui_keys as gui,
+    tokens::typography::Role,
+};
+
+use super::{SystemView, settings_text};
+use crate::screens::{
+    common::{ScreenContext, technical},
+    external_inventory::ExternalWorkspace,
+};
+use marsa_ui::preferences::{EnvironmentAppearance, EnvironmentIcon};
+
+#[derive(Default)]
+pub(in crate::screens::system) struct EnvironmentSettings {
+    saved: Option<Vec<ManagedEndpoint>>,
+    editor: Option<Editor>,
+    task: Option<Task<()>>,
+    feedback: Option<Feedback>,
+    checks: HashMap<ConnectionKey, ConnectionCheck>,
+    checking: bool,
+    table_scroll: ScrollHandle,
+}
+
+enum Feedback {
+    Verified(VerifiedEngine),
+    Connected,
+    Checked { passed: usize, total: usize },
+    Saved,
+    Removed,
+    Lima(bool),
+    Failed(TextKey),
+}
+
+enum Update {
+    Listed(Vec<ManagedEndpoint>),
+    Tested(VerifiedEngine),
+    Checked(Vec<(ConnectionKey, ConnectionCheck)>),
+    MarsaTest(bool),
+    Changed(Vec<ManagedEndpoint>, Feedback),
+    Closed(Vec<ManagedEndpoint>, Feedback),
+    Lima(Result<LimaSettings, LimaSettingsError>, bool),
+}
+
+impl SystemView {
+    pub(crate) fn refresh_external_inventory(&mut self, cx: &mut Context<Self>) {
+        let Some(services) = self.services.as_ref() else {
+            return;
+        };
+        if self.external_inventory_task.is_some() {
+            return;
+        }
+        let mut pending = services.external_inventory();
+        self.external_inventory_task = Some(cx.spawn(async move |this, cx| {
+            let result = pending.result().await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(Ok(inventories)) = result {
+                    this.external_inventory = inventories
+                        .into_iter()
+                        .map(|inventory| Arc::new(inventory.into()))
+                        .collect();
+                }
+                this.external_inventory_task = None;
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    pub(in crate::screens::system) fn refresh_environments(&mut self, cx: &mut Context<Self>) {
+        self.environment_settings.checks.clear();
+        self.refresh_external_inventory(cx);
+        self.load_component_versions(cx);
+        self.update_environments(
+            async {
+                Ok(Update::Listed(
+                    ManagedEndpointStore::discover()?.list().await?,
+                ))
+            },
+            None,
+            cx,
+        );
+    }
+
+    fn update_environments(
+        &mut self,
+        work: impl Future<Output = Result<Update, ManagedEndpointError>> + Send + 'static,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(services) = self.services.as_ref() else {
+            return;
+        };
+        if self.environment_settings.task.is_some() {
+            return;
+        }
+        self.environment_settings.feedback = None;
+        let mut pending = services.pending(async { Ok(work.await) });
+        let window = window.map(|window| window.window_handle());
+        self.environment_settings.task = Some(cx.spawn(async move |this, cx| {
+            let result = pending.result().await;
+            let close = matches!(&result, Some(Ok(Ok(Update::Closed(..)))));
+            let _ = this.update(cx, |this, cx| {
+                let panel = &mut this.environment_settings;
+                panel.task = None;
+                panel.checking = false;
+                match result {
+                    Some(Ok(Ok(Update::Listed(saved)))) => panel.saved = Some(saved),
+                    Some(Ok(Ok(Update::Tested(engine)))) => {
+                        panel.feedback = Some(Feedback::Verified(engine))
+                    }
+                    Some(Ok(Ok(Update::Checked(checks)))) => {
+                        panel.feedback = Some(Feedback::Checked {
+                            passed: checks.iter().filter(|(_, check)| check.passed()).count(),
+                            total: checks.len(),
+                        });
+                        panel.checks.extend(checks);
+                    }
+                    Some(Ok(Ok(Update::MarsaTest(connected)))) => {
+                        panel.feedback = Some(if connected {
+                            Feedback::Connected
+                        } else {
+                            Feedback::Failed(gui::GUI_ENVIRONMENT_TEST_FAILED)
+                        });
+                    }
+                    Some(Ok(Ok(Update::Changed(saved, feedback)))) => {
+                        panel.saved = Some(saved);
+                        panel.checks.clear();
+                        panel.feedback = Some(feedback);
+                        this.external_inventory_task = None;
+                        this.refresh_external_inventory(cx);
+                    }
+                    Some(Ok(Ok(Update::Closed(saved, feedback)))) => {
+                        panel.editor = None;
+                        panel.saved = Some(saved);
+                        panel.checks.clear();
+                        panel.feedback = Some(feedback);
+                        this.external_inventory_task = None;
+                        this.refresh_external_inventory(cx);
+                    }
+                    Some(Ok(Ok(Update::Lima(result, running)))) => {
+                        panel.feedback = Some(match result {
+                            Ok(_) => Feedback::Lima(running),
+                            Err(error) => Feedback::Failed(vm::error_text(error)),
+                        });
+                        panel.checks.clear();
+                        this.external_inventory_task = None;
+                        this.refresh_external_inventory(cx);
+                    }
+                    Some(Ok(Err(error))) => {
+                        panel.feedback = Some(Feedback::Failed(error_text(&error)))
+                    }
+                    _ => panel.feedback = Some(Feedback::Failed(gui::GUI_ENVIRONMENT_STORE_ERROR)),
+                }
+                cx.notify();
+            });
+            if close && let Some(window) = window {
+                let _ = window.update(cx, |_, window, cx| window.close_dialog(cx));
+            }
+        }));
+        cx.notify();
+    }
+
+    fn environment_submit(&mut self, test: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(editor) = &self.environment_settings.editor else {
+            return;
+        };
+        if !test
+            && matches!(
+                editor.target,
+                EditorTarget::Builtin | EditorTarget::Discovered(_)
+            )
+        {
+            self.save_environment_presentation(window, cx);
+            return;
+        }
+        if matches!(editor.target, EditorTarget::Builtin) {
+            if let Some(services) = &self.services {
+                let mut check = check_builtin_connection(services);
+                self.update_environments(
+                    async move {
+                        let connected =
+                            matches!(check.result().await, Some(Ok(report)) if report.passed());
+                        Ok(Update::MarsaTest(connected))
+                    },
+                    Some(window),
+                    cx,
+                );
+            }
+            return;
+        }
+        if editor.target.is_discovered()
+            && let Some(workspace) = editor.target.workspace()
+        {
+            let endpoint = workspace.endpoint.clone();
+            self.update_environments(
+                async move { Ok(Update::Tested(endpoint.test_connection().await?)) },
+                Some(window),
+                cx,
+            );
+            return;
+        }
+        let id = editor.id.clone();
+        let token = editor.hawser_token(cx);
+        let config = match editor.config(cx) {
+            Ok(config) => config,
+            Err(key) => {
+                self.environment_settings.feedback = Some(Feedback::Failed(key));
+                cx.notify();
+                return;
+            }
+        };
+        self.update_environments(
+            async move {
+                if test {
+                    return Ok(Update::Tested(config.test_with_hawser_token(token).await?));
+                }
+                let store = ManagedEndpointStore::discover()?;
+                if let Some(id) = id {
+                    store.edit_with_hawser_token(&id, config, token).await?;
+                } else {
+                    store.add_with_hawser_token(config, token).await?;
+                }
+                Ok(Update::Closed(store.list().await?, Feedback::Saved))
+            },
+            Some(window),
+            cx,
+        );
+    }
+
+    fn editor_presentation(&self, target: &EditorTarget) -> (String, EnvironmentIcon) {
+        match target {
+            EditorTarget::Saved(entry, _) => (
+                entry.config.name.clone(),
+                parse_icon(entry.config.icon.as_deref()),
+            ),
+            EditorTarget::Discovered(workspace) => self.environment_presentation(Some(workspace)),
+            EditorTarget::Builtin => self.environment_presentation(None),
+            EditorTarget::Add => (String::new(), EnvironmentIcon::Server),
+        }
+    }
+
+    pub(crate) fn environment_presentation(
+        &self,
+        workspace: Option<&ExternalWorkspace>,
+    ) -> (String, EnvironmentIcon) {
+        if let Some(workspace) = workspace
+            && workspace.endpoint.managed_id().is_some()
+        {
+            return (
+                workspace.source.clone(),
+                parse_icon(workspace.endpoint.environment_icon()),
+            );
+        }
+        let key = appearance_key(workspace);
+        if let Some(entry) = self
+            .settings
+            .as_ref()
+            .and_then(|(settings, _)| settings.ui.environment_appearance.get(&key))
+        {
+            return (entry.name.clone(), entry.icon);
+        }
+        workspace.map_or_else(
+            || ("Marsa".to_owned(), EnvironmentIcon::Rocket),
+            |workspace| (workspace.source.clone(), EnvironmentIcon::Server),
+        )
+    }
+
+    fn save_environment_presentation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((target, name, icon)) = self.presentation_draft(cx) else {
+            return;
+        };
+        if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+            self.environment_settings.feedback =
+                Some(Feedback::Failed(gui::GUI_ENVIRONMENT_INVALID_NAME));
+            cx.notify();
+            return;
+        }
+        let key = appearance_key(target.workspace());
+        let Some((mut settings, expected_revision)) = self.settings.clone() else {
+            return;
+        };
+        settings
+            .ui
+            .environment_appearance
+            .insert(key, EnvironmentAppearance { name, icon });
+        let Ok(settings_toml) = settings.to_toml() else {
+            self.environment_settings.feedback =
+                Some(Feedback::Failed(gui::GUI_ENVIRONMENT_STORE_ERROR));
+            cx.notify();
+            return;
+        };
+        let Some(request_id) = self.mutation_id(cx) else {
+            return;
+        };
+        let window = window.window_handle();
+        self.request(
+            move |client| async move {
+                Ok(client
+                    .settings()
+                    .update(marsa_client::api::UpdateSettingsRequest {
+                        request_id,
+                        settings_toml,
+                        expected_revision,
+                    })
+                    .await?
+                    .into_inner())
+            },
+            move |this, snapshot, cx| {
+                this.accept_settings(snapshot);
+                this.environment_settings.editor = None;
+                this.environment_settings.feedback = Some(Feedback::Saved);
+                let _ = window.update(cx, |_, window, cx| window.close_dialog(cx));
+            },
+            cx,
+        );
+    }
+
+    fn confirm_environment_removal(
+        &mut self,
+        id: String,
+        locale: Locale,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            gui::GUI_ENVIRONMENT_REMOVE_TITLE.text(locale),
+            Some(gui::GUI_ENVIRONMENT_REMOVE_HELP.text(locale)),
+            &[
+                PromptButton::Cancel(gui::GUI_DESKTOP_CANCEL.text(locale).into()),
+                PromptButton::Ok(gui::GUI_DESKTOP_REMOVE.text(locale).into()),
+            ],
+            cx,
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            if answer.await == Ok(1) {
+                let _ = cx.update(|window, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        let close_editor = this
+                            .environment_settings
+                            .editor
+                            .as_ref()
+                            .and_then(|editor| editor.id.as_deref())
+                            == Some(id.as_str());
+                        this.update_environments(
+                            async move {
+                                let store = ManagedEndpointStore::discover()?;
+                                store.remove(&id).await?;
+                                let saved = store.list().await?;
+                                Ok(if close_editor {
+                                    Update::Closed(saved, Feedback::Removed)
+                                } else {
+                                    Update::Changed(saved, Feedback::Removed)
+                                })
+                            },
+                            close_editor.then_some(window),
+                            cx,
+                        );
+                    });
+                });
+            }
+        })
+        .detach();
+    }
+}
+
+fn confirm_lima_stop(
+    name: &str,
+    locale: Locale,
+    window: &mut Window,
+    cx: &mut Context<SystemView>,
+    apply: impl FnOnce(&mut SystemView, &mut Window, &mut Context<SystemView>) + 'static,
+) {
+    let title = format!(
+        "{} · {}",
+        gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOP.text(locale),
+        technical(name),
+    );
+    let answer = window.prompt(
+        PromptLevel::Warning,
+        &title,
+        Some(gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_CONFIRM.text(locale)),
+        &[
+            PromptButton::Cancel(gui::GUI_DESKTOP_CANCEL.text(locale).into()),
+            PromptButton::Ok(gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOP.text(locale).into()),
+        ],
+        cx,
+    );
+    cx.spawn_in(window, async move |this, cx| {
+        if answer.await == Ok(1) {
+            let _ = cx.update(|window, cx| {
+                let _ = this.update(cx, |this, cx| apply(this, window, cx));
+            });
+        }
+    })
+    .detach();
+}
+
+impl SystemView {
+    fn change_lima_row_state(
+        &mut self,
+        instance: LimaInstance,
+        running: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_environments(
+            async move { Ok(Update::Lima(instance.set_running(running).await, running)) },
+            None,
+            cx,
+        );
+    }
+}
+
+fn appearance_key(workspace: Option<&ExternalWorkspace>) -> String {
+    workspace.map_or_else(
+        || "marsa".to_owned(),
+        |workspace| {
+            format!(
+                "discovered:{}:{}:{}",
+                workspace.source.len(),
+                workspace.source,
+                workspace.endpoint.address()
+            )
+        },
+    )
+}
+
+fn parse_icon(icon: Option<&str>) -> EnvironmentIcon {
+    match icon {
+        Some("rocket") => EnvironmentIcon::Rocket,
+        Some("globe") => EnvironmentIcon::Globe,
+        Some("box") => EnvironmentIcon::Box,
+        _ => EnvironmentIcon::Server,
+    }
+}
+
+fn icon_id(icon: EnvironmentIcon) -> &'static str {
+    match icon {
+        EnvironmentIcon::Server => "server",
+        EnvironmentIcon::Rocket => "rocket",
+        EnvironmentIcon::Globe => "globe",
+        EnvironmentIcon::Box => "box",
+    }
+}
+
+/// Return a bundled icon for an environment label.
+pub(crate) fn icon_path(icon: EnvironmentIcon) -> &'static str {
+    match icon {
+        EnvironmentIcon::Server => "icons/server.svg",
+        EnvironmentIcon::Rocket => "icons/rocket.svg",
+        EnvironmentIcon::Globe => "icons/globe.svg",
+        EnvironmentIcon::Box => "icons/box.svg",
+    }
+}
+
+fn feedback_text(screen: &ScreenContext<'_>, feedback: &Feedback) -> Div {
+    let (key, token) = match feedback {
+        Feedback::Verified(_) | Feedback::Connected => {
+            (gui::GUI_ENVIRONMENT_TEST_PASSED, ColorToken::StatusRunning)
+        }
+        Feedback::Checked { passed, total } => {
+            return settings_text(
+                screen,
+                Role::Small,
+                format!(
+                    "{}  {passed}/{total}",
+                    gui::GUI_ENVIRONMENT_TEST_RESULTS.text(screen.locale)
+                ),
+                if passed == total {
+                    ColorToken::StatusRunning
+                } else {
+                    ColorToken::StatusWarning
+                },
+            );
+        }
+        Feedback::Saved => (gui::GUI_ENVIRONMENT_SAVED, ColorToken::StatusRunning),
+        Feedback::Removed => (gui::GUI_ENVIRONMENT_REMOVED, ColorToken::TextMuted),
+        Feedback::Lima(running) => (vm::lima_result_key(*running), ColorToken::StatusRunning),
+        Feedback::Failed(key) => (*key, ColorToken::StatusWarning),
+    };
+    let label = settings_text(screen, Role::Small, key.text(screen.locale), token);
+    if let Feedback::Verified(engine) = feedback {
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(label)
+            .child(settings_text(
+                screen,
+                Role::Mono,
+                technical(&format!("{} · {}", engine.name, engine.version)),
+                ColorToken::TextMuted,
+            ))
+    } else {
+        label
+    }
+}
+
+fn error_text(error: &ManagedEndpointError) -> TextKey {
+    match error {
+        ManagedEndpointError::InvalidName => gui::GUI_ENVIRONMENT_INVALID_NAME,
+        ManagedEndpointError::InvalidLabels => gui::GUI_ENVIRONMENT_INVALID_LABELS,
+        ManagedEndpointError::InvalidAddress | ManagedEndpointError::LocalMarsa => {
+            gui::GUI_ENVIRONMENT_INVALID_ADDRESS
+        }
+        ManagedEndpointError::InvalidCredentialPath | ManagedEndpointError::Credentials(_) => {
+            gui::GUI_ENVIRONMENT_INVALID_CREDENTIALS
+        }
+        ManagedEndpointError::HawserCredential => gui::GUI_ENVIRONMENT_HAWSER_KEYCHAIN,
+        ManagedEndpointError::HawserEdge(_) => gui::GUI_ENVIRONMENT_HAWSER_EDGE_FAILED,
+        ManagedEndpointError::HawserCredentialCleanup => gui::GUI_ENVIRONMENT_HAWSER_KEYCHAIN,
+        ManagedEndpointError::Connection(_) | ManagedEndpointError::InvalidEngineIdentity => {
+            gui::GUI_ENVIRONMENT_TEST_FAILED
+        }
+        _ => gui::GUI_ENVIRONMENT_STORE_ERROR,
+    }
+}

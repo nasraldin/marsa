@@ -7,10 +7,45 @@ use std::{
     process::Stdio,
 };
 
+mod docker_transport;
+mod lima;
+pub(crate) use lima::{check_lima_target, lima_lifecycle_command, trusted_lima_binary};
+pub(crate) mod registry_https;
+pub(crate) use docker_transport::{
+    check_user_docker_directory, docker_ssh_config, lock_docker_state, open_docker_ssh,
+    read_user_docker_file, replace_docker_state,
+};
+
 use nix::unistd::geteuid;
 use tokio::{fs, net::UnixStream, process::Command};
 
 pub(super) async fn open_socket(path: PathBuf) -> io::Result<UnixStream> {
+    open_local_socket(path, 0o077, None).await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct SocketIdentity(u64, u64);
+
+pub(super) async fn socket_identity(path: &Path) -> io::Result<SocketIdentity> {
+    let metadata = fs::symlink_metadata(path).await?;
+    if !metadata.file_type().is_socket() {
+        return Err(unsafe_endpoint());
+    }
+    Ok(SocketIdentity(metadata.dev(), metadata.ino()))
+}
+
+pub(super) async fn open_external_socket(
+    path: PathBuf,
+    expected: SocketIdentity,
+) -> io::Result<UnixStream> {
+    open_local_socket(path, 0o022, Some(expected)).await
+}
+
+async fn open_local_socket(
+    path: PathBuf,
+    forbidden_parent_modes: u32,
+    expected: Option<SocketIdentity>,
+) -> io::Result<UnixStream> {
     let parent = path
         .parent()
         .filter(|_| path.is_absolute())
@@ -22,14 +57,25 @@ pub(super) async fn open_socket(path: PathBuf) -> io::Result<UnixStream> {
         })?;
     let uid = geteuid().as_raw();
     let directory = fs::symlink_metadata(parent).await?;
-    if !directory.is_dir() || directory.uid() != uid || directory.mode() & 0o077 != 0 {
+    if !directory.is_dir()
+        || directory.uid() != uid
+        || directory.mode() & forbidden_parent_modes != 0
+    {
         return Err(unsafe_endpoint());
     }
     let metadata = fs::symlink_metadata(&path).await?;
     if !metadata.file_type().is_socket() || metadata.uid() != uid || metadata.mode() & 0o077 != 0 {
         return Err(unsafe_endpoint());
     }
-    let socket = UnixStream::connect(path).await?;
+    if expected.is_some_and(|expected| expected != SocketIdentity(metadata.dev(), metadata.ino())) {
+        return Err(unsafe_endpoint());
+    }
+    let socket = UnixStream::connect(&path).await?;
+    if let Some(expected) = expected
+        && socket_identity(&path).await? != expected
+    {
+        return Err(unsafe_endpoint());
+    }
     if socket.peer_cred()?.uid() != uid {
         return Err(unsafe_endpoint());
     }
@@ -60,6 +106,16 @@ pub(super) async fn launch_daemon() -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+pub(super) async fn signed_daemon() -> io::Result<PathBuf> {
+    let executable = fs::canonicalize(std::env::current_exe()?).await?;
+    executable
+        .parent()
+        .and_then(app_bundle)
+        .ok_or_else(unsafe_daemon)?;
+    daemon_path(&executable).await
+}
+
 async fn daemon_path(executable: &Path) -> io::Result<PathBuf> {
     let directory = executable
         .parent()
@@ -82,6 +138,52 @@ async fn daemon_path(executable: &Path) -> io::Result<PathBuf> {
         }
     }
     Err(unsafe_daemon())
+}
+
+#[cfg(target_os = "macos")]
+pub(super) async fn system_git() -> io::Result<PathBuf> {
+    if geteuid().is_root() {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    let path = PathBuf::from("/usr/bin/git");
+    let binary = fs::symlink_metadata(&path).await?;
+    if !binary.is_file()
+        || binary.uid() != 0
+        || binary.mode() & 0o111 == 0
+        || binary.mode() & 0o6022 != 0
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(path)
+}
+
+pub(super) async fn bundled_compose() -> io::Result<PathBuf> {
+    bundled_program("Contents/Resources/bin/cli-plugins/docker-compose").await
+}
+
+pub(super) async fn bundled_registry_helper() -> io::Result<PathBuf> {
+    bundled_program("Contents/Resources/bin/docker-credential-osxkeychain").await
+}
+
+async fn bundled_program(_relative: &str) -> io::Result<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let executable = fs::canonicalize(std::env::current_exe()?).await?;
+        let bundle = executable
+            .parent()
+            .and_then(app_bundle)
+            .ok_or_else(unsafe_daemon)?;
+        let binary = bundle.join(_relative);
+        let metadata = fs::symlink_metadata(&binary).await?;
+        if !metadata.is_file() || metadata.mode() & 0o111 == 0 || metadata.mode() & 0o6022 != 0 {
+            return Err(unsafe_daemon());
+        }
+        verify_signature(bundle).await?;
+        verify_signature(&binary).await?;
+        Ok(binary)
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err(io::ErrorKind::Unsupported.into())
 }
 
 fn unsafe_daemon() -> io::Error {
@@ -166,3 +268,6 @@ mod tests {
         );
     }
 }
+
+mod scanner;
+pub(crate) use scanner::scanner_executable;

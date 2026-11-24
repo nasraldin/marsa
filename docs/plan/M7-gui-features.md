@@ -16,7 +16,7 @@ Every task here carries these standing acceptance conditions in addition to its 
 
 ### M7-01 Containers list
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-09, M4-02
 - **Docs:** [08 Feature priorities](../08-gui.md#must-have-version-1)
 - **Do:** Virtualised container list grouped by Compose project with standalone containers in their own group; columns for name, image, state, ports and age; start, stop, restart and remove (with confirmation) per row and in bulk; filter and search; live updates from engine events.
@@ -25,9 +25,13 @@ Every task here carries these standing acceptance conditions in addition to its 
   - 2,000 containers scroll smoothly and state changes appear within one second.
   - Remove always asks for confirmation; running containers require an explicit force choice.
 
+The desktop route renders grouped live container snapshots. Detected Lima rows use the same table and keep their source badge. Start and stop target the authenticated Unix socket captured for that row. Passive invalidation without an idle lease is pending.
+
+---
+
 ### M7-02 Container detail and inspect
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-01
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Detail view with tabs: overview, logs, terminal, inspect, stats. Inspect shows environment, ports, mounts, networks, labels, and the raw JSON with copy. Environment values that look like secrets are masked until revealed.
@@ -36,9 +40,13 @@ Every task here carries these standing acceptance conditions in addition to its 
   - Every inspect section matches `docker inspect`.
   - Masked values are not exposed in snapshots or logs.
 
+The detail route opens detected Lima containers through the same authenticated socket as the selected row. The detail route masks environment fields. The clipboard export contains redacted inspect metadata.
+
+---
+
 ### M7-03 Logs
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-02, M6-07
 - **Docs:** [08 Performance rules](../08-gui.md#performance-rules)
 - **Do:** Log viewer with follow, pause, search with match navigation, level and text filters, timestamps toggle, wrap toggle, ANSI colour rendering, copy and save. A combined view for several containers or a whole Compose project with a colour and label per source. Bounded ring buffer with a "load earlier" action.
@@ -48,9 +56,13 @@ Every task here carries these standing acceptance conditions in addition to its 
   - Search runs off the UI thread and stays responsive on a full buffer.
   - Mixed Arabic and English log lines render in correct order within a left-to-right log line.
 
+Bounded per-container and combined streams are wired. External log streams use the selected engine and keep Compose log sources within that engine. High-rate, navigation, and visual acceptance remain open.
+
+---
+
 ### M7-04 Terminal
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-02
 - **Docs:** [08 Performance rules](../08-gui.md#performance-rules)
 - **Do:** Interactive terminal into a container through the exec API: shell detection with a fallback list, resize, copy and paste, bounded scrollback, multiple sessions. Verify the terminal component available for the pinned GPUI ecosystem before building.
@@ -59,9 +71,16 @@ Every task here carries these standing acceptance conditions in addition to its 
   - Full-screen programs (an editor, `top`) render and resize correctly.
   - Closing the tab ends the exec session.
 
+The Terminal view uses bounded Docker exec sessions and the pinned vt100
+renderer. It includes IME input, viewport resizing, scrollback, copy and paste.
+Both locked dependency audits accepted the renderer. Interactive terminal and
+four-variant acceptance remain open.
+
+---
+
 ### M7-05 Stats
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-02
 - **Docs:** [08 Performance rules](../08-gui.md#performance-rules)
 - **Do:** Live CPU, memory, network and disk I/O per container with bounded history charts, plus an overview across running containers and the VM totals from the daemon.
@@ -70,9 +89,13 @@ Every task here carries these standing acceptance conditions in addition to its 
   - Values match `docker stats` within sampling error.
   - Charts keep time flowing left to right in both languages, with labels localised.
 
+The container view presents sampled CPU, memory, network and disk metrics. Overview reads passive VM totals. A cross-container roll-up is pending.
+
+---
+
 ### M7-06 Images
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-09, M4-02
 - **Docs:** [08 Feature priorities](../08-gui.md#must-have-version-1)
 - **Do:** Image list with repository, tag, size, age and in-use state; pull by reference with progress; remove with confirmation; run from image with a simple form; image detail with metadata. Pulling an amd64-only image shows the documented explanation.
@@ -81,9 +104,13 @@ Every task here carries these standing acceptance conditions in addition to its 
   - Pull progress is shown per layer and can be cancelled.
   - In-use images cannot be removed without an explicit force choice.
 
+The desktop route wires metadata, local runs, cancellable ARM64 pulls and guarded removal. Private-registry pulls still use the CLI.
+
+---
+
 ### M7-07 Volumes and networks
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-09, M4-02
 - **Docs:** [08 Feature priorities](../08-gui.md#must-have-version-1)
 - **Do:** Lists with usage (which containers), size for volumes, create and remove. Volume removal uses the typed-confirmation dialog and names the containers that used it.
@@ -92,9 +119,13 @@ Every task here carries these standing acceptance conditions in addition to its 
   - A volume in use cannot be removed.
   - Volume removal always requires typed confirmation.
 
+The volume and network routes wire typed mutations. Volume removal requires the exact name and rejects an attached resource.
+
+---
+
 ### M7-08 Compose projects
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-01, M7-03
 - **Docs:** [08 Feature priorities](../08-gui.md#must-have-version-1)
 - **Do:** Project list detected from container labels; project detail with services, their state, combined logs; up, down (volumes kept unless explicitly chosen) and restart, executed through the bundled Compose with streamed output.
@@ -103,9 +134,13 @@ Every task here carries these standing acceptance conditions in addition to its 
   - Actions produce the same result as the equivalent `docker compose` command.
   - "Down with volumes" requires typed confirmation.
 
+The desktop route uses an explicitly selected local Compose file, bounded output, and typed confirmation for volume removal.
+
+---
+
 ### M7-09 Engine control and resources
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-09, M3-08, M9-13
 - **Docs:** [03 Settings](../03-host-daemon.md#settings)
 - **Do:** Engine status view with start, stop and restart, boot progress by stage, failure display with console tail and a "collect diagnostics" action. Resource settings for CPUs, memory, disk limit, idle stop and backend, stating clearly when a restart is needed.
@@ -114,9 +149,13 @@ Every task here carries these standing acceptance conditions in addition to its 
   - A simulated boot failure shows the failing stage and log tail.
   - Changing resources applies at the next start and says so.
 
+The desktop route wires lifecycle controls, resource preferences, boot details and diagnostics through the daemon.
+
+---
+
 ### M7-10 Settings
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-09, M4-05, M4-06, M4-10, M4-11
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Settings sections: General (language, theme, start at login), Resources, Sharing (allowlist management with protected-path explanations), Network (mode, LAN exposure, proxy, registries, DNS), Docker (context, optional socket symlink, CLI links, credential store), Updates, About (versions of every component, licences).
@@ -127,9 +166,21 @@ Every task here carries these standing acceptance conditions in addition to its 
   - About lists the versions from the guest manifest and the upstream binaries.
   - Sharing shows exact pending bind paths and offers once, always and deny. An approved static share displays the restart requirement and preserves workloads until the owner explicitly applies it.
 
+General settings includes the Figma accent choices, desktop appearance, language,
+launch at login, and notification preferences. Network settings use guarded
+proxy activation. LAN exposure (Q-07), the global Docker socket (Q-08), and
+unsupported host-tool integration remain open.
+
+Docker settings show the external socket and offer a rescan. A detected Unix
+engine's containers, images, volumes, networks and Compose projects appear
+on their respective resource pages with source badges. External inventory
+never enters the Marsa engine's mutation or selection paths.
+
+---
+
 ### M7-11 Disk and cleanup
 
-- **Status:** todo
+- **Status:** blocked (M5-12 exact Docker deletion)
 - **Depends on:** M6-09, M5-05, M5-08, M5-12, M9-03
 - **Docs:** [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
 - **Do:** Disk usage breakdown by category and a cleanup flow that previews exactly what will be removed and how much space returns to the Mac, with volumes unselected by default, then runs it. Show a separate explicit reclaim action.
@@ -138,9 +189,15 @@ Every task here carries these standing acceptance conditions in addition to its 
   - The preview equals what is removed.
   - After cleanup and explicit reclaim, report the observed host allocation change. M9-14 connects automatic reclaim.
 
+The desktop route exposes storage usage, candidate identities, the engine's
+apply capability and explicit reclaim. Resume apply when M5-12 can bind
+eligibility and identity to the deletion itself.
+
+---
+
 ### M7-12 Activity and agent approvals
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-09, M8-02, M8-03
 - **Docs:** [10 Approval flow](../10-mcp-server.md#approval-flow), [10 Audit log](../10-mcp-server.md#audit-log)
 - **Do:** Activity screen showing the daemon event history and the agent audit log with filters. Approval prompts for agent requests and bind-mount requests showing full detail (what, which client, what will be affected), with approve, deny and, where allowed, "always for this project". Grant management with revoke.
@@ -150,9 +207,15 @@ Every task here carries these standing acceptance conditions in addition to its 
   - "Always" is not offered for destroy or host-affecting tiers.
   - Approvals can be answered from a notification when the window is closed.
 
+Activity shows engine events, authenticated approvals, grant management and
+filtered audit records. Notifications can reopen the approval screen after the
+last window closes. Approval decisions stay in the authenticated review UI.
+
+---
+
 ### M7-13 Notifications and global states
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-09
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** System notifications for events that need attention (engine failure, update available, approval pending, network mode switched), a consistent error surface with actionable messages, and global offline and engine-stopped states.
@@ -160,6 +223,12 @@ Every task here carries these standing acceptance conditions in addition to its 
 - **Accept when:**
   - Each notification type can be turned off in settings.
   - Every error message says what happened and what the user can do.
+
+The desktop shell presents in-window error states and opt-in macOS notifications.
+The app-owned daemon subscription continues while all windows are closed and the
+app is still running. Notification actions reopen the relevant review screen.
+
+---
 
 ### M7-14 Arabic review and four-variant audit (gate G5)
 
@@ -171,3 +240,250 @@ Every task here carries these standing acceptance conditions in addition to its 
 - **Accept when:**
   - Every screen passes every checklist item in all four variants.
   - The reviewer signs off the Arabic strings and glossary.
+
+---
+
+### M7-15 Manage containers on detected Docker engines
+
+- **Status:** in progress
+- **Depends on:** M7-01's existing source-tagged table and M7-02's container detail route
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Route terminal, stats, and lifecycle requests through the selected row's pinned endpoint. Add expand and collapse controls to the grouped Containers views.
+- **Deliver:** Desktop controls and endpoint regression coverage.
+- **Accept when:**
+  - An external terminal uses the selected socket for create, upgrade, and resize.
+  - Live stats use the selected socket and the existing bounded charts.
+  - Group controls work across the visible Marsa and external Compose groups.
+
+On this Mac, the signed app opened an interactive shell and streamed live usage on Lima with the Marsa engine stopped. Expand and collapse worked on the selected group. The later context qualification included the four appearance and language variants.
+
+### M7-16 Manage resources on detected Docker engines
+
+- **Status:** in progress
+- **Depends on:** M7-15
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Carry the selected endpoint through resource rows, dialogs, transfers, and Compose operations. Offer explicit engine selection for creation and pulls. Enable Docker actions according to the resource state and the selected engine's capabilities.
+- **Deliver:** Engine-scoped resource actions in the existing Images, Volumes, Networks, and Compose views.
+- **Accept when:**
+  - Resource IDs and names shared by two engines resolve only on the selected one.
+  - Confirmations identify the engine before removing data.
+  - Compose execution uses trusted local project configuration and an authenticated connection.
+
+Verified on Lima that the image tag resolves to the original image and volume creation uses the engine chosen in the dialog. M7-17 adds external Compose deployment and teardown from a deliberately selected local file.
+
+
+### M7-17 Capability and context coverage
+
+- **Status:** done
+- **Depends on:** M7-16
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Add configured contexts, authenticated remote transports, and the remaining resource actions across engines. Keep context selection visible in project, registry, and destructive workflows.
+- **Deliver:** Context list, capability-driven action availability and workflows for image transfer, network attachment, and Compose deployment from trusted files.
+- **Accept when:**
+  - The desktop can show multiple configured engines simultaneously and scopes operations to the selected engine even when object identifiers coincide.
+  - Authenticated remote transports use the selected context's identity and security settings.
+  - Registry push, image import and export, and network attachment are available where the chosen engine supports them.
+
+Qualification used two isolated Unix test engines and an offline registered context, SSH with positive and negative host-trust checks, and a mutual-TLS proxy to Lima Docker Engine 29.9.2. The signed app deployed a disposable stack through the TLS context. The Lima fixture round-tripped an image archive, attached and detached a network, and pushed a test image to a loopback-only registry.
+
+
+### M7-18 Context navigation and desktop feedback
+
+- **Status:** done
+- **Depends on:** M7-17 context inventory
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Filter all inventory views by context. Open the context list from the compact sidebar status card. Present transient alerts as toasts, keep persistent faults actionable, use semantic icon colors, and make full container rows respond to hover. Keep movement brief and respect Reduce Motion.
+- **Deliver:** Desktop shell and inventory controls in English and Arabic.
+- **Accept when:**
+  - All four appearance and language combinations retain the current layout and expose context controls.
+  - Switching context matches the row badges, details, and action destinations.
+  - Toasts remain keyboard accessible and the sidebar status goes directly to the context list.
+
+The signed desktop was reviewed in English light, English dark, Arabic light, and Arabic dark using isolated preferences. The context card opened Docker settings, the context filter isolated the selected source, and the deployment surfaced a dismissible toast.
+
+### M7-19 Active Docker environment
+
+- **Status:** done
+- **Depends on:** M7-18
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Replace page-level context filters with an app-wide selection in the sidebar. Persist the selection and resolve external engines by both name and address. Keep each action pinned to the endpoint used to read the resource. Keep Marsa VM controls scoped to Marsa.
+- **Deliver:** Environment switcher, scoped resource lists and commands, and an external overview with resource counts and connection status.
+- **Accept when:**
+  - Switching between stopped Marsa and reachable Lima changes the overview and resource action destinations. Both appear in the sidebar menu in English light, English dark, Arabic light, and Arabic dark.
+  - The selected Lima environment survives relaunch. An unavailable selection does not route an operation to Marsa.
+  - Search results and resource details carry the source endpoint. Existing per-row source badges remain visible.
+
+The signed desktop switched between stopped Marsa and reachable Lima, displayed a Lima destination on the volume form, and restored Lima after relaunch. The sidebar menu was checked in both languages and appearances. The repository check and all 35 targeted tests passed.
+
+### M7-20 Manage Docker environments
+
+- **Status:** done
+- **Depends on:** M7-19
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Add, edit, and test Marsa-managed Docker endpoints. Show verified engine identity and connection status. Keep manual connection settings distinct from discovered Docker CLI contexts. Give Settings grouped navigation with a compact layout for narrow windows.
+- **Deliver:** Environment settings with input validation, connection testing, and confirmation before removing saved configurations.
+- **Accept when:**
+  - Unix, SSH, and mutual TLS endpoints can be configured and tested with the existing endpoint trust requirements.
+  - The engine reconnects with saved settings after relaunch. Editing or removing an environment does not retarget an in-flight action.
+
+Verified the engine identity fields against the [Moby 29.10.0 Engine API schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml). Saved settings retain a transport configuration and paths to TLS credential files. The files are read under the existing endpoint trust rules when connecting. The signed GUI tested, saved, renamed, selected, and restored a live Lima connection after relaunch. Environment settings were checked in both supported locales and appearances. Tests cover pinned targets, removal, and concurrent writes. A loopback mutual-TLS fixture verified both peers and rejected an invalid hostname and a broadly readable client key. The SSH checks covered transport configuration and untrusted-host rejection. A live connection to a trusted SSH server was unavailable during qualification.
+
+### M7-21 Observe and maintain each environment
+
+- **Status:** in progress
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [13 Testing](../13-testing-and-benchmarks.md)
+- **Do:** Surface container health, engine metrics, disk accounting, and events for the selected environment. Provide per-environment update and cleanup settings, collection and retention, and notifications and reports.
+- **Deliver:** Environment dashboard metrics, activity, and maintenance controls.
+- **Accept when:**
+  - The dashboard and activity views are fed by the selected engine. They identify unavailable measurements and can recover from a disconnect.
+  - A maintenance request targets the confirmed engine, previews destructive effects, and reports its outcome.
+
+### M7-22 Configure deploy-time secret providers
+
+- **Status:** todo
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Manage supported deploy-time secret providers.
+- **Deliver:** Settings connected to Compose deployment.
+- **Accept when:**
+  - Deployment resolves secrets without exposing stored credentials in logs or inspection output.
+
+### M7-23 Configure scanning, jobs, and downloads
+
+- **Status:** todo
+- **Depends on:** M7-21
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Add image scanner settings and cache controls, system-job configuration, and volume file downloads.
+- **Deliver:** Persisted settings consumed by the corresponding workflows.
+- **Accept when:**
+  - Scanner settings affect a scan, maintenance schedules affect subsequent runs, and scan retention and cache cleanup report their outcomes.
+  - Volume file downloads use the saved download format when the selected environment supports secure read-only access.
+
+### M7-24 Compose template and new stack creation
+
+- **Status:** blocked (signed desktop visual qualification pending)
+- **Depends on:** M7-19
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Let users save or restore the default Compose template in Settings. Use the template when creating a new stack in an explicitly chosen project directory.
+- **Deliver:** A persistent template editor, a new-stack creation flow, and deployment using the selected Docker environment.
+- **Accept when:**
+  - A saved template survives relaunch. Restoring the built-in template has an explicit action.
+  - A new stack opens with the saved template. Creating a Compose file keeps any existing file intact and deployment uses the environment selected when the flow began.
+
+The signed Compose client created the reviewed file in a disposable directory, deployed to the selected Lima socket, and removed the test stack afterward. Unit tests cover refusing existing files and symlinks. The Mac locked before the final four-variant desktop checks.
+
+### M7-25 Desktop log preferences
+
+- **Status:** blocked (signed desktop visual qualification pending)
+- **Depends on:** M7-19
+- **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings)
+- **Do:** Configure live log buffer size and time zone through the revisioned desktop settings. Retain bounded engine timestamps for the latest container and Compose output.
+- **Deliver:** Localized log preferences and their effects in container and Compose logs.
+- **Accept when:**
+  - Buffer size and UTC or local time preferences survive relaunch and apply without an engine restart.
+  - Container logs and combined Compose logs use the selected limits and time zone, without increasing existing resource bounds.
+  - Log lines without usable engine timestamps remain readable.
+
+Settings and viewer tests cover persisted choices, bounded buffers, and missing timestamps. The same Docker log records were checked in Dubai and New York, including the daylight saving transition rules. The Mac locked before the final four-variant desktop checks.
+
+### M7-26 Show the installed release and its dependencies
+
+- **Status:** blocked (signed desktop visual qualification pending)
+- **Depends on:** M10-12
+- **Docs:** [08 Screens](../08-gui.md#screens), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
+- **Do:** Extend the existing About screen with bilingual notes for the installed build, bundled Docker tool versions, live daemon and guest versions, and Finder access to bundled inventories and notices.
+- **Deliver:** An offline-capable About screen and release notes included by bundle assembly.
+- **Accept when:**
+  - App version and bundled tools come from the installed build. Daemon and guest component versions come from the owner daemon when connected.
+  - The correct release notes appear in each locale. Source checkouts and bundles missing an asset report its absence, and distribution inventory and notice actions reveal the installed evidence.
+
+Bundle verification confirmed both release-note languages and the four staged tool records. Release inventory and notes are loaded from the installed app. The Mac locked before the final four-variant desktop checks.
+
+### M7-27 Configure desktop registry credentials
+
+- **Status:** blocked (credentialed image transfers require a pinned HTTPS path)
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Provide registry settings for Docker Hub and private HTTPS registries. Use the signed bundled Docker credential helper and preserve existing CLI state. Bind credentials to the selected registry and only delegate transfers where the engine preserves that trust boundary.
+- **Deliver:** Localized registry settings, owner-private credential persistence, real connection testing, and credentialed transfers with verified registry trust.
+- **Accept when:**
+  - Docker Hub is available by default. Owners can add, test, replace, and remove private registry credentials without weakening existing transport or authentication controls.
+  - Pulls and pushes use credentials only for their intended registry, and unsupported engine or registry combinations fail without disclosing the credential.
+
+The desktop settings support owner-private Keychain storage and direct HTTPS
+connection checks. Credential delegation through the stock engine remains
+blocked by its handling of registry-selected realms and redirects. See
+[Registry credentials](../11-security.md#registry-credentials) for the pinned
+source evidence and allowed connection paths.
+
+### M7-28 Save and check out HTTPS Git repositories
+
+- **Status:** blocked (signed desktop visual qualification pending)
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md#git-sources)
+- **Do:** Manage named HTTPS Git repository and branch references, test branch access, and create a checkout in a chosen folder for explicit selection by the Compose workflow.
+- **Deliver:** An owner-private repository list and checkout through the operating system's trusted Git client.
+- **Accept when:**
+  - Saved repository entries survive restart and can be edited and removed.
+  - Test verifies the branch exists. Checkout uses the selected reference and does not overwrite existing files.
+  - Git ignores ambient configuration. The desktop keeps checkout and engine-pinned Compose deployment as distinct owner actions.
+
+The client tested a real HTTPS branch, rejected a missing ref, and completed separate checkouts into explicitly chosen folders. Authenticated HTTPS and SSH are tracked in M7-30. The Mac locked before the final four-variant desktop checks.
+
+### M7-29 Reusable container configuration sets
+
+- **Status:** blocked (signed desktop visual qualification pending)
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings), [11 Security](../11-security.md)
+- **Do:** Save named sets of container network, restart, environment, label, port and mount options. Let users apply and edit a copy before creating a container.
+- **Deliver:** Localized configuration-set management and a typed create request targeted at the selected engine.
+- **Accept when:**
+  - Sets can be added, edited and removed with confirmation. Saved sets survive relaunch.
+  - The create form shows the saved values and accepts overrides without changing the set. Docker receives the reviewed options for the selected engine.
+  - Local binds remain subject to Marsa's existing allowlist. An external bind requires confirmation of the destination engine, source path and access mode.
+
+A disposable Lima container verified options including environment, labels, restart policy, TCP and UDP ports, and read-only mounts. The same fixture verified the requirement for explicit external bind review. The Mac locked before the final four-variant desktop checks.
+
+### M7-30 Authenticate Git sources
+
+- **Status:** todo
+- **Depends on:** M7-28
+- **Docs:** [11 Security](../11-security.md)
+- **Do:** Add HTTPS username and password or token credentials in macOS Keychain and SSH using verified host keys and an explicit private key reference.
+- **Deliver:** A Git credentials view and authenticated branch test and checkout.
+- **Accept when:** Tests and checkout use only the credential associated with the selected repository. No secret is written to settings or sent to Compose.
+
+### M7-31 Download container files
+
+- **Status:** blocked (signed desktop visual qualification pending)
+- **Depends on:** M7-19
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Download an explicitly named path from a container to an owner-selected destination. Offer a persistent TAR or single-file download preference.
+- **Deliver:** A container file download action and a format control under Settings.
+- **Accept when:**
+  - Downloads use the selected container and its pinned environment. A single file can be saved directly, while directories use TAR.
+  - Truncated transfers and existing destinations are preserved. Marsa does not unpack archive paths into the host filesystem.
+
+A disposable Lima container returned a binary file directly and a directory as TAR. The download refused to replace the existing destination. The pinned [Moby 29.10.0 schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml) documents the archive routes and path metadata header. The Mac locked before the final four-variant desktop checks.
+
+### M7-32 Connect to Hawser agents
+
+- **Status:** done
+- **Depends on:** M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Implement Hawser Standard connections to a trusted agent and Hawser Edge connections through an authenticated reverse tunnel. Keep agent credentials in the platform credential store.
+- **Deliver:** Two tested agent connection types in the environment editor, wired to engine selection and resource views.
+- **Accept when:**
+  - Real Standard and Edge agents pass connection testing and can be selected as the active engine.
+  - Agent identity and authorization are checked before any Docker API request. Tests cover credential rejection, disconnect, and endpoint replacement while a request is in flight.
+
+Verified both transports and terminal I/O against [Hawser upstream bca2770](https://github.com/Finsys/hawser/tree/bca2770d3c013f0559ac162372bca6ba75dfeed5) with private TLS fixtures. The tests reject incorrect tokens and verify that a disconnected Edge session cannot retarget an existing Docker request after reconnecting.
+
+### M7-33 Refine desktop screen hierarchy and typography controls
+
+- **Status:** in progress
+- **Depends on:** M7-20
+- **Docs:** [08 GUI](../08-gui.md)
+- **Do:** Review the desktop routes and refine task grouping, control placement, and readable states. Group desktop preferences and provide native font and size pickers.
+- **Accept when:** The typography controls persist and apply real fonts and sizes. Major route actions and states are discoverable, and scrollable content remains reachable in both supported languages and appearances.

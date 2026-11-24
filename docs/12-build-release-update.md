@@ -78,6 +78,7 @@ Marsa.app/
     │   ├── Marsa.icns
     │   ├── locales/
     │   ├── fonts/
+    │   ├── release-notes.json          # notes for the installed version
     │   └── licenses/                  # third-party notices and SBOM
     └── Library/
         └── LaunchAgents/
@@ -108,10 +109,31 @@ workspace you own and control. On macOS, the immediate output parent must
 have no access control entries because a new directory can inherit them
 even with owner-only mode bits. The stage uses a private scratch directory
 under the checked output parent and verifies the parent path again before
-publishing atomically on macOS and GNU/Linux. Copy the staged
-`Resources/guest` and `Resources/bin` trees into `Contents/Resources/` and use
-`upstream-sbom-input.json` as an input to the combined release SBOM and
-third-party notices (M10-08).
+publishing atomically on macOS and GNU/Linux. Use the complete staged directory
+as input to bundle assembly and to the combined SBOM and notices command.
+
+Build the host executables and user-space network helper on Apple silicon:
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --release --locked \
+  -p marsa-gui -p marsad -p marsa-cli -p marsa-mcp
+bash network-helper/build.sh "$release_workspace/marsa-net-helper"
+cargo xtask bundle \
+  --host-dir target/release \
+  --network-helper "$release_workspace/marsa-net-helper" \
+  --resources-dir "$release_workspace/staged" \
+  --guest-manifest-sha256 "$trusted_manifest_sha256" \
+  --licenses-dir "$release_workspace/notices" \
+  --output "$release_workspace/Marsa.app"
+```
+
+Maintain `packaging/release-notes/<version>.json` for the Cargo workspace
+version. Specify the version in `version` and plain-text summaries in `en-US`
+and `ar`. Bundle assembly includes that file in the signed app so that About
+can display the installed release's notes offline.
+
+For local qualification, `--licenses-dir` may be omitted. Public distribution
+requires the complete notice set. Use new output paths under a private workspace.
 
 Verify the checksums in the [font asset inventory](../assets/fonts/README.md) before copying the native fonts and their original notice into the bundle.
 
@@ -124,6 +146,10 @@ Copy the verified `bin/` tree from the directory printed by
 [`cargo xtask fetch-upstream`](09-cli-and-docker-compat.md#bundled-upstream-binaries)
 into `Contents/Resources/bin/`. Feed the staging directory’s
 `upstream-sbom-input.json` into the release SBOM.
+
+## Release notices and source publication
+
+Stage the verified [licence notices, combined SBOM and kernel source references](../packaging/release/README.md) before bundling a distribution build. Keep the exact kernel configuration and the guest notice archive with the published binaries. A local build used to qualify launch can be assembled before the supplier handoff is complete.
 
 ## Signing and notarization
 
@@ -163,10 +189,8 @@ dictionary. [Apple code requirements](https://developer.apple.com/documentation/
 · [Apple's Hardened Runtime flag](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/cs_blobs.h)
 · [Apple's signing information keys](https://developer.apple.com/documentation/security/signing-information-dictionary-keys).
 
-When M10-01 places the MCP executable used by M8-07 in the final bundle,
-add that path as a required native role and cover it in the verifier's
-fixture. The Mach-O scan already checks an additional executable when
-present. The required role also makes a missing executable fail verification.
+The required native roles include the MCP executable used by M8-07. A missing
+MCP executable fails verification before notarization.
 
 A hardened ad-hoc fixture passed strict structural verification and failed
 both the Developer ID requirement and the standalone timestamp check on macOS
@@ -181,6 +205,20 @@ submission artifact, for example by mounting a DMG read-only. Record the
 SHA-256 of that verified artifact and check it immediately before submitting
 the exact same file from private staging. Stop the release if the digest
 changes. Assess the stapled artifact separately for distribution.
+
+With the signing environment provisioned, prepare the notarized installer and
+distribution directory:
+
+```sh
+cargo xtask sign --app "$release_workspace/Marsa.app" \
+  --output "$release_workspace/signed"
+cargo xtask package --signed-dir "$release_workspace/signed" \
+  --output "$release_workspace/distribution"
+```
+
+`sign --local` uses the same Developer ID, Hardened Runtime and timestamp checks
+and produces an app for local qualification. Distribution requires the notarized
+app and installer, their stapled tickets and the notarization receipt.
 
 The Mac App Store is not a distribution target: the sandbox it requires conflicts with running a VM daemon, a shared socket and bundled CLIs.
 

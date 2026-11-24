@@ -7,6 +7,9 @@ mod agent_approvals;
 #[path = "typed_api/mcp_reads.rs"]
 mod mcp_reads;
 
+#[path = "typed_api/overview.rs"]
+mod overview;
+
 use std::{io, sync::Arc, time::Duration};
 
 use hyper_util::rt::TokioIo;

@@ -16,5 +16,8 @@ workspace = true
 marsa-l10n = { path = "../marsa-l10n" }
 sys-locale = "=0.3.2"
 gpui-component.workspace = true
+gpui-base = "=0.10.0"
+gpui-kit-assets = "=0.10.0"
 gpui.workspace = true
 gpui-macos.workspace = true
+vt100 = "=0.18.1"

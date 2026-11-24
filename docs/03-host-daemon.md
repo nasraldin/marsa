@@ -350,7 +350,7 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 | `disk` | `data_size_limit`, `auto_reclaim` |
 | `shares` | list of host paths |
 | `network` | `mode` (`auto`, `nat`, `userspace`), `proxy` settings, `dns` overrides |
-| `ui` | `language` (`system`, `en-US`, `ar`), `theme` (`system`, `light`, `dark`) |
+| `ui` | `language` (`system`, `en-US`, `ar`), `theme` (`system`, `light`, `dark`), `logs.buffer` (`compact`, `medium`, `full`), `logs.local_timestamps` |
 | `updates` | `channel`, `auto_check`, `auto_install` |
 | `agents` | permission defaults for MCP clients |
 | `telemetry` | `enabled` (default false) |
@@ -364,6 +364,11 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 - Agent operations ask for approval per client and project by default. The `agents.operate_approval` alternatives are `always_ask` and `deny`. `agents.advanced_access` defaults to false. The destroy and host-affecting tiers always require approval.
 - Settings replacements use compare-and-swap revisions and an atomic rename of a private file in the config directory. Idle policy changes apply to the supervisor live. Boot-time changes report `restart_required` until the VM runtime is rebuilt with the new settings. VM CPU, memory, disk size, shares, backend and network settings are included in that check.
 - Telemetry remains disabled pending [Q-10](16-risks-and-open-questions.md#open-questions-for-the-project-owner).
+
+Saved container configuration sets live under `ui.container_config_sets`. They are
+optional in schema version 1 and use the same private settings file and revision
+checks as other desktop preferences. Environment and label values are stored in
+that file. Use a secret provider for values that need separate protection.
 
 ## Diagnostics archive
 

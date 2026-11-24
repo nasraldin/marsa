@@ -3,7 +3,8 @@
 use std::{collections::BTreeSet, io, time::Duration};
 
 use marsa_proto::host::v1::{
-    DiskCategory, PruneCandidate, PrunePreviewRequest, PrunePreviewResponse,
+    DiskCategory, DiskCategoryUsage, PruneApplyCapability, PruneCandidate, PrunePreviewRequest,
+    PrunePreviewResponse,
 };
 use serde::Deserialize;
 use tokio::time::timeout;
@@ -135,6 +136,11 @@ struct Rows<T> {
     items: Option<Vec<T>>,
     #[serde(default)]
     total_count: i64,
+    // The pinned engine omits zero-valued aggregate fields.
+    #[serde(default)]
+    total_size: i64,
+    #[serde(default)]
+    reclaimable: i64,
 }
 
 impl<T> Rows<T> {
@@ -193,7 +199,10 @@ struct Cache {
 
 impl DiskUsage {
     fn preview(self, selection: Selection) -> Result<PrunePreviewResponse, Status> {
-        let mut preview = PrunePreviewResponse::default();
+        let mut preview = PrunePreviewResponse {
+            apply_capability: PruneApplyCapability::ExactDeletionUnsupported.into(),
+            ..Default::default()
+        };
         for category in selection.categories {
             match category {
                 DiskCategory::Containers => add(
@@ -298,6 +307,15 @@ fn add<'a, T>(
         preview.unavailable_categories.push(category as i32);
         return Ok(());
     };
+    if let Some((used_bytes, reclaimable_bytes)) =
+        rows.and_then(|rows| nonnegative(rows.total_size).zip(nonnegative(rows.reclaimable)))
+    {
+        preview.observed_usage.push(DiskCategoryUsage {
+            category: category.into(),
+            used_bytes,
+            reclaimable_bytes,
+        });
+    }
     let mut ids = BTreeSet::new();
     for (id, name, bytes) in items.iter().filter_map(candidate) {
         if !candidate_id(category, id)

@@ -77,6 +77,9 @@ pub enum ClientError {
     /// A daemon RPC returned a gRPC error.
     #[error("Marsa daemon API error: {0}")]
     Rpc(#[source] Box<Status>),
+    /// The owner settings document could not be parsed or encoded.
+    #[error("invalid owner settings document")]
+    InvalidConfiguration,
     /// The daemon failed to honor an event stream invariant.
     #[error("invalid Marsa daemon event stream: {0}")]
     EventProtocol(&'static str),
