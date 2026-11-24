@@ -290,8 +290,8 @@ sizes on a common scale because shared data can appear in more than one
 category. The built-in environment uses the owner API to query an already
 running guest without starting it. When the desktop opens on the built-in
 environment after setup, it requests a start once if the daemon reports a
-stopped engine. Overview also provides an explicit start control and reuses the
-Machine page's stop confirmation.
+stopped engine. The built-in environment's Overview card contains the Start
+and Stop controls and reuses the Machine page's stop confirmation.
 [Moby 29.10.0 Engine API](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml),
 [Moby disk accounting compatibility](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L207-L248).
 
