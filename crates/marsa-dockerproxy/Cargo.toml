@@ -8,7 +8,6 @@ license.workspace = true
 
 [dependencies]
 marsa-core = { path = "../marsa-core" }
-thiserror = "=2.0.21"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "=0.32.0", features = ["event", "fs"] }

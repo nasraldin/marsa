@@ -258,16 +258,6 @@ impl ContainerView {
         cx.notify();
     }
 
-    /// Focus the list on a lifecycle or health state, as asked from the
-    /// Overview cards.
-    /// Focus the list on a lifecycle or health state. Clickable from the
-    /// Overview containers card (a follow-up M7-34 task wires this up).
-    #[allow(dead_code)]
-    pub(crate) fn set_status_filter(&mut self, filter: StatusFilter, cx: &mut Context<Self>) {
-        self.filter = filter;
-        cx.notify();
-    }
-
     pub(crate) fn leave(&mut self, cx: &mut Context<Self>) {
         self.close_detail(cx);
     }

@@ -104,19 +104,6 @@ pub(super) fn render(
         ));
     }
     let grouped = matches!(mode, ViewMode::Table | ViewMode::Tree);
-    let external_count = rows
-        .iter()
-        .map(|row| match row {
-            TableRow::Group {
-                key: (Some(_), _),
-                count,
-                ..
-            } => *count,
-            TableRow::External(..) if !grouped => 1,
-            _ => 0,
-        })
-        .sum::<usize>();
-
     let visible_ids = rows
         .iter()
         .filter_map(|entry| match entry {
@@ -124,7 +111,7 @@ pub(super) fn render(
             TableRow::Group { .. } | TableRow::External(..) => None,
         })
         .collect::<Vec<_>>();
-    let status = if external_count != 0 || !rows.is_empty() {
+    let status = if !rows.is_empty() {
         states::TableState::Rows
     } else if !filter.includes_marsa()
         && !view
@@ -153,11 +140,8 @@ pub(super) fn render(
             })
             .sum::<usize>()
     } else {
-        visible_ids.len() + external_count
+        rows.len()
     };
-    let selected = view.selected.clone();
-    let busy = view.command_pending;
-    let collapsed = view.collapsed.clone();
     let entity = cx.entity();
     let item_count = if mode == ViewMode::Cards {
         rows.len().div_ceil(card_columns)
@@ -165,7 +149,6 @@ pub(super) fn render(
         rows.len()
     };
     let rows = Arc::new(rows);
-    let summary = container_count(total, locale);
 
     let loaded = status == states::TableState::Rows;
     let toolbar = status.can_create().then(|| {
@@ -224,7 +207,7 @@ pub(super) fn render(
                     .typography(Role::Small)
                     .apply(div())
                     .text_color(color(palette, ColorToken::TextMuted))
-                    .child(summary),
+                    .child(container_count(total, locale)),
             );
         let groups: Vec<GroupKey> = rows
             .iter()
@@ -242,7 +225,8 @@ pub(super) fn render(
                     .gap_2()
                     .child(view_mode_rail(mode, &screen, cx))
                     .children(
-                        (!groups.is_empty()).then(|| group_toggle(groups, &collapsed, locale, cx)),
+                        (!groups.is_empty())
+                            .then(|| group_toggle(groups, &view.collapsed, locale, cx)),
                     )
             }))
             .child(
@@ -326,6 +310,7 @@ pub(super) fn render(
             .into_any_element();
     }
 
+    let selected = view.selected.clone();
     let all_selected =
         !visible_ids.is_empty() && visible_ids.iter().all(|id| selected.contains(id));
     let columns = cell_row(palette, cx)
@@ -394,6 +379,8 @@ pub(super) fn render(
         compact,
         view: entity,
     };
+    let busy = view.command_pending;
+    let collapsed = view.collapsed.clone();
     let items = uniform_list("containers-table", item_count, move |range, _, cx| {
         if mode == ViewMode::Cards {
             return range
@@ -489,39 +476,37 @@ fn collect_rows(
     }
     // Named Compose projects precede the standalone group.
     let standalone = projects.remove(&None);
+    let grouped = matches!(view.mode, ViewMode::Table | ViewMode::Tree);
     projects
         .into_iter()
         .chain(standalone.map(|entries| (None, entries)))
         .flat_map(|(project, mut items)| {
-            items.sort_unstable_by(|a, b| {
-                let order = name(a).cmp(name(b)).then_with(|| a.id.cmp(&b.id));
-                if view.descending {
-                    order.reverse()
-                } else {
-                    order
-                }
-            });
-            let key = (
-                engine.as_ref().map(|source| source.key.clone()),
-                project.map(str::to_owned),
-            );
-            let grouped = matches!(view.mode, ViewMode::Table | ViewMode::Tree);
-            let collapsed = grouped && view.collapsed.contains(&key);
-            let heading = grouped.then_some(TableRow::Group {
-                key,
+            let heading = grouped.then(|| TableRow::Group {
+                key: (
+                    engine.as_ref().map(|source| source.key.clone()),
+                    project.map(str::to_owned),
+                ),
                 count: items.len(),
                 source: engine.clone(),
             });
-            let engine = engine.clone();
-            let entries = (!collapsed)
-                .then_some(items)
-                .into_iter()
-                .flatten()
-                .cloned()
-                .map(move |item| match &engine {
-                    Some(engine) => TableRow::External(Box::new(item), engine.clone()),
-                    None => TableRow::Container(Box::new(item)),
+            if matches!(&heading, Some(TableRow::Group { key, .. }) if view.collapsed.contains(key))
+            {
+                items.clear();
+            } else {
+                items.sort_unstable_by(|a, b| {
+                    let order = name(a).cmp(name(b)).then_with(|| a.id.cmp(&b.id));
+                    if view.descending {
+                        order.reverse()
+                    } else {
+                        order
+                    }
                 });
+            }
+            let engine = engine.clone();
+            let entries = items.into_iter().cloned().map(move |item| match &engine {
+                Some(engine) => TableRow::External(Box::new(item), engine.clone()),
+                None => TableRow::Container(Box::new(item)),
+            });
             heading.into_iter().chain(entries)
         })
         .collect()
@@ -1160,30 +1145,15 @@ fn fixed_column(width: f32, value: SharedString) -> Div {
     div().w(px(width)).flex_shrink_0().truncate().child(value)
 }
 
-fn filter_label(locale: Locale, filter: StatusFilter) -> marsa_ui::gpui::SharedString {
-    let (en, ar) = match filter {
-        StatusFilter::All => ("All states", "كل الحالات"),
-        StatusFilter::Running => ("Running", "قيد التشغيل"),
-        StatusFilter::Paused => ("Paused", "متوقفة مؤقتًا"),
-        StatusFilter::Stopped => ("Stopped", "متوقفة"),
-        StatusFilter::Healthy => {
-            let key = marsa_ui::gui_keys::GUI_OVERVIEW_HEALTHY;
-            (key.text(locale), "")
-        }
-        StatusFilter::Unhealthy => {
-            let key = marsa_ui::gui_keys::GUI_OVERVIEW_UNHEALTHY;
-            (key.text(locale), "")
-        }
-    };
-    if matches!(filter, StatusFilter::Healthy | StatusFilter::Unhealthy) {
-        let key = if filter == StatusFilter::Healthy {
-            marsa_ui::gui_keys::GUI_OVERVIEW_HEALTHY
-        } else {
-            marsa_ui::gui_keys::GUI_OVERVIEW_UNHEALTHY
-        };
-        return marsa_ui::gpui::SharedString::from(key.text(locale));
+fn filter_label(locale: Locale, filter: StatusFilter) -> &'static str {
+    match filter {
+        StatusFilter::All => copy(locale, "All states", "كل الحالات"),
+        StatusFilter::Running => copy(locale, "Running", "قيد التشغيل"),
+        StatusFilter::Paused => copy(locale, "Paused", "متوقفة مؤقتًا"),
+        StatusFilter::Stopped => copy(locale, "Stopped", "متوقفة"),
+        StatusFilter::Healthy => gui::GUI_OVERVIEW_HEALTHY.text(locale),
+        StatusFilter::Unhealthy => gui::GUI_OVERVIEW_UNHEALTHY.text(locale),
     }
-    marsa_ui::gpui::SharedString::from(copy(locale, en, ar))
 }
 
 fn group_toggle(
