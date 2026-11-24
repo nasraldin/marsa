@@ -269,7 +269,11 @@ impl Actor {
     }
 
     fn ready(&mut self) {
-        if let Some(applied) = self.guest.as_mut().and_then(|guest| guest.applied.take()) {
+        // A maintenance candidate commits only when its owner keeps it; the
+        // retained callback must not fire while the candidate is pending.
+        if !self.maintenance_candidate_pending()
+            && let Some(applied) = self.guest.as_mut().and_then(|guest| guest.applied.take())
+        {
             applied();
         }
 
