@@ -555,7 +555,7 @@ and keyboard selection from the language menu.
 
 ### M7-39 Mirror Arabic vertical scrollbars
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-35
 - **Docs:** [08 Direction layer](../08-gui.md#direction-layer)
 - **Do:** Place the shared vertical scrollbar and editor overview marks at the inline end of the viewport.
@@ -563,3 +563,7 @@ and keyboard selection from the language menu.
   - Track paint, hit testing, and dragging mirror with the interface direction.
   - An area with both axes keeps the track corner clear and retains the existing horizontal scroll direction.
   - Verify English and Arabic in both appearances and cover a live direction change with a regression test.
+
+Native checks dragged the Arabic Settings track and reached the final row of
+a 38-volume table with its header fixed. Headless tests cover mirrored paint,
+hit testing, dragging, and the two-axis corner.

@@ -17,8 +17,9 @@ use smallvec::SmallVec;
 use std::{collections::BTreeSet, ops::Range, rc::Rc};
 
 use crate::{
-    Scrollbar,
+    LayoutDirection, Scrollbar,
     input::{RopeExt as _, blink_cursor::CURSOR_WIDTH, display_map::LineLayout},
+    scrollbar::vertical_track_bounds,
 };
 
 use super::{
@@ -309,7 +310,12 @@ impl<M: InputModeKind> Element for EditorScrollbar<M> {
             return (Vec::new(), None);
         };
         // Marks follow the track the theme gives the scrollbar.
-        let ruler = layout_overview_ruler(state, &snapshot, Scrollbar::themed_track_width(cx));
+        let ruler = layout_overview_ruler(
+            state,
+            &snapshot,
+            Scrollbar::themed_track_width(cx),
+            LayoutDirection::global(cx),
+        );
         let scroll_handle = state.scroll_handle.clone();
 
         if scroll_handle.offset() != snapshot.cursor_scroll_offset {
@@ -522,12 +528,12 @@ fn lane_index(lane: OverviewRulerLane) -> u8 {
     }
 }
 
-/// Overview ruler marks on the vertical track, `track_width` wide, at the right of
-/// the scrollbar's bounds.
+/// Overview ruler marks on the vertical scrollbar track.
 fn layout_overview_ruler<M: InputModeKind>(
     state: &InputBaseState<M>,
     snapshot: &EditorScrollbarSnapshot,
     track_width: Pixels,
+    direction: LayoutDirection,
 ) -> Vec<PaintQuad> {
     let layout = &snapshot.layout;
     // The content height the thumb maps onto the track, padding included.
@@ -572,10 +578,7 @@ fn layout_overview_ruler<M: InputModeKind>(
         return Vec::new();
     }
 
-    let track = Bounds::new(
-        point(layout.bounds.right() - track_width, layout.bounds.top()),
-        size(track_width, layout.bounds.size.height),
-    );
+    let track = vertical_track_bounds(layout.bounds, track_width, direction);
     let scale = track.size.height / content_height;
     let y = |row: usize| {
         track.top() + (snapshot.padding_top + snapshot.line_height * row as f32) * scale
@@ -6052,7 +6055,8 @@ mod tests {
             let track_left = layout.bounds.right() - Scrollbar::width();
             let third = Scrollbar::width() / 3.;
 
-            let marks = layout_overview_ruler(state, &snapshot, Scrollbar::width());
+            let marks =
+                layout_overview_ruler(state, &snapshot, Scrollbar::width(), LayoutDirection::Ltr);
             assert_eq!(marks.len(), 3, "touching marks of one color merge");
             // Left lane, in document order: the merged run, then the boundary.
             assert_eq!(
@@ -6068,9 +6072,13 @@ mod tests {
             assert_eq!(marks[2].bounds.size.height, MIN_OVERVIEW_RULER_MARK_HEIGHT);
 
             // A wider themed track moves and widens the lanes with it.
-            let wide = layout_overview_ruler(state, &snapshot, px(21.));
+            let wide = layout_overview_ruler(state, &snapshot, px(21.), LayoutDirection::Ltr);
             assert_eq!(wide[0].bounds.left(), layout.bounds.right() - px(21.));
             assert_eq!(wide[0].bounds.size.width, px(7.));
+
+            let mirrored = layout_overview_ruler(state, &snapshot, px(21.), LayoutDirection::Rtl);
+            assert_eq!(mirrored[0].bounds.left(), layout.bounds.left());
+            assert_eq!(mirrored[0].bounds.size.width, px(7.));
         });
     }
 
@@ -6091,7 +6099,12 @@ mod tests {
                 window.draw(cx).clear(cx);
                 let state = editor.read(cx);
                 let snapshot = state.editor_scrollbar_snapshot.get().unwrap();
-                let marks = layout_overview_ruler(state, &snapshot, Scrollbar::width());
+                let marks = layout_overview_ruler(
+                    state,
+                    &snapshot,
+                    Scrollbar::width(),
+                    LayoutDirection::Ltr,
+                );
                 assert_eq!(marks.len(), 1);
                 marks[0].bounds.top()
             };
