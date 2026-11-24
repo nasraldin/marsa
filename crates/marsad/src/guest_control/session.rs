@@ -10,14 +10,15 @@ use std::{
         Arc, Weak,
         atomic::{AtomicU64, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use marsa_proto::guest::{
     ProtocolError,
     v1::{
         CommandStatus, EgressStage, EngineHealth, EngineHealthState, GuestEnvelope, ProbeEgress,
-        Shutdown, StartEngine, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
+        SetTime, Shutdown, StartEngine, guest_envelope::Body as GuestBody,
+        host_envelope::Body as HostBody,
     },
 };
 use marsa_vm::{Vm, VsockStream, async_trait};
@@ -124,8 +125,10 @@ pub(super) struct Session {
     health: watch::Receiver<Option<EngineHealthState>>,
     failure: watch::Receiver<Option<Arc<GuestControlError>>>,
     worker: JoinHandle<()>,
+    bind_worker: Option<JoinHandle<()>>,
     events: SessionEvents,
     deferred: bool,
+    clock: fn() -> SystemTime,
 }
 
 impl Session {
@@ -134,6 +137,7 @@ impl Session {
         active: watch::Sender<Weak<Client>>,
         events: EventBus,
         deferred: bool,
+        clock: fn() -> SystemTime,
     ) -> Self {
         let (queue, requests) = mpsc::channel(REQUEST_CAPACITY);
         let (shutdown, stop) = oneshot::channel();
@@ -157,9 +161,41 @@ impl Session {
             health,
             failure,
             worker,
+            bind_worker: None,
             events,
             deferred,
+            clock,
         }
+    }
+
+    pub(super) async fn set_clock(&self, limit: Duration) -> Result<(), GuestControlError> {
+        let now = (self.clock)()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| GuestControlError::InvalidClock)?;
+        let response = self
+            .client
+            .request(
+                HostBody::SetTime(SetTime {
+                    unix_seconds: i64::try_from(now.as_secs())
+                        .map_err(|_| GuestControlError::InvalidClock)?,
+                    nanoseconds: now.subsec_nanos(),
+                }),
+                limit,
+            )
+            .await?;
+        match response {
+            GuestResponse::Command(result) if result.status() == CommandStatus::Ok => Ok(()),
+            GuestResponse::Command(result) => {
+                Err(GuestControlError::ClockRejected(result.status()))
+            }
+            GuestResponse::Trim(_) | GuestResponse::Egress(_) => {
+                Err(GuestControlError::Sequence("expected clock setup result"))
+            }
+        }
+    }
+
+    pub(super) fn retain_bind_worker(&mut self, worker: JoinHandle<()>) {
+        self.bind_worker = Some(worker);
     }
 
     fn revoke(&self) {
@@ -254,6 +290,11 @@ impl GuestSession for Session {
         Ok(())
     }
 
+    async fn synchronize_clock(&mut self) -> io::Result<()> {
+        self.set_clock(Duration::from_secs(3)).await?;
+        Ok(())
+    }
+
     async fn shutdown(&mut self) -> io::Result<()> {
         self.revoke();
         let send = self
@@ -286,6 +327,9 @@ impl Drop for Session {
     fn drop(&mut self) {
         self.revoke();
         self.worker.abort();
+        if let Some(worker) = &self.bind_worker {
+            worker.abort();
+        }
     }
 }
 

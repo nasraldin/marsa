@@ -197,11 +197,19 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 | `Disk` | `Usage`, `Reclaim`, `PrunePreview` |
 | `Updates` | `Check`, `Download`, `Apply`, `Status` |
 | `Diagnostics` | `Collect` (returns a bundle path), `Logs` (stream) |
-| `Agents` | `ListPendingApprovals`, `Approve`, `Deny`, `ListGrants`, `RevokeGrant` (see [10 MCP](10-mcp-server.md)) |
+| `Agents` | `OpenSession`, `ListPendingApprovals`, `Approve`, `Deny`, `ListGrants`, `RevokeGrant`, `ListAudit` (see [10 MCP](10-mcp-server.md)) |
 | `AgentOps` | Engine operations performed on behalf of MCP clients. Every call names the client, passes through the policy engine and is written to the audit log. `marsad` executes the operation against dockerd itself; the MCP server never touches the Docker socket |
 | `Meta` | `Version`, `Capabilities` |
 
 `Network.Status` returns the current configured mode and, for an active guest, the actual attachment and any boot-time connectivity reason. Guest and gateway addresses come from the backend's latest observation. Callers can use `MarsaClient::network()` to query this status. The status call does not start the engine.
+
+`Network.SetMode` saves only the configured mode in the same transaction as
+other settings edits. It requires the socket owner and a request UUID. Its
+response pairs the saved mode with any independently observed attachment,
+addresses and boot reason. A stopped or unobservable guest has no active
+details. Replaying a request UUID returns the original response, while
+`Network.Status` reads the current observation. The change takes effect on
+the next cold activation.
 
 API rules:
 
@@ -234,6 +242,15 @@ peer UID, then calls `Meta.Version` before exposing the typed service
 clients. The connection reports the API minor revision supported by both
 sides. To retry another RPC after a disconnect, open a fresh connection and
 keep the original request ID and payload for interrupted mutations.
+
+The private `agent.sock` serves only `AgentOps`. Its clients authenticate
+with a short-lived capability from `Agents.OpenSession` on `marsad.sock`.
+The daemon selects the principal and project from that session. Delegated
+execution initially exposes engine status. The owner approval queue retains
+immutable request details for providers that support an identity-bound mutation. The owner socket
+authenticates the trusted local account through Unix peer credentials.
+Agent tokens do not authorize owner approval RPCs. The [approval design](10-mcp-server.md#approval-flow)
+describes the trust boundary and available operations.
 
 The event subscription reconnects and checks the API version again. It
 delivers a replacement snapshot when the stream identity changes or a
@@ -339,6 +356,7 @@ The daemon writes `schema_version = 1`. It accepts the unversioned draft format 
 | `telemetry` | `enabled` (default false) |
 
 - VM defaults are two CPUs, automatic memory sizing at half of host RAM capped at 8 GiB, `vz`, and idle stop after 300 seconds. Explicit memory is in bytes and must be at least 512 MiB. The hypervisor validates resource limits at startup.
+- Idle stop releases the VZ worker and network helper when the idle timeout expires. See the [host footprint measurements](spikes/M9-04-memory.md).
 - Disk limits are specified in bytes. The default sparse disk limit is 64 GiB, with automatic reclaim enabled where supported. The minimum limit is 1 GiB.
 - Shares are empty by default. The settings parser checks absolute UTF-8 path syntax. The daemon checks changes to the share list against the canonical allowlist and protected directories. `Shares.List`, `Shares.Add`, and `Shares.Remove` manage persistent writable grants through the same settings revisions and atomic config file. M4-06 handles attachment and bind-mount prompts.
 - Networking defaults to `auto` with host DNS and proxy discovery. Override DNS with IP addresses in `network.dns`. Set `network.proxy.http` or `network.proxy.https` to an HTTP or HTTPS proxy URL. Credentials belong outside this file. Proxy injection into containers (`network.proxy.inject_into_containers`) requires opt-in.
@@ -361,6 +379,7 @@ The archive includes build and protocol versions, selected settings, engine stat
 ~/.marsa/
 ├── config.toml
 ├── run/
+│   ├── agent.sock          # delegated agent RPCs
 │   ├── marsad.sock          # typed API
 │   ├── docker.sock          # Docker Engine API
 │   ├── marsad.pid
@@ -373,6 +392,7 @@ The archive includes build and protocol versions, selected settings, engine stat
 ├── diagnostics/             # user-requested support archives
 ├── state/
 │   ├── grants.json          # agent permission grants
+│   ├── agent-audit.jsonl    # private audit, with rotated segments
 │   └── update/
 └── bin/                     # optional tool links
 ```
@@ -402,7 +422,23 @@ The fixture uses an ad-hoc signature, a unique label and a temporary home. On ma
 |---|---|
 | Host will sleep | Pause the VM if the backend supports it |
 | Host woke | Resume the VM, send the current time to the agent, re-check network mode, refresh port forwards |
-| Network changed | Re-evaluate `auto` network mode, refresh DNS and proxy settings in the guest |
+| Network changed | Re-evaluate `auto` network mode and refresh DNS. Keep the current approved proxy |
+
+On macOS, the daemon uses [IOKit sleep and wake notifications](https://developer.apple.com/library/archive/qa/qa1340/_index.html) on a private dispatch queue. It allows idle sleep immediately and gives the supervisor up to two seconds to finish a pause before acknowledging system sleep. A wake resumes a guest paused by the watcher. The resume handshake updates the guest clock before declaring the engine ready. If the guest stayed running, the daemon updates the clock on its active control session. A boot interrupted before Docker starts is cleaned up and restarted after wake. Once Docker may be running, the supervisor keeps the same VM and rechecks readiness after wake. Pending startup requests wait through either path.
+
+The daemon uses a [Network framework path monitor](https://developer.apple.com/documentation/network/nw_path_monitor_t?language=_5) for default network path changes. The initial snapshot establishes the baseline. Changes are coalesced and published as transient `HostEvent` messages on the same stream as sleep, wake, and engine state. Later network tasks consume these events for configuration and forwarding refreshes.
+
+### Manual sleep and wake test
+
+On a Mac with Apple silicon, use the packaged guest artefacts and the signed user-space network helper to run the entitled harness.
+
+```sh
+MARSA_ENTITLED_DAEMON_POWER=1 \
+MARSA_VZ_NETWORK_HELPER=/absolute/path/to/marsa-net-helper \
+  bash crates/marsa-vm-vz/tests/run-entitled.sh /absolute/path/to/guest
+```
+
+After the test prints `M3-11 ready for manual system sleep`, choose Sleep from the Apple menu. Wake the Mac within two minutes. The test requires the event stream to report host sleep, engine pause, host wake, and engine readiness in that order. It brackets Docker's guest `SystemTime` sample with host timestamps and checks both bounds against the one-second limit. Set `MARSA_POWER_WATCHER_PREFLIGHT=1` to verify guest boot, notification registration, and clock sampling before attempting a sleep cycle. [Pinned Docker clock source](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/info.go#L52)
 
 ## Observability
 

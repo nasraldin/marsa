@@ -142,11 +142,20 @@ Run the strict test on Apple silicon with
   - The notarized build boots the VM on a Mac that has no developer tools installed.
   - The exact entitlements used are recorded in [12](../12-build-release-update.md).
 
-Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also requires access to a second Apple silicon Mac running macOS 27 or later with developer tools absent. The native entitlement and boot path have been verified with an ad-hoc signed test on the first Mac.
+- **Evidence:** Xcode 27.2 used the existing local Developer ID Application identity and signed-in account to submit and export the daemon qualification archive. The exported bundle passed strict signature and staple validation and retained only the virtualization entitlement on the daemon. With a private home, the exported daemon selected Userspace networking, reached Ready on the physical M1 Max with macOS 27.2.1, and answered Docker `/_ping`. An earlier guest fixture failed at the handshake. The passing test used the previously qualified native-init fixture.
+
+G3 still requires the clean second physical Apple silicon boot. Apple's
+`VZGenericPlatformConfiguration.isNestedVirtualizationSupported` returned
+`false` on the M1 Max host. In a fresh Tart guest restored from Apple's macOS
+27.2.1 image, the operator verified assigned IPv4, a responding default gateway,
+and HTTPS by IP and DNS name. The ZIP checksum passed, Gatekeeper accepted the
+app with a test quarantine marker, and first launch created the daemon socket.
+The Linux VM boot inside that guest is outside the host's capabilities.
+Project custody and update-key ownership remain tracked by Q-04. [Tart nested virtualization support](https://tart.run/faq/#nested-virtualization-support).
 
 ### M3-11 Power and network watcher
 
-- **Status:** todo
+- **Status:** blocked (manual system sleep and wake measurement pending)
 - **Depends on:** M3-07, M3-16
 - **Docs:** [03 Sleep, wake and network changes](../03-host-daemon.md#sleep-wake-and-network-changes)
 - **Do:** Subscribe to host sleep, wake and network-change notifications. Pause on sleep, resume on wake, push the current time to the agent, and publish events. Network-change handling here only emits the event; M4 consumes it.
@@ -154,6 +163,7 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
 - **Accept when:**
   - After a real sleep and wake, the guest clock is within one second of the host (Tier 2 or manual test recorded).
   - The sequence is covered by tests with injected events.
+- **Evidence:** Injected sleep and wake, startup races, manual pause ownership, and daemon event ordering passed. On Apple silicon, the entitled harness registered native notifications and measured 2.762 ms of preflight skew with the user-space attachment. After incorporating the bind-approval event, a second entitled preflight measured 32.791 ms. The two-minute manual measurement window opened at 03:43 and ended before the recorded 03:47 host sleep. A real sleep and wake measurement is still required.
 
 ### M3-12 Compose the packaged VM runtime
 
@@ -233,3 +243,23 @@ Confirm the project-owned Developer ID and update-key custodian in Q-04. G3 also
   - Ordinary start, stop, restart, pause, resume, and Docker connection requests return busy while maintenance is reserved.
   - The holder can stop or cancel the current boot, then start a candidate with no automatic retry. An unfinished candidate is cleaned up before the permit releases its reservation.
   - Cancellation of a waiting reservation and release of a held permit leave ordinary admission usable.
+
+### M3-18 Automate Tart qualification for signed macOS builds
+
+- **Status:** done
+- **Depends on:** M3-12, M3-14
+- **Docs:** [12 Signing and clean-Mac handoff](../12-build-release-update.md#signing-and-clean-mac-handoff)
+- **Do:** Run the signed qualification build's network, Gatekeeper and first-launch checks from the host through Tart Guest Agent on a disposable macOS 27 or newer guest.
+- **Deliver:** A host runner, a reusable guest script, a dedicated graphical viewer setup and exact qualification instructions.
+- **Accept when:**
+  - The test validates guest IPv4, gateway reachability and direct and DNS-based HTTPS without changing host controls.
+  - The guest verifies the ZIP against the host's trusted digest, checks the signature and enabled Gatekeeper with a test quarantine marker, then launches with a clean Marsa home and observes the daemon socket becoming ready.
+  - An agent-enabled macOS 27 guest completes the checks from the host without manual input inside the VM.
+- **Evidence:** Tart 2.42.0 and Guest Agent 0.15.0 ran the checks on a fresh Apple
+  macOS 27.2.1 restore using the verified user-space attachment with NordVPN and
+  the host firewall enabled. IPv4, gateway reachability, both HTTPS probes, the
+  archive digest, the code signature and Gatekeeper passed. A uniquely
+  identified Tart viewer resolved the window targeting timeout while CI kept
+  running. The agent selected Open in macOS's normal first-open dialog and the
+  runner confirmed daemon readiness. A separate guest check verified the
+  daemon socket existed with mode `0600` and Gatekeeper remained enabled.

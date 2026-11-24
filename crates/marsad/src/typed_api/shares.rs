@@ -1,12 +1,14 @@
 //! Manage explicitly configured shares through the same atomic settings revision.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use marsa_core::settings::Language;
 use marsa_proto::host::v1::{
-    AddShareRequest, ListSharesRequest, ListSharesResponse, RemoveShareRequest,
-    RemoveShareResponse, Share, shares_server::Shares,
+    AddShareRequest, BindApprovalDecision, ListSharesRequest, ListSharesResponse,
+    RemoveShareRequest, RemoveShareResponse, ResolveBindRequest, ResolveBindResponse, Share,
+    shares_server::Shares,
 };
-use marsa_share::{Allowlist, ShareError};
+use marsa_share::{Allowlist, ShareError, SharePolicy};
 use tonic::{Request, Response, Status};
 
 use super::TypedApi;
@@ -85,7 +87,11 @@ impl Shares for TypedApi {
                                 .shares
                                 .iter()
                                 .position(|entry| entry == path)
-                                .ok_or_else(|| Status::not_found("unknown share ID"))?;
+                                .ok_or_else(|| super::settings_feedback::reason(
+                                    tonic::Code::NotFound,
+                                    marsa_proto::host::v1::configuration_issue::Reason::ShareUnknown,
+                                    "unknown share ID",
+                                ))?;
                             settings.shares.remove(index);
                             Ok(())
                         })
@@ -98,6 +104,110 @@ impl Shares for TypedApi {
             .await?;
         Ok(Response::new(result))
     }
+
+    async fn resolve_bind(
+        &self,
+        request: Request<ResolveBindRequest>,
+    ) -> Result<Response<ResolveBindResponse>, Status> {
+        let request = self.authorize(request)?;
+        let decision = request.decision();
+        if decision == BindApprovalDecision::Unspecified {
+            return Err(Status::invalid_argument("choose a bind approval action"));
+        }
+        let api = self.clone();
+        let response = self
+            .inner
+            .bind_resolutions
+            .run(
+                &request.request_id,
+                (request.approval_id.clone(), request.decision),
+                || async move {
+                    let _admission = api.inner.factory_reset.read()?;
+                    let _approval = api.inner.bind_edit.lock().await;
+                    let approval = api
+                        .inner
+                        .events
+                        .pending_bind(&request.approval_id)
+                        .ok_or_else(|| Status::not_found("unknown or expired bind approval"))?;
+                    let requires_restart = match decision {
+                        BindApprovalDecision::Deny => false,
+                        BindApprovalDecision::Once => {
+                            let _config = api.inner.edit.lock().await;
+                            let (settings, staged) = api.inner.events.boot_configuration();
+                            let policy = api.inner.share_policy.clone();
+                            let paths = tokio::task::spawn_blocking(move || {
+                                approval.verify_roots().map_err(policy_status)?;
+                                validate_boot_roots(
+                                    &policy,
+                                    settings
+                                        .shares
+                                        .iter()
+                                        .chain(&staged)
+                                        .chain(approval.roots()),
+                                    settings.ui.language,
+                                )?;
+                                Ok::<_, Status>(approval.roots().to_vec())
+                            })
+                            .await
+                            .map_err(|_| Status::internal("share policy worker stopped"))??;
+                            api.inner.events.stage_once(paths);
+                            true
+                        }
+                        BindApprovalDecision::Persist => {
+                            api.edit_settings(None, move |settings, policy| {
+                                approval.verify_roots().map_err(policy_status)?;
+                                let mut paths = settings.shares.clone();
+                                paths.extend_from_slice(approval.roots());
+                                let allowlist = Allowlist::from_paths(policy.clone(), paths)
+                                    .map_err(policy_status)?;
+                                settings.shares = allowlist.roots().to_vec();
+                                Ok(())
+                            })
+                            .await?;
+                            true
+                        }
+                        BindApprovalDecision::Unspecified => {
+                            return Err(Status::invalid_argument("choose a bind approval action"));
+                        }
+                    };
+                    api.inner.events.finish_bind_prompt(
+                        &request.approval_id,
+                        decision == BindApprovalDecision::Deny,
+                    );
+                    Ok(ResolveBindResponse { requires_restart })
+                },
+            )
+            .await?;
+        Ok(Response::new(response))
+    }
+}
+
+pub(super) fn validate_boot_roots<'a>(
+    policy: &SharePolicy,
+    roots: impl Iterator<Item = &'a PathBuf>,
+    language: Language,
+) -> Result<(), Status> {
+    let configured: Vec<_> = roots.collect();
+    let allowlist = Allowlist::from_paths(policy.clone(), &configured).map_err(policy_status)?;
+    if allowlist
+        .roots()
+        .iter()
+        .any(|root| !configured.contains(&root))
+    {
+        return Err(policy_status(ShareError::InvalidPath));
+    }
+    allowlist.guest_roots().map_err(|_| {
+        super::settings_feedback::reason(
+            tonic::Code::FailedPrecondition,
+            marsa_proto::host::v1::configuration_issue::Reason::ShareGuestLayout,
+            super::bind_policy::shown(
+                language,
+                "The shared folders exceed the supported guest location, count or path length.",
+                "تتجاوز المجلدات المشتركة حدود المواقع أو العدد أو طول المسار التي يدعمها الضيف.",
+            ),
+        )
+    })?;
+    Ok(())
 }
 
 fn wire_share(path: &Path) -> Result<Share, Status> {
@@ -114,12 +224,18 @@ fn wire_share(path: &Path) -> Result<Share, Status> {
 }
 
 pub(super) fn policy_status(error: ShareError) -> Status {
-    let code = match error {
-        ShareError::InvalidPath | ShareError::NotDirectory | ShareError::UnsupportedSource => {
-            tonic::Code::InvalidArgument
-        }
-        ShareError::Resolve(_) | ShareError::Protection(_) => tonic::Code::FailedPrecondition,
-        ShareError::Protected | ShareError::NotAllowed => tonic::Code::PermissionDenied,
+    use marsa_proto::host::v1::configuration_issue::Reason;
+    use tonic::Code;
+
+    let (code, reason) = match error {
+        ShareError::InvalidPath => (Code::InvalidArgument, Reason::ShareInvalidPath),
+        ShareError::NotDirectory => (Code::InvalidArgument, Reason::ShareNotDirectory),
+        ShareError::UnsupportedSource => (Code::InvalidArgument, Reason::ShareUnsupportedSource),
+        ShareError::Resolve(_) => (Code::FailedPrecondition, Reason::ShareResolutionFailed),
+        ShareError::Protection(_) => (Code::FailedPrecondition, Reason::ShareProtectionUnverified),
+        ShareError::GuestLayout => (Code::FailedPrecondition, Reason::ShareGuestLayout),
+        ShareError::Protected => (Code::PermissionDenied, Reason::ShareProtected),
+        ShareError::NotAllowed => (Code::PermissionDenied, Reason::ShareNotAllowed),
     };
-    Status::new(code, error.to_string())
+    super::settings_feedback::reason(code, reason, error.to_string())
 }

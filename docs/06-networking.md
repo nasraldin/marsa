@@ -34,9 +34,15 @@ flowchart TB
 | Speed | Highest | Lower |
 | VPNs and strict firewalls | Can fail when the VPN blocks forwarded traffic | Uses ordinary host sockets and is subject to VPN and process-filter policy |
 | Guest IP reachable from host | Yes | No; ports are forwarded through the stack |
-| Framework attachment | NAT attachment | File-handle (datagram socket) attachment |
+| Framework attachment | `VZNATNetworkDeviceAttachment` | `VZFileHandleNetworkDeviceAttachment` with a datagram socket |
 
-**Verify:** the exact Virtualization.framework attachment classes and whether the NAT attachment needs any extra entitlement on the minimum macOS version.
+Native NAT uses the standard virtualization entitlement on macOS 27. The
+framework does not expose the assigned guest address. The backend reads the
+guest's current upstream IPv4 address and default route over the host-only
+network facts socket after the guest configures networking. These values are
+guest-reported and do not authorize host connections.
+[Apple’s NAT attachment](https://developer.apple.com/documentation/virtualization/vznatnetworkdeviceattachment),
+[network facts wire format](../crates/marsa-proto/PROTOCOL.md#guest-network-facts).
 
 ### The user-space stack
 
@@ -68,6 +74,13 @@ Unknown proxy policy, a DNS policy reply and certificate rejection preserve
 the native attachment and keep local Docker available. A failed alternate
 attempt must stop before the supervisor restores native networking on the
 same data disk. Explicitly selected modes skip automatic switching.
+
+The authenticated `Network.SetMode` call saves `auto`, `nat`, or `userspace`
+as the configured mode. The current attachment stays in use until a cold
+activation, such as an ordinary restart. A configured pin is authoritative
+for that activation. When integrating approved daemon proxy policy, enforce
+its user-space attachment requirement. An incompatible setting must be
+refused or reported as pending until approval clears that constraint.
 
 | Observation | Behavior in `auto` mode |
 |---|---|
@@ -222,6 +235,18 @@ Corporate networks were identified in planning as a top reason Docker alternativ
 
 Saving a manual proxy setting records a draft. Ordinary VM boots use the last approved
 proxy. While that proxy is active, a draft change to the attachment also remains pending.
+
+On the user-space attachment, the authenticated Network API previews the
+impact before activation. A running VM is recycled after explicit approval.
+Running containers, builds, attached Docker clients and one-session folder
+grants may be interrupted. The daemon pauses new Docker admissions during
+the transaction. It keeps the original data disk and records the candidate as
+approved only after the guest and Docker are ready. A failed candidate keeps
+the draft pending and restores the previous policy. If restoration cannot
+start a previously running engine, the result tells the client that recovery
+is required. Reopening the daemon still uses the last approved policy.
+
+When a manual daemon proxy is approved, disable it with explicit activation before changing the network mode. A confirmed factory reset clears the approved policy with the other private state.
 
 ## IPv6
 

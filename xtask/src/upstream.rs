@@ -78,28 +78,15 @@ fn fetch(
     output: &Path,
     download: impl Fn(&str, &Path) -> io::Result<()>,
 ) -> io::Result<PathBuf> {
-    let versions: Versions = toml::from_str(pins).map_err(io::Error::other)?;
+    let versions = Versions::parse(pins)?;
     let artifacts = versions.artifacts();
-    for artifact in &artifacts {
-        artifact.pin.validate(artifact.path)?;
-    }
 
     fs::create_dir_all(output)?;
     let output = output.canonicalize()?;
     let target = output.join(format!("darwin-arm64-{}", sha256(pins.as_bytes())?));
     let temporary = tempfile::tempdir_in(&output)?;
     let bundle = temporary.path().join("bundle");
-    fs::create_dir_all(bundle.join("bin/cli-plugins"))?;
-
-    let mut components = Vec::new();
-    let payload = temporary.path().join("download");
-    for artifact in &artifacts {
-        let hash = artifact.stage(&download, &payload, &bundle)?;
-        components.push(artifact.component(&hash));
-    }
-    let mut sbom = serde_json::to_vec_pretty(&json!({ "components": components }))
-        .map_err(io::Error::other)?;
-    sbom.push(b'\n');
+    let sbom = stage_verified(&artifacts, temporary.path(), &bundle, download)?;
     fs::write(bundle.join(SBOM), &sbom)?;
 
     // Rename publishes the verified bundle as a single directory. A concurrent
@@ -125,7 +112,47 @@ fn fetch(
     Ok(target)
 }
 
+/// Stage fresh supplier downloads under the caller's private release directory.
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
+pub(super) fn stage_release(
+    pins: &str,
+    work: &Path,
+    resources: &Path,
+    output: &Path,
+) -> io::Result<()> {
+    let versions = Versions::parse(pins)?;
+    let sbom = stage_verified(&versions.artifacts(), work, resources, download)?;
+    fs::write(output.join(SBOM), sbom)
+}
+
+fn stage_verified(
+    artifacts: &[Artifact<'_>],
+    work: &Path,
+    resources: &Path,
+    download: impl Fn(&str, &Path) -> io::Result<()>,
+) -> io::Result<Vec<u8>> {
+    fs::create_dir_all(resources.join("bin/cli-plugins"))?;
+    let payload = work.join("download");
+    let mut components = Vec::new();
+    for artifact in artifacts {
+        let hash = artifact.stage(&download, &payload, resources)?;
+        components.push(artifact.component(&hash));
+    }
+    let mut sbom = serde_json::to_vec_pretty(&json!({ "components": components }))
+        .map_err(io::Error::other)?;
+    sbom.push(b'\n');
+    Ok(sbom)
+}
+
 impl Versions {
+    fn parse(pins: &str) -> io::Result<Self> {
+        let versions: Self = toml::from_str(pins).map_err(io::Error::other)?;
+        for artifact in versions.artifacts() {
+            artifact.pin.validate(artifact.path)?;
+        }
+        Ok(versions)
+    }
+
     fn artifacts(&self) -> [Artifact<'_>; 4] {
         let docker = &self.docker.version;
         let compose = &self.compose.version;
@@ -302,7 +329,7 @@ fn file_hash(path: &Path) -> io::Result<String> {
     sha256(File::open(path)?)
 }
 
-fn sha256(mut source: impl Read) -> io::Result<String> {
+pub(super) fn sha256(mut source: impl Read) -> io::Result<String> {
     let mut hash = Sha256::new();
     let mut buffer = [0; 16 * 1024];
     loop {

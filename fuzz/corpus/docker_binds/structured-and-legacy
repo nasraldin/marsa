@@ -1,0 +1,1 @@
+{"HostConfig":{"Binds":["/workspace/source:/source:ro","catalog:/catalog"],"Mounts":[{"Type":"bind","Source":"/workspace/data","Target":"/data"},{"Type":"volume","Source":"cache","Target":"/cache"}]}}

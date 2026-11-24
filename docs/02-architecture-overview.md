@@ -117,7 +117,8 @@ flowchart LR
 
 | Channel | Transport | Carries |
 |---|---|---|
-| Typed API | Unix socket, gRPC | VM lifecycle, settings, sharing, diagnostics, events |
+| Typed API | Owner Unix socket, gRPC | VM lifecycle, settings, sharing, diagnostics, events and owner approval decisions |
+| AgentOps | Separate private Unix socket, gRPC, delegated capability | Scoped agent reads. Mutation providers must bind the operation to the identity reviewed by the owner. |
 | Docker socket | Unix socket, HTTP | The standard Docker Engine API, proxied byte-for-byte to dockerd |
 | Control | vsock | Time sync, port events, mounts, certificates, shutdown, stats |
 | Docker API stream | vsock | The proxied Docker Engine API |
@@ -235,7 +236,6 @@ flowchart TD
     net --> core
     share --> core
     dproxy --> core
-    dproxy --> share
     d --> vm
     d --> vz
     d --> krun

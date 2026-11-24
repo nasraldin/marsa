@@ -28,6 +28,33 @@ rust-version = "1.100"
 publish = false
 license = "MIT"
 
+[workspace.dependencies]
+gpui-component = { version = "=0.10.0", default-features = false }
+gpui = { package = "gpui-pre", version = "=0.3.13", default-features = false }
+gpui-macos = { package = "gpui-pre-macos", version = "=0.3.13", default-features = false, features = ["font-kit", "runtime_shaders"] }
+
 [workspace.lints.rust]
 missing_docs = "deny"
 unsafe_code = "deny"
+
+[patch.crates-io]
+gpui-pre = { path = "third-party/gpui/gpui-pre-0.3.13" }
+zed-font-kit = { path = "third-party/gpui/zed-font-kit-0.14.1-zed" }
+gpui-pre-apple = { path = "third-party/gpui/gpui-pre-apple-0.3.13" }
+gpui-pre-scheduler = { path = "third-party/gpui/gpui-pre-scheduler-0.3.13" }
+gpui-pre-macos = { path = "third-party/gpui/gpui-pre-macos-0.3.13" }
+hashbrown-old = { package = "hashbrown", path = "third-party/gpui/hashbrown-0.15.5" }
+flume = { path = "third-party/gpui/flume-0.12.0" }
+tonic = { path = "third-party/gpui/tonic-0.14.9" }
+png = { path = "third-party/gpui/png-0.18.1" }
+exr = { path = "third-party/gpui/exr-1.74.3" }
+accesskit_consumer = { path = "third-party/gpui/accesskit_consumer-0.39.2" }
+accesskit_macos = { path = "third-party/gpui/accesskit_macos-0.27.2" }
+gpui-component = { path = "third-party/gpui/gpui-component-0.10.0" }
+gpui-base = { path = "third-party/gpui/gpui-base-0.10.0" }
+gpui-kit-assets = { path = "third-party/gpui/gpui-kit-assets-0.10.0" }
+gpui-component-macros = { path = "third-party/gpui/gpui-component-macros-0.10.0" }
+rust-i18n = { path = "third-party/gpui/rust-i18n-4.2.4" }
+rust-i18n-support = { path = "third-party/gpui/rust-i18n-support-4.2.4" }
+lsp-types = { path = "third-party/gpui/lsp-types-0.97.0" }
+rav1e = { path = "third-party/gpui/rav1e-0.8.1" }

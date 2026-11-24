@@ -23,7 +23,7 @@ A container desktop that starts in seconds, idles near zero, feels native, speak
 | One Rust daemon | All host logic lives in `marsad`. The GUI, CLI and MCP server are clients of the same typed API. |
 | Native virtualization only | Each OS uses its own hypervisor. No QEMU, no emulation. |
 | Modern platforms only | No legacy OS versions, no Intel Macs, no x86 emulation. |
-| Bilingual by design | English (US) and Arabic (Modern Standard) are both first-class, with mirrored layouts. Nothing is designed left-to-right first and flipped later. |
+| Bilingual desktop | The desktop supports English (US) and Modern Standard Arabic with mirrored layouts. The command-line interface uses English. |
 | Secure by default | Least privilege, explicit folder sharing, signed updates, and permission tiers for agents. |
 | Correct and complete | No demo-quality features. Each feature ships in every language and theme variant, with tests. |
 

@@ -163,7 +163,8 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
 
 ## The `marsa` CLI
 
-A thin client of the typed API. It never talks to the VM directly.
+A thin client of the typed API. It never talks to the VM directly. CLI help,
+messages and prompts are in English under every locale.
 
 ```text
 marsa status                    Engine and VM state, versions, resource use
@@ -171,14 +172,17 @@ marsa start | stop | restart    Control the engine VM
 marsa env                       Print DOCKER_HOST export for the current shell
 marsa config get|set|list       Read and change settings
 marsa share list|add|remove     Manage the shared-folder allowlist
+marsa share approvals           Review current Docker bind requests
+marsa share resolve ID DECISION Answer a request with once, always, or deny
 marsa disk usage                Show data-disk usage
 marsa disk cleanup [--dry-run]  Preview and run cleanup, then reclaim space
 marsa disk reclaim              Return freed space to macOS
-marsa network status|mode       Show or pin the network mode
+marsa network status            Show active networking and observed addresses
+marsa network mode [MODE]       Show or save the mode for the next start
 marsa logs [--follow]           Daemon and guest logs
 marsa diagnose                  Collect a diagnostics bundle
 marsa update check|apply        Updates
-marsa mcp                       Run the MCP server on stdio
+marsa mcp --client-id ID --project /absolute/project   Run the MCP server on stdio
 marsa agents list|approve|deny|revoke   Agent permissions
 marsa reset [--factory]         Reset settings or wipe the data disk (typed confirmation)
 marsa version                   Versions of every component
@@ -187,9 +191,9 @@ marsa completion <shell>        Shell completions
 
 CLI rules:
 
-- Every command supports `--json` for scripts and agents, with a stable schema.
+- Management commands support `--json` for scripts with a stable schema. `marsa mcp` reserves standard output for MCP messages and rejects `--json`.
 - [Exit codes and JSON response shapes](reference/cli-exit-codes.md) are stable.
-- Human output is localised (English and Arabic); `--json` output is not.
+- CLI output uses English in human-readable and JSON modes.
 - Destructive commands require an explicit flag or a typed confirmation, and never run destructively when stdin is not a terminal unless `--yes` is given.
 - `marsa` starts `marsad` if it is not running.
 
@@ -203,3 +207,25 @@ is ready. `marsa status --json` shows engine state, the installed component
 versions and the latest resource observation from the guest. `marsa logs`
 shows a bounded tail of classified daemon, guest console and engine records.
 Use `--follow` to continue receiving new records.
+
+Run `marsa network mode` to read the configured policy and active
+attachment. Pass `auto`, `nat`, or `userspace` to save a policy for the next
+ordinary start. A running guest keeps its existing attachment until that
+start. The command reports a pending restart when the running guest was
+launched under a different policy. With `auto`, the active attachment
+can be user-space while the current policy is still automatic.
+
+`marsa diagnose` creates a private local archive and prints its path. It
+works with the engine stopped. Review the archive before sharing it.
+
+At a terminal, `marsa reset` asks for `RESET SETTINGS` and
+`marsa reset --factory` asks for `FACTORY RESET`. Use `--yes` for an
+explicit non-interactive confirmation. [Factory reset](plan/M9-hardening.md#m9-18-recover-private-storage-with-confirmed-factory-reset) stops the guest, restores the default settings, clears grants and creates a fresh private data disk.
+
+### Agent access from the terminal
+
+Configure a trusted local MCP client to launch `marsa mcp --client-id ID --project /absolute/project`. The CLI runs the matching `marsa-mcp` installed beside it. The client ID and project path are launch settings. The daemon issues the restricted capability to the bridge at startup and keeps it out of the command arguments.
+
+Run `marsa agents list` to see client registrations, active grants and pending requests. `marsa agents approve REQUEST` displays the queued operation, project, arguments with sensitive values redacted and affected resources. Enter `yes` to approve that request once. The same review applies with `--yes`. A request may expire while the prompt is open.
+
+Use `marsa agents deny REQUEST` to deny a pending request. `marsa agents revoke GRANT` displays the grant and prompts before revocation. `marsa agents revoke GRANT --yes` is the explicit non-interactive form.

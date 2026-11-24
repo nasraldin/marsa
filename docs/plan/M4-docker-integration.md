@@ -67,16 +67,44 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-06 Attach shares and enforce bind-mount policy
 
-- **Status:** todo
-- **Depends on:** M4-05, M4-01, M3-04
+- **Status:** done
+- **Depends on:** M4-05, M4-01, M4-03, M3-16, M9-18
 - **Docs:** [07 Shared folders](../07-file-sharing-and-storage.md#shared-folders), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
-- **Do:** Map allowlist entries to virtiofs shares mounted at identical paths in the guest. Inspect `POST /containers/create` in the proxy for bind mounts outside the allowlist and return a clear error with the fix; raise an approval event that the GUI and CLI can answer (once, always, deny). Handle adding a share with or without a VM restart according to backend capabilities. Implement whatever M1-04 found necessary for change notifications and ownership.
-- **Deliver:** share attachment, proxy inspection, approval event flow, a file-sharing compatibility test suite.
+- **Do:** Map allowlist entries to virtiofs shares at identical paths. Use the pinned Docker Engine authorization plugin for container-create checks and preserve the byte-transparent host proxy. Authorize each explicit bind source through the bounded VM policy channel. Expose owner approval actions for once, always and deny, with explicit restart on Apple VZ. Preserve the observed ownership behavior. M5-09 and M7-10 present the approvals. M4-19 qualifies the hot-reload workflow.
+- **Deliver:** share attachment, Docker authorization, typed approval events and decisions, and signed file-sharing tests.
 - **Accept when:**
   - `docker run -v <allowed path>:/x` works; an unlisted path is refused with an actionable message.
   - Files created in a container on a share are owned by the Mac user on the host.
-  - A file edit on the host triggers a watcher inside a container (hot reload test with a common dev server).
+  - One-session and persistent approvals take effect at restart. The session grant expires at the following stop and the persistent grant survives.
+  - The production ownership behavior and the supported change-notification workflow are documented. M4-19 owns the dev-server acceptance and final V-06 disposition.
+
+
+**Qualification.** The signed Apple silicon guest preserved raw HTTP 200 attach, HTTP 101 BuildKit upgrades and private SSH builds with the upstream authorization hook. The hook denied disallowed binds through fixed-length, chunked and native HTTP/2 REST, plus invalid or missing JSON. The product inspector caps container-create JSON at 1 MiB. The signed packaged tests verified Mac ownership, one-session expiry, persistent approval and the exact guest Docker socket mount. With authorization enabled, Docker preserved BuildKit, interactive terminals, log following and attach. A 2,215,736,832-byte Docker save caused zero observed daemon resident-memory growth over 405 samples.
+
+### M4-19 Qualify host edits in a container development server
+
+- **Status:** done
+- **Depends on:** M4-06, M4-03
+- **Docs:** [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements), V-06
+- **Do:** Test an upstream development server that relies on file-change events in the signed default Apple virtualization runtime. Use scoped Compose Watch sync to writable container storage. Record limitations for development servers using direct virtiofs binds.
+- **Deliver:** repeatable Tier 2 development server fixture and user documentation.
+- **Accept when:**
+  - Editing host source triggers hot reload in a running container, including a common editor's atomic save.
+  - The test confirms only selected development files reach the container.
   - V-06 is resolved in the docs.
+
+**Qualification.** On macOS 27.2.1 and guest Linux 7.3.5, unmodified Docker Engine 29.10.0 and Compose 5.8.0 copied the initial Hugo content. Hugo sent a browser LiveReload message over WebSocket and served newly rendered HTML after a normal write and an atomic host rename. The container kept the same startup time. It had no mounted directories or published ports. The explicitly ignored file and both out-of-scope files stayed absent.
+
+Tier 2 downloads the test-only, Apache-2.0 Linux ARM64 Hugo 0.170.1 release, verifies its pinned SHA-256 against the artifact, and imports it into the disposable Docker engine. Hugo runs in its native watch mode. The executable reports the upstream release revision `c8b03de9564cf846a3986e879727d638bb96ab33`. The fixture uses guest storage, a private Docker configuration, and a container-local socket. [Hugo release and checksums](https://github.com/gohugoio/hugo/releases/tag/v0.170.1) · [Hugo server](https://gohugo.io/commands/hugo_server/)
+
+Run the test with the [packaged guest and helper](../../crates/marsad/tests/packaged_runtime.rs) configured and the verified [upstream Docker bundle](../09-cli-and-docker-compat.md#bundled-upstream-binaries) on `PATH`. Stage the Hugo archive before starting the signed run.
+
+```sh
+export MARSA_VZ_WATCH_HUGO_ARCHIVE="$(python3 crates/marsad/tests/packaged_runtime/compose_watch.py fetch target/dev-fixtures)"
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+  compose_watch::packaged_compose_watch_reloads_hugo_after_host_saves \
+  -- --exact --ignored --nocapture --test-threads=1
+```
 
 ### M4-07 Data disk management
 
@@ -121,10 +149,10 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-10 User-space network mode and automatic selection
 
 - **Status:** todo
-- **Depends on:** M4-09, M3-15
+- **Depends on:** M4-09, M3-15, M4-25
 - **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection), V-07
 - **Do:** Use the qualified transport from M3-14 and boot-time mode selection from M3-15. Implement `userspace` port forwarding and network-change recovery with events. Respect a pinned mode.
-- **Deliver:** user-space mode, the probe, `Network.SetMode`.
+- **Deliver:** user-space port forwarding and network-change recovery using the boot probe. M4-25 owns `Network.SetMode`.
 - **Accept when:**
   - With NAT egress blocked by a firewall rule in a test, `auto` switches to `userspace` and a pull succeeds.
   - The switch is reported as an event with its reason.
@@ -172,7 +200,7 @@ Q-08 governs where the optional administrator action is offered. Context registr
 ### M4-14 Conformance suite (gate G4)
 
 - **Status:** todo
-- **Depends on:** M4-02, M4-06, M4-07, M4-09, M4-10, M4-11, M4-12, M4-13
+- **Depends on:** M4-02, M4-06, M4-07, M4-09, M4-10, M4-11, M4-12, M4-13, M4-19
 - **Docs:** [09 Compatibility checklist](../09-cli-and-docker-compat.md#compatibility-checklist), [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
 - **Do:** Build the automated conformance suite covering every line of the compatibility checklist with the real `docker` CLI and Compose, at least one Testcontainers suite per listed language, and a Dev Containers open-and-build check. Assert the documented intended differences return their explicit errors.
 - **Deliver:** `tests/conformance/`, wired into Tier 2.
@@ -208,8 +236,8 @@ Q-08 governs where the optional administrator action is offered. Context registr
 
 ### M4-17 Explicit SSH agent access for containers
 
-- **Status:** todo
-- **Depends on:** M4-06, M4-13
+- **Status:** blocked (stock Docker and VZ do not provide host-verifiable container identity)
+- **Depends on:** M4-06, M4-13, M4-24
 - **Docs:** [09 SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding), [11 SSH agent access](../11-security.md#ssh-agent-access)
 - **Do:** Design explicit authorization for a named container to mount an SSH agent socket at a documented guest path. Enforce the grant on the host, restrict the approved agent operations, authenticate the guest transport, and revoke access on container exit, VM stop or user request. Qualify the VSock transport needed by that design.
 - **Deliver:** Container-scoped SSH forwarding in the host daemon and guest agent, with a documented opt-in and revocation flow.
@@ -217,6 +245,8 @@ Q-08 governs where the optional administrator action is offered. Context registr
   - An authorized container can use an explicitly chosen host agent with a disposable test key.
   - An unapproved container and a guest-initiated connection without a current grant cannot use the agent.
   - Revocation closes active streams and rejects subsequent connections. Host private key bytes stay on the host.
+
+- **Blocker:** M4-24 proved Linux opener checks and stream teardown in a disposable VM. Stock Docker admits exec into the approved container through the supported guest Docker socket. The process then has the approved container's real Linux identity. The host's vsock carries VM-level provenance, so it cannot distinguish that request from one initiated by the approved workload. The acceptance criteria require a host-verifiable workload boundary or an owner-approved change to the trust model. [Identity and lifecycle review](../11-security.md#container-agent-grant-boundary)
 
 ### M4-18 Qualify fallback DNS recovery and expose network status
 
@@ -264,16 +294,18 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 
 ### M4-21 Activate staged manual daemon proxy with approval and rollback
 
-- **Status:** todo
-- **Depends on:** M4-20
+- **Status:** done
+- **Depends on:** M3-17, M4-20, M9-18, M4-06
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
 - **Do:** Expose an authenticated preview and explicit revision-bound activation for manual daemon proxy on the pinned user-space attachment. Coordinate engine admission and any approved workload interruption. Retain the previous working policy until the candidate succeeds, and restore it after a failed candidate. Persist successful activation separately from the desired draft.
 - **Deliver:** Controlled activation, durable last-known-good state, and signed end-to-end tests using a controlled reachable proxy destination.
 - **Accept when:**
-  - A valid approved proxy carries actual registry and default Docker-driver BuildKit requests. The signed test confirms routing through the approved proxy.
+  - A valid approved proxy carries actual registry and default Docker-driver BuildKit requests. The signed test confirms routing through the approved proxy with the bind-authorization service enabled.
   - Draft edits persist without interrupting workloads, and ordinary boot/retry never activates an unapproved draft.
   - The user sees the potential impact before granting approval. Stale approvals and racing starts or connects cannot apply or use a candidate out of order.
   - A failed candidate leaves the draft pending, reports failure, and restores the last working configuration on the same data disk. Cancellation and daemon recovery preserve the last working policy.
+
+- **Evidence:** On macOS 27.2.1, the final signed packaged test passed in 88.36 seconds with Docker Engine 29.10.0, BuildKit 0.35.0 and Buildx 0.39.1. The running engine kept its original proxy during draft save and after a declined confirmation. Explicit approval retained the same data disk and wrote an owner-only policy record. Docker pull and the default Docker-driver BuildKit build used separate restricted CONNECT requests and obtained distinct registry manifests through verified TLS. The fixture exported the BuildKit base image marker. The test used guest loopback and a fixture-only CA. The [reproduction](../../crates/marsad/tests/packaged_runtime/proxy_fixture/README.md) includes guest preparation. Fake-backend tests cover stale and expired approvals, delayed-worker replay after disconnect, candidate rollback and uncommitted VM cleanup.
 
 ### M4-23 Verify unprivileged macOS loopback binds
 
@@ -285,3 +317,31 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 - **Accept when:**
   - The documented experiment records the macOS version, address families, transports, and OS errors.
   - No host privilege, LAN listener, or system setting is required.
+
+### M4-24 Qualify SSH agent transport and guest peer identity
+
+- **Status:** done
+- **Depends on:** M3-03, M3-16, M4-06, M4-13
+- **Docs:** [11 SSH agent access](../11-security.md#ssh-agent-access), [D-030](../15-decisions.md#d-030-scope-build-ssh-agent-access-to-buildx-sessions), [RFC 9987](https://www.rfc-editor.org/rfc/rfc9987.html)
+- **Do:** Qualify host-initiated VZ access to a closed, disposable guest relay and validate Unix opener identity against a pinned cgroup with the peer's Linux pidfd. Prove that filesystem visibility of the same socket is insufficient. Check that the forwarded agent accepts bounded identity listing and signing while rejecting mutations. Keep the test agent, key and VM separate from user state.
+- **Deliver:** Entitled disposable fixture and a documented transport and identity boundary for M4-17. M4-17 owns production grant and immutable Docker-ID mapping, socket mount authorization, and lifecycle revocation.
+- **Accept when:**
+  - The signed host connects to the guest relay and the relay verifies the host CID. Neither an unsolicited guest-to-host connection nor a guest opener without the expected peer identity gains access.
+  - Two guest Linux cgroups see the same Unix socket. Only the approved one can verify a signature made by its explicitly selected disposable Mac agent, and a forbidden mutation leaves the agent's key intact.
+  - Closing the host transport disconnects an active guest stream and another request fails. The key and approval exist only inside the disposable fixture lifecycle. Document the privileged guest and Docker integration limits.
+
+- **Evidence:** The entitled test completed in 1.03 seconds on macOS 27.2.1 with Linux 7.3.5 and OpenSSH 10.5p1. The host-opened VZ connection was authenticated as host CID 2. The unsolicited guest-to-host dial did not connect. A second cgroup opening the identical Unix socket received EOF before any SSH request. The approved opener verified a real Ed25519 signature, and its remove-all attempt left exactly one key in the dedicated host agent. Closing the host stream produced EOF on the active guest stream, refused a fresh open, and the peer pidfd signaled exit. [Fixture and reproduction](../../crates/marsa-vm-vz/tests/real_vm/ssh_fixture/README.md)
+
+### M4-25 Save the configured network mode through the typed API
+
+- **Status:** done
+- **Depends on:** M3-15, M4-18, M4-21
+- **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection)
+- **Do:** Implement owner-authenticated `Network.SetMode` using the existing settings transaction and request deduplication. Change only the configured mode. Report that saved mode and any independently observed active attachment and guest addresses. Leave the current VM and its connections alone.
+- **Deliver:** A typed settings mutation with disposable-state and fake-runtime tests.
+- **Accept when:**
+  - Only the authenticated owner can set `auto`, `nat`, or `userspace`. Invalid modes and request IDs change nothing. Repeating a request returns its original result, and using its ID for a different mode is rejected.
+  - Only the network mode changes on disk and in settings. Concurrent edits serialize without losing unrelated settings. A stopped or unavailable runtime has no active mode or address reported.
+  - Changing the mode while the VM is ready leaves its active attachment intact. An ordinary restart uses the saved explicit pin and automatic selection does not override it.
+
+- **Evidence:** The authenticated Unix tests verified validation, duplicate and conflicting request IDs, preservation of unrelated settings and serialization with full settings updates. The daemon process wrote an owner-only file in a disposable home and read its saved mode after relaunch without booting a VM. The fake packaged runtime kept NAT active during a Userspace edit, then selected the new pin only on an ordinary restart. A failed boot left active fields empty.

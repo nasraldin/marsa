@@ -5,6 +5,9 @@ use std::path::{Component, Path, PathBuf};
 use crate::error::PathError;
 use crate::platform::HostPlatform;
 
+/// Filename for the restricted local agent RPC socket.
+pub const AGENT_SOCKET_NAME: &str = "agent.sock";
+
 /// Host storage locations anchored to one per-user root directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarsaPaths {
@@ -51,6 +54,11 @@ impl MarsaPaths {
     /// Socket that serves the typed daemon API.
     pub fn daemon_socket(&self) -> PathBuf {
         self.run_dir().join("marsad.sock")
+    }
+
+    /// Socket that serves only delegated agent operations.
+    pub fn agent_socket(&self) -> PathBuf {
+        self.run_dir().join(AGENT_SOCKET_NAME)
     }
 
     /// Socket that serves the Docker Engine API.

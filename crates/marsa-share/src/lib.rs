@@ -55,6 +55,9 @@ pub enum ShareError {
     /// The bind source is outside all approved roots.
     #[error("the host path is outside the shared folders")]
     NotAllowed,
+    /// The selected directories cannot all be attached at guest boot.
+    #[error("shared folders exceed the packaged guest's location, count or path length limits")]
+    GuestLayout,
 }
 
 /// System-defined protection rules for a user and the daemon's writable state.
@@ -90,6 +93,22 @@ impl SharePolicy {
     /// Validate a grant and return the canonical host directory to share.
     pub fn validate_share(&self, path: &Path) -> Result<PathBuf, ShareError> {
         self.directory(path).map(|resolved| resolved.path)
+    }
+
+    /// Find the exact directory to request when a regular file or directory is unshared.
+    pub fn bind_approval_directory(&self, source: &Path) -> Result<PathBuf, ShareError> {
+        let (resolved, file_type) = self.check(source)?;
+        if resolved.path != source {
+            return Err(ShareError::InvalidPath);
+        }
+        if file_type.is_dir() {
+            return Ok(resolved.path);
+        }
+        if !file_type.is_file() {
+            return Err(ShareError::UnsupportedSource);
+        }
+        let parent = resolved.path.parent().ok_or(ShareError::InvalidPath)?;
+        self.validate_share(parent)
     }
 
     fn directory(&self, path: &Path) -> Result<Resolved, ShareError> {
@@ -193,14 +212,63 @@ impl Allowlist {
         &self.roots
     }
 
+    /// Validate and return the minimum mount set needed in the packaged VM.
+    pub fn guest_roots(&self) -> Result<Vec<&PathBuf>, ShareError> {
+        use marsa_core::guest_boot::{
+            ARM64_CMDLINE_BYTES, PACKAGED_BOOT_ARGS, Settings, append_share_arg,
+        };
+
+        let roots: Vec<_> = self
+            .roots
+            .iter()
+            .filter(|path| {
+                !self
+                    .roots
+                    .iter()
+                    .any(|other| *path != other && path.starts_with(other))
+            })
+            .collect();
+        let mut args = PACKAGED_BOOT_ARGS.to_owned();
+        for (index, path) in roots.iter().enumerate() {
+            append_share_arg(&mut args, &format!("marsa-share-{index}"), path)
+                .map_err(|_| ShareError::GuestLayout)?;
+            if args.len() >= ARM64_CMDLINE_BYTES {
+                return Err(ShareError::GuestLayout);
+            }
+        }
+        Settings::parse(&args).map_err(|_| ShareError::GuestLayout)?;
+        Ok(roots)
+    }
+
+    /// Reject approval if any recorded directory has moved, changed identity or become protected.
+    pub fn verify_roots(&self) -> Result<(), ShareError> {
+        for (root, identity) in self.roots.iter().zip(&self.identities) {
+            let current = self.policy.directory(root)?;
+            if current.path != *root || current.identity() != *identity {
+                return Err(ShareError::NotAllowed);
+            }
+        }
+        Ok(())
+    }
+
     /// Check an existing bind source and return its canonical path for the consumer to use.
     pub fn authorize(&self, source: &Path) -> Result<PathBuf, ShareError> {
+        self.authorize_if(source, |_| true)
+    }
+
+    /// Check a bind against previously resolved root identities still approved by the caller.
+    pub fn authorize_if(
+        &self,
+        source: &Path,
+        approved: impl Fn(&Path) -> bool,
+    ) -> Result<PathBuf, ShareError> {
         let (resolved, file_type) = self.policy.check(source)?;
         if !file_type.is_dir() && !file_type.is_file() {
             return Err(ShareError::UnsupportedSource);
         }
         for (root, identity) in self.roots.iter().zip(&self.identities) {
-            if resolved.ancestry.iter().any(|(found, _)| found == identity)
+            if approved(root)
+                && resolved.ancestry.iter().any(|(found, _)| found == identity)
                 && root.canonicalize().is_ok_and(|current| current == *root)
                 && root
                     .metadata()

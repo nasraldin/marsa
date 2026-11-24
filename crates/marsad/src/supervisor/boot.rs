@@ -2,6 +2,7 @@
 
 use std::{future::Future, io, sync::Arc, time::Duration};
 
+use marsa_core::settings::NetworkMode;
 use marsa_proto::guest::v1::ConfigureNetwork;
 use marsa_vm::{Hypervisor, Vm, VmError, VmEvent, VmEventStream, VmExitCause, VmSpec, VmState};
 use tokio::{
@@ -24,12 +25,16 @@ pub(super) struct LiveGuest {
     pub session: Option<Box<dyn GuestSession>>,
     pub events: VmEventStream,
     pub network: BootNetwork,
+    pub configured_mode: Option<NetworkMode>,
     pub applied: Option<Applied>,
     network_lost: bool,
 }
 
 pub(super) enum Outcome {
     Ready(LiveGuest),
+    // Docker may already have started. Keep its VM and the selected attachment
+    // when the actor interrupts the readiness check for system sleep or stop.
+    Interrupted(LiveGuest),
     Failed {
         vm: Option<Box<dyn Vm>>,
         issue: Issue,
@@ -95,6 +100,7 @@ pub(super) async fn run(
         }
     };
     let console = launch.spec.console_log.clone();
+    let configured_mode = launch.selection.configured_mode;
     let console_position = platform::console_position(&console).await;
     let result = selection::select_and_start(
         launch.backend.as_ref(),
@@ -111,9 +117,15 @@ pub(super) async fn run(
     )
     .await;
     match result {
-        Ok(mut guest) => {
-            guest.applied = launch.applied;
-            Outcome::Ready(guest)
+        Ok(mut outcome) => {
+            match &mut outcome {
+                Outcome::Ready(guest) | Outcome::Interrupted(guest) => {
+                    guest.applied = launch.applied;
+                    guest.configured_mode = configured_mode;
+                }
+                Outcome::Failed { .. } => {}
+            }
+            outcome
         }
         Err(mut failure) => {
             if failure.issue.stage == BootStage::Handshake
@@ -194,6 +206,7 @@ async fn attach(
             events,
             network_lost,
             applied: None,
+            configured_mode: None,
             network: BootNetwork {
                 active,
                 result: NetworkResult::Unchecked,
@@ -211,7 +224,7 @@ async fn start_engine(
     deadline: Instant,
     cancel: &mut oneshot::Receiver<()>,
     progress: &watch::Sender<BootStage>,
-) -> Result<LiveGuest, Failed> {
+) -> Result<Outcome, Failed> {
     let Some(session) = guest.session.as_deref_mut() else {
         return Err(Failed {
             vm: Some(guest.vm),
@@ -231,19 +244,18 @@ async fn start_engine(
         ),
     )
     .await;
+    if guest.network_lost {
+        guest.network.result = match guest.network.result {
+            NetworkResult::Fallback(native) => NetworkResult::AlternateFailed {
+                native,
+                alternate: AlternateFailure::Transport,
+            },
+            _ => NetworkResult::TransportUnavailable,
+        };
+    }
     match ready {
-        Ok(()) => {
-            if guest.network_lost {
-                guest.network.result = match guest.network.result {
-                    NetworkResult::Fallback(native) => NetworkResult::AlternateFailed {
-                        native,
-                        alternate: AlternateFailure::Transport,
-                    },
-                    _ => NetworkResult::TransportUnavailable,
-                };
-            }
-            Ok(guest)
-        }
+        Ok(()) => Ok(Outcome::Ready(guest)),
+        Err(issue) if matches!(issue.reason, Reason::Canceled) => Ok(Outcome::Interrupted(guest)),
         Err(issue) => Err(Failed {
             vm: Some(guest.vm),
             issue,

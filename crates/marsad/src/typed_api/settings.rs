@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 pub(super) mod storage;
 
-use marsa_core::settings::Settings as Document;
+use marsa_core::settings::{NetworkMode, Settings as Document};
 use marsa_proto::host::v1::{
     GetSettingsRequest, SettingsSnapshot, UpdateSettingsRequest, WatchSettingsRequest,
     settings_server::Settings,
@@ -71,7 +71,7 @@ impl TypedApi {
         let (snapshot, ()) = self
             .edit_settings(Some(expected), move |current, policy| {
                 let mut desired = Document::from_toml(&text)
-                    .map_err(|error| Status::invalid_argument(error.to_string()))?;
+                    .map_err(super::settings_feedback::settings_status)?;
                 if desired.shares != current.shares {
                     desired.shares = Allowlist::from_paths(policy.clone(), &desired.shares)
                         .map_err(super::shares::policy_status)?
@@ -114,9 +114,12 @@ impl TypedApi {
     ) -> Result<(SettingsSnapshot, T), Status> {
         let _admission = self.inner.factory_reset.read()?;
         let _update = self.inner.edit.lock().await;
-        let (prior, snapshot) = self.inner.events.settings();
+        let (prior, once) = self.inner.events.boot_configuration();
+        let snapshot = self.inner.events.settings_snapshot();
         if expected.is_some_and(|revision| revision != snapshot.revision) {
-            return Err(Status::aborted(
+            return Err(super::settings_feedback::reason(
+                tonic::Code::Aborted,
+                marsa_proto::host::v1::configuration_issue::Reason::SettingsStale,
                 "settings revision changed; load the latest settings",
             ));
         }
@@ -127,15 +130,33 @@ impl TypedApi {
         let root = self.inner.paths.root().to_owned();
         let uid = self.inner.uid;
         let policy = self.inner.share_policy.clone();
+        let proxy = self.proxy.clone();
         let (updated, result) = tokio::task::spawn_blocking(move || {
             let mut settings = prior.clone();
             let result = edit(&mut settings, &policy)?;
+            if prior.network.mode != settings.network.mode
+                && settings.network.mode != NetworkMode::Userspace
+                && proxy.is_some_and(|runtime| runtime.has_approved_proxy())
+            {
+                return Err(super::settings_feedback::reason(
+                    tonic::Code::FailedPrecondition,
+                    marsa_proto::host::v1::configuration_issue::Reason::SettingsProxyEnabled,
+                    "disable the approved daemon proxy before changing network mode",
+                ));
+            }
             if prior == settings && prepared.is_none() {
                 return Ok((None, result));
             }
+            if settings.shares != prior.shares {
+                super::shares::validate_boot_roots(
+                    &policy,
+                    settings.shares.iter().chain(&once),
+                    settings.ui.language,
+                )?;
+            }
             let text = settings
                 .to_toml()
-                .map_err(|error| Status::invalid_argument(error.to_string()))?;
+                .map_err(super::settings_feedback::settings_status)?;
             storage::persist(&root, uid, &text, prepared.as_ref()).map_err(
                 |error| match error {
                     WriteError::Changed => Status::aborted(error.to_string()),

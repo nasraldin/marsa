@@ -85,14 +85,17 @@ message PrunePreviewRequest {
 
 message PrunePreviewResponse {
   repeated PruneCandidate candidates = 1;
-  uint64 estimated_reclaimable_bytes = 2;
+  // Known guest estimate only when every selected estimate is available.
+  optional uint64 estimated_reclaimable_bytes = 2;
+  repeated DiskCategory unavailable_categories = 3;
 }
 
 message PruneCandidate {
   DiskCategory category = 1;
   string id = 2;
   string name = 3;
-  uint64 size_bytes = 4;
+  // Omitted when the engine cannot report an estimate for this candidate.
+  optional uint64 size_bytes = 4;
 }
 
 message CheckUpdatesRequest {}

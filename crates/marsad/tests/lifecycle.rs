@@ -117,7 +117,13 @@ async fn docker_unavailability_includes_a_localized_error() {
         let home = TempDir::new_in("/tmp").unwrap();
         let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
         let mut daemon = Daemon(start(home.path()).env("LC_ALL", locale).spawn().unwrap());
-        wait_for_meta(&mut daemon, paths.daemon_socket()).await;
+        // A successful RPC, rather than the transport handshake, observes the
+        // daemon after both local endpoints have been published.
+        wait_for_meta(&mut daemon, paths.daemon_socket())
+            .await
+            .version(VersionRequest {})
+            .await
+            .unwrap();
         let mut docker = UnixStream::connect(paths.docker_socket()).await.unwrap();
         docker
             .write_all(b"GET /_ping HTTP/1.1\r\nHost: docker\r\n\r\n")
@@ -141,7 +147,15 @@ async fn recovers_stale_socket_and_pid_after_an_unclean_exit() {
     let home = TempDir::new_in("/tmp").unwrap();
     let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
     let mut first = Daemon(start(home.path()).spawn().unwrap());
-    wait_for_meta(&mut first, paths.daemon_socket()).await;
+    wait_for_meta(&mut first, paths.daemon_socket())
+        .await
+        .version(VersionRequest {})
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(paths.daemon_pid_file()).unwrap().trim(),
+        first.0.id().to_string()
+    );
     first.0.kill().unwrap();
     first.0.wait().unwrap();
     assert!(paths.daemon_socket().exists());
@@ -643,4 +657,63 @@ async fn wait_for_channel(daemon: &mut Daemon, path: PathBuf) -> Channel {
 fn mode(path: PathBuf) -> u32 {
     let metadata: io::Result<_> = fs::symlink_metadata(path);
     metadata.unwrap().permissions().mode() & 0o777
+}
+
+#[tokio::test]
+async fn saved_network_mode_survives_daemon_relaunch_without_a_vm() {
+    use marsa_core::{paths::MarsaPaths, settings::Settings};
+    use marsa_proto::host::v1::{
+        NetworkMode, NetworkStatusRequest, SetNetworkModeRequest, network_client::NetworkClient,
+    };
+
+    let home = TempDir::new_in("/tmp").unwrap();
+    let paths = MarsaPaths::from_home(home.path()).unwrap();
+    let mut daemon = Daemon(start(home.path()).spawn().unwrap());
+    let mut network =
+        NetworkClient::new(wait_for_channel(&mut daemon, paths.daemon_socket()).await);
+    let saved = network
+        .set_mode(SetNetworkModeRequest {
+            request_id: "55000000-0000-4000-8000-000000000001".into(),
+            mode: NetworkMode::Userspace.into(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(saved.configured_mode(), NetworkMode::Userspace);
+    assert_eq!(saved.active_mode(), NetworkMode::Unspecified);
+    assert_eq!(
+        (saved.guest_address, saved.gateway_address, saved.reason),
+        (None, None, None)
+    );
+    assert_eq!(mode(paths.config_file()), 0o600);
+    let persisted = Settings::from_toml(&fs::read_to_string(paths.config_file()).unwrap()).unwrap();
+    assert_eq!(
+        persisted.network.mode,
+        marsa_core::settings::NetworkMode::Userspace
+    );
+    assert!(!paths.data_disk().exists());
+
+    daemon.terminate().await;
+    let mut relaunched = Daemon(start(home.path()).spawn().unwrap());
+    let mut network =
+        NetworkClient::new(wait_for_channel(&mut relaunched, paths.daemon_socket()).await);
+    let after = network
+        .status(NetworkStatusRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(after.configured_mode(), NetworkMode::Userspace);
+    assert_eq!(after.active_mode(), NetworkMode::Unspecified);
+    let automatic = network
+        .set_mode(SetNetworkModeRequest {
+            request_id: "55000000-0000-4000-8000-000000000002".into(),
+            mode: NetworkMode::Auto.into(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(automatic.configured_mode(), NetworkMode::Auto);
+    assert_eq!(automatic.active_mode(), NetworkMode::Unspecified);
+    assert!(!paths.data_disk().exists());
+    relaunched.terminate().await;
 }
