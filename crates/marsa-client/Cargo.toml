@@ -7,7 +7,21 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
+marsa-l10n = { path = "../marsa-l10n" }
 marsa-proto = { path = "../marsa-proto" }
 
 [lints]
 workspace = true
+
+[target.'cfg(unix)'.dependencies]
+hyper-util = { version = "=0.1.21", features = ["tokio"] }
+nix = { version = "=0.32.0", features = ["user"] }
+thiserror = "=2.0.21"
+tokio = { version = "=1.54.1", features = ["fs", "net", "process", "rt", "sync", "time"] }
+tonic = "=0.14.9"
+tower = { version = "=0.5.3", features = ["util"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+tempfile = "=3.27.0"
+tokio = { version = "=1.54.1", features = ["macros"] }
+tokio-stream = { version = "=0.1.19", features = ["net"] }

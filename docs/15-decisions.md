@@ -36,6 +36,9 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-026 | Use EROFS for the guest root filesystem | Accepted |
 | D-027 | Apply proxy settings at a controlled engine restart | Accepted |
 | D-028 | Qualify native IPv4 independently of runtime and power management | Accepted |
+| D-029 | Verify updates with TUF | Accepted |
+| D-031 | Scope development file sync with Compose Watch | Accepted |
+| D-033 | Keep the command-line interface in English | Accepted |
 
 ---
 
@@ -211,6 +214,15 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Consequence:** M3-16 owns common device support. M3-11 and M3-12 depend on those capabilities and M3-12 uses M3-15 for automatic egress selection. M3-04 keeps native DHCP, IPv4 address, default gateway, and verified HTTPS as its own acceptance gate.
 - **Reopen if:** The fallback and native attachments require different stop, pause, resume or guest control semantics.
 - **Date and task:** 2026-11-22, M3-16.
+---
+
+## D-031 Scope development file sync with Compose Watch
+
+- **Decision:** Support explicitly selected development source directories through Compose Watch sync into the container filesystem.
+- **Why:** The production Apple virtiofs configuration reflected the updated bytes from a Mac atomic save without generating an inotify event. With signed Compose 5.8.0 on the same backend, an atomic save produced native Linux create, modify and close-write notifications. The fixture confirmed initial sync, exact updated contents, and exclusion of ignored and out-of-scope files.
+- **Consequence:** Show the scoped configuration in the development guide and keep the ordinary bind-mount workflow for shared files. Qualify a common development server in M4-19. [Compose Watch](https://docs.docker.com/compose/how-tos/file-watch/)
+- **Reopen if:** A supported Apple virtiofs interface provides host-origin notifications with the same share isolation.
+- **Date and task:** 2026-11-22, M4-06.
 
 ---
 
@@ -226,3 +238,34 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Reopen if:**
 - **Date and task:**
 ```
+
+
+## D-029 Verify updates with TUF
+
+- **Decision:** Keep the updater under `marsad` so interactive and headless clients share one authorization, VM shutdown and rollback path. Use TUF metadata and an audited, maintained Rust verifier for signatures, expiry, rollback detection and secure key rotation. Require a separately verified Apple Developer ID signature and notarization for the app before any install. [Manifest and key procedures](reference/update-manifest.md).
+- **Why:** Sparkle 2.10.0 is maintained and supplies signed feeds, trust checks and update installation. Its separately distributed command-line tool demonstrates headless operation. Marsa still needs daemon-controlled shutdown, restart and rollback after real engine health is established, shared by the UI and CLI. TUF supplies standard signed metadata and key recovery without owning the VM or bundle replacement. [Sparkle release](https://github.com/sparkle-project/Sparkle/releases/tag/2.10.0), [Sparkle command-line tool](https://sparkle-project.org/documentation/sparkle-cli/), [TUF specification](https://theupdateframework.github.io/specification/v1.0.33/).
+- **Consequence:** M10-04 owns safe archive extraction, verified bundle replacement and the rollback transaction. Its dependency must pass the production policy. Establish project custody and Apple signing under Q-04 before publishing a production root or update.
+- **Date and task:** 2026-11-22, M10-03.
+
+## D-030 Scope build SSH agent access to Buildx sessions
+
+- **Decision:** Use upstream Buildx SSH sessions for builds. Keep explicit container-mounted agent forwarding in M4-17.
+- **Why:** Buildx resolves the host agent when building the client session and BuildKit supplies a mount to the requesting step. The session affordance is sufficient for a private Git clone. The Docker byte proxy cannot infer which other guest workload, if any, the user authorized from that build session. A fixed guest listener would be visible across unrelated guest workloads with mount access. [Pinned Buildx setup](https://github.com/docker/buildx/blob/v0.39.1/commands/build.go#L1016-L1024) · [Pinned BuildKit provider](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).
+- **Consequence:** Validate the unmodified Docker CLI and Buildx against a private fixture. Require a separate host-side authorization and revocation model before adding a socket for regular containers.
+- **Reopen if:** The pinned CLI or engine changes the Buildx session contract.
+- **Date and task:** 2026-11-22, M4-13.
+
+
+## D-032 Use IBM Plex for desktop typography
+
+- **Decision:** Use the Figma Foundations' IBM Plex typography. Bundle unmodified IBM Plex Sans and IBM Plex Sans Arabic for UI text and IBM Plex Mono for Latin technical text.
+- **Why:** The dedicated Arabic faces supply the same regular, medium and semibold roles as the Latin design. HarfBuzz verified joining in each Arabic weight, and CoreText read the original native files on macOS.
+- **Consequence:** Verify the [pinned font files and licence notice](../assets/fonts/README.md) at packaging, and use the Arabic face where Mono lacks a glyph. M6-02 owns GPUI registration and rendering.
+- **Date and task:** 2026-11-22, M6-13.
+
+## D-033 Keep the command-line interface in English
+
+- **Decision:** Use English for the Marsa CLI. Offer English and Arabic language selection in the desktop GUI under D-015.
+- **Why:** The owner clarified that Arabic support applies to the desktop interface.
+- **Consequence:** CLI help, messages, confirmation prompts and completion descriptions use English under every shell locale. Do not expose a CLI language override. Preserve machine response contracts and user-supplied Unicode data.
+- **Date and task:** 2026-11-22, M5-07.

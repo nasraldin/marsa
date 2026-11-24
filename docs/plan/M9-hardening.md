@@ -18,30 +18,42 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-02 Fuzz targets
 
-- **Status:** todo
-- **Depends on:** M3-07, M4-01
+- **Status:** done
+- **Depends on:** M3-07, M10-03
 - **Docs:** [11 Process hardening on the host](../11-security.md#process-hardening-on-the-host)
-- **Do:** Add fuzz targets for the guest control-protocol decoder, the Docker create-request inspector, the settings parser and the update manifest parser (once M10-03 defines it). Run them on a schedule in CI with a corpus kept in the repository.
+- **Do:** Add fuzz targets for the guest control-protocol decoder, the settings parser and the update manifest parser. Run them on a schedule in CI with a corpus kept in the repository. M9-15 adds the Docker create-request inspector after M4-06 implements it.
 - **Deliver:** `fuzz/` targets and a scheduled workflow.
 - **Accept when:**
   - Each target runs for a fixed budget in CI without crashes.
   - Any crash found is fixed and its input added as a regression test.
 
-### M9-03 Disk space reclaim end to end
+### M9-03 Explicit disk space reclaim
 
-- **Status:** todo
-- **Depends on:** M4-07, M2-08, M1-03
+- **Status:** done
+- **Depends on:** M4-07, M2-08, M1-03, M5-05
 - **Docs:** [07 Returning space to macOS](../07-file-sharing-and-storage.md#returning-space-to-macos), V-05, R-14
-- **Do:** Implement `Disk.Reclaim` using the mechanism proven in M1-03, automatic reclaim after cleanup and on a schedule when idle, and the offline compaction fallback if it was needed. Wire `marsa disk reclaim` and the GUI cleanup flow.
-- **Deliver:** reclaim implementation and a Tier 2 test.
+- **Do:** Implement authenticated `Disk.Reclaim` and wire `marsa disk reclaim`. Send the existing Trim command to the ready guest on explicit request. Measure actual host sparse allocation before and after, and report the observed delta separately from guest bytes submitted for discard. Keep automatic and post-cleanup reclaim in M9-14.
+- **Deliver:** daemon and CLI integration, unit tests, and a Tier 2 disposable-data test.
 - **Accept when:**
-  - A test that pulls several gigabytes of images, removes them and reclaims shows the image file's real size on the host dropping by at least 90% of the freed amount.
-  - Reclaim never runs during heavy I/O without the user asking.
+  - After deleting several GiB of disposable data in a dedicated test VM, explicit reclaim drops host image allocation by at least 90% of the freed amount.
+  - A stopped VM does not boot for reclaim. Reclaim only runs on explicit request and concurrent or retried requests remain bounded.
+
+The signed macOS 27.2.1 fixture freed 3,054,608,384 guest filesystem bytes
+after deleting a disposable container layer. Reclaim released 3,221,209,088
+host bytes from the same sparse image, and the guest passed the ext4
+clean-shutdown check. The CLI and request UUID replay were verified against
+the same running guest.
+
+The updated signed test with lifecycle admission and the current guest
+agent freed 2,974,916,608 guest bytes and released 3,221,213,184 host
+bytes. It verified CLI output, UUID replay and clean ext4 shutdown.
+The fake-runtime regression shows that a held maintenance permit
+rejects reclaim before the guest receives a trim.
 
 ### M9-04 Memory behaviour
 
-- **Status:** todo
-- **Depends on:** M4-02, M3-04
+- **Status:** done
+- **Depends on:** M4-02, M3-12
 - **Docs:** [04 Memory management](../04-virtualization-macos.md#memory-management), V-04, R-03
 - **Do:** Measure how much memory the balloon actually returns to macOS under `vz` (V-04) and record it. Implement the memory policy: right-sized default, balloon on idle if it helps, idle stop as the dependable mechanism, all configurable.
 - **Deliver:** memory policy in the supervisor, a measurement report in `docs/spikes/M9-04-memory.md`.
@@ -49,6 +61,11 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
   - The report states measured host memory before, during and after a 2 GiB workload, with and without ballooning.
   - With idle stop on, host memory returns to the daemon's idle footprint after the timeout.
   - V-04 is resolved in the docs.
+
+Run the offline workload in the signed packaged VZ runtime with user-space
+networking. VZ memory devices and idle-stop transitions are shared across
+attachments. Strict native IPv4 DHCP, gateway and external HTTPS validation
+remain in M3-04 under [D-028](../15-decisions.md#d-028-qualify-native-ipv4-independently-of-runtime-and-power-management).
 
 ### M9-05 Sleep, wake and network-change robustness
 
@@ -63,40 +80,100 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 
 ### M9-06 Crash recovery
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-06, M4-07
 - **Docs:** [04 Failure handling](../04-virtualization-macos.md#failure-handling)
-- **Do:** On start, detect and clean up or reattach an orphaned VM, stale sockets, stale port listeners and a stale helper process. Ensure a daemon crash never corrupts the data disk.
+- **Do:** Recover from daemon death without leaving a VM or user-space helper alive, replace stale runtime sockets on start and preserve the data disk. M9-16 verifies stale published port listeners after M4-09 implements forwarding.
 - **Deliver:** recovery logic and fault-injection tests.
 - **Accept when:**
   - Killing `marsad` at each supervisor state and restarting always reaches a correct state without manual steps.
   - A named volume written before the kill is intact afterwards.
 
-### M9-07 Diagnostics bundle
+**Verification.** Private subprocesses were killed at all eight supervisor states. Each replacement served the Unix API and rebound the Docker socket. The signed Apple silicon test killed the daemon in `Ready`, observed the old network helper exit and verified that the replacement used the original disk and named volume. A later clean shutdown left no ext4 recovery flag.
+
+### M9-16 Recover published ports after a daemon crash
 
 - **Status:** todo
-- **Depends on:** M3-08
-- **Docs:** [03 Responsibilities](../03-host-daemon.md#responsibilities), [11 Threat model](../11-security.md#threat-model) (T11)
-- **Do:** Implement `Diagnostics.Collect`: daemon logs, console log, engine log tail, settings without secrets, versions, state history, network status. Redact environment values, tokens and anything matching secret patterns. Produce a single archive the user reviews before sharing.
-- **Deliver:** diagnostics module and redaction tests.
+- **Depends on:** M4-09, M9-06
+- **Docs:** [06 Published ports](../06-networking.md#published-ports), [04 Failure handling](../04-virtualization-macos.md#failure-handling)
+- **Do:** Verify recovery of published TCP and UDP listeners when the daemon is killed, including any helper that owns a listener.
+- **Deliver:** Production port recovery changes where needed and a crash-injection regression in the port-forwarding suite.
 - **Accept when:**
-  - Planted secrets in logs and settings do not appear in the bundle.
-  - `marsa diagnose` and the GUI action both produce the bundle and show its path.
+  - The stale published listeners close after daemon death and a replacement can bind the same endpoints without manual cleanup.
+  - Recovery preserves the configured exposure policy and leaves an unrelated listener alone.
 
-### M9-08 Factory reset and clean uninstall
+### M9-07 Diagnostics bundle actions
 
 - **Status:** todo
-- **Depends on:** M4-07, M4-04
+- **Depends on:** M5-06, M7-09, M9-13
+- **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli), [11 Threat model](../11-security.md#threat-model) (T11)
+- **Do:** Connect the CLI and GUI diagnostic actions to the daemon collector. Show the locally created archive path and let the user review it before sharing.
+- **Deliver:** CLI and GUI integration and end-to-end tests for the diagnostic actions.
+- **Accept when:**
+  - `marsa diagnose` and the GUI action both produce the bundle and show its path.
+  - Neither action uploads the bundle.
+
+### M9-08 Clean uninstall
+
+- **Status:** blocked (M4-04 and Q-08)
+- **Depends on:** M4-04, M9-18
+- **Docs:** [12 Uninstall](../12-build-release-update.md#uninstall), Q-08
+- **Do:** Implement and document the uninstall procedure, including the matching removal of optional Docker integration installed by M4-04. Verify the procedure on a clean machine.
+- **Deliver:** uninstall script or command and a clean-machine test.
+- **Accept when:**
+  - After uninstall, no Marsa file, launch agent, Docker context, symlink or PATH entry remains (verified by the test).
+
+### M9-17 Confirm and reset daemon settings
+
+- **Status:** done
+- **Depends on:** M3-08
+- **Docs:** [03 Typed API](../03-host-daemon.md#typed-api), [07 Integrity](../07-file-sharing-and-storage.md#integrity)
+- **Do:** Add owner-authenticated settings reset to `Engine.Reset`. Prepare a short-lived single-use confirmation bound to the current settings revision and private configuration member. After confirmation, atomically persist defaults and publish the settings revision.
+- **Deliver:** settings-only reset RPC and fixture tests.
+- **Accept when:**
+  - A valid confirmation resets settings without starting the engine or touching its disk or grants.
+  - Missing, expired, repeated and stale confirmations cannot apply a reset. Unsafe or substituted configuration members remain intact.
+  - Interrupted persistence leaves either the existing complete settings or the complete defaults.
+
+**Verification.** Tests use the authenticated Unix API and private fixture
+storage. They cover expiry, duplicate requests, revision changes and inode
+substitution. Killing the staging fixture after file sync and before rename
+preserved its original complete configuration. The following reset persisted
+the complete defaults.
+
+### M9-18 Recover private storage with confirmed factory reset
+
+- **Status:** done
+- **Depends on:** M9-17, M4-07, M8-01, M3-17
 - **Docs:** [07 Integrity](../07-file-sharing-and-storage.md#integrity), [12 Uninstall](../12-build-release-update.md#uninstall)
-- **Do:** Implement `Engine.Reset` (settings only, or factory: delete and recreate the data disk, clear grants) behind a confirmation token. Implement and document the uninstall procedure, and an automated check that nothing is left behind.
-- **Deliver:** reset implementation, uninstall script or command, a clean-machine test.
+- **Do:** Implement factory preparation and confirmation in `Engine.Reset`. Quiesce activation and permission writes, recreate the data disk, clear grants and reset settings. Recover any interrupted transaction on daemon restart.
+- **Deliver:** factory reset, recovery logic and private storage fault-injection tests.
 - **Accept when:**
   - Factory reset works even when the engine cannot start.
-  - After uninstall, no Marsa file, launch agent, Docker context, symlink or PATH entry remains (verified by the test).
+  - The confirmed reset recreates the data disk, clears grants and restores settings defaults. Unconfirmed or stale requests leave all three intact.
+  - After interruption the daemon either restores the prior disk, grants and settings together or completes the confirmed reset before serving requests. Unrelated files remain intact.
+
+**Implementation plan.** Quiesce the supervisor actor before taking custody
+of storage. Serialize state readers and writers during the transaction.
+Prepare replacements in a private journal on the same filesystem and record
+the expected member identities before renaming any live member. Identity
+checks include filesystem creation time to distinguish reused inodes. Keep originals
+until a durable commit record exists. Recover before reading settings or
+binding sockets and refuse any unrecognized member. Exercise every rename
+and journal boundary with disposable storage. Recovery also removes abandoned
+replacement files from the private staging directory before serving requests.
+
+**Verification.** Disposable APFS fixtures recovered from 92 interruptions
+during staging, replacement and cleanup, plus 36 interruptions during
+rollback itself. Owner-authenticated fake and signed packaged-daemon tests
+confirmed factory reset with a failed boot. The signed fixture did not start
+a VM. A pre-publication interruption left the original settings, disk and
+grants intact, and a subsequent recovery removed the abandoned stage. A
+redirected stage member was refused and its target remained intact.
 
 ### M9-09 Data-disk versioning and upgrade path
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-07
 - **Docs:** [05 Versioning and upgrades](../05-guest-image.md#versioning-and-upgrades)
 - **Do:** Add the data-disk schema version, the refusal to start on a newer schema with a clear host-side message, and the upgrade test: a data disk produced by the previous release must work with the new guest image.
@@ -119,7 +196,7 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 ### M9-11 Security review (gate G6)
 
 - **Status:** todo
-- **Depends on:** M9-01, M9-02, M8-08
+- **Depends on:** M9-01, M9-02, M9-15, M8-08
 - **Docs:** [11 Security](../11-security.md)
 - **Do:** Prepare a review package (threat model, architecture, test results), complete an internal review against every threat, and arrange an independent review before release. Finalise `SECURITY.md` and the vulnerability response process, including advisory monitoring.
 - **Deliver:** review report, resolved or accepted findings recorded, finalised `SECURITY.md`.
@@ -137,3 +214,52 @@ Design: [11 Security](../11-security.md), [13 Testing and benchmarks](../13-test
 - **Accept when:**
   - The test enumerates and justifies every outbound destination.
   - Telemetry is off by default and absent unless Q-10 adds an opt-in.
+
+### M9-13 Collect a local diagnostics archive
+
+- **Status:** done
+- **Depends on:** M3-08
+- **Docs:** [03 Responsibilities](../03-host-daemon.md#responsibilities), [11 Threat model](../11-security.md#threat-model) (T11)
+- **Do:** Implement authenticated `Diagnostics.Collect`. Collect bounded, redacted daemon and guest console tails, derive the engine log tail from the captured guest console, and record safe settings, versions, engine state history, and network status. Write a single private local archive for review.
+- **Deliver:** daemon diagnostics module and redaction tests.
+- **Accept when:**
+  - An authenticated caller can explicitly create one local archive and receive its path even when the engine is stopped.
+  - The archive contains the approved logs and diagnostic state without planted secrets, environment values, or raw settings.
+  - Retrying the same request ID returns the existing archive path without creating another archive.
+
+### M9-14 Coordinate automatic reclaim with confirmed cleanup
+
+- **Status:** todo
+- **Depends on:** M9-03, M5-12, M7-11
+- **Docs:** [07 Returning space to macOS](../07-file-sharing-and-storage.md#returning-space-to-macos), [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
+- **Do:** Reclaim after applying a confirmed cleanup plan and on a schedule when the VM is idle. Honor the setting and verify that automatic admission remains safe under concurrent disk activity. Wire the GUI cleanup flow and qualify any required offline compaction fallback for a backend without discard.
+- **Deliver:** automatic admission and cleanup integration, GUI reporting, and a Tier 2 image cleanup test.
+- **Accept when:**
+  - A test that pulls several gigabytes of images, removes them and reclaims shows the image file's real size on the host dropping by at least 90% of the freed amount.
+  - Reclaim never runs during heavy I/O without the user asking.
+
+### M9-15 Fuzz the Docker create-request inspector
+
+- **Status:** done
+- **Depends on:** M4-06, M9-02
+- **Docs:** [11 Process hardening on the host](../11-security.md#process-hardening-on-the-host), [07 Correctness requirements](../07-file-sharing-and-storage.md#correctness-requirements)
+- **Do:** Exercise the production Docker create-request inspector with a committed corpus of representative and malformed request bodies. Check that malformed or unsupported inputs cannot bypass the bind-mount policy.
+- **Deliver:** An inspector target and corpus in `fuzz/`, wired into the scheduled workflow.
+- **Accept when:**
+  - The target runs for a fixed budget in CI without crashes.
+  - Any crash found is fixed and its input added as a regression test.
+
+The [hosted fuzz run](https://github.com/nasraldin/marsa/actions/runs/44974259069) completed the configured budget for all four targets without a crash.
+
+### M9-19 Synchronize the crash-recovery test with daemon readiness
+
+- **Status:** done
+- **Depends on:** M9-06
+- **Docs:** [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
+- **Do:** Synchronize crash injection with an authenticated daemon RPC. A transport handshake can complete while PID-file publication is still in progress.
+- **Deliver:** corrected daemon lifecycle regression.
+- **Accept when:**
+  - The test proves the first process published its PID before injecting SIGKILL and verifies recovery by the replacement process.
+  - Repeated execution and the daemon lifecycle test suite pass on the standard user account.
+
+**Evidence.** The complete lifecycle test passed and the corrected crash case passed 24 consecutive runs on Apple silicon.

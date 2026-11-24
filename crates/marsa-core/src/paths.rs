@@ -5,6 +5,9 @@ use std::path::{Component, Path, PathBuf};
 use crate::error::PathError;
 use crate::platform::HostPlatform;
 
+/// Filename for the restricted local agent RPC socket.
+pub const AGENT_SOCKET_NAME: &str = "agent.sock";
+
 /// Host storage locations anchored to one per-user root directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarsaPaths {
@@ -53,6 +56,11 @@ impl MarsaPaths {
         self.run_dir().join("marsad.sock")
     }
 
+    /// Socket that serves only delegated agent operations.
+    pub fn agent_socket(&self) -> PathBuf {
+        self.run_dir().join(AGENT_SOCKET_NAME)
+    }
+
     /// Socket that serves the Docker Engine API.
     pub fn docker_socket(&self) -> PathBuf {
         self.run_dir().join("docker.sock")
@@ -93,6 +101,11 @@ impl MarsaPaths {
         self.logs_dir().join("marsad.log")
     }
 
+    /// Private directory containing locally created support archives.
+    pub fn diagnostics_dir(&self) -> PathBuf {
+        self.root.join("diagnostics")
+    }
+
     /// Directory for persistent application state.
     pub fn state_dir(&self) -> PathBuf {
         self.root.join("state")
@@ -114,7 +127,8 @@ impl MarsaPaths {
     }
 }
 
-pub(crate) fn validate_directory(path: &Path) -> Result<(), PathError> {
+/// Check that a path is absolute, non-root and free of traversal or NUL bytes.
+pub fn validate_directory(path: &Path) -> Result<(), PathError> {
     if !path.is_absolute()
         || path.parent().is_none()
         || path.components().any(|part| part == Component::ParentDir)
@@ -123,4 +137,20 @@ pub(crate) fn validate_directory(path: &Path) -> Result<(), PathError> {
         return Err(PathError::InvalidDirectory);
     }
     Ok(())
+}
+
+/// Checks the basename shape of a dated daemon JSONL log.
+pub fn is_daemon_log_name(name: &str) -> bool {
+    let date = name
+        .strip_prefix("marsad.")
+        .and_then(|name| name.strip_suffix(".jsonl"));
+    let Some(date) = date else { return false };
+    date.len() == 10
+        && date.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 4 | 7) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit()
+            }
+        })
 }

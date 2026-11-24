@@ -18,10 +18,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          submodules: true
       - name: Install pinned tools
         run: bash .github/scripts/install-ci-tools.sh
       - name: Static checks
         run: cargo xtask check
+      - name: Check patched dependencies against RustSec
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/audit-path-dependencies_test.py
+          audit_metadata="$(mktemp)"
+          trap 'rm -f -- "$audit_metadata"' EXIT
+          python3 .github/scripts/audit-path-dependencies.py metadata > "$audit_metadata"
+          cargo deny --locked --metadata-path "$audit_metadata" --config deny.toml check -D warnings advisories
       - name: Workspace tests
         run: cargo xtask test
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -44,6 +53,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          submodules: true
       - name: Install guest build tools
         run: |
           bash .github/scripts/install-ci-tools.sh

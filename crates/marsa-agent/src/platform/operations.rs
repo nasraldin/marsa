@@ -4,14 +4,14 @@ pub(super) mod ports;
 mod shares;
 pub(super) mod stats;
 
-use std::{io, process::Stdio};
+use std::{fs::File, io, process::Stdio};
 
 use marsa_proto::guest::v1::{
     TrimResult, VmStats, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
 };
 use nix::{
     sys::signal::{Signal, kill},
-    unistd::Pid,
+    unistd::{Pid, syncfs},
 };
 use tokio::{
     io::AsyncReadExt,
@@ -51,6 +51,17 @@ fn verify_init() -> io::Result<()> {
 }
 
 async fn trim() -> io::Result<TrimResult> {
+    timeout(Duration::from_secs(30), trim_synced_disk()).await?
+}
+
+async fn trim_synced_disk() -> io::Result<TrimResult> {
+    // ext4 releases journaled frees to its allocator after the commit.
+    // Flush just this filesystem before FITRIM enumerates its free extents.
+    spawn_blocking(|| -> io::Result<()> {
+        syncfs(File::open(stats::DATA_DIR)?)?;
+        Ok(())
+    })
+    .await??;
     let mut child = Command::new("/sbin/fstrim")
         .args(["--verbose", stats::DATA_DIR])
         .env_clear()
@@ -65,16 +76,12 @@ async fn trim() -> io::Result<TrimResult> {
         .stdout
         .take()
         .ok_or_else(|| io::Error::other("fstrim stdout is unavailable"))?;
-    timeout(Duration::from_secs(30), async {
-        stdout.take(1025).read_to_string(&mut output).await?;
-        if output.len() > 1024 || !child.wait().await?.success() {
-            return Err(io::Error::other(
-                "fstrim failed or returned oversized output",
-            ));
-        }
-        Ok(())
-    })
-    .await??;
+    stdout.take(1025).read_to_string(&mut output).await?;
+    if output.len() > 1024 || !child.wait().await?.success() {
+        return Err(io::Error::other(
+            "fstrim failed or returned oversized output",
+        ));
+    }
     let trimmed = trim_bytes(&output)?;
     let (_, used) = spawn_blocking(stats::disk_usage).await??;
     Ok(TrimResult {

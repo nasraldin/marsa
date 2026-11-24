@@ -5,14 +5,21 @@
 #[path = "real_vm/devices.rs"]
 mod devices;
 
+<<<<<<< HEAD
+=======
 #[cfg(feature = "native-ipv4-system-test")]
 #[path = "real_vm/native_ipv4.rs"]
 mod native_ipv4;
+
+#[cfg(feature = "ssh-transport-system-test")]
+#[path = "real_vm/ssh_transport.rs"]
+mod ssh_transport;
 
 #[cfg(feature = "userspace-system-test")]
 #[path = "real_vm/user_network.rs"]
 mod user_network;
 
+>>>>>>> origin/main
 use std::{
     env,
     fs::{self, File},

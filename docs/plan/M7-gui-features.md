@@ -106,7 +106,7 @@ Every task here carries these standing acceptance conditions in addition to its 
 ### M7-09 Engine control and resources
 
 - **Status:** todo
-- **Depends on:** M6-09, M3-08
+- **Depends on:** M6-09, M3-08, M9-13
 - **Docs:** [03 Settings](../03-host-daemon.md#settings)
 - **Do:** Engine status view with start, stop and restart, boot progress by stage, failure display with console tail and a "collect diagnostics" action. Resource settings for CPUs, memory, disk limit, idle stop and backend, stating clearly when a restart is needed.
 - **Deliver:** screens and tests.
@@ -117,7 +117,7 @@ Every task here carries these standing acceptance conditions in addition to its 
 ### M7-10 Settings
 
 - **Status:** todo
-- **Depends on:** M6-09, M4-05, M4-10, M4-11
+- **Depends on:** M6-09, M4-05, M4-06, M4-10, M4-11
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Settings sections: General (language, theme, start at login), Resources, Sharing (allowlist management with protected-path explanations), Network (mode, LAN exposure, proxy, registries, DNS), Docker (context, optional socket symlink, CLI links, credential store), Updates, About (versions of every component, licences).
 - **Deliver:** screens and tests.
@@ -125,17 +125,18 @@ Every task here carries these standing acceptance conditions in addition to its 
   - Every setting in the daemon's settings model is reachable.
   - Language and theme changes apply live.
   - About lists the versions from the guest manifest and the upstream binaries.
+  - Sharing shows exact pending bind paths and offers once, always and deny. An approved static share displays the restart requirement and preserves workloads until the owner explicitly applies it.
 
 ### M7-11 Disk and cleanup
 
 - **Status:** todo
-- **Depends on:** M6-09, M5-05
+- **Depends on:** M6-09, M5-05, M5-08, M5-12, M9-03
 - **Docs:** [07 Disk cleanup with a preview](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
-- **Do:** Disk usage breakdown by category and a cleanup flow that previews exactly what will be removed and how much space returns to the Mac, with volumes unselected by default, then runs it and triggers reclaim.
+- **Do:** Disk usage breakdown by category and a cleanup flow that previews exactly what will be removed and how much space returns to the Mac, with volumes unselected by default, then runs it. Show a separate explicit reclaim action.
 - **Deliver:** screens and tests.
 - **Accept when:**
   - The preview equals what is removed.
-  - After cleanup the reported host disk use drops accordingly (verified once M9-03 is done).
+  - After cleanup and explicit reclaim, report the observed host allocation change. M9-14 connects automatic reclaim.
 
 ### M7-12 Activity and agent approvals
 

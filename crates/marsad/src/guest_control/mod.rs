@@ -9,8 +9,14 @@ use std::{
 use marsa_proto::guest::{
     CONTROL_PORT, DEFER_ENGINE_START_MINOR, ProtocolError, negotiate,
     v1::{
+<<<<<<< HEAD
         CommandResult, CommandStatus, EgressStage, EngineHealth, HelloAck, PortEvent, TrimResult,
         VmStats, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
+=======
+        CommandResult, CommandStatus, ConfigureNetwork, EgressStage, EngineHealth, HelloAck,
+        PortEvent, SetTime, Trim, TrimResult, VmStats, guest_envelope::Body as GuestBody,
+        host_envelope::Body as HostBody,
+>>>>>>> origin/main
     },
 };
 use marsa_vm::{Vm, VmError, async_trait};
@@ -22,9 +28,12 @@ use tokio::{
 
 use crate::supervisor::{GuestProbe, GuestSession};
 
+mod bind_authorization;
+pub(crate) mod docker_http;
 mod observations;
 mod session;
 mod wire;
+mod workloads;
 
 #[cfg(test)]
 mod tests;
@@ -88,6 +97,9 @@ pub enum GuestControlError {
     /// The running guest rejected orderly shutdown.
     #[error("guest rejected shutdown ({0:?})")]
     ShutdownRejected(CommandStatus),
+    /// The running guest rejected the requested disk trim.
+    #[error("guest rejected trim ({0:?})")]
+    TrimRejected(CommandStatus),
     /// The host clock could not be represented as a guest time.
     #[error("host clock cannot be represented as Unix epoch time")]
     InvalidClock,
@@ -118,6 +130,12 @@ pub struct GuestControl {
     events: observations::EventBus,
     clock: fn() -> SystemTime,
     agent_connect_timeout: Duration,
+    bind_policy: Option<Arc<dyn BindPolicy>>,
+}
+
+#[async_trait]
+pub(crate) trait BindPolicy: Send + Sync {
+    async fn authorize(&self, sources: Vec<String>) -> Option<&'static str>;
 }
 
 impl Default for GuestControl {
@@ -127,11 +145,37 @@ impl Default for GuestControl {
             events: observations::EventBus::default(),
             clock: SystemTime::now,
             agent_connect_timeout: AGENT_CONNECT_TIMEOUT,
+            bind_policy: None,
+        }
+    }
+}
+
+pub(crate) struct TrimSession(Arc<session::Client>);
+
+impl TrimSession {
+    pub(crate) fn is_current(&self, control: &GuestControl) -> bool {
+        control.active.borrow().ptr_eq(&Arc::downgrade(&self.0))
+    }
+
+    pub(crate) async fn run(&self) -> Result<TrimResult, GuestControlError> {
+        match self
+            .0
+            .request(HostBody::Trim(Trim {}), REQUEST_TIMEOUT)
+            .await?
+        {
+            GuestResponse::Trim(result) => Ok(result),
+            GuestResponse::Command(result) => Err(GuestControlError::TrimRejected(result.status())),
+            GuestResponse::Egress(_) => Err(GuestControlError::Sequence("expected trim result")),
         }
     }
 }
 
 impl GuestControl {
+    pub(crate) fn authorize_binds(mut self, policy: impl BindPolicy + 'static) -> Self {
+        self.bind_policy = Some(Arc::new(policy));
+        self
+    }
+
     pub(crate) fn observe_active(
         mut self,
         observer: impl Fn(&GuestEvent) + Send + Sync + 'static,
@@ -155,6 +199,14 @@ impl GuestControl {
         self.events.subscribe()
     }
 
+    pub(crate) fn trim_session(&self) -> Result<TrimSession, GuestControlError> {
+        self.active
+            .borrow()
+            .upgrade()
+            .map(TrimSession)
+            .ok_or(GuestControlError::Disconnected)
+    }
+
     /// Submit a command after the supervisor establishes engine readiness.
     /// The queue and response wait are bounded. The host manages negotiation.
     pub async fn request(&self, body: HostBody) -> Result<GuestResponse, GuestControlError> {
@@ -174,17 +226,24 @@ impl GuestControl {
     async fn connect(
         &self,
         mut stream: marsa_vm::VsockStream,
-    ) -> Result<session::Session, GuestControlError> {
+        policy: Option<&ConfigureNetwork>,
+    ) -> io::Result<session::Session> {
         let message = wire::read(&mut stream).await?;
         let Some(GuestBody::Hello(hello)) = message.body else {
-            return Err(GuestControlError::Sequence("expected initial Hello"));
+            return Err(GuestControlError::Sequence("expected initial Hello").into());
         };
         let version = negotiate(
             hello
                 .protocol
-                .ok_or(ProtocolError::InvalidField("protocol"))?,
-        )?;
+                .ok_or(ProtocolError::InvalidField("protocol"))
+                .map_err(GuestControlError::from)?,
+        )
+        .map_err(GuestControlError::from)?;
         let deferred = version.minor >= DEFER_ENGINE_START_MINOR;
+        if policy.is_some() && !deferred {
+            // A legacy guest releases the engine when it accepts the clock.
+            return Err(io::ErrorKind::Unsupported.into());
+        }
         wire::write(
             &mut stream,
             &wire::encode(
@@ -197,6 +256,7 @@ impl GuestControl {
         )
         .await?;
 
+<<<<<<< HEAD
         let session = session::Session::start(
             stream,
             self.active.clone(),
@@ -205,19 +265,77 @@ impl GuestControl {
             self.clock,
         );
         session.set_clock(HANDSHAKE_TIMEOUT).await?;
+=======
+        let session =
+            session::Session::start(stream, self.active.clone(), self.events.clone(), deferred);
+        let now = (self.clock)()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| GuestControlError::InvalidClock)?;
+        let response = session
+            .client
+            .request(
+                HostBody::SetTime(SetTime {
+                    unix_seconds: i64::try_from(now.as_secs())
+                        .map_err(|_| GuestControlError::InvalidClock)?,
+                    nanoseconds: now.subsec_nanos(),
+                }),
+                HANDSHAKE_TIMEOUT,
+            )
+            .await?;
+        match response {
+            GuestResponse::Command(result) if result.status() == CommandStatus::Ok => (),
+            GuestResponse::Command(result) => {
+                return Err(GuestControlError::ClockRejected(result.status()).into());
+            }
+            GuestResponse::Trim(_) | GuestResponse::Egress(_) => {
+                return Err(GuestControlError::Sequence("expected clock setup result").into());
+            }
+        }
+        if let Some(policy) = policy {
+            let response = session
+                .client
+                .request(
+                    HostBody::ConfigureNetwork(policy.clone()),
+                    HANDSHAKE_TIMEOUT,
+                )
+                .await?;
+            if !matches!(response, GuestResponse::Command(result) if result.status() == CommandStatus::Ok)
+            {
+                // The guest's reply text can include sensitive configuration.
+                return Err(
+                    GuestControlError::Sequence("guest rejected boot network policy").into(),
+                );
+            }
+        }
+>>>>>>> origin/main
         Ok(session)
     }
 }
 
 #[async_trait]
 impl GuestProbe for GuestControl {
+    async fn active_containers(&self, vm: &dyn Vm) -> Option<io::Result<u32>> {
+        Some(workloads::count(vm).await)
+    }
+
     async fn handshake(&self, vm: &dyn Vm) -> io::Result<Box<dyn GuestSession>> {
+        self.handshake_for_boot(vm, None).await
+    }
+
+    async fn handshake_for_boot(
+        &self,
+        vm: &dyn Vm,
+        policy: Option<&ConfigureNetwork>,
+    ) -> io::Result<Box<dyn GuestSession>> {
         let stream = timeout(self.agent_connect_timeout, wire::open(vm, CONTROL_PORT))
             .await
             .map_err(|_| GuestControlError::TimedOut("connecting to the guest agent"))??;
-        let session = timeout(HANDSHAKE_TIMEOUT, self.connect(stream))
+        let mut session = timeout(HANDSHAKE_TIMEOUT, self.connect(stream, policy))
             .await
             .map_err(|_| GuestControlError::TimedOut("negotiating the guest session"))??;
+        if let Some(policy) = &self.bind_policy {
+            session.retain_bind_worker(bind_authorization::connect(vm, policy.clone()).await?);
+        }
         Ok(Box::new(session))
     }
 }

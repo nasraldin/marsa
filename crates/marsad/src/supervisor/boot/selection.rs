@@ -29,8 +29,18 @@ pub(super) async fn select_and_start(
         deadline,
         stop_limit,
         selection,
+        network_policy,
     } = activation;
-    let mut guest = attach(backend, probe, spec.clone(), deadline, cancel, progress).await?;
+    let mut guest = attach(
+        backend,
+        probe,
+        spec.clone(),
+        network_policy.as_ref(),
+        deadline,
+        cancel,
+        progress,
+    )
+    .await?;
     let Some(host) = selection.host.filter(|_| spec.network == NetworkSpec::Nat) else {
         return start_engine(guest, deadline, cancel, progress).await;
     };
@@ -85,6 +95,7 @@ pub(super) async fn select_and_start(
         backend,
         probe,
         candidate,
+        None,
         candidate_deadline,
         cancel,
         progress,
@@ -148,7 +159,7 @@ pub(super) async fn select_and_start(
 
     // No Docker workload was started on either attempt. Return to the native
     // attachment for local work and retain the original failure stage.
-    let mut guest = attach(backend, probe, spec, deadline, cancel, progress).await?;
+    let mut guest = attach(backend, probe, spec, None, deadline, cancel, progress).await?;
     guest.network.result = NetworkResult::AlternateFailed {
         native: failure,
         alternate,

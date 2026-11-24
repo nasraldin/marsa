@@ -187,8 +187,19 @@ flowchart LR
 ## Versioning and upgrades
 
 - The guest image version is tied to the app version. An app update replaces kernel and root filesystem together.
-- The data disk carries a schema version file. `marsa-init` refuses to start the engine on a data disk from a newer schema and reports it to the host.
+- The data disk carries a schema version file. Before repairing or mounting an existing disk writable, `marsa-init` probes the marker with ext4's read-only `noload` option. The daemon reports an incompatible schema at the `data_disk` boot stage and skips automatic retries. The probe reads the marker before journal replay. A migration that introduces a future version must persist and checkpoint the marker before enabling filesystem changes that require it. [ext4 mount options](https://docs.kernel.org/admin-guide/ext4.html#options)
 - Engine upgrades that change on-disk formats are handled by the engine itself; Marsa takes a snapshot note in the event log before the first boot of a new engine version, and offers a factory reset if the engine fails to start.
+
+Keep the previous release's signed guest resources and manifest to exercise
+the same data image across both guests. The packaged test creates a disposable
+image, container and named volume under the previous guest, then checks their
+identities and the volume contents after booting the current guest. A separate
+downgrade fixture boots against an offline ext4 image seeded with a future schema
+and compares its sparse extents and data bytes after the explicit refusal.
+Run the [signed disk compatibility check](../crates/marsad/tests/run-disk-compatibility.sh)
+with the assembled current guest, archived previous guest and built networking
+helper. The check uses a fixture ext4 image created by the pinned guest's
+`mkfs.ext4` in an isolated Linux container.
 
 ## Licence obligations
 

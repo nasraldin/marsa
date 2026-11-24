@@ -10,12 +10,13 @@ use std::{
     time::Duration,
 };
 
+use marsa_proto::guest::DOCKER_API_PORT;
 use marsa_vm::{
     Capabilities, DiskSpec, Hypervisor, NetworkSpec, Vm, VmError, VmSpec, VsockStream, async_trait,
     fake::{AgentStep, FakeHypervisor, FakeScenario},
 };
 use tokio::{
-    io::AsyncReadExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     sync::broadcast,
     time::{advance, timeout},
 };
@@ -25,6 +26,7 @@ use super::{
     Transition,
 };
 
+mod maintenance;
 mod network;
 
 const PORT: u32 = 5000;
@@ -94,7 +96,20 @@ fn create(
         initial: initial.map(FakeHypervisor::new),
         created: created.clone(),
     };
-    let spec = VmSpec {
+
+    (
+        Supervisor::spawn(
+            Arc::new(backend),
+            Arc::new(ScriptProbe),
+            spec(console),
+            config,
+        ),
+        created,
+    )
+}
+
+fn spec(console: PathBuf) -> VmSpec {
+    VmSpec {
         cpus: 2,
         memory_bytes: 512 * 1024 * 1024,
         kernel: "/fixture/Image".into(),
@@ -111,11 +126,7 @@ fn create(
         shares: Vec::new(),
         network: NetworkSpec::Nat,
         console_log: console,
-    };
-    (
-        Supervisor::spawn(Arc::new(backend), Arc::new(ScriptProbe), spec, config),
-        created,
-    )
+    }
 }
 
 fn config() -> SupervisorConfig {
@@ -142,6 +153,113 @@ async fn transition(
     let event = timeout(STEP * 50, stream.recv()).await.unwrap().unwrap();
     assert_eq!((event.previous, event.current), (previous, current));
     event
+}
+
+#[tokio::test(start_paused = true)]
+async fn ten_docker_connections_share_a_cold_boot() {
+    let guest = FakeScenario::default()
+        .with_agent(
+            PORT,
+            vec![AgentStep::Wait(STEP), AgentStep::Send(b"HR".to_vec())],
+        )
+        .with_agent(
+            DOCKER_API_PORT,
+            vec![
+                AgentStep::Expect(b"GET /version".to_vec()),
+                AgentStep::Send(b"fixture engine".to_vec()),
+            ],
+        );
+    let (supervisor, created) = create(config(), "/fixture/console.log".into(), guest, None);
+    let mut clients = tokio::task::JoinSet::new();
+    for _ in 0..10 {
+        let supervisor = supervisor.clone();
+        clients.spawn(async move {
+            let mut docker = supervisor.connect_docker().await.unwrap();
+            docker.write_all(b"GET /version").await.unwrap();
+            let mut response = Vec::new();
+            docker.read_to_end(&mut response).await.unwrap();
+            assert_eq!(response, b"fixture engine");
+        });
+    }
+    while let Some(result) = clients.join_next().await {
+        result.unwrap();
+    }
+    assert_eq!(created.load(Ordering::SeqCst), 1);
+    supervisor.stop().await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn active_docker_stream_defers_idle_stop_and_next_connection_starts_again() {
+    let mut config = config();
+    config.idle_stop = true;
+    let guest = ready().with_agent(DOCKER_API_PORT, vec![AgentStep::Wait(STEP * 100)]);
+    let (supervisor, created) = create(config, "/fixture/console.log".into(), guest, None);
+    supervisor.ensure_ready().await.unwrap();
+    let mut states = supervisor.events();
+    let stream = supervisor.connect_docker().await.unwrap();
+    supervisor.report_containers(0).await.unwrap();
+    advance(STEP * 10).await;
+    assert_eq!(supervisor.snapshot().state, State::Ready);
+    drop(stream);
+    transition(&mut states, State::Ready, State::Idle).await;
+    transition(&mut states, State::Idle, State::Stopping).await;
+    transition(&mut states, State::Stopping, State::Stopped).await;
+    let _stream = supervisor.connect_docker().await.unwrap();
+    assert_eq!(created.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_deadline_rechecks_that_the_guest_has_no_workloads() {
+    struct WorkloadProbe {
+        count: Arc<AtomicUsize>,
+        observed: tokio::sync::mpsc::UnboundedSender<usize>,
+    }
+
+    #[async_trait]
+    impl GuestProbe for WorkloadProbe {
+        async fn handshake(&self, vm: &dyn Vm) -> io::Result<Box<dyn GuestSession>> {
+            ScriptProbe.handshake(vm).await
+        }
+
+        async fn active_containers(&self, _: &dyn Vm) -> Option<io::Result<u32>> {
+            let count = self.count.load(Ordering::SeqCst);
+            self.observed.send(count).unwrap();
+            Some(if count == usize::MAX {
+                Err(io::ErrorKind::InvalidData.into())
+            } else {
+                Ok(u32::try_from(count).unwrap())
+            })
+        }
+    }
+
+    let (observed, mut samples) = tokio::sync::mpsc::unbounded_channel();
+    let count = Arc::new(AtomicUsize::new(1));
+    let mut config = config();
+    config.idle_stop = true;
+    let supervisor = Supervisor::spawn(
+        Arc::new(FakeHypervisor::new(ready())),
+        Arc::new(WorkloadProbe {
+            count: count.clone(),
+            observed,
+        }),
+        spec("/fixture/console.log".into()),
+        config,
+    );
+    supervisor.ensure_ready().await.unwrap();
+    let mut states = supervisor.events();
+    assert_eq!(samples.recv().await, Some(1));
+
+    count.store(0, Ordering::SeqCst);
+    assert_eq!(samples.recv().await, Some(0));
+    count.store(usize::MAX, Ordering::SeqCst);
+    assert_eq!(samples.recv().await, Some(usize::MAX));
+    assert_eq!(supervisor.snapshot().state, State::Ready);
+
+    count.store(0, Ordering::SeqCst);
+    assert_eq!(samples.recv().await, Some(0));
+    transition(&mut states, State::Ready, State::Idle).await;
+    transition(&mut states, State::Idle, State::Stopping).await;
+    transition(&mut states, State::Stopping, State::Stopped).await;
 }
 
 #[tokio::test(start_paused = true)]

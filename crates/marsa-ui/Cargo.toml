@@ -11,3 +11,10 @@ marsa-core = { path = "../marsa-core" }
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+marsa-l10n = { path = "../marsa-l10n" }
+sys-locale = "=0.3.2"
+gpui-component.workspace = true
+gpui.workspace = true
+gpui-macos.workspace = true

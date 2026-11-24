@@ -1,16 +1,23 @@
 //! Implement the actor's state transitions for requests, deadlines, and boot completion.
 
-use std::{sync::Arc, time::Duration};
+use std::{io, sync::Arc, time::Duration};
 
-use marsa_vm::Vm;
+use marsa_proto::guest::DOCKER_API_PORT;
+use marsa_vm::{Vm, VsockStream};
 use tokio::{
+    sync::oneshot,
     task::JoinError,
     time::{Instant, timeout},
 };
 
 use crate::supervisor::{
+<<<<<<< HEAD
     BootFailure, BootStage, State, SupervisorError,
     boot::{self, Issue, LiveGuest, Outcome, Reason},
+=======
+    BootFailure, BootStage, NetworkObservation, State, SupervisorError,
+    boot::{self, Issue, Outcome, Reason},
+>>>>>>> origin/main
     platform,
 };
 
@@ -19,8 +26,62 @@ use super::{Actor, CHANNEL_CAPACITY, Command, Reply};
 impl Actor {
     pub(super) async fn command(&mut self, command: Command) {
         let (reply, result) = match command {
+            Command::Reserve {
+                expected,
+                release,
+                reply,
+            } => {
+                self.reserve_maintenance(expected, release, reply);
+                return;
+            }
+            Command::MaintenanceStart(id, discard, reply) => {
+                self.maintenance_start(id, discard, reply);
+                return;
+            }
+            Command::MaintenanceKeep(id, reply) => (reply, self.maintenance_keep(id)),
+            Command::MaintenanceStop(id, reply) => {
+                let result = if self.maintenance_owns(id) && !reply.is_closed() {
+                    self.stop().await
+                } else {
+                    Err(SupervisorError::Busy)
+                };
+                (reply, result)
+            }
+            Command::EnsureReady(reply)
+            | Command::Stop(reply)
+            | Command::Restart(reply)
+            | Command::Pause(reply)
+            | Command::Resume(reply)
+                if self.maintenance.is_some() =>
+            {
+                (reply, Err(SupervisorError::Busy))
+            }
             Command::EnsureReady(reply) => {
                 self.ensure_ready(reply);
+                return;
+            }
+            Command::ConnectDocker(reply) => {
+                self.connect_docker(reply).await;
+                return;
+            }
+            Command::Network(desired, reply) => {
+                let attachment = self
+                    .guest
+                    .as_ref()
+                    .map(|guest| (guest.network, guest.vm.network_info()));
+                let restart_pending = match self.state() {
+                    State::Stopped => Some(false),
+                    State::Ready | State::Idle | State::Paused => self
+                        .guest
+                        .as_ref()
+                        .and_then(|guest| guest.configured_mode)
+                        .map(|mode| mode != desired),
+                    _ => None,
+                };
+                let _ = reply.send(NetworkObservation {
+                    attachment,
+                    restart_pending,
+                });
                 return;
             }
             Command::Stop(reply) => (reply, self.stop().await),
@@ -40,17 +101,44 @@ impl Actor {
                 self.config.idle_stop = stop;
                 self.config.idle_timeout = timeout;
                 self.reset_idle();
-                let result = if stop && self.state() == State::Idle {
-                    self.stop().await
-                } else {
-                    Ok(())
-                };
-                (reply, result)
+                if self.maintenance.is_none()
+                    && stop
+                    && self.state() == State::Idle
+                    && self.empty
+                    && self.docker_quiet()
+                {
+                    self.idle_at = Some(Instant::now());
+                }
+                (reply, Ok(()))
             }
             Command::ContainerCount(count, reply) => {
                 self.container_count(count);
                 (reply, Ok(()))
             }
+        };
+        let _ = reply.send(result);
+    }
+
+    async fn connect_docker(&mut self, mut reply: oneshot::Sender<io::Result<VsockStream>>) {
+        if self.maintenance.is_some() {
+            let _ = reply.send(Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                SupervisorError::Busy,
+            )));
+            return;
+        }
+        let result = match self.guest.as_ref().map(|guest| guest.vm.as_ref()) {
+            Some(vm) if matches!(self.state(), State::Ready | State::Idle) => {
+                tokio::select! {
+                    biased;
+                    () = reply.closed() => return,
+                    // Keep an unresponsive backend from holding up lifecycle commands.
+                    result = timeout(Duration::from_secs(2), vm.connect_vsock(DOCKER_API_PORT)) => {
+                        result.map_err(io::Error::from).and_then(|stream| stream.map_err(io::Error::other))
+                    }
+                }
+            }
+            _ => Err(io::ErrorKind::NotConnected.into()),
         };
         let _ = reply.send(result);
     }
@@ -84,20 +172,50 @@ impl Actor {
 
     fn container_count(&mut self, count: u32) {
         self.empty = count == 0;
+        if self.maintenance.is_some() {
+            return;
+        }
         if count > 0 {
             self.idle_at = None;
             if self.state() == State::Idle {
                 self.transition(State::Ready);
             }
-        } else if self.state() == State::Ready {
+        } else if (self.state() == State::Ready
+            || self.state() == State::Idle && self.config.idle_stop)
+            && self.docker_quiet()
+        {
             self.idle_at
                 .get_or_insert_with(|| Instant::now() + self.config.idle_timeout);
         }
     }
 
+    pub(super) async fn workload_sample(&mut self, count: Option<io::Result<u32>>) {
+        if matches!(self.docker_clients.has_changed(), Ok(true)) {
+            self.docker_activity();
+            return;
+        }
+        self.sample_at = count
+            .as_ref()
+            .map(|_| Instant::now() + Duration::from_secs(2));
+        if let Some(count) = count {
+            // An unavailable or malformed observation never authorizes idle stop.
+            self.container_count(count.unwrap_or(1));
+        }
+        if self.idle_at.is_some_and(|at| at <= Instant::now()) {
+            self.idle().await;
+        }
+    }
+
     pub(super) async fn idle(&mut self) {
+        if self.maintenance.is_some() {
+            return;
+        }
+        if matches!(self.docker_clients.has_changed(), Ok(true)) {
+            self.docker_activity();
+            return;
+        }
         self.idle_at = None;
-        if self.state() == State::Ready {
+        if self.empty && self.docker_quiet() && matches!(self.state(), State::Ready | State::Idle) {
             self.transition(State::Idle);
             if self.config.idle_stop {
                 let _ = self.stop().await;
@@ -201,6 +319,7 @@ impl Actor {
         guest.vm.pause().await.map_err(Arc::new)?;
         guest.session.take();
         self.idle_at = None;
+        self.sample_at = None;
         self.transition(State::Paused);
         Ok(())
     }
@@ -260,6 +379,7 @@ impl Actor {
         self.boot_after_wake = false;
         self.retry_at = None;
         self.idle_at = None;
+        self.sample_at = None;
         if self.state() == State::Stopped {
             return Ok(());
         }
@@ -318,11 +438,23 @@ impl Actor {
     }
 
     pub(super) async fn boot_finished(&mut self, outcome: Result<Outcome, JoinError>) {
+        self.maintenance_boot_finished();
         self.boot = None;
         self.cancel_boot = None;
         self.progress = None;
         match outcome {
+<<<<<<< HEAD
             Ok(Outcome::Ready(guest)) => {
+=======
+            Ok(Outcome::Ready(mut guest)) => {
+                // A maintenance candidate may be ready before its owner commits.
+                // Retain the callback until the candidate is accepted.
+                if !self.maintenance_candidate_pending()
+                    && let Some(applied) = guest.applied.take()
+                {
+                    applied();
+                }
+>>>>>>> origin/main
                 self.booting();
                 self.guest = Some(guest);
                 self.ready();
@@ -340,7 +472,10 @@ impl Actor {
             Ok(Outcome::Failed { vm, issue }) => {
                 if matches!(
                     issue.stage,
-                    BootStage::Handshake | BootStage::Network | BootStage::Engine
+                    BootStage::Handshake
+                        | BootStage::DataDisk
+                        | BootStage::Network
+                        | BootStage::Engine
                 ) {
                     self.booting();
                 }
@@ -364,6 +499,7 @@ impl Actor {
             Reason::Canceled => (false, "guest activation canceled".into()),
         };
         self.idle_at = None;
+        self.sample_at = None;
         let stop = self.stop_vm(vm, self.config.stop_timeout).await;
         if let Err(error) = &stop {
             detail.push_str(&format!("; guest cleanup failed: {error}"));
@@ -378,8 +514,16 @@ impl Actor {
                 platform::console_tail(self.runtime.console_log.clone()).await
             },
         });
+        tracing::warn!(
+            stage = ?failure.stage,
+            timed_out = failure.timed_out,
+            "guest activation failed"
+        );
         self.set_state(State::Failed, Some(failure.clone()));
-        if self.retries_left > 0 && stop.is_ok() && issue.stage != BootStage::Prepare {
+        if self.retries_left > 0
+            && stop.is_ok()
+            && !matches!(issue.stage, BootStage::Prepare | BootStage::DataDisk)
+        {
             self.retries_left -= 1;
             self.retry_at = Some(Instant::now() + self.backoff);
             self.backoff = self

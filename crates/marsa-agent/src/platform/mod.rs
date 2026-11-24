@@ -1,5 +1,6 @@
 //! Linux-only AF_VSOCK and guest clock operations.
 
+mod authorization;
 mod bridge;
 mod network;
 mod network_facts;
@@ -9,7 +10,7 @@ mod vsock;
 use std::io;
 
 use marsa_proto::guest::{
-    CONTROL_PORT, DOCKER_API_PORT,
+    BIND_AUTHORIZATION_PORT, CONTROL_PORT, DOCKER_API_PORT,
     v1::{
         ConfigureNetwork, EgressResult, InstallCertificates, PortEvent, ProbeEgress, SetTime,
         VmStats, guest_envelope, host_envelope,
@@ -22,11 +23,11 @@ use nix::{
 use tokio::{fs::OpenOptions, sync::mpsc, task::JoinSet};
 
 use crate::{
+    authorization::socket::GUEST_ENGINE_SOCKET,
     control::{self, GuestState},
     metadata,
 };
 
-const ENGINE_SOCKET: &str = "/var/run/docker.sock";
 const READY_FILE: &str = "/run/marsa/agent.ready";
 
 struct Linux {
@@ -114,13 +115,24 @@ pub(crate) fn run() -> io::Result<()> {
             let listener = vsock::Listener::bind(CONTROL_PORT)?;
             let bridge = vsock::Listener::bind(DOCKER_API_PORT)?;
             let facts = vsock::Listener::bind(marsa_proto::guest::NETWORK_FACTS_PORT)?;
+<<<<<<< HEAD
             let interface = network_facts::interface()?;
             tokio::spawn(network_facts::serve(facts, interface));
             tokio::spawn(async move { bridge::serve(&bridge, ENGINE_SOCKET).await });
+=======
+            let bind_listener = vsock::Listener::bind(BIND_AUTHORIZATION_PORT)?;
+            let plugin = authorization::bind_plugin()?;
+            let policy = crate::authorization::Policy::default();
+            tokio::spawn(authorization::serve_host(bind_listener, policy.clone()));
+            tokio::spawn(authorization::serve_plugin(plugin, policy));
+            let interface = network_facts::interface()?;
+            tokio::spawn(network_facts::serve(facts, interface));
+            tokio::spawn(async move { bridge::serve(&bridge, GUEST_ENGINE_SOCKET).await });
+>>>>>>> origin/main
             loop {
                 let stream = listener.accept_host().await?;
                 if let Err(error) =
-                    control::session(stream, hello.clone(), &state, ENGINE_SOCKET).await
+                    control::session(stream, hello.clone(), &state, GUEST_ENGINE_SOCKET).await
                     && error.kind() != io::ErrorKind::UnexpectedEof
                 {
                     eprintln!("marsa-agent: control connection: {error}");

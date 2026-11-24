@@ -125,6 +125,7 @@ pub(super) struct Session {
     health: watch::Receiver<Option<EngineHealthState>>,
     failure: watch::Receiver<Option<Arc<GuestControlError>>>,
     worker: JoinHandle<()>,
+    bind_worker: Option<JoinHandle<()>>,
     events: SessionEvents,
     deferred: bool,
     clock: fn() -> SystemTime,
@@ -160,6 +161,7 @@ impl Session {
             health,
             failure,
             worker,
+            bind_worker: None,
             events,
             deferred,
             clock,
@@ -190,6 +192,10 @@ impl Session {
                 Err(GuestControlError::Sequence("expected clock setup result"))
             }
         }
+    }
+
+    pub(super) fn retain_bind_worker(&mut self, worker: JoinHandle<()>) {
+        self.bind_worker = Some(worker);
     }
 
     fn revoke(&self) {
@@ -321,6 +327,9 @@ impl Drop for Session {
     fn drop(&mut self) {
         self.revoke();
         self.worker.abort();
+        if let Some(worker) = &self.bind_worker {
+            worker.abort();
+        }
     }
 }
 
