@@ -168,112 +168,110 @@ pub(super) fn render(
     let summary = container_count(total, locale);
 
     let loaded = status == states::TableState::Rows;
-    let mut toolbar = row(cx)
-        .w_full()
-        .gap_2()
-        .items_center()
-        .flex_wrap()
-        .min_h(px(46.));
-    let groups = rows
-        .iter()
-        .filter_map(|entry| match entry {
-            TableRow::Group { key, .. } => Some(key.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if loaded {
-        toolbar = toolbar
-            .p_2()
-            .rounded(px(12.))
-            .border_1()
-            .border_color(color(palette, ColorToken::BorderSubtle))
-            .bg(color(palette, ColorToken::BgSidebar));
-    }
-    if let Some(input) = view.input.as_ref() {
-        toolbar = toolbar.child(
-            div().w(px(216.)).child(
-                resource_input(input)
-                    .cleanable(true)
-                    .prefix(IconName::Search)
-                    .aria_label(gui::GUI_DESKTOP_SEARCH_CONTAINERS.text(locale)),
-            ),
-        );
-    }
-
-    let filter_view = entity.downgrade();
-    toolbar = toolbar.child(
-        Button::new("state-filter")
-            .outline()
-            .h(px(Space::S36.pixels()))
-            .icon(IconName::ChevronDown)
-            .label(filter_label(locale, view.filter))
-            .dropdown_menu(move |menu, _, _| {
-                [
-                    StatusFilter::All,
-                    StatusFilter::Running,
-                    StatusFilter::Paused,
-                    StatusFilter::Stopped,
-                    StatusFilter::Healthy,
-                    StatusFilter::Unhealthy,
-                ]
-                .into_iter()
-                .fold(menu, |menu, filter| {
-                    let weak = filter_view.clone();
-                    menu.item(PopupMenuItem::new(filter_label(locale, filter)).on_click(
-                        move |_, _, cx| {
-                            let _ = weak.update(cx, |view, cx| {
-                                view.filter = filter;
-                                cx.notify();
-                            });
-                        },
-                    ))
-                })
-            }),
-    );
-    if loaded {
-        toolbar = toolbar
-            .child(view_mode_rail(mode, &screen, cx))
-            .children((!groups.is_empty()).then(|| {
-                let weak = entity.downgrade();
-                Button::new("container-group-actions")
+    let toolbar = status.can_create().then(|| {
+        let filters = row(cx)
+            .items_center()
+            .flex_wrap()
+            .gap_2()
+            .children(view.input.as_ref().map(|input| {
+                div().w(px(224.)).child(
+                    resource_input(input)
+                        .cleanable(true)
+                        .prefix(IconName::Search)
+                        .aria_label(gui::GUI_DESKTOP_SEARCH_CONTAINERS.text(locale)),
+                )
+            }))
+            .child({
+                let filter_view = entity.downgrade();
+                let current = view.filter;
+                Button::new("state-filter")
                     .outline()
-                    .size(px(Space::S36.pixels()))
-                    .icon(IconName::Ellipsis)
-                    .accessibility_label(message(locale, gui::GUI_DESKTOP_GROUPS))
+                    .h(px(Space::S36.pixels()))
+                    .child(
+                        row(cx)
+                            .gap_2()
+                            .child(filter_label(locale, current))
+                            .child(Icon::new(IconName::ChevronDown).size(px(14.))),
+                    )
+                    .accessibility_label(filter_label(locale, current))
                     .dropdown_menu(move |menu, _, _| {
-                        [true, false].into_iter().fold(menu, |menu, expand| {
-                            let weak = weak.clone();
-                            let groups = groups.clone();
-                            let key = if expand {
-                                gui::GUI_DESKTOP_EXPAND_ALL_GROUPS
-                            } else {
-                                gui::GUI_DESKTOP_COLLAPSE_ALL_GROUPS
-                            };
-                            menu.item(PopupMenuItem::new(message(locale, key)).on_click(
-                                move |_, _, cx| {
-                                    let _ = weak.update(cx, |view, cx| {
-                                        if expand {
-                                            for group in &groups {
-                                                view.collapsed.remove(group);
-                                            }
-                                        } else {
-                                            view.collapsed.extend(groups.iter().cloned());
-                                        }
-                                        cx.notify();
-                                    });
-                                },
-                            ))
+                        [
+                            StatusFilter::All,
+                            StatusFilter::Running,
+                            StatusFilter::Paused,
+                            StatusFilter::Stopped,
+                            StatusFilter::Healthy,
+                            StatusFilter::Unhealthy,
+                        ]
+                        .into_iter()
+                        .fold(menu, |menu, filter| {
+                            let weak = filter_view.clone();
+                            menu.item(
+                                PopupMenuItem::new(filter_label(locale, filter))
+                                    .checked(filter == current)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = weak.update(cx, |view, cx| {
+                                            view.filter = filter;
+                                            cx.notify();
+                                        });
+                                    }),
+                            )
                         })
                     })
-            }))
-            .child(div().flex_1())
+            })
             .child(
-                div()
-                    .text_size(ui_size(12.))
+                screen
+                    .typography(Role::Small)
+                    .apply(div())
                     .text_color(color(palette, ColorToken::TextMuted))
                     .child(summary),
             );
-    }
+        let groups: Vec<GroupKey> = rows
+            .iter()
+            .filter_map(|entry| match entry {
+                TableRow::Group { key, .. } => Some(key.clone()),
+                _ => None,
+            })
+            .collect();
+        let actions = row(cx)
+            .items_center()
+            .flex_wrap()
+            .gap_2()
+            .children((status != states::TableState::Empty).then(|| {
+                row(cx)
+                    .gap_2()
+                    .child(view_mode_rail(mode, &screen, cx))
+                    .children(
+                        (!groups.is_empty()).then(|| group_toggle(groups, &collapsed, locale, cx)),
+                    )
+            }))
+            .child(
+                Button::new("new-container")
+                    .primary()
+                    .h(px(Space::S36.pixels()))
+                    .icon(IconName::Plus)
+                    .label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
+                    .disabled(
+                        view.services.is_none()
+                            || !(local_status.is_some_and(states::TableState::can_create)
+                                || !filter.includes_marsa()
+                                    && view.external_inventory.iter().any(|workspace| {
+                                        workspace.reachable && filter.includes_external(workspace)
+                                    })),
+                    )
+                    .on_click(
+                        cx.listener(|view, _, window, cx| super::create::open(view, window, cx)),
+                    ),
+            );
+        row(cx)
+            .w_full()
+            .justify_between()
+            .items_center()
+            .flex_wrap()
+            .gap_3()
+            .child(filters)
+            .child(actions)
+    });
 
     let header = row(cx)
         .w_full()
@@ -303,29 +301,13 @@ pub(super) fn render(
                 .ghost()
                 .size(px(36.))
                 .p_0()
-                .bg(color(palette, ColorToken::BgSubtle))
+                .bg(color(palette, ColorToken::GlassControl))
                 .icon(IconName::Search)
                 .accessibility_label(gui::GUI_DESKTOP_SEARCH_COMMANDS.text(locale))
                 .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(locale))
                 .on_click(|_, window, cx| {
                     window.dispatch_action(Box::new(crate::desktop::OpenCommandPalette), cx);
                 }),
-        )
-        .child(
-            Button::new("new-container")
-                .primary()
-                .h(px(36.))
-                .icon(IconName::Plus)
-                .label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
-                .disabled(
-                    view.services.is_none()
-                        || !(local_status.is_some_and(states::TableState::can_create)
-                            || !filter.includes_marsa()
-                                && view.external_inventory.iter().any(|workspace| {
-                                    workspace.reachable && filter.includes_external(workspace)
-                                })),
-                )
-                .on_click(cx.listener(|view, _, window, cx| super::create::open(view, window, cx))),
         );
 
     let body = div()
@@ -335,13 +317,7 @@ pub(super) fn render(
         .min_h_0()
         .gap_3()
         .child(header)
-        .children(
-            matches!(
-                status,
-                states::TableState::Rows | states::TableState::NoMatches
-            )
-            .then_some(toolbar),
-        )
+        .children(toolbar)
         .children((loaded && !view.selected.is_empty()).then(|| bulk_toolbar(view, &screen, cx)));
 
     if !loaded {
@@ -668,7 +644,9 @@ fn group_row(
                 .ghost()
                 .small()
                 .compact()
-                .icon(if collapsed {
+                .icon(if collapsed && locale == Locale::Arabic {
+                    IconName::ChevronLeft
+                } else if collapsed {
                     IconName::ChevronRight
                 } else {
                     IconName::ChevronDown
@@ -1208,6 +1186,44 @@ fn filter_label(locale: Locale, filter: StatusFilter) -> marsa_ui::gpui::SharedS
     marsa_ui::gpui::SharedString::from(copy(locale, en, ar))
 }
 
+fn group_toggle(
+    groups: Vec<GroupKey>,
+    collapsed: &BTreeSet<GroupKey>,
+    locale: Locale,
+    cx: &Context<ContainerView>,
+) -> Button {
+    let expand = groups.iter().any(|group| collapsed.contains(group));
+    let (label, icon) = if expand {
+        (
+            gui::GUI_DESKTOP_EXPAND_ALL_GROUPS,
+            "icons/list-chevrons-up-down.svg",
+        )
+    } else {
+        (
+            gui::GUI_DESKTOP_COLLAPSE_ALL_GROUPS,
+            "icons/list-chevrons-down-up.svg",
+        )
+    };
+    let title = label.text(locale);
+    Button::new("toggle-container-groups")
+        .outline()
+        .size(px(Space::S36.pixels()))
+        .p_0()
+        .icon(Icon::default().path(icon))
+        .accessibility_label(title)
+        .tooltip(title)
+        .on_click(cx.listener(move |view, _, _, cx| {
+            if expand {
+                for group in &groups {
+                    view.collapsed.remove(group);
+                }
+            } else {
+                view.collapsed.extend(groups.iter().cloned());
+            }
+            cx.notify();
+        }))
+}
+
 fn view_mode_rail(mode: ViewMode, screen: &ScreenContext<'_>, cx: &Context<ContainerView>) -> Div {
     row(cx)
         .gap_1()
@@ -1250,6 +1266,7 @@ fn view_mode_rail(mode: ViewMode, screen: &ScreenContext<'_>, cx: &Context<Conta
                     .size(px(30.))
                     .p_0()
                     .icon(Icon::default().path(icon))
+                    .toggled(mode == target)
                     .accessibility_label(title.clone())
                     .tooltip(title);
                 let control = if mode == target {
