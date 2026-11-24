@@ -84,6 +84,7 @@ impl ContainerTarget {
     }
 }
 
+/// Container inventory filters shared by the list and Overview.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum StatusFilter {
     #[default]
@@ -91,20 +92,67 @@ pub(crate) enum StatusFilter {
     Running,
     Paused,
     Stopped,
+    Restarting,
+    Other,
     Healthy,
     Unhealthy,
+    HealthStarting,
+    NoHealth,
+    UnknownHealth,
 }
 
 impl StatusFilter {
-    fn accepts(&self, summary: &ContainerSummary) -> bool {
+    const ALL: [Self; 11] = [
+        Self::All,
+        Self::Running,
+        Self::Paused,
+        Self::Stopped,
+        Self::Restarting,
+        Self::Other,
+        Self::Healthy,
+        Self::Unhealthy,
+        Self::HealthStarting,
+        Self::NoHealth,
+        Self::UnknownHealth,
+    ];
+
+    pub(crate) fn label(self, locale: Locale) -> &'static str {
+        match self {
+            Self::All => return super::common::copy(locale, "All states", "كل الحالات"),
+            Self::Running => gui::GUI_DESKTOP_RUNNING,
+            Self::Paused => gui::GUI_DESKTOP_PAUSED,
+            Self::Stopped => gui::GUI_DESKTOP_STOPPED,
+            Self::Restarting => gui::GUI_OVERVIEW_RESTARTING,
+            Self::Other => gui::GUI_OVERVIEW_OTHER,
+            Self::Healthy => gui::GUI_OVERVIEW_HEALTHY,
+            Self::Unhealthy => gui::GUI_OVERVIEW_UNHEALTHY,
+            Self::HealthStarting => gui::GUI_OVERVIEW_HEALTH_STARTING,
+            Self::NoHealth => gui::GUI_OVERVIEW_NO_HEALTH,
+            Self::UnknownHealth => gui::GUI_OVERVIEW_UNKNOWN_HEALTH,
+        }
+        .text(locale)
+    }
+
+    fn accepts(self, summary: &ContainerSummary) -> bool {
         let state = summary.state();
         match self {
             Self::All => true,
             Self::Running => state == "running",
             Self::Paused => state == "paused",
-            Self::Stopped => !matches!(state, "running" | "paused"),
+            Self::Stopped => matches!(state, "created" | "exited" | "dead"),
+            Self::Restarting => state == "restarting",
+            Self::Other => !matches!(
+                state,
+                "created" | "exited" | "dead" | "running" | "paused" | "restarting"
+            ),
             Self::Healthy => summary.health() == Some("healthy"),
             Self::Unhealthy => summary.health() == Some("unhealthy"),
+            Self::HealthStarting => summary.health() == Some("starting"),
+            Self::NoHealth => summary.health() == Some("none"),
+            Self::UnknownHealth => !matches!(
+                summary.health(),
+                Some("healthy" | "unhealthy" | "starting" | "none")
+            ),
         }
     }
 }
@@ -258,13 +306,24 @@ impl ContainerView {
         cx.notify();
     }
 
-    /// Focus the list on a lifecycle or health state, as asked from the
-    /// Overview cards.
-    /// Focus the list on a lifecycle or health state. Clickable from the
-    /// Overview containers card (a follow-up M7-34 task wires this up).
-    #[allow(dead_code)]
-    pub(crate) fn set_status_filter(&mut self, filter: StatusFilter, cx: &mut Context<Self>) {
+    /// Open a filter from the Overview without retaining a previous search.
+    pub(crate) fn filter_from_overview(
+        &mut self,
+        filter: StatusFilter,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(input) = &self.input {
+            input.update(cx, |input, cx| input.set_value("", window, cx));
+        }
+        self.query.clear();
+        self.set_status_filter(filter, cx);
+    }
+
+    fn set_status_filter(&mut self, filter: StatusFilter, cx: &mut Context<Self>) {
         self.filter = filter;
+        self.list_scroll
+            .scroll_to_item_strict(0, marsa_ui::gpui::ScrollStrategy::Top);
         cx.notify();
     }
 

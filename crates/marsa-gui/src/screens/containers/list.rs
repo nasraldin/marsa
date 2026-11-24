@@ -173,6 +173,7 @@ pub(super) fn render(
         .gap_2()
         .items_center()
         .flex_wrap()
+        .flex_shrink_0()
         .min_h(px(46.));
     let groups = rows
         .iter()
@@ -206,27 +207,17 @@ pub(super) fn render(
             .outline()
             .h(px(Space::S36.pixels()))
             .icon(IconName::ChevronDown)
-            .label(filter_label(locale, view.filter))
+            .label(view.filter.label(locale))
             .dropdown_menu(move |menu, _, _| {
-                [
-                    StatusFilter::All,
-                    StatusFilter::Running,
-                    StatusFilter::Paused,
-                    StatusFilter::Stopped,
-                    StatusFilter::Healthy,
-                    StatusFilter::Unhealthy,
-                ]
-                .into_iter()
-                .fold(menu, |menu, filter| {
+                StatusFilter::ALL.into_iter().fold(menu, |menu, filter| {
                     let weak = filter_view.clone();
-                    menu.item(PopupMenuItem::new(filter_label(locale, filter)).on_click(
-                        move |_, _, cx| {
+                    menu.item(
+                        PopupMenuItem::new(filter.label(locale)).on_click(move |_, _, cx| {
                             let _ = weak.update(cx, |view, cx| {
-                                view.filter = filter;
-                                cx.notify();
+                                view.set_status_filter(filter, cx);
                             });
-                        },
-                    ))
+                        }),
+                    )
                 })
             }),
     );
@@ -334,7 +325,7 @@ pub(super) fn render(
         .size_full()
         .min_h_0()
         .gap_3()
-        .child(header)
+        .child(header.flex_shrink_0())
         .children(
             matches!(
                 status,
@@ -346,13 +337,20 @@ pub(super) fn render(
 
     if !loaded {
         return body
-            .child(states::render(view, status, &screen, cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .child(states::render(view, status, &screen, cx)),
+            )
             .into_any_element();
     }
 
     let all_selected =
         !visible_ids.is_empty() && visible_ids.iter().all(|id| selected.contains(id));
     let columns = cell_row(palette, cx)
+        .flex_shrink_0()
         .bg(color(palette, ColorToken::BgSubtle))
         .text_color(color(palette, ColorToken::TextMuted))
         .child(
@@ -1180,32 +1178,6 @@ fn column(value: SharedString) -> Div {
 
 fn fixed_column(width: f32, value: SharedString) -> Div {
     div().w(px(width)).flex_shrink_0().truncate().child(value)
-}
-
-fn filter_label(locale: Locale, filter: StatusFilter) -> marsa_ui::gpui::SharedString {
-    let (en, ar) = match filter {
-        StatusFilter::All => ("All states", "كل الحالات"),
-        StatusFilter::Running => ("Running", "قيد التشغيل"),
-        StatusFilter::Paused => ("Paused", "متوقفة مؤقتًا"),
-        StatusFilter::Stopped => ("Stopped", "متوقفة"),
-        StatusFilter::Healthy => {
-            let key = marsa_ui::gui_keys::GUI_OVERVIEW_HEALTHY;
-            (key.text(locale), "")
-        }
-        StatusFilter::Unhealthy => {
-            let key = marsa_ui::gui_keys::GUI_OVERVIEW_UNHEALTHY;
-            (key.text(locale), "")
-        }
-    };
-    if matches!(filter, StatusFilter::Healthy | StatusFilter::Unhealthy) {
-        let key = if filter == StatusFilter::Healthy {
-            marsa_ui::gui_keys::GUI_OVERVIEW_HEALTHY
-        } else {
-            marsa_ui::gui_keys::GUI_OVERVIEW_UNHEALTHY
-        };
-        return marsa_ui::gpui::SharedString::from(key.text(locale));
-    }
-    marsa_ui::gpui::SharedString::from(copy(locale, en, ar))
 }
 
 fn view_mode_rail(mode: ViewMode, screen: &ScreenContext<'_>, cx: &Context<ContainerView>) -> Div {

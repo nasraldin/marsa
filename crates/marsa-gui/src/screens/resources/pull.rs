@@ -7,8 +7,8 @@ use std::{collections::BTreeMap, sync::Arc};
 use marsa_client::docker::{DockerError, ExternalEndpoint, ImageReference, PullProgress};
 use marsa_ui::{
     ColorToken,
-    gpui::{Context, Div, Entity, ParentElement, Styled, px},
-    gpui_component::{Disableable, button::Button},
+    gpui::{Context, Div, Entity, ParentElement, Styled, div, px},
+    gpui_component::{Disableable, button::Button, scroll::ScrollableElement as _},
     tokens::{scale::Space, typography::Role},
 };
 
@@ -130,27 +130,28 @@ pub(super) fn render(
                     view.update(cx, |view, cx| view.cancel_pull(cx));
                 }),
         );
+    let layers = div().flex().flex_col().max_h(px(176.));
+    let layers = layers.children(pull.layers.iter().map(|(layer, progress)| {
+        let status = progress.status.as_deref().unwrap_or_default();
+        let bytes = progress
+            .progress
+            .as_ref()
+            .and_then(|counters| Some(format!("{} / {}", counters.current?, counters.total?)))
+            .unwrap_or_default();
+        logical_row(screen.locale)
+            .flex_shrink_0()
+            .gap(px(Space::S8.pixels()))
+            .child(
+                text(screen, Role::Mono, layer.clone())
+                    .text_color(tone(screen, ColorToken::TextMuted)),
+            )
+            .child(text(screen, Role::Body, status.to_owned()).flex_1())
+            .child(text(screen, Role::Mono, bytes))
+    }));
     Some(
         panel(screen)
             .gap(px(Space::S8.pixels()))
             .child(heading)
-            .children(pull.layers.iter().map(|(layer, progress)| {
-                let status = progress.status.as_deref().unwrap_or_default();
-                let bytes = progress
-                    .progress
-                    .as_ref()
-                    .and_then(|counters| {
-                        Some(format!("{} / {}", counters.current?, counters.total?))
-                    })
-                    .unwrap_or_default();
-                logical_row(screen.locale)
-                    .gap(px(Space::S8.pixels()))
-                    .child(
-                        text(screen, Role::Mono, layer.clone())
-                            .text_color(tone(screen, ColorToken::TextMuted)),
-                    )
-                    .child(text(screen, Role::Body, status.to_owned()).flex_1())
-                    .child(text(screen, Role::Mono, bytes))
-            })),
+            .children((!pull.layers.is_empty()).then(|| layers.overflow_y_scrollbar())),
     )
 }

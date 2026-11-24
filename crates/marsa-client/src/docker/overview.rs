@@ -241,17 +241,11 @@ impl ContainerCounts {
                 "restarting" => counts.restarting += 1,
                 _ => counts.other += 1,
             }
-            let health = row.health.as_ref().map(|health| health.status.as_str());
-            match (
-                health,
-                row.status.rsplit_once(" (").map(|(_, suffix)| suffix),
-            ) {
-                (Some("healthy"), _) | (None, Some("healthy)")) => counts.healthy += 1,
-                (Some("unhealthy"), _) | (None, Some("unhealthy)")) => counts.unhealthy += 1,
-                (Some("starting"), _) | (None, Some("health: starting)")) => {
-                    counts.health_starting += 1
-                }
-                (Some("none"), _) => counts.no_health += 1,
+            match row.health() {
+                Some("healthy") => counts.healthy += 1,
+                Some("unhealthy") => counts.unhealthy += 1,
+                Some("starting") => counts.health_starting += 1,
+                Some("none") => counts.no_health += 1,
                 _ => counts.unknown_health += 1,
             }
         }
@@ -492,8 +486,11 @@ mod tests {
                 "Labels": {"com.docker.compose.project": "example"},
             })
         };
+        let healthy = container("a", "running", "Up 2 minutes (healthy)", None);
+        let reported: ContainerSummary = serde_json::from_value(healthy.clone()).unwrap();
+        assert_eq!(reported.health(), Some("healthy"));
         let inventory = serde_json::to_string(&[
-            container("a", "running", "Up 2 minutes", Some("healthy")),
+            healthy,
             container("b", "paused", "Up 1 hour (Paused)", Some("none")),
             container("c", "restarting", "Restarting", Some("none")),
             container("d", "exited", "Exited", None),
