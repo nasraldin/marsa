@@ -29,11 +29,8 @@ message DaemonEvent {
     UpdateStatus update = 10;
     ListPendingApprovalsResponse approvals = 11;
     ListGrantsResponse grants = 12;
-<<<<<<< HEAD
-    HostEvent host = 13;
-=======
     BindApprovalList bind_approvals = 13;
->>>>>>> origin/main
+    HostEvent host = 14;
   }
 }
 

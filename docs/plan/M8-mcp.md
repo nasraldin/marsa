@@ -95,6 +95,8 @@ The official `rmcp` 3.11.0 server and stdio build failed the workspace dependenc
 
 The local tests run the real CLI and stdio bridge against a private in-process daemon. They verify an authenticated read, refusal of an unsupported tool, JSON discovery and grant revocation. A separate immutable queue fixture exercises terminal review and owner decisions without a workload executor.
 
+The local acceptance test runs the CLI and stdio bridge against an isolated daemon and fake Docker engine. It verifies JSON discovery, decline and approval in a pseudo-terminal, exact operation resumption, denial and revocation.
+
 ### M8-08 Untrusted-output handling and adversarial tests
 
 - **Status:** todo

@@ -8,14 +8,6 @@ use objc2_foundation::{NSArray, NSFileHandle, NSString, NSURL};
 use objc2_virtualization::{
     VZDirectorySharingDeviceConfiguration, VZDiskImageCachingMode,
     VZDiskImageStorageDeviceAttachment, VZDiskImageSynchronizationMode,
-<<<<<<< HEAD
-    VZFileHandleSerialPortAttachment, VZLinuxBootLoader, VZNATNetworkDeviceAttachment,
-    VZSharedDirectory, VZSingleDirectoryShare, VZVirtioBlockDeviceConfiguration,
-    VZVirtioConsoleDeviceSerialPortConfiguration, VZVirtioEntropyDeviceConfiguration,
-    VZVirtioFileSystemDeviceConfiguration, VZVirtioNetworkDeviceConfiguration,
-    VZVirtioSocketDeviceConfiguration, VZVirtioTraditionalMemoryBalloonDeviceConfiguration,
-    VZVirtualMachine, VZVirtualMachineConfiguration,
-=======
     VZFileHandleNetworkDeviceAttachment, VZFileHandleSerialPortAttachment, VZLinuxBootLoader,
     VZMACAddress, VZNATNetworkDeviceAttachment, VZSharedDirectory, VZSingleDirectoryShare,
     VZVirtioBlockDeviceConfiguration, VZVirtioConsoleDeviceSerialPortConfiguration,
@@ -23,7 +15,6 @@ use objc2_virtualization::{
     VZVirtioNetworkDeviceConfiguration, VZVirtioSocketDeviceConfiguration,
     VZVirtioTraditionalMemoryBalloonDeviceConfiguration, VZVirtualMachine,
     VZVirtualMachineConfiguration,
->>>>>>> origin/main
 };
 
 use super::{

@@ -83,17 +83,10 @@ pub(super) struct Actor {
     idle_at: Option<Instant>,
     sample_at: Option<Instant>,
     empty: bool,
-<<<<<<< HEAD
     maintenance: Option<maintenance::Reservation>,
-=======
-<<<<<<< HEAD
     paused_for_sleep: bool,
     host_asleep: bool,
     boot_after_wake: bool,
-=======
-    maintenance: Option<maintenance::Reservation>,
->>>>>>> origin/main
->>>>>>> origin/main
 }
 
 impl Actor {
@@ -124,17 +117,10 @@ impl Actor {
             idle_at: None,
             sample_at: None,
             empty: false,
-<<<<<<< HEAD
             maintenance: None,
-=======
-<<<<<<< HEAD
             paused_for_sleep: false,
             host_asleep: false,
             boot_after_wake: false,
-=======
-            maintenance: None,
->>>>>>> origin/main
->>>>>>> origin/main
         }
     }
 

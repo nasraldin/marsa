@@ -3,16 +3,9 @@
 use super::*;
 use marsa_proto::host::v1::{
     AgentOperation, AgentOperationRequest, AgentOperationResponse, ApproveRequest, AuditApprover,
-<<<<<<< HEAD
-    AuditArguments, AuditDecision, AuditResult, DenyRequest, ListAgentAuditRequest,
-    ListPendingApprovalsRequest, OpenAgentSessionRequest, PendingApproval,
-    agent_operation_response::Result as WireResult, agent_ops_client::AgentOpsClient,
-    agents_client::AgentsClient,
-=======
     AuditArguments, AuditDecision, AuditResult, ListAgentAuditRequest, ListPendingApprovalsRequest,
     OpenAgentSessionRequest, agent_operation_response::Result as WireResult,
     agent_ops_client::AgentOpsClient, agents_client::AgentsClient,
->>>>>>> origin/main
 };
 
 const TARGET: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -139,72 +132,6 @@ async fn delegated_credentials_cannot_decide_or_impersonate_another_scope() {
             .code(),
         Code::PermissionDenied
     );
-<<<<<<< HEAD
-
-    let call = fixture.submit(46, TARGET);
-    let approval = pending(&mut events).await;
-    fixture
-        .owner()
-        .deny(DenyRequest {
-            request_id: action(47).request_id,
-            approval_id: approval.id,
-        })
-        .await
-        .unwrap();
-    assert_eq!(error_code(call.await.unwrap()), "denied");
-
-    let call = fixture.submit(48, TARGET);
-    let approval = pending(&mut events).await;
-    tokio::time::pause();
-    tokio::time::advance(Duration::from_secs(121)).await;
-    tokio::time::resume();
-    assert_eq!(
-        error_code(timeout(WAIT, call).await.unwrap().unwrap()),
-        "approval_timed_out"
-    );
-    assert_eq!(
-        fixture
-            .owner()
-            .approve(ApproveRequest {
-                request_id: action(49).request_id,
-                approval_id: approval.id,
-                grant_for_project: false
-            })
-            .await
-            .unwrap_err()
-            .code(),
-        Code::NotFound
-    );
-    assert_eq!(
-        EngineClient::new(fixture.fixture.channel.clone())
-            .status(EngineStatusRequest {})
-            .await
-            .unwrap()
-            .into_inner()
-            .state(),
-        EngineState::Stopped
-    );
-    let log = fixture
-        .owner()
-        .list_audit(ListAgentAuditRequest::default())
-        .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(log.records.len(), 5);
-    assert_eq!(log.records[0].decision(), AuditDecision::Expired);
-    assert_eq!(log.records[0].result(), AuditResult::TimedOut);
-    assert_eq!(log.records[0].approver(), AuditApprover::None);
-    assert_eq!(log.records[1].decision(), AuditDecision::Denied);
-    assert_eq!(log.records[1].result(), AuditResult::Denied);
-    assert_eq!(log.records[1].approver(), AuditApprover::LocalOwner);
-    let unauthenticated = log
-        .records
-        .iter()
-        .find(|record| record.result() == AuditResult::Unauthenticated)
-        .unwrap();
-    assert!(unauthenticated.client_ref.is_none());
-=======
->>>>>>> origin/main
 }
 
 #[tokio::test]
@@ -303,8 +230,6 @@ async fn configured_operate_denial_keeps_read_calls_available() {
 }
 
 #[tokio::test]
-<<<<<<< HEAD
-=======
 async fn delegated_exact_id_stop_is_rejected_without_queuing_on_a_running_engine() {
     let fixture = AgentFixture::new().await;
     let mut engine = EngineClient::new(fixture.fixture.channel.clone());
@@ -374,7 +299,6 @@ async fn delegated_exact_id_stop_is_rejected_without_queuing_on_a_running_engine
 }
 
 #[tokio::test]
->>>>>>> origin/main
 async fn refused_agent_call_has_one_audit_entry_without_request_secrets() {
     let fixture = AgentFixture::new().await;
     let mut request = fixture.request(56, TARGET);
@@ -458,45 +382,6 @@ async fn owner_can_page_and_filter_audit_without_exposing_it_to_the_agent() {
 }
 
 #[tokio::test]
-<<<<<<< HEAD
-async fn a_disconnected_agent_call_still_has_one_terminal_record() {
-    let fixture = AgentFixture::new().await;
-    let mut events = fixture.fixture.events().await;
-    let call = fixture.submit(58, TARGET);
-    let approval = pending(&mut events).await;
-    call.abort();
-    assert!(call.await.unwrap_err().is_cancelled());
-    let mut owner = fixture.owner();
-    owner
-        .deny(DenyRequest {
-            request_id: action(59).request_id,
-            approval_id: approval.id,
-        })
-        .await
-        .unwrap();
-    let completed = timeout(WAIT, async {
-        loop {
-            let page = owner
-                .list_audit(ListAgentAuditRequest::default())
-                .await
-                .unwrap()
-                .into_inner();
-            if !page.records.is_empty() {
-                break page.records;
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await
-    .unwrap();
-    assert_eq!(completed.len(), 1);
-    assert_eq!(completed[0].result(), AuditResult::Denied);
-    assert_eq!(
-        completed[0].arguments(),
-        AuditArguments::ContainerTargetRedacted
-    );
-    assert_eq!(completed[0].approver(), AuditApprover::LocalOwner);
-=======
 async fn client_list_exposes_only_unexpired_owner_registrations() {
     use marsa_proto::host::v1::ListAgentClientsRequest;
 
@@ -548,5 +433,4 @@ async fn client_list_exposes_only_unexpired_owner_registrations() {
             .clients
             .is_empty()
     );
->>>>>>> origin/main
 }

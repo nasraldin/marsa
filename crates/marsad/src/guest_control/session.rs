@@ -119,7 +119,7 @@ async fn response_before(
 }
 
 pub(super) struct Session {
-    client: Arc<Client>,
+    pub(super) client: Arc<Client>,
     active: watch::Sender<Weak<Client>>,
     shutdown: Option<oneshot::Sender<Request>>,
     health: watch::Receiver<Option<EngineHealthState>>,

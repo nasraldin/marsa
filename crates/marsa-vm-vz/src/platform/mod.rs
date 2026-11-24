@@ -21,12 +21,8 @@ use marsa_vm::{
 use tokio::sync::watch;
 
 use native::{Controller, Power, StopRequest};
-<<<<<<< HEAD
-use state::backend;
-=======
 use state::{backend, unsupported};
 use userspace::Transport;
->>>>>>> origin/main
 
 /// The Apple silicon Virtualization.framework backend.
 #[derive(Debug, Default, Clone, Copy)]
@@ -71,29 +67,7 @@ impl Hypervisor for VzHypervisor {
     }
 
     async fn create(&self, spec: VmSpec) -> Result<Box<dyn Vm>, VmError> {
-<<<<<<< HEAD
-        let prepared = tokio::task::spawn_blocking(move || spec::prepare(spec))
-            .await
-            .map_err(|error| backend("prepare", error.to_string()))??;
-        let discover_network = prepared.discover_network;
-        // Arm queue teardown before the first job so a cancelled create also releases native state.
-        let mut vm = VzVm {
-            controller: Controller::new(),
-            network_probe: None,
-        };
-        vm.controller
-            .call("create", move |controller| controller.create(prepared))
-            .await?;
-        if discover_network {
-            vm.network_probe = Some(tokio::spawn(network::discover(
-                Arc::downgrade(&vm.controller),
-                vm.controller.lifecycle.watch(),
-            )));
-        }
-        Ok(Box::new(vm))
-=======
         create(spec, None).await
->>>>>>> origin/main
     }
 }
 
@@ -135,10 +109,7 @@ async fn create(spec: VmSpec, helper: Option<PathBuf>) -> Result<Box<dyn Vm>, Vm
 
 struct VzVm {
     controller: Arc<Controller>,
-<<<<<<< HEAD
-=======
     transport: Option<Transport>,
->>>>>>> origin/main
     network_probe: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -178,51 +149,11 @@ impl Vm for VzVm {
     }
 
     async fn stop(&mut self, timeout: Duration) -> Result<(), VmError> {
-<<<<<<< HEAD
-        let start = Instant::now();
-        let mut state = self.controller.lifecycle.watch();
-        loop {
-            let remaining = || timeout.saturating_sub(start.elapsed());
-            let expired = |_| VmError::Timeout {
-                operation: "stop",
-                limit: timeout,
-            };
-            match self
-                .controller
-                .call("request stop", |controller| controller.request_stop())
-                .await?
-            {
-                StopRequest::WaitForStart => {
-                    tokio::time::timeout(
-                        remaining(),
-                        state.wait_for(|state| *state != VmState::Starting),
-                    )
-                    .await
-                    .map_err(expired)?
-                    .map_err(|_| backend("stop", "the VZ state channel closed"))?;
-                }
-                StopRequest::WaitForPowerChange(mut finished) => {
-                    tokio::time::timeout(remaining(), finished.wait_for(|finished| *finished))
-                        .await
-                        .map_err(expired)?
-                        .map_err(|_| backend("stop", "the VZ power transition channel closed"))?;
-                }
-                StopRequest::Graceful => {
-                    if let Ok(result) = tokio::time::timeout(remaining(), stopped(&mut state)).await
-                    {
-                        return result;
-                    }
-                    break;
-                }
-                StopRequest::Force => break,
-            }
-=======
         let outcome = self.stop_vm(timeout).await;
         if matches!(self.state(), VmState::Stopped | VmState::Failed)
             && let Some(transport) = &mut self.transport
         {
             transport.stop().await;
->>>>>>> origin/main
         }
         outcome
     }
@@ -260,8 +191,6 @@ impl VzVm {
         result
             .await
             .map_err(|_| backend(power.name(), "the VZ queue lost the transition result"))?
-<<<<<<< HEAD
-=======
     }
 
     async fn stop_vm(&mut self, timeout: Duration) -> Result<(), VmError> {
@@ -307,7 +236,6 @@ impl VzVm {
             .call("stop", |controller| controller.force_stop())
             .await?;
         stopped(&mut state).await
->>>>>>> origin/main
     }
 }
 

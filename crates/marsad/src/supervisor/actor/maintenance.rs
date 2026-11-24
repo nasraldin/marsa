@@ -89,15 +89,12 @@ impl Actor {
         self.begin();
     }
 
-<<<<<<< HEAD
-=======
     pub(super) fn maintenance_candidate_pending(&self) -> bool {
         self.maintenance
             .as_ref()
             .is_some_and(|owner| owner.discard_on_release)
     }
 
->>>>>>> origin/main
     pub(super) fn maintenance_keep(&mut self, id: u64) -> Result<(), SupervisorError> {
         let Some(owner) = self.maintenance.as_mut().filter(|owner| owner.id == id) else {
             return Err(SupervisorError::Busy);
@@ -105,13 +102,10 @@ impl Actor {
         if owner.starting || !owner.discard_on_release {
             return Err(SupervisorError::Busy);
         }
-<<<<<<< HEAD
-=======
         let guest = self.guest.as_mut().ok_or(SupervisorError::Busy)?;
         if let Some(applied) = guest.applied.take() {
             applied();
         }
->>>>>>> origin/main
         owner.discard_on_release = false;
         Ok(())
     }

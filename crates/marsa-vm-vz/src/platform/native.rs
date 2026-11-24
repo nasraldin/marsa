@@ -6,10 +6,7 @@ mod sockets;
 use std::{
     cell::RefCell,
     collections::HashMap,
-<<<<<<< HEAD
-=======
     fs::File,
->>>>>>> origin/main
     sync::{Arc, Weak},
 };
 
@@ -144,11 +141,6 @@ impl Controller {
             .map_err(|_| backend(operation, "the VZ queue lost the result"))?
     }
 
-<<<<<<< HEAD
-    pub(super) fn create(self: &Arc<Self>, prepared: Prepared) -> Result<(), VmError> {
-        let memory_bytes = prepared.spec.memory_bytes;
-        let configuration = configuration::build(prepared)?;
-=======
     pub(super) fn create(
         self: &Arc<Self>,
         prepared: Prepared,
@@ -156,7 +148,6 @@ impl Controller {
     ) -> Result<(), VmError> {
         let memory_bytes = prepared.spec.memory_bytes;
         let configuration = configuration::build(prepared, network_socket)?;
->>>>>>> origin/main
         let delegate = Delegate::alloc().set_ivars(Arc::downgrade(self));
         // SAFETY: NSObject initializes the allocated subclass on its owning queue.
         let delegate: Retained<Delegate> = unsafe { msg_send![super(delegate), init] };

@@ -11,13 +11,8 @@ use tokio::{
 };
 
 use crate::supervisor::{
-<<<<<<< HEAD
-    BootFailure, BootStage, State, SupervisorError,
-    boot::{self, Issue, LiveGuest, Outcome, Reason},
-=======
     BootFailure, BootStage, NetworkObservation, State, SupervisorError,
-    boot::{self, Issue, Outcome, Reason},
->>>>>>> origin/main
+    boot::{self, Issue, LiveGuest, Outcome, Reason},
     platform,
 };
 
@@ -443,9 +438,6 @@ impl Actor {
         self.cancel_boot = None;
         self.progress = None;
         match outcome {
-<<<<<<< HEAD
-            Ok(Outcome::Ready(guest)) => {
-=======
             Ok(Outcome::Ready(mut guest)) => {
                 // A maintenance candidate may be ready before its owner commits.
                 // Retain the callback until the candidate is accepted.
@@ -454,7 +446,6 @@ impl Actor {
                 {
                     applied();
                 }
->>>>>>> origin/main
                 self.booting();
                 self.guest = Some(guest);
                 self.ready();

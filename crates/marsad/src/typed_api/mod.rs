@@ -37,15 +37,11 @@ use marsa_proto::host::v1::{
 };
 use marsa_share::{Allowlist, SharePolicy};
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
-<<<<<<< HEAD
+use nix::unistd::{Uid, User};
 use tokio::{
     net::UnixListener,
     sync::{mpsc, watch},
 };
-=======
-use nix::unistd::{Uid, User};
-use tokio::{net::UnixListener, sync::watch};
->>>>>>> origin/main
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{
     Request, Status,
@@ -55,14 +51,10 @@ use tonic::{
 use crate::{
     agent_policy::GrantStore,
     guest_control::{GuestControl, GuestEvent},
-<<<<<<< HEAD
     host_events::{HostEvent, HostNotification},
-    supervisor::{GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection},
-=======
     supervisor::{
         DockerStream, GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection,
     },
->>>>>>> origin/main
 };
 
 const CONTROL_LIMIT: usize = 4096;
@@ -74,15 +66,11 @@ pub struct TypedApi {
     inner: Arc<Shared>,
     supervisor: Option<Supervisor>,
     capabilities: Option<Capabilities>,
-<<<<<<< HEAD
-    proxy: Option<Arc<proxy_policy::RuntimeProxy>>,
-=======
     components: Arc<[ComponentVersion]>,
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
     verify_keychain: Option<docker_discovery::VerifyKeychain>,
     proxy: Option<Arc<proxy_policy::RuntimeProxy>>,
     guest_control: Option<Arc<GuestControl>>,
->>>>>>> origin/main
 }
 
 struct Shared {
@@ -155,15 +143,11 @@ impl TypedApi {
             }),
             supervisor: None,
             capabilities: None,
-<<<<<<< HEAD
-            proxy: None,
-=======
             components: Arc::default(),
             docker_contexts: None,
             verify_keychain: None,
             proxy: None,
             guest_control: None,
->>>>>>> origin/main
         })
     }
 
@@ -262,23 +246,6 @@ impl TypedApi {
         + Sync
         + 'static,
     ) -> io::Result<Self> {
-        let observations = self.inner.events.clone();
-        let control = Arc::new(control.observe_active(move |event| match event {
-            GuestEvent::Health(health) => engine::publish_health(&observations, health),
-            GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
-            GuestEvent::Port(_) => (),
-        }));
-        self.with_packaged_probe(capabilities, control, config, prepare)
-            .await
-    }
-
-    async fn with_packaged_probe(
-        mut self,
-        capabilities: Capabilities,
-        control: Arc<dyn GuestProbe>,
-        config: SupervisorConfig,
-        prepare: impl Fn(&Settings) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> + Send + Sync + 'static,
-    ) -> io::Result<Self> {
         let paths = self.inner.paths.clone();
         let uid = self.inner.uid;
         let proxy = tokio::task::spawn_blocking(move || proxy_policy::BootProxy::read(&paths, uid))
@@ -294,11 +261,6 @@ impl TypedApi {
         let settings = events.clone();
         let share_policy = self.inner.share_policy.clone();
         let preparation = Arc::new(move || {
-<<<<<<< HEAD
-            let (desired, _) = settings.settings();
-            let (effective, reserved) = proxy.launch_settings(desired);
-            let (backend, mut spec) = prepare(&effective)?;
-=======
             let (desired, once) = settings.boot_configuration();
             let configured_mode = desired.network.mode;
             let (effective, reserved) = proxy.launch_settings(desired)?;
@@ -312,21 +274,13 @@ impl TypedApi {
                 )
                 .map_err(io::Error::other)?,
             );
->>>>>>> origin/main
             let automatic = select_network(&effective, &mut spec, backend.capabilities());
             let network_policy = proxy_policy::BootProxy::from_draft(&effective.network.proxy)?
                 .guest_configuration();
             let bus = settings.clone();
-            let applied: Option<crate::supervisor::launch::Applied> =
-                (!reserved).then(|| Arc::new(move || bus.runtime_applied(&effective)) as _);
             Ok(Launch {
                 backend,
                 spec,
-<<<<<<< HEAD
-                selection: Selection::new(automatic),
-                network_policy,
-                applied,
-=======
                 selection: Selection::new(automatic).with_configured_mode(configured_mode),
                 network_policy,
                 applied: Some(Arc::new(move || {
@@ -335,7 +289,6 @@ impl TypedApi {
                     }
                     bus.activate_binds(mounted.clone(), &once);
                 })),
->>>>>>> origin/main
             })
         });
         let supervisor = Supervisor::spawn_packaged(

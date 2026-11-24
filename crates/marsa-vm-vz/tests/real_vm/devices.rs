@@ -1,15 +1,3 @@
-<<<<<<< HEAD
-//! Verify devices and NAT using the packaged guest on an entitled Apple silicon host.
-
-use std::{env, fs, path::Path, time::Duration};
-
-use marsa_proto::guest::CONTROL_PORT;
-use marsa_vm::{Hypervisor, ShareSpec, Vm, VmError, VmState, VsockStream};
-use marsa_vm_vz::VzHypervisor;
-use tokio::time::{sleep, timeout};
-
-use super::{LIMIT, handshake, spec, transition};
-=======
 //! Verify virtiofs, memory ballooning and power controls using the packaged guest on an entitled Apple silicon host.
 
 use std::{env, fs, path::Path, time::Duration};
@@ -19,7 +7,6 @@ use marsa_vm_vz::VzHypervisor;
 use tokio::time::timeout;
 
 use super::{LIMIT, connect_control, console_with, handshake, spec, transition};
->>>>>>> origin/main
 
 #[tokio::test]
 #[ignore = "requires virtualization entitlement and MARSA_VZ_GUEST_DIR on Apple silicon"]
@@ -99,12 +86,9 @@ async fn packaged_guest_share_balloon_and_pause_resume() {
     timeout(LIMIT, vm.resume()).await.unwrap().unwrap();
     transition(&mut events, VmState::Paused, VmState::Running).await;
     assert_eq!(vm.state(), VmState::Running);
-<<<<<<< HEAD
-=======
     drop(stream);
     let mut stream = connect_control(&*vm, &console).await;
     timeout(LIMIT, handshake(&mut stream)).await.unwrap();
->>>>>>> origin/main
     timeout(LIMIT, vm.stop(Duration::from_secs(3)))
         .await
         .unwrap()
@@ -113,96 +97,3 @@ async fn packaged_guest_share_balloon_and_pause_resume() {
     transition(&mut events, VmState::Stopping, VmState::Stopped).await;
     assert!(vm.network_info().is_none());
 }
-<<<<<<< HEAD
-
-async fn connect_control(vm: &dyn Vm, console: &Path) -> VsockStream {
-    timeout(LIMIT, async {
-        loop {
-            match vm.connect_vsock(CONTROL_PORT).await {
-                Ok(stream) => break stream,
-                Err(VmError::GuestPortUnavailable { .. }) => sleep(Duration::from_millis(25)).await,
-                Err(error) => panic!("{error}\n{}", fs::read_to_string(console).unwrap()),
-            }
-        }
-    })
-    .await
-    .unwrap_or_else(|error| panic!("{error}\n{}", fs::read_to_string(console).unwrap()))
-}
-
-async fn console_with(console: &Path, marker: &str) -> String {
-    timeout(LIMIT, async {
-        loop {
-            let log = fs::read_to_string(console).unwrap();
-            if log.contains(marker) {
-                break log;
-            }
-            sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .unwrap_or_else(|error| {
-        panic!(
-            "console did not contain {marker:?}: {error}\n{}",
-            fs::read_to_string(console).unwrap()
-        )
-    })
-}
-
-#[tokio::test]
-#[ignore = "requires virtualization entitlement, native NAT and MARSA_VZ_GUEST_DIR on Apple silicon"]
-async fn packaged_guest_nat_address_gateway_and_https() {
-    let guest = env::var_os("MARSA_VZ_GUEST_DIR").expect("set MARSA_VZ_GUEST_DIR");
-    let guest = Path::new(&guest).canonicalize().unwrap();
-    let scratch = tempfile::tempdir().unwrap();
-    let cmdline = concat!(
-        "console=hvc0 root=/dev/vda rootfstype=erofs ro panic=-1 init=/bin/sh -- -c \"",
-        "exec </dev/hvc0 >/dev/hvc0 2>&1; (",
-        "while [ ! -S /var/run/docker.sock ]; do /bin/busybox sleep 1; done; ",
-        "/sbin/ip -4 -o addr show dev eth0; ",
-        "/sbin/ip -4 route show default dev eth0; echo MARSA_NET_CONFIG_CAPTURED; ",
-        "/bin/busybox wget -T 5 -O /dev/null https://example.com && echo MARSA_NAT_HTTPS_OK; ",
-        ") & exec /usr/bin/marsa-init\"",
-    );
-    let spec = spec(&guest, scratch.path(), cmdline);
-    let console = spec.console_log.clone();
-    let mut vm = VzHypervisor.create(spec).await.unwrap();
-    assert!(vm.network_info().is_none());
-    timeout(LIMIT, vm.start()).await.unwrap().unwrap();
-    let mut stream = connect_control(&*vm, &console).await;
-    timeout(LIMIT, handshake(&mut stream)).await.unwrap();
-    let network = timeout(LIMIT, async {
-        loop {
-            if let Some(facts) = vm.network_info() {
-                break facts;
-            }
-            sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await
-    .expect("the backend did not get network facts");
-    let log = console_with(&console, "MARSA_NET_CONFIG_CAPTURED\r\n").await;
-    assert!(
-        log.lines()
-            .any(|line| line.contains(&format!("eth0    inet {}/", network.address))),
-        "{log}"
-    );
-    let gateway = network.gateway.expect("NAT default gateway");
-    let gateway_words = ["default", "via", &gateway.to_string()];
-    assert!(
-        log.lines()
-            .any(|line| line.split_ascii_whitespace().take(3).eq(gateway_words)),
-        "{log}"
-    );
-    println!(
-        "guest DHCP address {} via {gateway} matches the backend snapshot",
-        network.address
-    );
-    console_with(&console, "MARSA_NAT_HTTPS_OK\r\n").await;
-    timeout(LIMIT, vm.stop(Duration::from_secs(3)))
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(vm.network_info().is_none());
-}
-=======
->>>>>>> origin/main

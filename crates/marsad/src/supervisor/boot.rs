@@ -117,21 +117,15 @@ pub(super) async fn run(
     )
     .await;
     match result {
-<<<<<<< HEAD
         Ok(mut outcome) => {
             match &mut outcome {
                 Outcome::Ready(guest) | Outcome::Interrupted(guest) => {
-                    guest.applied = launch.applied
+                    guest.applied = launch.applied;
+                    guest.configured_mode = configured_mode;
                 }
                 Outcome::Failed { .. } => {}
             }
             outcome
-=======
-        Ok(mut guest) => {
-            guest.applied = launch.applied;
-            guest.configured_mode = configured_mode;
-            Outcome::Ready(guest)
->>>>>>> origin/main
         }
         Err(mut failure) => {
             if failure.issue.stage == BootStage::Handshake

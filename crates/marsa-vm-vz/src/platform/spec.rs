@@ -1,23 +1,14 @@
 //! Resolve host files before asking the framework to consume the configuration.
 
 use std::{
-<<<<<<< HEAD
-    fmt::Write as _,
-=======
->>>>>>> origin/main
     fs::{self, File, Metadata, OpenOptions},
     io::{self, Read},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::Path,
 };
 
-<<<<<<< HEAD
-use marsa_core::guest_boot::Settings;
-use marsa_vm::{NetworkSpec, ShareSpec, VmError, VmSpec};
-=======
 use marsa_core::guest_boot::{ARM64_CMDLINE_BYTES, Settings, append_share_arg};
 use marsa_vm::{ShareSpec, VmError, VmSpec};
->>>>>>> origin/main
 
 use super::state::invalid_spec;
 
@@ -38,12 +29,6 @@ pub(super) fn prepare(mut spec: VmSpec) -> Result<Prepared, VmError> {
         ));
     }
     let boot = prepare_shares(&mut spec)?;
-<<<<<<< HEAD
-    if spec.network != NetworkSpec::Nat {
-        return Err(unsupported("VZ userspace networking"));
-    }
-=======
->>>>>>> origin/main
 
     let mut kernel = open_regular("kernel", &spec.kernel, false)?;
     let mut header = [0; 64];
@@ -134,11 +119,7 @@ fn prepare_shares(spec: &mut VmSpec) -> Result<Settings, VmError> {
             .insert_str(tail.unwrap_or(spec.cmdline.len()), &arguments);
     }
     // The pinned arm64 kernel copies at most COMMAND_LINE_SIZE bytes, including NUL.
-<<<<<<< HEAD
-    if spec.cmdline.len() >= 2048 {
-=======
     if spec.cmdline.len() >= ARM64_CMDLINE_BYTES {
->>>>>>> origin/main
         return Err(invalid_spec(
             "cmdline",
             "guest kernel arguments exceed 2047 bytes",
@@ -149,12 +130,6 @@ fn prepare_shares(spec: &mut VmSpec) -> Result<Settings, VmError> {
 
 fn append_share_argument(arguments: &mut String, share: &ShareSpec) -> Result<(), VmError> {
     let path = &share.host_path;
-<<<<<<< HEAD
-    let path_text = path
-        .to_str()
-        .ok_or_else(|| invalid_spec("shares.host_path", "expected a UTF-8 path"))?;
-=======
->>>>>>> origin/main
     let canonical = path
         .canonicalize()
         .map_err(|error| invalid_file("shares.host_path", error))?;
@@ -174,23 +149,8 @@ fn append_share_argument(arguments: &mut String, share: &ShareSpec) -> Result<()
         ));
     }
 
-<<<<<<< HEAD
-    arguments.push_str(" marsa.share=");
-    arguments.push_str(&share.tag);
-    arguments.push(':');
-    for byte in path_text.bytes() {
-        if byte.is_ascii_alphanumeric() || b"/-._".contains(&byte) {
-            arguments.push(char::from(byte));
-        } else {
-            write!(arguments, "%{byte:02X}")
-                .map_err(|error| invalid_spec("shares.host_path", error.to_string()))?;
-        }
-    }
-    Ok(())
-=======
     append_share_arg(arguments, &share.tag, path)
         .map_err(|error| invalid_file("shares.host_path", error))
->>>>>>> origin/main
 }
 
 fn open_regular(field: &'static str, path: &Path, write: bool) -> Result<File, VmError> {

@@ -13,15 +13,10 @@ use futures_util::{Stream, stream};
 use marsa_core::settings::{NetworkMode, Settings, VmBackend};
 use marsa_proto::guest::v1::EgressStage;
 use marsa_proto::host::v1::{
-<<<<<<< HEAD
     DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, HostEvent, HostEventKind,
-    NetworkMode as WireMode, NetworkStatus, SettingsChanged, SettingsSnapshot, SubscribeRequest,
-    VmStatsSample, daemon_event::Body, events_server::Events,
-=======
-    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, ListPendingApprovalsResponse,
-    NetworkMode as WireMode, NetworkStatus, PendingApproval, SettingsChanged, SettingsSnapshot,
-    SubscribeRequest, VmStatsSample, daemon_event::Body, events_server::Events,
->>>>>>> origin/main
+    ListPendingApprovalsResponse, NetworkMode as WireMode, NetworkStatus, PendingApproval,
+    SettingsChanged, SettingsSnapshot, SubscribeRequest, VmStatsSample, daemon_event::Body,
+    events_server::Events,
 };
 use marsa_vm::NetworkSpec;
 use tokio::{
