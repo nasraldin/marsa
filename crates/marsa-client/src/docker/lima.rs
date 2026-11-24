@@ -139,6 +139,38 @@ impl LimaInstance {
         let config = self.check_target().await?;
         let lima = LimaCommand::find().await?;
         let current = self.read(&lima).await?;
+        self.transition(&lima, &config, current, running).await
+    }
+
+    /// Gracefully restart this exact running instance without changing its configuration.
+    pub async fn restart(&self) -> Result<LimaSettings, LimaSettingsError> {
+        let instance = self.clone();
+        // A window can close between the two transitions. Keep the confirmed
+        // restart running on the session runtime even if its caller goes away.
+        tokio::spawn(async move { instance.restart_running().await })
+            .await
+            .map_err(|_| LimaSettingsError::LifecycleFailed)?
+    }
+
+    async fn restart_running(&self) -> Result<LimaSettings, LimaSettingsError> {
+        let _guard = MUTATION_LOCK.lock().await;
+        let config = self.check_target().await?;
+        let lima = LimaCommand::find().await?;
+        let current = self.read(&lima).await?;
+        if !current.running {
+            return Err(LimaSettingsError::LifecycleState);
+        }
+        let stopped = self.transition(&lima, &config, current, false).await?;
+        self.transition(&lima, &config, stopped, true).await
+    }
+
+    async fn transition(
+        &self,
+        lima: &LimaCommand,
+        config: &[u8],
+        current: LimaSettings,
+        running: bool,
+    ) -> Result<LimaSettings, LimaSettingsError> {
         let Some(arguments) = lifecycle_arguments(current, running)? else {
             return Ok(current);
         };
@@ -150,7 +182,7 @@ impl LimaInstance {
         lima.configure(&mut command, &self.root);
         command.args(arguments).args(["--", &self.name]);
         let completed = run_bounded(command, LIFECYCLE_TIMEOUT).await.is_ok();
-        let actual = self.read(&lima).await?;
+        let actual = self.read(lima).await?;
         // Stop can finish successfully before Lima reconciles unrelated
         // networks. In that case report the verified stopped state.
         if (running && completed && actual.running) || (!running && actual.stopped) {

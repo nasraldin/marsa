@@ -125,8 +125,10 @@ impl Desktop {
             this.resources
                 .update(cx, |view, _| view.switch_environment());
             this.palette_index = 0;
-            this.system
-                .update(cx, |view, cx| view.refresh_external_inventory(cx));
+            this.system.update(cx, |view, cx| {
+                view.clear_lima_machine_target();
+                view.refresh_external_inventory(cx);
+            });
             cx.notify();
         });
         let containers = cx.new(|cx| {
@@ -477,6 +479,20 @@ impl Render for Desktop {
         let failed = local
             && matches!(route, Route::Machine | Route::Containers)
             && self.engine() == Some(EngineState::Failed);
+        let lima = (route == Route::Machine && !local)
+            .then(|| {
+                let selection = self.environment.read(cx);
+                self.external_inventory
+                    .iter()
+                    .find(|workspace| selection.includes_external(workspace))
+                    .and_then(|workspace| self.system.read(cx).lima_machine_instance(workspace))
+            })
+            .flatten();
+        if route == Route::Machine {
+            self.system.update(cx, |system, cx| {
+                system.prepare_lima_machine(lima, window, cx)
+            });
+        }
         let sidebar = sidebar::render(self, cx);
         let header = row(self.locale)
             .justify_between()
@@ -510,6 +526,8 @@ impl Render for Desktop {
                             .text_color(color(palette, ColorToken::TextMuted))
                             .child(if failed {
                                 gui::GUI_SYSTEM_ENGINE_FAILED_SUBTITLE.text(self.locale)
+                            } else if route == Route::Machine && !local {
+                                gui::GUI_SYSTEM_MACHINE_ENVIRONMENT_DESCRIPTION.text(self.locale)
                             } else {
                                 route.description(self.locale)
                             }),
