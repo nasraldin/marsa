@@ -14,4 +14,8 @@ version = "=0.4.13"
 allow = ["NCSA"]
 TOML
 
-cargo deny --manifest-path fuzz/Cargo.toml --locked --config "$policy" check
+# The workspace skip list targets crates the main graph resolves; the isolated
+# fuzz graph is a subset, so allowing the unmatched-skip lint keeps the shared
+# policy applicable without warning about skips this graph never encounters.
+cargo deny --manifest-path fuzz/Cargo.toml --locked --config "$policy" check \
+    -A unmatched-skip

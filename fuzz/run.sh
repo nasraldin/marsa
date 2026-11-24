@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Run the scheduled budgets against disposable copies of the committed corpus.
+# The targets deliberately build without sanitizer instrumentation (`--sanitizer none`)
+# so the pinned stable toolchain can run them. libFuzzer then logs the expected
+# "Failed to find function __sanitizer_*" notices for the absent sanitizer runtime;
+# they are normal for this configuration and not a failure.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
