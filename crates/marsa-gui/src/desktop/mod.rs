@@ -525,39 +525,6 @@ impl Render for Desktop {
                     .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(self.locale))
                     .child(IconName::Search)
                     .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx))),
-            )
-            .children(
-                (local && route == Route::Overview)
-                    .then(|| {
-                        let (action, label, icon) = match self.engine()? {
-                            EngineState::Stopped | EngineState::Failed => (
-                                EngineAction::Start,
-                                gui::GUI_DESKTOP_START_MACHINE,
-                                IconName::Play,
-                            ),
-                            EngineState::Ready | EngineState::Idle | EngineState::Paused => (
-                                EngineAction::Stop,
-                                gui::GUI_DESKTOP_STOP_MACHINE,
-                                IconName::Square,
-                            ),
-                            _ => return None,
-                        };
-                        let label = label.text(self.locale);
-                        Some(
-                            Button::new("overview-engine-lifecycle")
-                                .ghost()
-                                .size(px(36.))
-                                .p_0()
-                                .bg(color(palette, ColorToken::GlassControl))
-                                .accessibility_label(label)
-                                .tooltip(label)
-                                .child(icon)
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.request_engine(action, window, cx);
-                                })),
-                        )
-                    })
-                    .flatten(),
             );
 
         let mut owns_scroll = false;

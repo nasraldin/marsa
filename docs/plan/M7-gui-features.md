@@ -497,7 +497,7 @@ Verified both transports and terminal I/O against [Hawser upstream bca2770](http
 - **Accept when:**
   - Container, image, volume, network, and stack rows scroll within the remaining viewport. The page title, table headings, and filters stay visible.
   - Resource details can scroll independently. Selecting the active sidebar route returns to its list.
-  - Overview exposes the container filters and local engine lifecycle controls, shows measured history for top containers, and identifies the active environment.
+  - Overview exposes the container filters, shows measured history for top containers, and puts the local engine lifecycle controls in the active environment card.
   - Verify overflow and layout in English light, English dark, Arabic light, and Arabic dark.
 
 Native macOS QA reproduced the stuck Images rows on the merged PR and verified

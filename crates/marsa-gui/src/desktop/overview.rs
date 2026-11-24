@@ -23,11 +23,14 @@ use marsa_ui::{
     tokens::typography::Role,
 };
 
-use crate::screens::{
-    common::{ScreenContext, align, color, disk_bytes, panel, row, technical},
-    containers::StatusFilter,
-    external_inventory::Environment,
-    system::environment_icon_path,
+use crate::{
+    screens::{
+        common::{ScreenContext, align, color, disk_bytes, panel, row, technical},
+        containers::StatusFilter,
+        external_inventory::Environment,
+        system::environment_icon_path,
+    },
+    services::EngineAction,
 };
 
 use super::{Desktop, Route, status};
@@ -219,6 +222,32 @@ impl Desktop {
             })
         });
         let platform = version.map(|details| format!("{}/{}", details.os, details.arch));
+        let lifecycle = match (selection.includes_marsa(), engine) {
+            (true, Some(EngineState::Stopped | EngineState::Failed)) => Some((
+                EngineAction::Start,
+                gui::GUI_DESKTOP_START_MACHINE,
+                IconName::Play,
+            )),
+            (true, Some(EngineState::Ready | EngineState::Idle | EngineState::Paused)) => Some((
+                EngineAction::Stop,
+                gui::GUI_DESKTOP_STOP_MACHINE,
+                IconName::Square,
+            )),
+            _ => None,
+        };
+        let lifecycle = lifecycle.map(|(action, label, icon)| {
+            let button = Button::new("overview-engine-lifecycle")
+                .h(px(36.))
+                .icon(icon)
+                .label(label.text(locale))
+                .on_click(cx.listener(move |desktop, _, window, cx| {
+                    desktop.request_engine(action, window, cx);
+                }));
+            match action {
+                EngineAction::Start => button.primary(),
+                _ => button.outline(),
+            }
+        });
         let refresh = Button::new("overview-refresh")
             .ghost()
             .size(px(36.))
@@ -295,18 +324,24 @@ impl Desktop {
                             ),
                     )
                     .child(
-                        row(locale).gap_1().flex_shrink_0().child(refresh).child(
-                            Button::new("overview-manage-environments")
-                                .ghost()
-                                .size(px(36.))
-                                .p_0()
-                                .child(IconName::Settings2)
-                                .accessibility_label(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
-                                .tooltip(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
-                                .on_click(
-                                    cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx)),
-                                ),
-                        ),
+                        row(locale)
+                            .items_center()
+                            .gap_2()
+                            .flex_shrink_0()
+                            .children(lifecycle)
+                            .child(refresh)
+                            .child(
+                                Button::new("overview-manage-environments")
+                                    .ghost()
+                                    .size(px(36.))
+                                    .p_0()
+                                    .child(IconName::Settings2)
+                                    .accessibility_label(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
+                                    .tooltip(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
+                                    .on_click(
+                                        cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx)),
+                                    ),
+                            ),
                     ),
             );
         if !matches!(engine, Some(EngineState::Ready | EngineState::Idle)) {
