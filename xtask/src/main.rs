@@ -131,7 +131,7 @@ fn main() -> ExitCode {
                 };
                 #[cfg(not(target_os = "macos"))]
                 {
-                    eprintln!("This release command requires macOS.");
+                    eprintln!("The {command} release command requires macOS.");
                     return ExitCode::FAILURE;
                 }
             }
