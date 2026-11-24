@@ -5,8 +5,8 @@ use std::{future::poll_fn, io, sync::Arc, task::Poll, time::Duration};
 use marsa_proto::guest::{
     CONTROL_PORT, DOCKER_API_PORT, MAX_FRAME_BYTES,
     v1::{
-        CommandStatus, Shutdown, Trim, TrimResult, VmStats, guest_envelope::Body as GuestBody,
-        host_envelope::Body as HostBody,
+        CommandStatus, SetTime, Shutdown, Trim, TrimResult, VmStats,
+        guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
     },
 };
 use marsa_vm::fake::{AgentStep, FakeScenario};
@@ -57,6 +57,44 @@ async fn boot_and_resume_each_retime_ping_and_deliver_guest_events() {
     supervisor.resume().await.unwrap();
     assert_eq!(supervisor.snapshot().state, State::Ready);
     expect_events(&mut events).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn wake_resynchronizes_a_guest_that_did_not_pause() {
+    let mut script = startup();
+    script.extend([
+        expect(
+            2,
+            HostBody::SetTime(SetTime {
+                unix_seconds: 1_800_000_000,
+                nanoseconds: 700,
+            }),
+        ),
+        command_result(2, CommandStatus::Ok),
+        send(
+            0,
+            GuestBody::Stats(VmStats {
+                sample_uptime_millis: 1234,
+                ..VmStats::default()
+            }),
+        ),
+        AgentStep::Wait(WAIT),
+    ]);
+    let (supervisor, control) = supervisor(
+        FakeScenario::default()
+            .with_agent(CONTROL_PORT, script)
+            .with_agent(DOCKER_API_PORT, docker_ping(200)),
+    );
+    let mut events = control.events();
+    supervisor.ensure_ready().await.unwrap();
+    supervisor.host_woke().await.unwrap();
+
+    timeout(TEST_LIMIT, async {
+        while !matches!(events.recv().await.unwrap(), GuestEvent::Stats(stats) if stats.sample_uptime_millis == 1234) {}
+    })
+    .await
+    .expect("the running guest did not receive SetTime");
+    assert_eq!(supervisor.snapshot().state, State::Ready);
 }
 
 #[tokio::test(start_paused = true)]
@@ -406,6 +444,7 @@ async fn sample_workloads(json: &[u8]) -> io::Result<u32> {
         .unwrap()
 }
 
+mod network_mode;
 fn boot_proxy_script(
     policy: &marsa_proto::guest::v1::ConfigureNetwork,
     outcome: GuestBody,

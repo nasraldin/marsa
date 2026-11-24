@@ -2,6 +2,7 @@
 
 use std::{io, net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 
+use marsa_core::settings::NetworkMode;
 use marsa_proto::guest::v1::EgressStage;
 use marsa_vm::{Hypervisor, NetworkInfo, Vm, VmError, VmSpec, async_trait};
 use thiserror::Error;
@@ -19,6 +20,12 @@ mod platform;
 
 pub use docker::DockerStream;
 pub use network::{AlternateFailure, BootNetwork, NetworkResult};
+
+#[derive(Default)]
+pub(crate) struct NetworkObservation {
+    pub(crate) attachment: Option<(BootNetwork, Option<NetworkInfo>)>,
+    pub(crate) restart_pending: Option<bool>,
+}
 
 #[cfg(test)]
 mod tests;
@@ -55,6 +62,8 @@ pub enum BootStage {
     Start,
     /// Negotiate the versioned guest control channel.
     Handshake,
+    /// The guest data disk uses a newer supported format than this guest understands.
+    DataDisk,
     /// Qualify the network before Docker starts.
     Network,
     /// Wait for Docker to serve requests.
@@ -158,6 +167,9 @@ pub enum SupervisorError {
         /// Observed supervisor state.
         state: State,
     },
+    /// The running guest could not acknowledge a clock update after waking.
+    #[error("guest clock synchronization failed: {0}")]
+    Clock(#[source] Arc<io::Error>),
     /// The hypervisor rejected a lifecycle request.
     #[error(transparent)]
     Vm(#[from] Arc<VmError>),
@@ -202,6 +214,11 @@ pub trait GuestSession: Send {
 
     /// Verify agent engine health and the Docker API ping.
     async fn engine_ready(&mut self, vm: &dyn Vm) -> io::Result<()>;
+
+    /// Update the wall clock of a guest whose session remained active through sleep.
+    async fn synchronize_clock(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 
     /// Ask the guest to stop Docker and unmount its data disk before powering off.
     async fn shutdown(&mut self) -> io::Result<()> {
@@ -249,16 +266,9 @@ impl Supervisor {
         spec: VmSpec,
         config: SupervisorConfig,
         observer: Observer,
-        automatic: bool,
+        selection: network::Selection,
     ) -> Self {
-        Self::spawn_inner(
-            backend,
-            probe,
-            spec,
-            config,
-            Some(observer),
-            network::Selection::new(automatic),
-        )
+        Self::spawn_inner(backend, probe, spec, config, Some(observer), selection)
     }
 
     fn spawn_inner(
@@ -270,6 +280,7 @@ impl Supervisor {
         selection: network::Selection,
     ) -> Self {
         let console_log = spec.console_log.clone();
+        let pause_resume = backend.capabilities().pause_resume;
         let launch = launch::Launch {
             backend,
             spec,
@@ -281,6 +292,7 @@ impl Supervisor {
             launch::Runtime {
                 source: launch::Source::Fixed(Box::new(launch)),
                 console_log,
+                pause_resume,
             },
             probe,
             config,
@@ -291,6 +303,7 @@ impl Supervisor {
     pub(crate) fn spawn_packaged(
         prepare: launch::Prepare,
         console_log: PathBuf,
+        pause_resume: bool,
         probe: Arc<dyn GuestProbe>,
         config: SupervisorConfig,
         observer: Observer,
@@ -299,6 +312,7 @@ impl Supervisor {
             launch::Runtime {
                 source: launch::Source::Package(prepare),
                 console_log,
+                pause_resume,
             },
             probe,
             config,
@@ -384,12 +398,7 @@ impl Supervisor {
                 };
                 io::Error::new(kind, error)
             })?;
-            let (reply, result) = oneshot::channel();
-            self.commands
-                .send(actor::Command::ConnectDocker(reply))
-                .await
-                .map_err(|_| io::ErrorKind::NotConnected)?;
-            match result.await.map_err(|_| io::ErrorKind::NotConnected)? {
+            match self.connect_running_docker().await {
                 // An explicit restart or host pause can intervene after readiness.
                 // Join that transition without overriding a completed user Stop.
                 Err(error)
@@ -408,6 +417,15 @@ impl Supervisor {
             stream,
             _activity: activity,
         })
+    }
+
+    pub(crate) async fn connect_running_docker(&self) -> io::Result<marsa_vm::VsockStream> {
+        let (reply, result) = oneshot::channel();
+        self.commands
+            .send(actor::Command::ConnectDocker(reply))
+            .await
+            .map_err(|_| io::ErrorKind::NotConnected)?;
+        result.await.map_err(|_| io::ErrorKind::NotConnected)?
     }
 
     /// Stop the guest and cancel any retry or pending activation.
@@ -430,6 +448,14 @@ impl Supervisor {
         self.request(actor::Command::Resume).await
     }
 
+    pub(crate) async fn host_will_sleep(&self) -> Result<(), SupervisorError> {
+        self.request(actor::Command::HostWillSleep).await
+    }
+
+    pub(crate) async fn host_woke(&self) -> Result<(), SupervisorError> {
+        self.request(actor::Command::HostWoke).await
+    }
+
     /// Report an observed Docker container count for idle detection.
     pub async fn report_containers(&self, count: u32) -> Result<(), SupervisorError> {
         self.request(|reply| actor::Command::ContainerCount(count, reply))
@@ -446,13 +472,14 @@ impl Supervisor {
             .await
     }
 
-    /// Read the active attachment and the latest separately observed guest network facts.
-    pub(crate) async fn active_network(
+    /// Read the live attachment and compare the activation's mode with the requested policy.
+    pub(crate) async fn observe_network(
         &self,
-    ) -> Result<Option<(BootNetwork, Option<NetworkInfo>)>, SupervisorError> {
+        desired: NetworkMode,
+    ) -> Result<NetworkObservation, SupervisorError> {
         let (reply, result) = oneshot::channel();
         self.commands
-            .send(actor::Command::Network(reply))
+            .send(actor::Command::Network(desired, reply))
             .await
             .map_err(|_| SupervisorError::Closed)?;
         result.await.map_err(|_| SupervisorError::Closed)

@@ -1,0 +1,47 @@
+[package]
+name = "marsa-fuzz"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.100"
+publish = false
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Keep fuzzing tools and their lockfile outside the shipping workspace.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+marsa-core = { path = "../crates/marsa-core" }
+marsa-proto = { path = "../crates/marsa-proto", default-features = false }
+serde_json = "=1.0.154"
+
+[[bin]]
+name = "guest_control"
+path = "fuzz_targets/guest_control.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "settings"
+path = "fuzz_targets/settings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "update_manifest"
+path = "fuzz_targets/update_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "docker_binds"
+path = "fuzz_targets/docker_binds.rs"
+test = false
+doc = false
+bench = false

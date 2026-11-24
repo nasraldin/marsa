@@ -3,26 +3,40 @@
 use std::{
     collections::VecDeque,
     io,
+    path::PathBuf,
     pin::Pin,
     sync::{Arc, Mutex, MutexGuard},
-    time::SystemTime,
+    time::{Instant as BindInstant, SystemTime},
 };
 
 use futures_util::{Stream, stream};
 use marsa_core::settings::{NetworkMode, Settings, VmBackend};
 use marsa_proto::guest::v1::EgressStage;
 use marsa_proto::host::v1::{
-    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, NetworkMode as WireMode,
-    NetworkStatus, SettingsChanged, SettingsSnapshot, SubscribeRequest, VmStatsSample,
-    daemon_event::Body, events_server::Events,
+<<<<<<< HEAD
+    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, HostEvent, HostEventKind,
+    NetworkMode as WireMode, NetworkStatus, SettingsChanged, SettingsSnapshot, SubscribeRequest,
+    VmStatsSample, daemon_event::Body, events_server::Events,
+=======
+    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, ListPendingApprovalsResponse,
+    NetworkMode as WireMode, NetworkStatus, PendingApproval, SettingsChanged, SettingsSnapshot,
+    SubscribeRequest, VmStatsSample, daemon_event::Body, events_server::Events,
+>>>>>>> origin/main
 };
 use marsa_vm::NetworkSpec;
-use tokio::sync::{broadcast, watch};
+use tokio::{
+    sync::{broadcast, oneshot, watch},
+    time::Instant,
+};
 use tonic::{Request, Response, Status};
 
 use crate::supervisor::{AlternateFailure, BootNetwork, NetworkResult, State, Transition};
 
-use super::{TypedApi, diagnostics, engine};
+use super::{
+    TypedApi,
+    agents::queue::{Outcome, Queue},
+    bind_prompts, diagnostics, engine,
+};
 
 const CAPACITY: usize = 128;
 pub(super) type Output<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send>>;
@@ -36,16 +50,26 @@ struct StateAtCursor {
     engine: EngineStatus,
     network: Option<NetworkStatus>,
     startup: Settings,
+    bind_prompts: bind_prompts::Pending,
+    once_staged: Vec<PathBuf>,
+    once_active: Vec<PathBuf>,
+    mounted_binds: Option<Arc<marsa_share::Allowlist>>,
     settings: Settings,
     settings_snapshot: SettingsSnapshot,
     stats: Option<VmStatsSample>,
     engine_history: VecDeque<diagnostics::EngineSample>,
+    approvals: Queue,
     events: broadcast::Sender<DaemonEvent>,
     settings_events: broadcast::Sender<SettingsSnapshot>,
     stats_events: broadcast::Sender<VmStatsSample>,
 }
 
 impl Bus {
+    pub(super) fn host(&self, kind: HostEventKind) {
+        self.lock()
+            .publish(Body::Host(HostEvent { kind: kind.into() }));
+    }
+
     pub(super) fn new(settings: Settings) -> io::Result<Self> {
         let mut stream_id = [0; 16];
         getrandom::fill(&mut stream_id).map_err(io::Error::other)?;
@@ -63,6 +87,10 @@ impl Bus {
             },
             network: None,
             startup: settings.clone(),
+            bind_prompts: bind_prompts::Pending::default(),
+            once_staged: Vec::new(),
+            once_active: Vec::new(),
+            mounted_binds: None,
             settings,
             settings_snapshot: SettingsSnapshot {
                 settings_toml: initial_toml,
@@ -71,6 +99,7 @@ impl Bus {
             },
             stats: None,
             engine_history: VecDeque::new(),
+            approvals: Queue::default(),
             events: broadcast::channel(CAPACITY).0,
             settings_events: broadcast::channel(8).0,
             stats_events: broadcast::channel(CAPACITY).0,
@@ -98,6 +127,13 @@ impl Bus {
             }
             _ => state.engine.guest_health,
         };
+        if matches!(
+            transition.current,
+            State::Stopped | State::Stopping | State::Failed
+        ) {
+            state.once_active.clear();
+            state.mounted_binds = None;
+        }
         state.engine = engine::from_transition(&state.engine.backend, transition, health);
         let status = state.engine.clone();
         state.publish(Body::Engine(status));
@@ -147,6 +183,94 @@ impl Bus {
     pub(super) fn settings(&self) -> (Settings, SettingsSnapshot) {
         let state = self.lock();
         (state.settings.clone(), state.settings_snapshot.clone())
+    }
+
+    pub(super) fn boot_configuration(&self) -> (Settings, Vec<PathBuf>) {
+        let state = self.lock();
+        (state.settings.clone(), state.once_staged.clone())
+    }
+
+    pub(super) fn stage_once(&self, paths: Vec<PathBuf>) {
+        let mut state = self.lock();
+        for path in paths {
+            if !state.once_staged.contains(&path) && !state.settings.shares.contains(&path) {
+                state.once_staged.push(path);
+            }
+        }
+    }
+
+    pub(super) fn reset_bind_approvals(&self) {
+        let mut state = self.lock();
+        state.once_staged.clear();
+        state.once_active.clear();
+        state.mounted_binds = None;
+        state.bind_prompts = bind_prompts::Pending::default();
+        state.publish(Body::BindApprovals(Default::default()));
+    }
+
+    pub(super) fn activate_binds(&self, mounted: Arc<marsa_share::Allowlist>, paths: &[PathBuf]) {
+        let mut state = self.lock();
+        state.mounted_binds = Some(mounted);
+        state.once_active = paths.to_vec();
+        state.once_staged.retain(|staged| !paths.contains(staged));
+    }
+
+    pub(super) fn bind_configuration(&self) -> Option<super::bind_policy::Mounted> {
+        let state = self.lock();
+        if !state.binds_are_live() {
+            return None;
+        }
+        let mut approved = state.settings.shares.clone();
+        approved.extend(state.once_active.iter().cloned());
+        Some(super::bind_policy::Mounted {
+            allowlist: state.mounted_binds.clone()?,
+            approved,
+            language: state.settings.ui.language,
+            revision: state.settings_snapshot.revision,
+        })
+    }
+
+    pub(super) fn bindings_current(&self, mounted: &super::bind_policy::Mounted) -> bool {
+        self.lock().matches_binding(mounted)
+    }
+
+    pub(super) fn bind_prompt(
+        &self,
+        mounted: &super::bind_policy::Mounted,
+        paths: Arc<marsa_share::Allowlist>,
+    ) -> io::Result<Option<String>> {
+        let mut state = self.lock();
+        if !state.matches_binding(mounted) {
+            return Ok(None);
+        }
+        let current = BindInstant::now();
+        let id = state.bind_prompts.enqueue(paths, current, now())?;
+        if id.is_some() {
+            let approvals = state.bind_prompts.list(current);
+            state.publish(Body::BindApprovals(approvals));
+        }
+        Ok(id)
+    }
+
+    pub(super) fn expire_bind_prompt(&self, id: &str) {
+        let mut state = self.lock();
+        let current = BindInstant::now();
+        if state.bind_prompts.expire(id, current) {
+            let approvals = state.bind_prompts.list(current);
+            state.publish(Body::BindApprovals(approvals));
+        }
+    }
+
+    pub(super) fn pending_bind(&self, id: &str) -> Option<Arc<marsa_share::Allowlist>> {
+        self.lock().bind_prompts.get(id, BindInstant::now())
+    }
+
+    pub(super) fn finish_bind_prompt(&self, id: &str, denied: bool) {
+        let mut state = self.lock();
+        let current = BindInstant::now();
+        state.bind_prompts.finish(id, denied);
+        let remaining = state.bind_prompts.list(current);
+        state.publish(Body::BindApprovals(remaining));
     }
 
     pub(super) fn settings_snapshot(&self) -> SettingsSnapshot {
@@ -217,11 +341,48 @@ impl Bus {
         stream_from(state.stats, state.stats_events.subscribe(), stop)
     }
 
+    pub(super) fn pending_approvals(&self) -> ListPendingApprovalsResponse {
+        self.lock().approvals.list(Instant::now())
+    }
+
+    pub(super) fn request_approval(
+        &self,
+        details: PendingApproval,
+        expires: Instant,
+    ) -> Result<(String, oneshot::Receiver<Outcome>), Status> {
+        let mut state = self.lock();
+        let now = Instant::now();
+        let pending = state.approvals.add(details, expires, now)?;
+        state.publish_approvals(now);
+        Ok(pending)
+    }
+
+    pub(super) fn discard_approval(&self, id: &str) {
+        let mut state = self.lock();
+        if state.approvals.remove(id) {
+            state.publish_approvals(Instant::now());
+        }
+    }
+
+    pub(super) fn resolve_approval(&self, id: &str, choice: Outcome) -> Result<(), Status> {
+        let mut state = self.lock();
+        let now = Instant::now();
+        state.approvals.resolve(id, choice, now)?;
+        state.publish_approvals(now);
+        Ok(())
+    }
+
+    pub(super) fn publish_grants(&self, grants: marsa_proto::host::v1::ListGrantsResponse) {
+        self.lock().publish(Body::Grants(grants));
+    }
+
     fn subscribe(&self, stop: watch::Receiver<bool>) -> Output<DaemonEvent> {
         let state = self.lock();
         let first = state.envelope(Body::Snapshot(DaemonSnapshot {
             engine: Some(state.engine.clone()),
             settings_revision: state.settings_snapshot.revision,
+            approvals: Some(state.approvals.list(Instant::now())),
+            bind_approvals: Some(state.bind_prompts.list(BindInstant::now())),
             network: state.network.clone(),
             ..Default::default()
         }));
@@ -234,12 +395,30 @@ impl Bus {
 }
 
 impl StateAtCursor {
+    fn binds_are_live(&self) -> bool {
+        use marsa_proto::host::v1::EngineState;
+        matches!(self.engine.state(), EngineState::Ready | EngineState::Idle)
+    }
+
+    fn matches_binding(&self, mounted: &super::bind_policy::Mounted) -> bool {
+        self.binds_are_live()
+            && self.settings_snapshot.revision == mounted.revision
+            && self
+                .mounted_binds
+                .as_ref()
+                .is_some_and(|active| Arc::ptr_eq(active, &mounted.allowlist))
+    }
+
     fn accepts_guest(&self) -> bool {
         use marsa_proto::host::v1::EngineState as Wire;
         matches!(
             self.engine.state(),
             Wire::Starting | Wire::Booting | Wire::Ready | Wire::Idle
         )
+    }
+
+    fn publish_approvals(&mut self, now: Instant) {
+        self.publish(Body::Approvals(self.approvals.list(now)));
     }
 
     fn publish(&mut self, body: Body) {
@@ -324,6 +503,7 @@ impl Events for TypedApi {
         request: Request<SubscribeRequest>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         Ok(Response::new(
             self.inner.events.subscribe(self.inner.closing.subscribe()),
         ))

@@ -77,6 +77,10 @@ impl GrantScope {
         })
     }
 
+    pub(crate) fn project(&self) -> &str {
+        &self.project
+    }
+
     fn validate(&self) -> bool {
         valid_id(&self.client_id) && valid_path(&self.project)
     }
@@ -254,6 +258,11 @@ impl GrantStore {
             platform::write(&self.paths, self.uid, &bytes)?;
         }
         Ok(result)
+    }
+
+    pub(crate) fn with_lock<T>(&self, operation: impl FnOnce() -> T) -> Result<T, GrantError> {
+        let _lock = self.lock.lock().map_err(|_| GrantError::InvalidDocument)?;
+        Ok(operation())
     }
 
     fn read(&self) -> Result<(Grants, Option<Vec<u8>>), GrantError> {

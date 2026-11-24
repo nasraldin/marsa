@@ -76,9 +76,18 @@ impl Fixture {
     async fn new() -> Self {
         use std::{fs, os::unix::fs::PermissionsExt};
         let home = tempfile::tempdir().unwrap();
+<<<<<<< HEAD
         let paths = MarsaPaths::from_root(home.path().to_owned()).unwrap();
         fs::create_dir(paths.state_dir()).unwrap();
         fs::set_permissions(paths.state_dir(), fs::Permissions::from_mode(0o700)).unwrap();
+=======
+        fs::set_permissions(home.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let paths = MarsaPaths::from_root(home.path().to_owned()).unwrap();
+        for directory in [paths.state_dir(), paths.vm_dir()] {
+            fs::create_dir(&directory).unwrap();
+            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+>>>>>>> origin/main
         let mut initial = Settings::default();
         initial.network.mode = NetworkMode::Userspace;
         let api = TypedApi::new(paths.clone(), nix::unistd::geteuid().as_raw(), initial).unwrap();
@@ -97,7 +106,11 @@ impl Fixture {
                     initial_backoff: Duration::ZERO,
                     maximum_backoff: Duration::ZERO,
                 },
+<<<<<<< HEAD
                 move |effective| Ok((backend.clone(), spec(&paths, effective))),
+=======
+                move |effective, _| Ok((backend.clone(), spec(&paths, effective))),
+>>>>>>> origin/main
             )
             .await
             .unwrap();
@@ -162,7 +175,20 @@ fn spec(paths: &MarsaPaths, settings: &Settings) -> VmSpec {
             path: paths.data_disk(),
             read_only: false,
         },
+<<<<<<< HEAD
         shares: Vec::new(),
+=======
+        shares: settings
+            .shares
+            .iter()
+            .enumerate()
+            .map(|(index, path)| marsa_vm::ShareSpec {
+                tag: format!("share-{index}"),
+                host_path: path.clone(),
+                read_only: false,
+            })
+            .collect(),
+>>>>>>> origin/main
         network: NetworkSpec::Userspace,
         console_log: paths.console_log(),
     }
@@ -317,3 +343,109 @@ async fn disconnect_during_candidate_keeps_exclusive_admission_and_replays_commi
         [Some(WORKING.into())]
     );
 }
+<<<<<<< HEAD
+=======
+
+#[tokio::test(start_paused = true)]
+async fn factory_reset_clears_the_approved_proxy_from_storage_and_runtime() {
+    use marsa_proto::host::v1::reset_response::Result as FactoryResult;
+
+    let fixture = Fixture::new().await;
+    let revision = fixture.draft(WORKING).await;
+    assert_eq!(
+        fixture
+            .api
+            .apply_proxy(fixture.approval(revision).await)
+            .await
+            .unwrap()
+            .outcome(),
+        Outcome::Applied
+    );
+    assert_eq!(fixture.approved().as_deref(), Some(WORKING));
+    let unused_share = tempfile::tempdir_in("/tmp").unwrap();
+    fixture
+        .api
+        .inner
+        .events
+        .stage_once(vec![unused_share.path().to_owned()]);
+    let id = "22000000-0000-4000-8000-000000000002";
+    let prepared = fixture.api.prepare_factory_reset(id.into()).await.unwrap();
+    let Some(FactoryResult::Challenge(confirmation)) = prepared.result else {
+        panic!("expected a factory confirmation");
+    };
+    let result = fixture
+        .api
+        .confirm_factory_reset(
+            "22000000-0000-4000-8000-000000000003",
+            confirmation.confirmation_token,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(result.result, Some(FactoryResult::Completed(_))));
+    assert_eq!(fixture.approved(), None);
+    assert!(fixture.api.inner.events.boot_configuration().1.is_empty());
+    assert!(
+        fixture
+            .api
+            .proxy
+            .as_ref()
+            .unwrap()
+            .approved()
+            .guest_configuration()
+            .is_none()
+    );
+    assert_eq!(fixture.supervisor().snapshot().state, State::Stopped);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_approved_proxy_must_be_explicitly_disabled_before_network_mode_changes() {
+    let fixture = Fixture::new().await;
+    let revision = fixture.draft(WORKING).await;
+    assert_eq!(
+        fixture
+            .api
+            .apply_proxy(fixture.approval(revision).await)
+            .await
+            .unwrap()
+            .outcome(),
+        Outcome::Applied
+    );
+    let error = fixture
+        .api
+        .edit_settings(None, |settings, _| {
+            settings.network.mode = NetworkMode::Nat;
+            Ok(())
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::FailedPrecondition);
+    assert_eq!(
+        fixture.api.inner.events.configured_network_mode(),
+        NetworkMode::Userspace
+    );
+    assert_eq!(fixture.approved().as_deref(), Some(WORKING));
+    assert_eq!(fixture.supervisor().snapshot().state, State::Ready);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_proxy_candidate_applies_session_shares_only_after_commit() {
+    let fixture = Fixture::new().await;
+    let folder = tempfile::tempdir_in("/tmp").unwrap();
+    let path = folder.path().canonicalize().unwrap();
+    fixture.api.inner.events.stage_once(vec![path.clone()]);
+    let permit = fixture.supervisor().reserve(None).await.unwrap();
+    permit.start_candidate().await.unwrap();
+    assert_eq!(
+        fixture.api.inner.events.boot_configuration().1.as_slice(),
+        std::slice::from_ref(&path)
+    );
+    assert!(fixture.api.inner.events.bind_configuration().is_none());
+
+    permit.keep_candidate().await.unwrap();
+    assert!(fixture.api.inner.events.boot_configuration().1.is_empty());
+    let active = fixture.api.inner.events.bind_configuration().unwrap();
+    assert_eq!(active.approved.as_slice(), std::slice::from_ref(&path));
+    assert_eq!(active.allowlist.roots(), &[path]);
+    drop(permit);
+}
+>>>>>>> origin/main

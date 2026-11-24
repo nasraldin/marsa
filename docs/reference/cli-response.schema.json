@@ -4,9 +4,378 @@
   "oneOf": [
     { "$ref": "#/$defs/help" },
     { "$ref": "#/$defs/completion" },
-    { "$ref": "#/$defs/error" }
+    { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/bind_approvals" },
+    { "$ref": "#/$defs/bind_resolution" },
+    { "$ref": "#/$defs/disk_usage" },
+    { "$ref": "#/$defs/disk_reclaim" },
+    { "$ref": "#/$defs/disk_cleanup_preview" },
+    { "$ref": "#/$defs/network_status" },
+    { "$ref": "#/$defs/network_mode" },
+    { "$ref": "#/$defs/settings" },
+    { "$ref": "#/$defs/setting" },
+    { "$ref": "#/$defs/shares" },
+    { "$ref": "#/$defs/share_added" },
+    { "$ref": "#/$defs/share_removed" },
+    { "$ref": "#/$defs/env" },
+    { "$ref": "#/$defs/status" },
+    { "$ref": "#/$defs/version" },
+    { "$ref": "#/$defs/lifecycle" },
+    { "$ref": "#/$defs/logs" },
+    { "$ref": "#/$defs/log" },
+    { "$ref": "#/$defs/diagnose" },
+    { "$ref": "#/$defs/reset" },
+    { "$ref": "#/$defs/agents" },
+    { "$ref": "#/$defs/agent_decision" }
   ],
   "$defs": {
+    "bind_approvals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "approvals"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "bind_approvals" },
+        "approvals": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "directories", "expires_at_unix_millis"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+              "directories": {
+                "type": "array", "minItems": 1, "maxItems": 16,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "expires_at_unix_millis": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "bind_resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "id", "decision", "requires_restart"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "bind_resolution" },
+        "id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "decision": { "enum": ["once", "always", "deny"] },
+        "requires_restart": { "type": "boolean" }
+      }
+    },
+    "disk_reclaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "guest_trimmed_bytes", "host_reclaimed_bytes", "usage"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "disk_reclaim" },
+        "guest_trimmed_bytes": { "type": "integer", "minimum": 0 },
+        "host_reclaimed_bytes": { "type": "integer", "minimum": 0 },
+        "usage": { "$ref": "#/$defs/disk_usage" }
+      }
+    },
+    "disk_cleanup_preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "apply_supported", "candidates", "unavailable_categories", "estimated_reclaimable_bytes"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "disk_cleanup_preview" },
+        "apply_supported": { "const": false },
+        "estimated_reclaimable_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "unavailable_categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/cleanup_category" }
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["category", "id", "name", "size_bytes"],
+            "properties": {
+              "category": { "$ref": "#/$defs/cleanup_category" },
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "size_bytes": { "type": ["integer", "null"], "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "cleanup_category": { "enum": ["containers", "images", "volumes", "build_cache"] },
+    "disk_usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "host", "guest", "categories"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "disk_usage" },
+        "host": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allocated_bytes", "capacity_bytes"],
+          "properties": {
+            "allocated_bytes": { "type": "integer", "minimum": 0 },
+            "capacity_bytes": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "guest": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["used_bytes", "capacity_bytes"],
+          "properties": {
+            "used_bytes": { "type": "integer", "minimum": 0 },
+            "capacity_bytes": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["category", "used_bytes", "reclaimable_bytes"],
+            "properties": {
+              "category": { "enum": ["unspecified", "containers", "images", "volumes", "networks", "build_cache"] },
+              "used_bytes": { "type": "integer", "minimum": 0 },
+              "reclaimable_bytes": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "network_mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "configured_mode", "active_mode", "restart_pending"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "network_mode" },
+        "configured_mode": { "enum": ["auto", "nat", "userspace", null] },
+        "active_mode": { "enum": ["nat", "userspace", null] },
+        "restart_pending": { "type": ["boolean", "null"] }
+      }
+    },
+    "network_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "configured_mode", "active_mode", "reason", "guest_address", "gateway_address"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "network_status" },
+        "configured_mode": { "enum": ["auto", "nat", "userspace", null] },
+        "active_mode": { "enum": ["nat", "userspace", null] },
+        "reason": { "type": ["string", "null"] },
+        "guest_address": { "type": ["string", "null"] },
+        "gateway_address": { "type": ["string", "null"] }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "settings", "revision", "restart_required"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "settings" },
+        "settings": { "type": "object" },
+        "revision": { "$ref": "#/$defs/settings_revision" },
+        "restart_required": { "type": "boolean" }
+      }
+    },
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "key", "value", "revision", "restart_required"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "setting" },
+        "key": { "type": "string", "minLength": 1 },
+        "value": {},
+        "revision": { "$ref": "#/$defs/settings_revision" },
+        "restart_required": { "type": "boolean" }
+      }
+    },
+    "settings_revision": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+    "shared_folder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "read_only", "requires_restart"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "read_only": { "type": "boolean" },
+        "requires_restart": { "type": "boolean" }
+      }
+    },
+    "shares": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "shares"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "shares" },
+        "shares": { "type": "array", "items": { "$ref": "#/$defs/shared_folder" } }
+      }
+    },
+    "share_added": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "share"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "share_added" },
+        "share": { "$ref": "#/$defs/shared_folder" }
+      }
+    },
+    "share_removed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "id", "requires_restart"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "share_removed" },
+        "id": { "type": "string", "minLength": 1 },
+        "requires_restart": { "type": "boolean" }
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "docker_host"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "env" },
+        "docker_host": { "type": "string", "pattern": "^unix:///" }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "engine", "versions", "resources"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "status" },
+        "engine": { "$ref": "#/$defs/engine" },
+        "versions": { "$ref": "#/$defs/versions" },
+        "resources": { "anyOf": [{ "$ref": "#/$defs/resources" }, { "type": "null" }] }
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "versions"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "version" },
+        "versions": { "$ref": "#/$defs/versions" }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "action", "engine"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "lifecycle" },
+        "action": { "enum": ["start", "stop", "restart"] },
+        "engine": { "$ref": "#/$defs/engine" }
+      }
+    },
+    "logs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "entries"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "logs" },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/log_entry" } }
+      }
+    },
+    "log": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "entry"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "log" },
+        "entry": { "$ref": "#/$defs/log_entry" }
+      }
+    },
+    "log_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at_unix_millis", "component", "level", "message"],
+      "properties": {
+        "at_unix_millis": { "type": "integer" },
+        "component": { "type": "string" },
+        "level": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "guest_health", "backend", "boot_stage"],
+      "properties": {
+        "state": { "type": "string" },
+        "guest_health": { "type": "string" },
+        "backend": { "type": "string" },
+        "boot_stage": { "type": ["string", "null"] }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cli", "daemon", "api", "components"],
+      "properties": {
+        "cli": { "type": "string" },
+        "daemon": { "type": "string" },
+        "api": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["major", "minor"],
+          "properties": {
+            "major": { "type": "integer", "minimum": 0 },
+            "minor": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "version"],
+            "properties": {
+              "name": { "type": "string" },
+              "version": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at_unix_millis", "cpu_busy_nanos", "memory_used_bytes", "memory_total_bytes",
+        "disk_used_bytes", "disk_total_bytes", "network_rx_bytes", "network_tx_bytes"
+      ],
+      "properties": {
+        "observed_at_unix_millis": { "type": "integer" },
+        "cpu_busy_nanos": { "type": "integer", "minimum": 0 },
+        "memory_used_bytes": { "type": "integer", "minimum": 0 },
+        "memory_total_bytes": { "type": "integer", "minimum": 0 },
+        "disk_used_bytes": { "type": "integer", "minimum": 0 },
+        "disk_total_bytes": { "type": "integer", "minimum": 0 },
+        "network_rx_bytes": { "type": "integer", "minimum": 0 },
+        "network_tx_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
     "help": {
       "type": "object",
       "additionalProperties": false,
@@ -28,6 +397,26 @@
         "script": { "type": "string", "minLength": 1 }
       }
     },
+    "diagnose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "bundle_path"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "diagnose" },
+        "bundle_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "reset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "scope"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "reset" },
+        "scope": { "enum": ["settings", "factory"] }
+      }
+    },
     "error": {
       "type": "object",
       "additionalProperties": false,
@@ -35,8 +424,101 @@
       "properties": {
         "schema_version": { "const": 1 },
         "kind": { "const": "error" },
-        "code": { "enum": ["confirmation_required", "invalid_invocation", "not_available"] },
+        "code": { "enum": ["confirmation_required", "invalid_invocation", "not_available", "connection_failed", "home_unavailable", "unprivileged_user_required", "incompatible_daemon", "operation_failed", "request_rejected", "bind_resolution_failed", "confirmation_declined", "daemon_unavailable", "agent_request_failed", "agent_approval_missing", "agent_grant_missing", "mcp_unavailable"] },
         "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "data"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "agents" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["clients", "grants", "pending_requests"],
+          "properties": {
+            "clients": { "type": "array", "items": { "$ref": "#/$defs/agent_client" } },
+            "grants": { "type": "array", "items": { "$ref": "#/$defs/agent_grant" } },
+            "pending_requests": { "type": "array", "items": { "$ref": "#/$defs/agent_approval" } }
+          }
+        }
+      }
+    },
+    "agent_client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client_id", "client_name", "project_path"],
+      "properties": {
+        "client_id": { "type": "string" },
+        "client_name": { "type": "string" },
+        "project_path": { "type": "string" }
+      }
+    },
+    "agent_grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "client_id", "project_path", "operation", "expires_at_unix_millis"],
+      "properties": {
+        "id": { "type": "string" },
+        "client_id": { "type": "string" },
+        "project_path": { "type": "string" },
+        "operation": { "type": "string" },
+        "expires_at_unix_millis": { "type": "integer" }
+      }
+    },
+    "agent_approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "client_id", "client_name", "project_path", "operation", "tier", "redacted_arguments", "affected", "expires_at_unix_millis", "can_grant_for_project"],
+      "properties": {
+        "id": { "type": "string" },
+        "client_id": { "type": "string" },
+        "client_name": { "type": "string" },
+        "project_path": { "type": "string" },
+        "operation": { "type": "string" },
+        "tier": { "type": "string" },
+        "redacted_arguments": { "type": "object" },
+        "affected": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "name", "size_bytes", "related_containers"],
+            "properties": {
+              "kind": { "type": "string" },
+              "name": { "type": "string" },
+              "size_bytes": { "type": ["integer", "null"] },
+              "related_containers": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "expires_at_unix_millis": { "type": "integer" },
+        "can_grant_for_project": { "type": "boolean" }
+      }
+    },
+    "agent_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "data"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "agent_decision" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decision"],
+          "properties": {
+            "decision": { "enum": ["approved", "denied", "revoked"] },
+            "approval_id": { "type": "string" },
+            "grant_id": { "type": "string" }
+          },
+          "if": { "properties": { "decision": { "const": "revoked" } } },
+          "then": { "required": ["grant_id"], "not": { "required": ["approval_id"] } },
+          "else": { "required": ["approval_id"], "not": { "required": ["grant_id"] } }
+        }
       }
     }
   }

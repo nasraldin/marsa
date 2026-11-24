@@ -2,7 +2,8 @@
 
 use std::{future::pending, io, sync::Arc, time::Duration};
 
-use marsa_vm::{NetworkInfo, Vm, VsockStream};
+use marsa_core::settings::NetworkMode;
+use marsa_vm::{Vm, VsockStream};
 use tokio::{
     sync::{broadcast, mpsc, oneshot, watch},
     task::{JoinError, JoinHandle},
@@ -10,8 +11,8 @@ use tokio::{
 };
 
 use super::{
-    BootFailure, BootNetwork, BootStage, GuestProbe, Observer, Snapshot, State, SupervisorConfig,
-    SupervisorError, Transition,
+    BootFailure, BootStage, GuestProbe, NetworkObservation, Observer, Snapshot, State,
+    SupervisorConfig, SupervisorError, Transition,
     boot::{self, LiveGuest, Outcome},
     launch::Runtime,
 };
@@ -34,11 +35,13 @@ pub(super) enum Command {
     MaintenanceStop(u64, Reply),
     EnsureReady(Reply),
     ConnectDocker(oneshot::Sender<io::Result<VsockStream>>),
-    Network(oneshot::Sender<Option<(BootNetwork, Option<NetworkInfo>)>>),
+    Network(NetworkMode, oneshot::Sender<NetworkObservation>),
     Stop(Reply),
     Restart(Reply),
     Pause(Reply),
     Resume(Reply),
+    HostWillSleep(Reply),
+    HostWoke(Reply),
     ContainerCount(u32, Reply),
     IdlePolicy(bool, Duration, Reply),
 }
@@ -80,7 +83,17 @@ pub(super) struct Actor {
     idle_at: Option<Instant>,
     sample_at: Option<Instant>,
     empty: bool,
+<<<<<<< HEAD
     maintenance: Option<maintenance::Reservation>,
+=======
+<<<<<<< HEAD
+    paused_for_sleep: bool,
+    host_asleep: bool,
+    boot_after_wake: bool,
+=======
+    maintenance: Option<maintenance::Reservation>,
+>>>>>>> origin/main
+>>>>>>> origin/main
 }
 
 impl Actor {
@@ -111,7 +124,17 @@ impl Actor {
             idle_at: None,
             sample_at: None,
             empty: false,
+<<<<<<< HEAD
             maintenance: None,
+=======
+<<<<<<< HEAD
+            paused_for_sleep: false,
+            host_asleep: false,
+            boot_after_wake: false,
+=======
+            maintenance: None,
+>>>>>>> origin/main
+>>>>>>> origin/main
         }
     }
 
@@ -230,9 +253,13 @@ impl Actor {
     }
 
     fn begin(&mut self) {
+        self.retry_at = None;
+        if self.host_asleep {
+            self.boot_after_wake = true;
+            return;
+        }
         let (cancel_boot, cancel) = oneshot::channel();
         let (progress, updates) = watch::channel(BootStage::Create);
-        self.retry_at = None;
         self.idle_at = None;
         self.sample_at = None;
         self.empty = false;
@@ -256,6 +283,10 @@ impl Actor {
     }
 
     fn ready(&mut self) {
+        if let Some(applied) = self.guest.as_mut().and_then(|guest| guest.applied.take()) {
+            applied();
+        }
+
         self.set_state(State::Ready, None);
         self.sample_at = Some(Instant::now());
         self.reset_idle();

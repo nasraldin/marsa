@@ -8,6 +8,8 @@ license.workspace = true
 
 [dependencies]
 marsa-client = { path = "../marsa-client" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
 marsa-ui = { path = "../marsa-ui" }
 
 [lints]

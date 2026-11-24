@@ -10,10 +10,13 @@ use std::{
 };
 
 use marsa_core::{
+    guest_boot::PACKAGED_BOOT_ARGS,
     guest_manifest::GuestManifest,
     paths::MarsaPaths,
     settings::{NetworkMode, ProxySettings, Settings, VmBackend},
 };
+use marsa_proto::host::v1::ComponentVersion;
+use marsa_share::SharePolicy;
 use marsa_vm::{Capabilities, DiskSpec, Hypervisor, NetworkSpec, VmSpec};
 use marsa_vm_vz::VzHypervisor;
 use nix::libc;
@@ -22,6 +25,7 @@ use crate::diagnostics::localized;
 
 mod backup;
 mod disk;
+mod shares;
 use disk::ensure_disk;
 
 const SECTOR_BYTES: u64 = 512;
@@ -29,8 +33,6 @@ const MIB: u64 = 1024 * 1024;
 // Bound work on broken bundles well above the size of the shipped kernel and root image.
 const MAX_KERNEL_BYTES: u64 = 64 * MIB;
 const MAX_ROOTFS_BYTES: u64 = 1024 * MIB;
-const BOOT_ARGS: &str =
-    "console=hvc0 root=/dev/vda rootfstype=erofs ro init=/usr/bin/marsa-init panic=-1";
 
 /// Runtime resources anchored to the canonical running executable.
 pub(super) struct Packaged {
@@ -57,9 +59,82 @@ impl Packaged {
             })
     }
 
+    pub(super) fn component_versions(&self) -> io::Result<Vec<ComponentVersion>> {
+        let path = self
+            .bundle
+            .join("Contents/Resources/guest/guest-manifest.json");
+        let manifest = Artifact::open(path)?;
+        let description = GuestManifest::read(&manifest.file).map_err(io::Error::other)?;
+        manifest.check_unchanged()?;
+        let components = description.components();
+        let mut names = vec![
+            ("guest-image", description.image_version()),
+            ("linux", components.linux.as_str()),
+            ("alpine", components.alpine.as_str()),
+            ("docker-engine", components.docker.as_str()),
+            ("buildkit", components.buildkit.as_str()),
+            ("containerd", components.containerd.as_str()),
+            ("runc", components.runc.as_str()),
+            ("docker-init", components.docker_init.as_str()),
+            ("erofs-utils", components.erofs_utils.as_str()),
+        ];
+        for (name, version) in [
+            ("marsa-init", components.marsa_init.as_deref()),
+            ("marsa-agent", components.marsa_agent.as_deref()),
+        ] {
+            if let Some(version) = version {
+                names.push((name, version));
+            }
+        }
+        Ok(names
+            .into_iter()
+            .map(|(name, version)| ComponentVersion {
+                name: name.into(),
+                version: version.into(),
+            })
+            .collect())
+    }
+
     /// Report the backend supported by the packaged daemon.
     pub(super) fn capabilities(&self) -> Capabilities {
         self.backend().capabilities()
+    }
+
+    /// Locate the signed Docker CLI bundled by the upstream packaging task.
+    pub(super) fn docker_cli(&self) -> io::Result<PathBuf> {
+        let cli = Artifact::open(self.bundle.join("Contents/Resources/bin/docker"))?;
+        let mode = cli.metadata.mode();
+        if mode & 0o111 == 0
+            || mode & 0o6022 != 0
+            || !valid_signature(&self.bundle)?
+            || !valid_signature(&cli.path)?
+        {
+            return Err(invalid_artifact(localized(
+                "the bundled Docker CLI is not a verified executable",
+                "ملف Docker CLI المضمّن غير قابل للتنفيذ أو لم يتم التحقق منه",
+            )));
+        }
+        cli.check_unchanged()?;
+        Ok(cli.path)
+    }
+
+    pub(super) fn verify_registry_keychain(&self) -> io::Result<()> {
+        let helper = Artifact::open(
+            self.bundle
+                .join("Contents/Resources/bin/docker-credential-osxkeychain"),
+        )?;
+        let mode = helper.metadata.mode();
+        if mode & 0o111 == 0
+            || mode & 0o6022 != 0
+            || !valid_signature(&self.bundle)?
+            || !valid_signature(&helper.path)?
+        {
+            return Err(invalid_artifact(localized(
+                "the bundled Docker credential helper is not a verified executable",
+                "أداة اعتماد Docker المضمّنة غير قابلة للتنفيذ أو لم يتم التحقق منها",
+            )));
+        }
+        helper.check_unchanged()
     }
 
     /// Verify the boot files and build a spec snapshot before initializing persistent storage.
@@ -68,6 +143,7 @@ impl Packaged {
         paths: &MarsaPaths,
         uid: u32,
         settings: &Settings,
+        policy: &SharePolicy,
     ) -> io::Result<(Arc<dyn Hypervisor>, VmSpec)> {
         settings
             .validate()
@@ -82,16 +158,6 @@ impl Packaged {
             ));
         }
 
-        // A boot-time virtiofs attachment would bypass the future protected-path allowlist.
-        if !settings.shares.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                localized(
-                    "folder sharing requires the protected-path allowlist",
-                    "تتطلب مشاركة المجلدات قائمة سماح تحمي المسارات الخاصة",
-                ),
-            ));
-        }
         if !settings.network.dns.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -114,6 +180,7 @@ impl Packaged {
                 ),
             ));
         }
+        let shares = shares::configured(policy, &settings.shares)?;
         let (kernel, root_disk) = self.verify_guest()?;
         self.verify_helper()?;
         // The application seal detects replacement of both the manifest and its hashed files.
@@ -141,7 +208,7 @@ impl Packaged {
             memory_bytes,
             kernel,
             initramfs: None,
-            cmdline: BOOT_ARGS.into(),
+            cmdline: PACKAGED_BOOT_ARGS.into(),
             root_disk: DiskSpec {
                 path: root_disk,
                 read_only: true,
@@ -150,7 +217,7 @@ impl Packaged {
                 path: paths.data_disk(),
                 read_only: false,
             },
-            shares: Vec::new(),
+            shares,
             network: match settings.network.mode {
                 NetworkMode::Auto | NetworkMode::Nat => NetworkSpec::Nat,
                 NetworkMode::Userspace => NetworkSpec::Userspace,

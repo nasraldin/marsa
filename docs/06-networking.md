@@ -34,9 +34,15 @@ flowchart TB
 | Speed | Highest | Lower |
 | VPNs and strict firewalls | Can fail when the VPN blocks forwarded traffic | Uses ordinary host sockets and is subject to VPN and process-filter policy |
 | Guest IP reachable from host | Yes | No; ports are forwarded through the stack |
-| Framework attachment | NAT attachment | File-handle (datagram socket) attachment |
+| Framework attachment | `VZNATNetworkDeviceAttachment` | `VZFileHandleNetworkDeviceAttachment` with a datagram socket |
 
-**Verify:** the exact Virtualization.framework attachment classes and whether the NAT attachment needs any extra entitlement on the minimum macOS version.
+Native NAT uses the standard virtualization entitlement on macOS 27. The
+framework does not expose the assigned guest address. The backend reads the
+guest's current upstream IPv4 address and default route over the host-only
+network facts socket after the guest configures networking. These values are
+guest-reported and do not authorize host connections.
+[Apple’s NAT attachment](https://developer.apple.com/documentation/virtualization/vznatnetworkdeviceattachment),
+[network facts wire format](../crates/marsa-proto/PROTOCOL.md#guest-network-facts).
 
 ### The user-space stack
 
@@ -68,6 +74,13 @@ Unknown proxy policy, a DNS policy reply and certificate rejection preserve
 the native attachment and keep local Docker available. A failed alternate
 attempt must stop before the supervisor restores native networking on the
 same data disk. Explicitly selected modes skip automatic switching.
+
+The authenticated `Network.SetMode` call saves `auto`, `nat`, or `userspace`
+as the configured mode. The current attachment stays in use until a cold
+activation, such as an ordinary restart. A configured pin is authoritative
+for that activation. When integrating approved daemon proxy policy, enforce
+its user-space attachment requirement. An incompatible setting must be
+refused or reported as pending until approval clears that constraint.
 
 | Observation | Behavior in `auto` mode |
 |---|---|
@@ -164,9 +177,25 @@ Forwarder requirements:
 - TCP and UDP.
 - IPv4 and IPv6 loopback.
 - **Bind address policy (Proposed):** ports published on `0.0.0.0` are bound to `127.0.0.1` on the Mac by default, so containers are not exposed to the local network unless the user enables "allow LAN access". This is safer than Docker Desktop's default and must be stated clearly in the UI.
-- Privileged ports (below 1024): **Verify** current macOS behaviour for unprivileged binding; if binding fails, report it clearly.
+- When macOS denies a host bind, report its address and port. For a privileged host port, suggest a host port of 1024 or higher. For example, `-p 8080:80` keeps the container service on port 80.
 - Port conflicts produce a clear error naming the process that holds the port when it can be determined.
 - The forwarder is zero-copy where the platform allows and must not be the bottleneck in the network benchmark.
+
+### macOS loopback port privilege
+
+On macOS 27.2.1 on Apple silicon, a standard-user process called `bind()` on
+`127.0.0.1` and `::1` using one socket at a time. The IPv6 socket used
+`IPV6_V6ONLY`; the TCP socket called `listen()` after a successful bind. Each
+socket closed before the next attempt. No LAN address or system setting was used.
+
+| Loopback address | Transport | Ports 80, 443 and 1023 | Port 1024 |
+|---|---|---|---|
+| `127.0.0.1` | TCP | `EACCES` | Bound and listened |
+| `127.0.0.1` | UDP | `EACCES` | Bound |
+| `::1` | TCP | `EACCES` | Bound and listened |
+| `::1` | UDP | `EACCES` | Bound |
+
+The forwarder handles the actual OS bind result for each address and transport.
 
 ## Container to host
 
@@ -216,6 +245,8 @@ approved only after the guest and Docker are ready. A failed candidate keeps
 the draft pending and restores the previous policy. If restoration cannot
 start a previously running engine, the result tells the client that recovery
 is required. Reopening the daemon still uses the last approved policy.
+
+When a manual daemon proxy is approved, disable it with explicit activation before changing the network mode. A confirmed factory reset clears the approved policy with the other private state.
 
 ## IPv6
 

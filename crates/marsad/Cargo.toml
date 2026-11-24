@@ -28,9 +28,12 @@ hyper-util = { version = "=0.1.21", features = ["tokio"] }
 tempfile = "=3.27.0"
 tar = { version = "=0.4.46", default-features = false }
 serde_json = "=1.0.154"
+time = { version = "=0.3.55", features = ["parsing"] }
 marsa-core = { path = "../marsa-core" }
 nix = { version = "=0.32.0", features = ["fs", "user"] }
+rustix = { version = "=1.1.6", features = ["fs"] }
 serde = { version = "=1.0.229", features = ["derive"] }
+sha2 = { version = "=0.11.1", default-features = false }
 tokio = { version = "=1.54.1", features = ["io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
 tokio-stream = { version = "=0.1.19", features = ["net"] }
 tonic = "=0.14.9"
@@ -47,6 +50,11 @@ nix = { version = "=0.32.0", features = ["signal"] }
 tower = { version = "=0.5.3", features = ["util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = "=0.6.2"
+dispatch2 = "=0.3.1"
 objc2 = "=0.6.5"
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSBundle", "NSError", "NSString", "NSURL", "NSValue"] }
 objc2-service-management = { version = "=0.3.2", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService"] }
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dev-dependencies]
+time = { version = "=0.3.55", features = ["parsing"] }

@@ -80,15 +80,19 @@ fn disk_preparation_rejects_redirects_and_insecure_existing_files() {
 }
 
 #[test]
-fn configured_shares_require_the_protected_path_allowlist() {
+fn protected_share_is_rejected_without_touching_the_data_disk() {
     let (home, paths, uid) = private_state();
     let mut settings = Settings::default();
     settings.shares.push(home.path().to_owned());
     let package = Packaged {
         bundle: home.path().join("Marsa.app"),
     };
-    let error = package.prepare(&paths, uid, &settings).err().unwrap();
-    assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    let policy = SharePolicy::new(home.path(), &paths).unwrap();
+    let error = package
+        .prepare(&paths, uid, &settings, &policy)
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
     assert!(!paths.data_disk().exists());
 }
 
@@ -98,6 +102,7 @@ fn packaged_runtime_rejects_custom_dns_and_proxy_outside_approved_scope() {
     let package = Packaged {
         bundle: home.path().join("Marsa.app"),
     };
+    let policy = SharePolicy::new(home.path(), &paths).unwrap();
     for configuration in [
         "[network]\ndns = ['192.0.2.53']",
         "[network.proxy]\nhttp = 'http://proxy.invalid'",
@@ -106,7 +111,10 @@ fn packaged_runtime_rejects_custom_dns_and_proxy_outside_approved_scope() {
         "[network]\nmode = 'userspace'\n[network.proxy]\ninject_into_containers = true",
     ] {
         let settings = Settings::from_toml(configuration).unwrap();
-        let error = package.prepare(&paths, uid, &settings).err().unwrap();
+        let error = package
+            .prepare(&paths, uid, &settings, &policy)
+            .err()
+            .unwrap();
         assert_eq!(error.kind(), io::ErrorKind::Unsupported);
         assert!(!paths.data_disk().exists());
     }

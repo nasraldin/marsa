@@ -11,8 +11,13 @@ use tokio::{
 };
 
 use crate::supervisor::{
+<<<<<<< HEAD
     BootFailure, BootStage, State, SupervisorError,
+    boot::{self, Issue, LiveGuest, Outcome, Reason},
+=======
+    BootFailure, BootStage, NetworkObservation, State, SupervisorError,
     boot::{self, Issue, Outcome, Reason},
+>>>>>>> origin/main
     platform,
 };
 
@@ -59,12 +64,24 @@ impl Actor {
                 self.connect_docker(reply).await;
                 return;
             }
-            Command::Network(reply) => {
-                let active = self
+            Command::Network(desired, reply) => {
+                let attachment = self
                     .guest
                     .as_ref()
                     .map(|guest| (guest.network, guest.vm.network_info()));
-                let _ = reply.send(active);
+                let restart_pending = match self.state() {
+                    State::Stopped => Some(false),
+                    State::Ready | State::Idle | State::Paused => self
+                        .guest
+                        .as_ref()
+                        .and_then(|guest| guest.configured_mode)
+                        .map(|mode| mode != desired),
+                    _ => None,
+                };
+                let _ = reply.send(NetworkObservation {
+                    attachment,
+                    restart_pending,
+                });
                 return;
             }
             Command::Stop(reply) => (reply, self.stop().await),
@@ -78,6 +95,8 @@ impl Actor {
             }
             Command::Pause(reply) => (reply, self.pause().await),
             Command::Resume(reply) => (reply, self.resume().await),
+            Command::HostWillSleep(reply) => (reply, self.host_will_sleep().await),
+            Command::HostWoke(reply) => (reply, self.host_woke().await),
             Command::IdlePolicy(stop, timeout, reply) => {
                 self.config.idle_stop = stop;
                 self.config.idle_timeout = timeout;
@@ -131,7 +150,7 @@ impl Actor {
                 self.reset_idle();
                 let _ = reply.send(Ok(()));
             }
-            State::Failed if self.retry_at.is_none() => {
+            State::Failed if self.retry_at.is_none() && !self.boot_after_wake => {
                 let failure = self.output.snapshot.borrow().failure.clone();
                 let error = failure.map_or(SupervisorError::Closed, SupervisorError::Boot);
                 let _ = reply.send(Err(error));
@@ -143,7 +162,7 @@ impl Actor {
                     return;
                 }
                 self.waiters.push(reply);
-                if state == State::Stopped {
+                if state == State::Stopped && !self.boot_after_wake {
                     self.reset_retry();
                     self.begin();
                 }
@@ -204,10 +223,98 @@ impl Actor {
         }
     }
 
+    async fn host_will_sleep(&mut self) -> Result<(), SupervisorError> {
+        self.host_asleep = true;
+        if !self.runtime.pause_resume {
+            return Ok(());
+        }
+        if let Some(outcome) = self.cancel_start().await {
+            return match outcome {
+                Ok(Outcome::Ready(guest)) => self.pause_started_guest(guest, true).await,
+                Ok(Outcome::Interrupted(guest)) => self.pause_started_guest(guest, false).await,
+                Ok(Outcome::Failed { vm, issue }) if matches!(issue.reason, Reason::Canceled) => {
+                    self.defer_incomplete_boot(vm).await
+                }
+                outcome => {
+                    self.boot_finished(outcome).await;
+                    Ok(())
+                }
+            };
+        }
+        if matches!(self.state(), State::Ready | State::Idle) {
+            self.pause().await?;
+            self.paused_for_sleep = true;
+        }
+        Ok(())
+    }
+
+    async fn pause_started_guest(
+        &mut self,
+        guest: LiveGuest,
+        ready: bool,
+    ) -> Result<(), SupervisorError> {
+        self.booting();
+        self.guest = Some(guest);
+        match self.pause_guest().await {
+            Ok(()) => {
+                self.paused_for_sleep = true;
+                Ok(())
+            }
+            Err(error) => {
+                if ready {
+                    self.ready();
+                } else if let Some(guest) = &mut self.guest {
+                    // Retain a live VM even if native pause failed. Wake will
+                    // negotiate a fresh control session and complete readiness.
+                    guest.session.take();
+                }
+                Err(error)
+            }
+        }
+    }
+
+    async fn defer_incomplete_boot(
+        &mut self,
+        vm: Option<Box<dyn Vm>>,
+    ) -> Result<(), SupervisorError> {
+        self.transition(State::Stopping);
+        if let Err(error) = self.stop_vm(vm, self.config.stop_timeout).await {
+            self.record_shutdown_failure(&error).await;
+            self.reply_waiters(Err(error.clone()));
+            return Err(error);
+        }
+        self.boot_after_wake = true;
+        self.transition(State::Stopped);
+        Ok(())
+    }
+
+    async fn host_woke(&mut self) -> Result<(), SupervisorError> {
+        self.host_asleep = false;
+        if std::mem::take(&mut self.boot_after_wake) {
+            self.begin();
+        } else if self.paused_for_sleep && self.state() == State::Paused {
+            self.resume().await?;
+        } else if self.state() == State::Booting && self.guest.is_some() {
+            self.restore_readiness(false).await?;
+        } else if matches!(self.state(), State::Ready | State::Idle)
+            && let Some(session) = self.guest.as_mut().and_then(|guest| guest.session.as_mut())
+        {
+            session
+                .synchronize_clock()
+                .await
+                .map_err(|error| SupervisorError::Clock(Arc::new(error)))?;
+        }
+        Ok(())
+    }
+
     async fn pause(&mut self) -> Result<(), SupervisorError> {
         if !matches!(self.state(), State::Ready | State::Idle) {
             return Err(self.invalid("pause"));
         }
+        self.pause_guest().await
+    }
+
+    async fn pause_guest(&mut self) -> Result<(), SupervisorError> {
         let guest = self.guest.as_mut().ok_or(SupervisorError::Closed)?;
         guest.vm.pause().await.map_err(Arc::new)?;
         guest.session.take();
@@ -221,9 +328,16 @@ impl Actor {
         if self.state() != State::Paused {
             return Err(self.invalid("resume"));
         }
+        self.paused_for_sleep = false;
+        self.restore_readiness(true).await
+    }
+
+    async fn restore_readiness(&mut self, was_paused: bool) -> Result<(), SupervisorError> {
         let guest = self.guest.as_mut().ok_or(SupervisorError::Closed)?;
         let result = timeout(self.config.boot_timeout, async {
-            guest.vm.resume().await.map_err(std::io::Error::other)?;
+            if was_paused {
+                guest.vm.resume().await.map_err(std::io::Error::other)?;
+            }
             let mut session = self.probe.handshake(guest.vm.as_ref()).await?;
             session.engine_ready(guest.vm.as_ref()).await?;
             Ok::<_, std::io::Error>(session)
@@ -251,7 +365,18 @@ impl Actor {
         Err(SupervisorError::Boot(failure))
     }
 
+    async fn cancel_start(&mut self) -> Option<Result<Outcome, JoinError>> {
+        let task = self.boot.take()?;
+        if let Some(cancel) = self.cancel_boot.take() {
+            let _ = cancel.send(());
+        }
+        self.progress = None;
+        Some(task.await)
+    }
+
     pub(super) async fn stop(&mut self) -> Result<(), SupervisorError> {
+        self.paused_for_sleep = false;
+        self.boot_after_wake = false;
         self.retry_at = None;
         self.idle_at = None;
         self.sample_at = None;
@@ -260,15 +385,11 @@ impl Actor {
         }
         self.transition(State::Stopping);
         self.reply_waiters(Err(SupervisorError::Stopped));
-        if let Some(cancel) = self.cancel_boot.take() {
-            let _ = cancel.send(());
-        }
-        self.progress = None;
         let mut ready = self.guest.take();
         let mut vm = self.cleanup.take();
-        if let Some(task) = self.boot.take() {
-            match task.await {
-                Ok(Outcome::Ready(guest)) => ready = Some(guest),
+        if let Some(outcome) = self.cancel_start().await {
+            match outcome {
+                Ok(Outcome::Ready(guest) | Outcome::Interrupted(guest)) => ready = Some(guest),
                 Ok(Outcome::Failed { vm: partial, .. }) => vm = partial,
                 Err(_) => {}
             }
@@ -286,17 +407,21 @@ impl Actor {
             failure.map_or(Ok(()), |error| Err(SupervisorError::Vm(Arc::new(error))))
         });
         if let Err(error) = outcome {
-            let failure = Arc::new(BootFailure {
-                stage: BootStage::Shutdown,
-                timed_out: false,
-                detail: error.to_string(),
-                console_tail: platform::console_tail(self.runtime.console_log.clone()).await,
-            });
-            self.set_state(State::Failed, Some(failure));
+            self.record_shutdown_failure(&error).await;
             return Err(error);
         }
         self.transition(State::Stopped);
         Ok(())
+    }
+
+    async fn record_shutdown_failure(&mut self, error: &SupervisorError) {
+        let failure = Arc::new(BootFailure {
+            stage: BootStage::Shutdown,
+            timed_out: false,
+            detail: error.to_string(),
+            console_tail: platform::console_tail(self.runtime.console_log.clone()).await,
+        });
+        self.set_state(State::Failed, Some(failure));
     }
 
     async fn stop_vm(
@@ -318,18 +443,39 @@ impl Actor {
         self.cancel_boot = None;
         self.progress = None;
         match outcome {
+<<<<<<< HEAD
+            Ok(Outcome::Ready(guest)) => {
+=======
             Ok(Outcome::Ready(mut guest)) => {
-                if let Some(applied) = guest.applied.take() {
+                // A maintenance candidate may be ready before its owner commits.
+                // Retain the callback until the candidate is accepted.
+                if !self.maintenance_candidate_pending()
+                    && let Some(applied) = guest.applied.take()
+                {
                     applied();
                 }
+>>>>>>> origin/main
                 self.booting();
                 self.guest = Some(guest);
                 self.ready();
             }
+            Ok(Outcome::Interrupted(guest)) => {
+                self.failed(
+                    Some(guest.vm),
+                    Issue {
+                        stage: BootStage::Engine,
+                        reason: Reason::Canceled,
+                    },
+                )
+                .await;
+            }
             Ok(Outcome::Failed { vm, issue }) => {
                 if matches!(
                     issue.stage,
-                    BootStage::Handshake | BootStage::Network | BootStage::Engine
+                    BootStage::Handshake
+                        | BootStage::DataDisk
+                        | BootStage::Network
+                        | BootStage::Engine
                 ) {
                     self.booting();
                 }
@@ -374,7 +520,10 @@ impl Actor {
             "guest activation failed"
         );
         self.set_state(State::Failed, Some(failure.clone()));
-        if self.retries_left > 0 && stop.is_ok() && issue.stage != BootStage::Prepare {
+        if self.retries_left > 0
+            && stop.is_ok()
+            && !matches!(issue.stage, BootStage::Prepare | BootStage::DataDisk)
+        {
             self.retries_left -= 1;
             self.retry_at = Some(Instant::now() + self.backoff);
             self.backoff = self

@@ -1,5 +1,6 @@
 //! Produce a bounded support archive from explicitly approved diagnostic fields.
 
+mod logs;
 mod storage;
 mod summaries;
 
@@ -62,8 +63,14 @@ impl Diagnostics for TypedApi {
         &self,
         request: Request<LogsRequest>,
     ) -> Result<Response<Self::LogsStream>, Status> {
-        self.authorize(request)?;
-        Err(Status::unimplemented("daemon log streaming is unavailable"))
+        let request = self.authorize(request)?;
+        logs::stream(
+            self.inner.paths.clone(),
+            self.inner.uid,
+            self.inner.closing.subscribe(),
+            request,
+        )
+        .map(Response::new)
     }
 }
 

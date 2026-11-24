@@ -5,8 +5,16 @@
 pub mod agent_policy;
 
 #[cfg(unix)]
+/// Recovery of interrupted factory storage transactions.
+pub mod factory;
+
+#[cfg(unix)]
 /// Negotiation and bounded requests for a Linux guest session.
 pub mod guest_control;
+
+#[cfg(unix)]
+/// Host power and network notifications.
+pub mod host_events;
 
 #[cfg(unix)]
 /// On-demand Linux guest lifecycle and readiness supervision.
