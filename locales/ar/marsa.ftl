@@ -654,6 +654,7 @@ gui-desktop-bind-share-once = مشاركة لهذه الجلسة
 ## Machine, storage and activity screens
 
 gui-system-machine-confirm-stop = هل تريد إيقاف جهاز Linux؟
+gui-system-machine-environment-description = اعرض جهاز البيئة المحددة وأدره.
 gui-system-machine-confirm-restart = هل تريد إعادة تشغيل جهاز Linux؟
 gui-system-machine-stop-explanation = ستتوقف الحاويات قيد التشغيل وتنقطع جلسات الطرفية النشطة.
 gui-system-machine-restart-explanation = سيتوقف تشغيل الحاويات مؤقتًا وتنقطع جلسات الطرفية النشطة.
@@ -999,6 +1000,7 @@ gui-environment-lima-lifecycle-stop = إيقاف جهاز Lima
 gui-environment-lima-lifecycle-confirm = يؤدي إيقاف هذا الجهاز إلى مقاطعة الحاويات قيد التشغيل. سيطلب Lima إيقاف التشغيل بشكل آمن.
 gui-environment-lima-lifecycle-started = تم تشغيل جهاز Lima.
 gui-environment-lima-lifecycle-stopped = تم إيقاف جهاز Lima.
+gui-environment-lima-lifecycle-restarted = تمت إعادة تشغيل جهاز Lima.
 gui-environment-lima-lifecycle-failed = تعذّر تغيير حالة جهاز Lima. حدّث الصفحة وتحقّق من حالته. تُدار الأجهزة التي تتطلّب صلاحيات مرتفعة على المضيف من خلال Lima.
 gui-environment-lima-stopped = جهاز Lima الافتراضي متوقف. تسري الإعدادات المحفوظة عند التشغيل التالي.
 gui-environment-lima-unknown-state = لم يبلّغ Lima بأن الجهاز متوقف. تحقّق من حالته في Lima ثم حدّث الصفحة قبل إجراء التغييرات.

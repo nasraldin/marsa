@@ -182,6 +182,13 @@ async fn lima_changes_allocation_between_a_graceful_stop_and_start() {
     let running = instance.set_running(true).await.unwrap();
     assert!(running.running);
     assert_eq!(running.cpus, cpus);
+    let restarted = instance.restart().await.unwrap();
+    assert!(restarted.running);
+    assert_eq!(restarted.cpus, cpus);
     let stopped_again = instance.set_running(false).await.unwrap();
     assert!(stopped_again.stopped);
+    assert!(matches!(
+        instance.restart().await,
+        Err(LimaSettingsError::LifecycleState)
+    ));
 }

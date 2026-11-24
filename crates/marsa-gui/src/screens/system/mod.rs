@@ -44,7 +44,7 @@ use crate::{
 };
 
 pub(crate) use notifications::{NotificationDestination, Notifications, notification_destination};
-use settings::{EnvironmentSettings, GitSources, RegistrySettings, ResourceInputs};
+use settings::{EnvironmentSettings, GitSources, RegistrySettings, ResourceInputs, VmEditor};
 
 pub(crate) struct OpenRoute(pub(crate) Route);
 
@@ -64,6 +64,8 @@ pub(crate) struct SystemView {
     external_inventory: crate::screens::external_inventory::Workspaces,
     external_inventory_task: Option<Task<()>>,
     environment_settings: EnvironmentSettings,
+    machine_vm: Option<VmEditor>,
+    machine_lima_target: Option<marsa_client::docker::LimaInstance>,
     environment_observations: settings::Observations,
     git_sources: GitSources,
     registry_settings: RegistrySettings,
@@ -131,6 +133,8 @@ impl SystemView {
             external_inventory: Arc::from([]),
             external_inventory_task: None,
             environment_settings: EnvironmentSettings::default(),
+            machine_vm: None,
+            machine_lima_target: None,
             environment_observations: settings::Observations::default(),
             git_sources: GitSources::default(),
             registry_settings: RegistrySettings::default(),
@@ -270,6 +274,7 @@ impl SystemView {
         self.route = route;
         self.route_load = None;
         if route != Route::Machine {
+            self.clear_lima_machine_target();
             self.vm_stats_task = None;
             self.vm_stats = None;
         }

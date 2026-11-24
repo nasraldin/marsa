@@ -6,6 +6,7 @@ mod security;
 pub(in crate::screens::system) use observations::Observations;
 mod table;
 mod vm;
+pub(in crate::screens::system) use vm::VmEditor;
 
 use std::{collections::HashMap, future::Future, sync::Arc};
 
@@ -150,6 +151,8 @@ impl SystemView {
                         panel.saved = Some(saved);
                         panel.checks.clear();
                         panel.feedback = Some(feedback);
+                        this.clear_lima_machine_target();
+                        this.clear_lima_machine_target();
                         this.external_inventory_task = None;
                         this.refresh_external_inventory(cx);
                     }
@@ -285,7 +288,13 @@ impl SystemView {
         }
         workspace.map_or_else(
             || ("Marsa".to_owned(), EnvironmentIcon::Rocket),
-            |workspace| (workspace.source.clone(), EnvironmentIcon::Server),
+            |workspace| {
+                let name = workspace.endpoint.lima_instance().map_or_else(
+                    || workspace.source.clone(),
+                    |instance| format!("Lima · {}", instance.name()),
+                );
+                (name, EnvironmentIcon::Server)
+            },
         )
     }
 
@@ -395,18 +404,36 @@ fn confirm_lima_stop(
     cx: &mut Context<SystemView>,
     apply: impl FnOnce(&mut SystemView, &mut Window, &mut Context<SystemView>) + 'static,
 ) {
-    let title = format!(
-        "{} · {}",
-        gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOP.text(locale),
-        technical(name),
-    );
+    confirm_lima_control(name, false, locale, window, cx, apply);
+}
+
+fn confirm_lima_control(
+    name: &str,
+    restart: bool,
+    locale: Locale,
+    window: &mut Window,
+    cx: &mut Context<SystemView>,
+    apply: impl FnOnce(&mut SystemView, &mut Window, &mut Context<SystemView>) + 'static,
+) {
+    let (action, explanation) = if restart {
+        (
+            gui::GUI_DESKTOP_RESTART_MACHINE,
+            gui::GUI_SYSTEM_MACHINE_RESTART_EXPLANATION,
+        )
+    } else {
+        (
+            gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOP,
+            gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_CONFIRM,
+        )
+    };
+    let title = format!("{} · {}", action.text(locale), technical(name),);
     let answer = window.prompt(
         PromptLevel::Warning,
         &title,
-        Some(gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_CONFIRM.text(locale)),
+        Some(explanation.text(locale)),
         &[
             PromptButton::Cancel(gui::GUI_DESKTOP_CANCEL.text(locale).into()),
-            PromptButton::Ok(gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOP.text(locale).into()),
+            PromptButton::Ok(action.text(locale).into()),
         ],
         cx,
     );
