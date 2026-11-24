@@ -237,9 +237,11 @@ impl Desktop {
         };
         let lifecycle = lifecycle.map(|(action, label, icon)| {
             let button = Button::new("overview-engine-lifecycle")
-                .h(px(36.))
-                .icon(icon)
-                .label(label.text(locale))
+                .size(px(36.))
+                .p_0()
+                .child(icon)
+                .accessibility_label(label.text(locale))
+                .tooltip(label.text(locale))
                 .on_click(cx.listener(move |desktop, _, window, cx| {
                     desktop.request_engine(action, window, cx);
                 }));
