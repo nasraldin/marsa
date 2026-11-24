@@ -1,4 +1,4 @@
-//! Typography menus and the directly visible clock-format choices.
+//! Theme, language, typography and clock-format preferences.
 
 use marsa_ui::{
     ColorToken, Locale,
@@ -9,12 +9,15 @@ use marsa_ui::{
         menu::{DropdownMenu as _, PopupMenuItem},
     },
     gui_keys as gui,
-    preferences::{TerminalFont, TimeFormat, UiFont, UiFontSize},
+    preferences::{Language, TerminalFont, TimeFormat, UiFont, UiFontSize},
     tokens::typography::{Family, Role},
 };
 
 use super::{SystemView, setting_choices, setting_row, settings_text};
-use crate::screens::common::{ScreenContext, color, row};
+use crate::screens::{
+    common::{ScreenContext, color, row},
+    theme_picker::theme_picker,
+};
 
 const INTERFACE_FONTS: [UiFont; 24] = [
     UiFont::System,
@@ -63,6 +66,63 @@ const TERMINAL_FONTS: [TerminalFont; 16] = [
 ];
 
 impl SystemView {
+    pub(super) fn theme_setting(&self, screen: &ScreenContext<'_>, cx: &Context<Self>) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .py_2()
+            .border_t_1()
+            .border_color(color(screen.palette, ColorToken::BorderSubtle))
+            .child(settings_text(
+                screen,
+                Role::Small,
+                gui::GUI_SETTINGS_THEME_HELP.text(screen.locale),
+                ColorToken::TextMuted,
+            ))
+            .child(theme_picker(
+                "appearance-picker",
+                screen.locale,
+                screen.palette,
+                self.preferences().map(|(_, theme)| theme),
+                self.busy(),
+                cx,
+                |view, theme, cx| view.save_settings(|settings| settings.ui.theme = theme, cx),
+            ))
+    }
+
+    pub(super) fn language_setting(&self, screen: &ScreenContext<'_>, cx: &Context<Self>) -> Div {
+        let locale = screen.locale;
+        let language = gui::GUI_DESKTOP_SETTINGS_LANGUAGE.text(locale);
+        let selected = self.preferences().map(|(language, _)| language);
+        let options = vec![
+            MenuOption::plain(Language::System, gui::GUI_DESKTOP_SYSTEM.text(locale)),
+            MenuOption::plain(
+                Language::English,
+                gui::GUI_LANGUAGE_ENGLISH_US_AUTONYM.text(locale),
+            ),
+            MenuOption::plain(
+                Language::Arabic,
+                gui::GUI_LANGUAGE_ARABIC_AUTONYM.text(locale),
+            ),
+        ];
+        setting_row(
+            screen,
+            language,
+            gui::GUI_SETTINGS_LANGUAGE_HELP.text(locale),
+            preference_menu(
+                ("language-picker", language),
+                selected,
+                options,
+                self.busy() || selected.is_none(),
+                |view, language, cx| {
+                    view.save_settings(|settings| settings.ui.language = language, cx)
+                },
+                cx,
+            ),
+        )
+    }
+
     pub(super) fn typography_settings(
         &self,
         screen: &ScreenContext<'_>,
@@ -86,7 +146,7 @@ impl SystemView {
                 } else {
                     face.name()
                 };
-                FontOption::with_face(preference, name, face)
+                MenuOption::with_face(preference, name, face)
             })
             .collect();
         let sizes = [
@@ -104,7 +164,7 @@ impl SystemView {
             ),
         ]
         .into_iter()
-        .map(|(preference, label)| FontOption::plain(preference, label.text(locale)))
+        .map(|(preference, label)| MenuOption::plain(preference, label.text(locale)))
         .collect();
         let terminal_options = TERMINAL_FONTS
             .into_iter()
@@ -116,7 +176,7 @@ impl SystemView {
                     face.name()
                 };
                 face.available(cx)
-                    .then_some(FontOption::with_face(preference, name, face))
+                    .then_some(MenuOption::with_face(preference, name, face))
             })
             .collect();
         let terminal_preference = display.map(|display| {
@@ -133,7 +193,7 @@ impl SystemView {
                 screen,
                 "icons/type.svg",
                 font,
-                font_menu(
+                preference_menu(
                     ("ui-font", font),
                     display.map(|display| display.ui_font),
                     interface_options,
@@ -148,7 +208,7 @@ impl SystemView {
                 screen,
                 "icons/case-sensitive.svg",
                 size,
-                font_menu(
+                preference_menu(
                     ("ui-font-size", size),
                     display.map(|display| display.ui_font_size),
                     sizes,
@@ -163,7 +223,7 @@ impl SystemView {
                 screen,
                 "icons/terminal.svg",
                 terminal,
-                font_menu(
+                preference_menu(
                     ("terminal-font", terminal),
                     terminal_preference,
                     terminal_options,
@@ -250,13 +310,13 @@ fn typography_row(
 }
 
 #[derive(Clone, Copy)]
-struct FontOption<T> {
+struct MenuOption<T> {
     value: T,
     label: &'static str,
     family: Option<Family>,
 }
 
-impl<T> FontOption<T> {
+impl<T> MenuOption<T> {
     fn with_face(value: T, label: &'static str, family: Family) -> Self {
         Self {
             value,
@@ -274,10 +334,10 @@ impl<T> FontOption<T> {
     }
 }
 
-fn font_menu<T: Copy + PartialEq + 'static>(
+fn preference_menu<T: Copy + PartialEq + 'static>(
     (id, label): (&'static str, &'static str),
     selected: Option<T>,
-    options: Vec<FontOption<T>>,
+    options: Vec<MenuOption<T>>,
     disabled: bool,
     save: fn(&mut SystemView, T, &mut Context<SystemView>),
     cx: &Context<SystemView>,
