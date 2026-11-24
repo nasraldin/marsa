@@ -7,7 +7,6 @@ Start with the [architecture and component documentation](docs/README.md) and th
 Use an Apple silicon Mac with Rustup. The repository's toolchain file selects the Rust version and required components.
 
 ```sh
-git submodule update --init --depth 1 third-party/gpui
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked

@@ -2,21 +2,16 @@
 
 Marsa's native macOS GUI uses GPUI 0.3.13 and gpui-component 0.10.0. Both
 application pins are in the workspace manifest. The
-[dependency source branch](https://github.com/nasraldin/marsa/tree/deps/marsa-gpui)
+[vendored source tree](https://github.com/nasraldin/marsa/tree/main/third-party/gpui)
 contains the checksum-verified crate releases followed by the compatibility
-commits. The main repository pins one exact commit of that branch through
-`third-party/gpui`.
-
-Initialize the source pin before invoking Cargo from a fresh checkout.
-
-```sh
-git submodule update --init --depth 1 third-party/gpui
-```
+commits, recorded in `UPSTREAM.tsv` with each registry archive's SHA-256
+digest. The sources live directly in the main repository under
+`third-party/gpui`; a fresh clone needs no extra initialization step.
 
 1. Read the released GPUI and Component source for the matching revisions.
    Verify each crate archive against the crates.io checksum and preserve its
    upstream licence and notices.
-2. Import those releases on the dependency source branch and replay the
+2. Import those releases into `third-party/gpui` and replay the
    documented fixes. Remove a patch when the released upstream source contains
    an equivalent fix. Update the workspace pins and lockfile together.
 3. Run both locked audits with the existing workspace policy.
