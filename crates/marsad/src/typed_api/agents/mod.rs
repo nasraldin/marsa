@@ -2,6 +2,10 @@
 
 mod attempt;
 mod audit;
+<<<<<<< HEAD
+mod engine;
+=======
+>>>>>>> origin/main
 pub(super) mod queue;
 mod reads;
 mod sessions;
@@ -21,10 +25,16 @@ use marsa_core::{paths::MarsaPaths, settings::Language};
 use marsa_proto::host::v1::{
     AffectedResource, AgentOperation, AgentOperationError, AgentOperationResponse, AgentOutput,
     ApproveRequest, AuditArguments, AuditDecision, DecisionResponse, DenyRequest,
+<<<<<<< HEAD
+    ListAgentAuditRequest, ListAgentAuditResponse, ListGrantsRequest, ListGrantsResponse,
+    ListPendingApprovalsRequest, ListPendingApprovalsResponse, OpenAgentSessionRequest,
+    OpenAgentSessionResponse, PendingApproval, RevokeGrantRequest, RevokeGrantResponse,
+=======
     ListAgentAuditRequest, ListAgentAuditResponse, ListAgentClientsRequest,
     ListAgentClientsResponse, ListGrantsRequest, ListGrantsResponse, ListPendingApprovalsRequest,
     ListPendingApprovalsResponse, OpenAgentSessionRequest, OpenAgentSessionResponse,
     PendingApproval, RevokeGrantRequest, RevokeGrantResponse,
+>>>>>>> origin/main
     agent_operation_response::Result as WireResult, agents_server::Agents,
 };
 use serde::Deserialize;
@@ -42,6 +52,10 @@ const ARGUMENT_LIMIT: usize = 4096;
 pub(super) struct State {
     sessions: sessions::Sessions,
     audit: Arc<audit::Store>,
+<<<<<<< HEAD
+    grants: GrantStore,
+=======
+>>>>>>> origin/main
     open: requests::Cache<OpenAgentSessionRequest, OpenAgentSessionResponse>,
     decisions: requests::Cache<(String, Outcome), DecisionResponse>,
     revoke: requests::Cache<String, RevokeGrantResponse>,
@@ -53,7 +67,12 @@ impl State {
     pub(super) fn new(paths: MarsaPaths, uid: u32) -> Self {
         Self {
             sessions: sessions::Sessions::default(),
+<<<<<<< HEAD
+            audit: Arc::new(audit::Store::new(paths.clone(), uid)),
+            grants: GrantStore::new(paths, uid),
+=======
             audit: Arc::new(audit::Store::new(paths, uid)),
+>>>>>>> origin/main
             open: requests::Cache::new(),
             decisions: requests::Cache::new(),
             revoke: requests::Cache::new(),
@@ -66,6 +85,10 @@ impl State {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Prepared {
     EngineStatus,
+<<<<<<< HEAD
+    StopContainer(String),
+=======
+>>>>>>> origin/main
     DockerRead(reads::Read),
 }
 
@@ -83,6 +106,18 @@ impl Prepared {
                 serde_json::from_str::<Empty>(args).ok()?;
                 Some(Self::EngineStatus)
             }
+<<<<<<< HEAD
+            AgentOperation::StopContainer => {
+                let target: Target = serde_json::from_str(args).ok()?;
+                let id = target.container_id;
+                (id.len() == 64
+                    && id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+                .then_some(Self::StopContainer(id))
+            }
+=======
+>>>>>>> origin/main
             _ => reads::Read::parse(operation, args).map(Self::DockerRead),
         }
     }
@@ -90,13 +125,38 @@ impl Prepared {
     const fn operation(&self) -> AgentOperation {
         match self {
             Self::EngineStatus => AgentOperation::EngineStatus,
+<<<<<<< HEAD
+            Self::StopContainer(_) => AgentOperation::StopContainer,
             Self::DockerRead(read) => read.operation(),
+        }
+    }
+
+    fn audit_arguments(&self) -> AuditArguments {
+        match self {
+            Self::EngineStatus => AuditArguments::Empty,
+            Self::StopContainer(_) => AuditArguments::ContainerTargetRedacted,
+            Self::DockerRead(read) => read.audit_arguments(),
+=======
+            Self::DockerRead(read) => read.operation(),
+>>>>>>> origin/main
         }
     }
     fn audit_arguments(&self) -> AuditArguments {
         match self {
+<<<<<<< HEAD
+            Self::EngineStatus | Self::DockerRead(_) => ("{}".into(), Vec::new()),
+            Self::StopContainer(id) => (
+                json!({"container_id": id}).to_string(),
+                vec![AffectedResource {
+                    kind: "container".into(),
+                    name: id.clone(),
+                    ..Default::default()
+                }],
+            ),
+=======
             Self::EngineStatus => AuditArguments::Empty,
             Self::DockerRead(read) => read.audit_arguments(),
+>>>>>>> origin/main
         }
     }
 }
@@ -317,6 +377,9 @@ impl TypedApi {
         operation: Prepared,
         decision: &mut AuditDecision,
     ) -> AgentOperationResponse {
+<<<<<<< HEAD
+        if let Err(result) = self.allow_operation(principal, &operation, decision).await {
+=======
         if let Err(result) = self
             .allow_operation(
                 principal,
@@ -326,6 +389,7 @@ impl TypedApi {
             )
             .await
         {
+>>>>>>> origin/main
             return result;
         }
         match operation {
@@ -359,6 +423,20 @@ impl TypedApi {
                         "تعذّر على دوكر إكمال هذه القراءة.",
                         None,
                     ),
+<<<<<<< HEAD
+                }
+            }
+            Prepared::StopContainer(id) => match engine::stop_container(
+                self,
+                &id,
+                self.permission_still_valid(principal, AgentOperation::StopContainer),
+            )
+            .await
+            {
+                Ok(engine::StopResult::Stopped) => {
+                    output(json!({"container_id":id,"stopped":true}))
+=======
+>>>>>>> origin/main
                 }
             }
         }
@@ -367,8 +445,12 @@ impl TypedApi {
     async fn allow_operation(
         &self,
         principal: &Session,
+<<<<<<< HEAD
+        operation: &Prepared,
+=======
         kind: AgentOperation,
         details: impl FnOnce() -> (String, Vec<AffectedResource>),
+>>>>>>> origin/main
         audit_decision: &mut AuditDecision,
     ) -> Result<(), AgentOperationResponse> {
         if !self.scope_is_current(principal).await {
@@ -380,7 +462,10 @@ impl TypedApi {
                 *audit_decision = AuditDecision::Allowed;
                 return Ok(());
             }
+<<<<<<< HEAD
+=======
 
+>>>>>>> origin/main
             Decision::Refuse(_) => return Err(self.policy_refusal()),
             Decision::Approve { tier, .. } => {
                 let expires = principal.expires.min(Instant::now() + queue::LIFETIME);

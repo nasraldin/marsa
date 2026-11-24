@@ -5,9 +5,13 @@ pub const API_MAJOR: u32 = 1;
 
 /// The latest additive revision of the host API.
 <<<<<<< HEAD
+pub const API_MINOR: u32 = 4;
+=======
+<<<<<<< HEAD
 pub const API_MINOR: u32 = 2;
 =======
 pub const API_MINOR: u32 = 10;
+>>>>>>> origin/main
 
 /// Filename for delegated agent operations next to the owner daemon socket.
 pub use marsa_core::paths::AGENT_SOCKET_NAME;
