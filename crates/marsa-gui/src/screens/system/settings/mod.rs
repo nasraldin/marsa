@@ -32,7 +32,7 @@ use marsa_ui::{
         scroll::ScrollableElement,
         switch::Switch,
     },
-    preferences::{DownloadFormat, Language, LogBufferSize, OperateApproval, Settings, Theme},
+    preferences::{DownloadFormat, LogBufferSize, OperateApproval, Settings},
     tokens::{
         scale::{Radius, Space},
         typography::Role,
@@ -334,51 +334,13 @@ impl SystemView {
     }
 
     fn general(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
-        let locale = screen.locale;
-        let preferences = self.preferences();
-        let languages = [
-            (Language::System, gui::GUI_DESKTOP_SYSTEM.text(locale)),
-            (Language::English, "English (US)"),
-            (Language::Arabic, "العربية"),
-        ];
-        let themes = [
-            (Theme::System, gui::GUI_DESKTOP_SYSTEM.text(locale)),
-            (Theme::Light, gui::GUI_DESKTOP_LIGHT.text(locale)),
-            (Theme::Dark, gui::GUI_DESKTOP_DARK.text(locale)),
-        ];
-        let language = gui::GUI_DESKTOP_SETTINGS_LANGUAGE.text(locale);
-        let appearance = gui::GUI_DESKTOP_SETTINGS_APPEARANCE.text(locale);
         let look = preference_section(screen, gui::GUI_SETTINGS_APPEARANCE_SECTION)
-            .child(setting_row(
-                screen,
-                appearance,
-                gui::GUI_SETTINGS_THEME_HELP.text(locale),
-                setting_choices(
-                    ("appearance-picker", appearance),
-                    themes,
-                    preferences.map(|(_, theme)| theme),
-                    self.busy(),
-                    |settings, value| settings.ui.theme = value,
-                    cx,
-                ),
-            ))
+            .child(self.theme_setting(screen, cx))
             .child(self.accent_picker(screen, cx));
         let typography = preference_section(screen, gui::GUI_SETTINGS_TYPOGRAPHY_SECTION)
             .children(self.typography_settings(screen, cx));
         let region = preference_section(screen, gui::GUI_SETTINGS_REGION_SECTION)
-            .child(setting_row(
-                screen,
-                language,
-                gui::GUI_SETTINGS_LANGUAGE_HELP.text(locale),
-                setting_choices(
-                    ("language-picker", language),
-                    languages,
-                    preferences.map(|(language, _)| language),
-                    self.busy(),
-                    |settings, value| settings.ui.language = value,
-                    cx,
-                ),
-            ))
+            .child(self.language_setting(screen, cx))
             .child(self.time_format_setting(screen, cx));
         let startup = preference_section(screen, gui::GUI_SETTINGS_STARTUP_SECTION)
             .child(self.login_setting(screen, cx));
