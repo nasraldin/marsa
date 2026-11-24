@@ -51,9 +51,11 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Weak,
     },
-    thread,
     time::{Duration, Instant},
 };
+
+#[cfg(feature = "spin")]
+use std::thread;
 
 /// An error that may be emitted when attempting to send a value into a channel on a sender when
 /// all receivers are dropped.
@@ -890,7 +892,7 @@ impl<T> WeakSender<T> {
             .filter(|shared| {
                 shared
                     .sender_count
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
                         if count == 0 {
                             // all senders are closed already -> don't increase the sender count
                             None

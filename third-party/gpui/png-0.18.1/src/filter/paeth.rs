@@ -25,11 +25,12 @@ pub(super) fn filter_paeth(a: u8, b: u8, c: u8) -> u8 {
     out
 }
 
+/// Decoding optimizes better with this algorithm than with `filter_paeth`
+///
+/// This formulation looks very different from the reference in the PNG spec, but is
+/// actually equivalent and has favorable data dependencies and admits straightforward
+#[cfg(target_arch = "x86_64")]
 pub(super) fn filter_paeth_stbi(a: i16, b: i16, c: i16) -> u8 {
-    // Decoding optimizes better with this algorithm than with `filter_paeth`
-    //
-    // This formulation looks very different from the reference in the PNG spec, but is
-    // actually equivalent and has favorable data dependencies and admits straightforward
     // generation of branch-free code, which helps performance significantly.
     //
     // Adapted from public domain PNG implementation:
