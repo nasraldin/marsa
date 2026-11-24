@@ -526,7 +526,7 @@ the restart confirmation.
 
 ### M7-37 Unify Machine and Overview lifecycle controls
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-36
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Use one Machine layout for the selected environment and expose its available lifecycle controls in the Overview card.
@@ -535,3 +535,6 @@ the restart confirmation.
   - Overview shows icon-only Start or Stop for the selected controllable VM, including an offline, stopped Lima instance.
   - Resource edits and lifecycle confirmations stay bound to the selected provider. Connection-only environments show verified information where available.
   - Check English and Arabic in light and dark mode.
+
+Native checks covered four locale and theme combinations, Overview start and
+confirmed stop, and saving a new CPU allocation on the disposable Lima VM.

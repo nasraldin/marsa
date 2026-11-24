@@ -271,10 +271,12 @@ impl SystemView {
     }
 
     pub(crate) fn enter(&mut self, route: Route, cx: &mut Context<Self>) {
+        if self.route != route {
+            self.clear_lima_machine_target();
+        }
         self.route = route;
         self.route_load = None;
         if route != Route::Machine {
-            self.clear_lima_machine_target();
             self.vm_stats_task = None;
             self.vm_stats = None;
         }

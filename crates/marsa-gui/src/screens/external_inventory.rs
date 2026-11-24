@@ -160,6 +160,14 @@ impl Environment {
             if address.starts_with("managed:") && address == other)
     }
 
+    /// The unformatted environment name for renderer-owned text isolation.
+    pub(crate) fn name(&self) -> &str {
+        match self {
+            Self::Marsa => "Marsa",
+            Self::External { name, .. } => name,
+        }
+    }
+
     pub(crate) fn display(&self) -> SharedString {
         match self {
             Self::Marsa => "Marsa".into(),
