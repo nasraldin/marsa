@@ -27,7 +27,15 @@ jobs:
       - name: Check the fuzz dependency graph
         run: bash fuzz/check-dependencies.sh
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --version 0.13.2 --locked
+        # Install from outside the checkout: rustup warns whenever a directory
+        # toolchain file overrides the default, even when both name the same
+        # toolchain. The runner default is aligned with the repository pin and
+        # the install runs from RUNNER_TEMP where no toolchain file applies.
+        run: |
+          toolchain="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+          rustup default "$toolchain"
+          cd "$RUNNER_TEMP"
+          cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Fuzz the parsers
         run: bash fuzz/run.sh "$RUNNER_TEMP/marsa-fuzz"
       - name: Save crash inputs
