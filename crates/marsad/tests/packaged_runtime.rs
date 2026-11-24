@@ -38,6 +38,17 @@ use tower::service_fn;
 mod bind_shares;
 #[path = "packaged_runtime/compose_watch.rs"]
 mod compose_watch;
+<<<<<<< HEAD
+=======
+#[path = "packaged_runtime/disk_schema.rs"]
+mod disk_schema;
+#[path = "packaged_runtime/factory.rs"]
+mod factory;
+#[path = "packaged_runtime/memory_policy.rs"]
+mod memory_policy;
+#[path = "packaged_runtime/network_mode.rs"]
+mod network_mode;
+>>>>>>> origin/main
 #[path = "packaged_runtime/recovery.rs"]
 mod recovery;
 #[path = "packaged_runtime/support.rs"]
@@ -448,5 +459,10 @@ fn has_backup_exclusion(path: &Path) -> bool {
 }
 #[path = "packaged_runtime/on_demand.rs"]
 mod on_demand;
+
+#[path = "packaged_runtime/daemon_proxy.rs"]
+mod daemon_proxy;
+#[path = "packaged_runtime/fallback_dns.rs"]
+mod fallback_dns;
 #[path = "packaged_runtime/ssh_build.rs"]
 mod ssh_build;

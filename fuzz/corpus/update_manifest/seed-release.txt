@@ -1,0 +1,2 @@
+releases/marsa-1.4.0-darwin-arm64.zip
+{"schema_version":1,"version":"1.4.0","minimum_macos":"27.0.0","channels":["beta","stable"],"security_recommended":true,"notes":{"en-US":"Recovery update","ar":"تحديث الاستعادة"}}

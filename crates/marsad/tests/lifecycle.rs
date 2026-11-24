@@ -117,7 +117,13 @@ async fn docker_unavailability_includes_a_localized_error() {
         let home = TempDir::new_in("/tmp").unwrap();
         let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
         let mut daemon = Daemon(start(home.path()).env("LC_ALL", locale).spawn().unwrap());
-        wait_for_meta(&mut daemon, paths.daemon_socket()).await;
+        // A successful RPC, rather than the transport handshake, observes the
+        // daemon after both local endpoints have been published.
+        wait_for_meta(&mut daemon, paths.daemon_socket())
+            .await
+            .version(VersionRequest {})
+            .await
+            .unwrap();
         let mut docker = UnixStream::connect(paths.docker_socket()).await.unwrap();
         docker
             .write_all(b"GET /_ping HTTP/1.1\r\nHost: docker\r\n\r\n")
@@ -141,7 +147,15 @@ async fn recovers_stale_socket_and_pid_after_an_unclean_exit() {
     let home = TempDir::new_in("/tmp").unwrap();
     let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
     let mut first = Daemon(start(home.path()).spawn().unwrap());
-    wait_for_meta(&mut first, paths.daemon_socket()).await;
+    wait_for_meta(&mut first, paths.daemon_socket())
+        .await
+        .version(VersionRequest {})
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(paths.daemon_pid_file()).unwrap().trim(),
+        first.0.id().to_string()
+    );
     first.0.kill().unwrap();
     first.0.wait().unwrap();
     assert!(paths.daemon_socket().exists());
@@ -367,6 +381,210 @@ async fn share_grants_protect_the_configured_home_and_the_effective_account_home
     daemon.terminate().await;
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tokio::test]
+#[ignore = "requires the verified M4-03 Docker CLI at MARSA_TEST_DOCKER_CLI"]
+async fn pinned_cli_sees_the_context_and_retains_user_selection() {
+    use marsa_proto::host::v1::{
+        EnsureDockerContextRequest, docker_discovery_client::DockerDiscoveryClient,
+    };
+
+    let cli = PathBuf::from(std::env::var_os("MARSA_TEST_DOCKER_CLI").unwrap())
+        .canonicalize()
+        .unwrap();
+    let version = Command::new(&cli)
+        .arg("--version")
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(version.status.success());
+    assert!(
+        String::from_utf8(version.stdout)
+            .unwrap()
+            .contains("Docker version 29.10.0")
+    );
+    let home = tempfile::Builder::new()
+        .prefix("m4=, \"")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let paths = marsa_core::paths::MarsaPaths::from_home(home.path()).unwrap();
+    let config = home.path().join("docker-fixture");
+    fs::create_dir(&config).unwrap();
+    let app = home.path().join("Marsa.app");
+    let binary = app.join("Contents/MacOS/marsad");
+    let packaged_cli = app.join("Contents/Resources/bin/docker");
+    let helper_name = "docker-credential-osxkeychain";
+    let packaged_helper = packaged_cli.with_file_name(helper_name);
+    for path in [&binary, &packaged_cli] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+    }
+    fs::copy(env!("CARGO_BIN_EXE_marsad"), &binary).unwrap();
+    fs::copy(&cli, &packaged_cli).unwrap();
+    fs::copy(cli.with_file_name(helper_name), &packaged_helper).unwrap();
+    fs::write(
+        app.join("Contents/Info.plist"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>org.marsa.context-test</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleExecutable</key><string>marsad</string>
+<key>CFBundleVersion</key><string>1</string>
+</dict></plist>"#,
+    )
+    .unwrap();
+    let sign = |path: &Path| {
+        assert!(
+            Command::new("/usr/bin/codesign")
+                .args(["--force", "--sign", "-", "--timestamp=none"])
+                .arg(path)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    };
+    sign(&packaged_cli);
+    sign(&packaged_helper);
+    sign(&app);
+    let mut daemon = Daemon(
+        Command::new("/bin/sh")
+            .args(["-c", "umask 0777; exec \"$@\"", "marsa-context-fixture"])
+            .arg(binary)
+            .env_clear()
+            .env("HOME", home.path())
+            .env("DOCKER_CONFIG", &config)
+            .env("DOCKER_CONTEXT", "unrelated-fixture")
+            .env("DOCKER_HOST", "unix:///tmp/unrelated-fixture.sock")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let channel = wait_for_channel(&mut daemon, paths.daemon_socket()).await;
+    let run = |args: &[&str]| {
+        let output = Command::new(&cli)
+            .env_clear()
+            .env("HOME", home.path())
+            .arg("--config")
+            .arg(&config)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "fixture Docker command failed");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    run(&[
+        "context",
+        "create",
+        "unrelated",
+        "--docker",
+        "host=unix:///tmp/unrelated.sock",
+    ]);
+    let unrelated = run(&["context", "inspect", "unrelated"]);
+    let config_file = config.join("config.json");
+    let original = b"{ \"currentContext\" : \"unrelated\", \"credsStore\" : \"fixture\" }\n";
+    fs::write(&config_file, original).unwrap();
+    assert_eq!(run(&["context", "show"]).trim(), "unrelated");
+    assert!(
+        !run(&["context", "ls", "--format", "{{.Name}}"])
+            .lines()
+            .any(|name| name == "marsa")
+    );
+
+    let mut discovery = DockerDiscoveryClient::new(channel);
+    let request = |id| EnsureDockerContextRequest {
+        request_id: format!("34000000-0000-4000-8000-{id:012}"),
+    };
+    let mut concurrent = discovery.clone();
+    let (a, b) = tokio::join!(
+        discovery.ensure_context(request(1)),
+        concurrent.ensure_context(request(2)),
+    );
+    let a = a.unwrap().into_inner();
+    let b = b.unwrap().into_inner();
+    assert_ne!(a.created, b.created);
+    let endpoint = a.endpoint.as_ref().unwrap();
+    assert_eq!(Some(endpoint), b.endpoint.as_ref());
+    assert_eq!(
+        discovery
+            .ensure_context(request(1))
+            .await
+            .unwrap()
+            .into_inner(),
+        a
+    );
+    let inspected = run(&[
+        "context",
+        "inspect",
+        "marsa",
+        "--format",
+        "{{.Endpoints.docker.Host}}",
+    ]);
+    assert_eq!(inspected.trim(), endpoint.docker_host);
+    assert_eq!(
+        endpoint.socket_path,
+        paths.docker_socket().to_str().unwrap()
+    );
+    let context_path = run(&[
+        "context",
+        "inspect",
+        "marsa",
+        "--format",
+        "{{.Storage.MetadataPath}}",
+    ]);
+    let context_path = Path::new(context_path.trim());
+    assert_eq!(mode(context_path.to_owned()), 0o700);
+    assert_eq!(mode(context_path.join("meta.json")), 0o600);
+    assert_eq!(run(&["context", "show"]).trim(), "unrelated");
+    assert_eq!(
+        run(&["--context", "marsa", "context", "show"]).trim(),
+        "marsa"
+    );
+    assert_eq!(run(&["context", "inspect", "unrelated"]), unrelated);
+    assert_eq!(fs::read(&config_file).unwrap(), original);
+    let enable = |id| marsa_proto::host::v1::EnableRegistryKeychainRequest {
+        request_id: format!("39000000-0000-4000-8000-{id:012}"),
+    };
+    let existing = discovery
+        .enable_registry_keychain(enable(1))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!existing.configured);
+    assert_eq!(fs::read(&config_file).unwrap(), original);
+    fs::write(&config_file, r#"{"currentContext":"unrelated"}"#).unwrap();
+    let updated = discovery
+        .enable_registry_keychain(enable(2))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(updated.configured);
+    assert_eq!(
+        discovery
+            .enable_registry_keychain(enable(2))
+            .await
+            .unwrap()
+            .into_inner(),
+        updated
+    );
+    assert_eq!(mode(config_file), 0o600);
+    let keychain = Command::new("python3")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/packaged_runtime/keychain.py"))
+        .arg(packaged_cli.parent().unwrap())
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(
+        keychain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&keychain.stderr)
+    );
+    eprintln!("{}", String::from_utf8(keychain.stdout).unwrap().trim());
+    assert!(!home.path().join(".docker").exists());
+    assert!(!paths.data_disk().exists());
+    daemon.terminate().await;
+}
+
 fn start(home: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_marsad"));
     command
@@ -439,4 +657,63 @@ async fn wait_for_channel(daemon: &mut Daemon, path: PathBuf) -> Channel {
 fn mode(path: PathBuf) -> u32 {
     let metadata: io::Result<_> = fs::symlink_metadata(path);
     metadata.unwrap().permissions().mode() & 0o777
+}
+
+#[tokio::test]
+async fn saved_network_mode_survives_daemon_relaunch_without_a_vm() {
+    use marsa_core::{paths::MarsaPaths, settings::Settings};
+    use marsa_proto::host::v1::{
+        NetworkMode, NetworkStatusRequest, SetNetworkModeRequest, network_client::NetworkClient,
+    };
+
+    let home = TempDir::new_in("/tmp").unwrap();
+    let paths = MarsaPaths::from_home(home.path()).unwrap();
+    let mut daemon = Daemon(start(home.path()).spawn().unwrap());
+    let mut network =
+        NetworkClient::new(wait_for_channel(&mut daemon, paths.daemon_socket()).await);
+    let saved = network
+        .set_mode(SetNetworkModeRequest {
+            request_id: "55000000-0000-4000-8000-000000000001".into(),
+            mode: NetworkMode::Userspace.into(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(saved.configured_mode(), NetworkMode::Userspace);
+    assert_eq!(saved.active_mode(), NetworkMode::Unspecified);
+    assert_eq!(
+        (saved.guest_address, saved.gateway_address, saved.reason),
+        (None, None, None)
+    );
+    assert_eq!(mode(paths.config_file()), 0o600);
+    let persisted = Settings::from_toml(&fs::read_to_string(paths.config_file()).unwrap()).unwrap();
+    assert_eq!(
+        persisted.network.mode,
+        marsa_core::settings::NetworkMode::Userspace
+    );
+    assert!(!paths.data_disk().exists());
+
+    daemon.terminate().await;
+    let mut relaunched = Daemon(start(home.path()).spawn().unwrap());
+    let mut network =
+        NetworkClient::new(wait_for_channel(&mut relaunched, paths.daemon_socket()).await);
+    let after = network
+        .status(NetworkStatusRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(after.configured_mode(), NetworkMode::Userspace);
+    assert_eq!(after.active_mode(), NetworkMode::Unspecified);
+    let automatic = network
+        .set_mode(SetNetworkModeRequest {
+            request_id: "55000000-0000-4000-8000-000000000002".into(),
+            mode: NetworkMode::Auto.into(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(automatic.configured_mode(), NetworkMode::Auto);
+    assert_eq!(automatic.active_mode(), NetworkMode::Unspecified);
+    assert!(!paths.data_disk().exists());
+    relaunched.terminate().await;
 }

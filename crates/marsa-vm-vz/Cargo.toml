@@ -9,6 +9,7 @@ license.workspace = true
 [features]
 userspace-system-test = []
 native-ipv4-system-test = []
+ssh-transport-system-test = []
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 marsa-core = { path = "../marsa-core" }

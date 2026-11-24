@@ -13,7 +13,7 @@ Because the Docker socket is equivalent to root over the VM and every shared fol
 
 ## Protocol version
 
-MCP published the stable `2026-07-28` specification. The official Rust SDK's current stable release is `rmcp` 3.11.0 as of 2026-11-22 and supports both that revision and `2025-11-25`. M8-04 validates and pins the SDK when the stdio transport is implemented. The daemon's policy evaluates typed operations independently of the transport. [MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28/), [Rust SDK release](https://github.com/modelcontextprotocol/rust-sdk/releases/tag/rmcp-v3.11.0)
+The local stdio server implements MCP `2026-07-28` and the `2025-11-25` compatibility handshake. M8-04 tested the official Rust SDK `rmcp` 3.11.0 with only the server and stdio features. Its required dependencies include `chrono` 0.4.45, which fails the workspace maintenance policy under RUSTSEC-2026-0543. Marsa uses its existing Tokio and Serde dependencies for this bounded stdio transport. [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28), [Pinned SDK release](https://github.com/modelcontextprotocol/rust-sdk/releases/tag/rmcp-v3.11.0), [RustSec advisory](https://rustsec.org/advisories/RUSTSEC-2026-0543.html)
 
 ## Architecture
 
@@ -46,7 +46,8 @@ flowchart LR
     api --> audit
 ```
 
-- `marsa mcp` runs the server on stdio, which is how most MCP clients launch local servers.
+- Configure a trusted local MCP host to launch `marsa mcp --client-id ID --project /absolute/project`. The launch configuration supplies the identity and project. Protocol metadata can describe the peer but cannot change the registered identity. The CLI launches its sibling `marsa-mcp` binary. The bridge registers with the owner-only local daemon and uses a restricted `AgentOps` capability for every read.
+- Standard output carries one JSON-RPC message per line. The bridge accepts a maximum incoming message size of 64 KiB and eight in-flight read calls. The daemon permits eight concurrent Docker reads across sessions.
 - **Proposed:** an optional local HTTP transport bound to loopback with a per-client token, for clients that need it. Off by default.
 - The MCP server holds no privileges of its own. Every call goes through `marsad`'s policy engine.
 
@@ -96,7 +97,12 @@ sequenceDiagram
 ```
 
 - Requests time out (default a few minutes) and return a clear "not approved" result so the agent can continue or ask the user in its own interface.
-- If no GUI is open, the notification appears through the tray item and `marsa agents approve` works from a terminal.
+- If no GUI is open, the tray and CLI are planned owner clients for the same approval API.
+- The owner-only daemon socket serves `Agents.OpenSession` and approval decisions. A trusted local owner client registers the agent and project, then delegates a 12-hour capability to the restricted `agent.sock` endpoint. The agent capability authenticates `AgentOps` and has no owner permissions. Do not give an agent the owner connection or raw Docker socket.
+- This protects against an agent using only its delegated operations. Local processes running with the unrestricted owner's Unix access are inside the trusted host boundary. The daemon does not attest physical user presence. The owner GUI or CLI is responsible for collecting the user's decision. [Terminal approval](09-cli-and-docker-compat.md#agent-access-from-the-terminal) displays a queued request and accepts an explicit terminal response.
+- M8-02 implements scoped engine status and the owner approval queue. Container mutations require an engine provider that can bind execution to the immutable target reviewed by the owner.
+- The pinned Docker stop endpoint resolves the target again when applying the operation and may interpret a missing full ID as a name. A prior inspect cannot guarantee the stop targets the reviewed container. [Moby stop handler](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/stop.go#L25-L39), [Moby target resolution](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/container.go#L37-L53)
+- M8-10 enables requests that create bind mounts after the agent and active host share checks are integrated. Until then, the daemon refuses container creation through `AgentOps`.
 
 ## Tools
 
@@ -121,6 +127,10 @@ sequenceDiagram
 | `remove_volume`, `compose_down_volumes`, `prune` | Destroy | Data-destroying removal |
 | `add_share` | Host-affecting | Request a new shared folder |
 
+M8-04 advertises engine status, container and image list and inspect, bounded container logs and stats, and network and volume lists. Read tools observe the local Docker engine. Project registration scopes the client identity and any future grants. M8-11 adds Compose and disk read tools when their providers are available.
+
+List tools return live pages of up to 50 items using an opaque cursor. Container and image inspection accepts full IDs obtained from list results. Logs accept a full container ID, a tail size up to 200 and an optional timestamp cursor for an earlier page. Logs and stats report truncation when a response exceeds the daemon's byte budget. Results mark workload data as untrusted and carry it in a separate data field.
+
 Tool rules:
 
 - Outputs are bounded (logs and exec output are truncated with a clear marker and a way to page).
@@ -140,12 +150,17 @@ Logs, exec output, image labels and container names are data from the workload. 
 - Each MCP client is identified at first connection (name reported by the client, plus the launching process where it can be determined) and shown to the user.
 - Grants are stored per client and per project directory in `~/.marsa/state/grants.json`, visible and revocable in Settings and with `marsa agents`.
 - An approval can grant one ordinary Operate action for the authenticated client and the project directory. The daemon binds it to the canonical path and filesystem identity. Reusing the path for a different directory requires a new grant.
-- Grants expire after 30 days of disuse. An operation that actually uses a grant renews it. Factory reset clears the grants.
+- Grants expire after 30 days of disuse. An operation that actually uses a grant renews it. Factory reset clears the grants and publishes an empty grant list. Grant reads and revocation return an unavailable result while a factory reset is in progress or storage recovery is required.
+- Factory reset leaves current read-only sessions subject to their original expiry and project identity checks. These sessions can query engine status. They carry no grant-based authority to mutate workloads.
 - The daemon stores the versioned grant document with owner-only permissions and replaces it atomically. If the file is malformed or unsafe, the daemon treats it as unavailable for authorizing an operation.
 
 ## Audit log
 
-Every MCP call is recorded: time, client, tool, arguments (with secrets redacted), decision, approver, result. It is shown in the GUI's Activity screen and exported in diagnostics bundles only with the user's consent.
+The daemon records one terminal entry per decoded `AgentOps.Execute` call. A retry gets its own entry even when the request ID replays a previous result. Each entry records receipt time, the registered client's fingerprint when authenticated, the typed operation and a redacted argument summary, the decision, the local owner role when someone decided, and the result. Argument values, tokens, client and container IDs, paths, and workload output are kept out of the audit log. Unsupported operations record a refusal with the typed operation and omit all arguments.
+
+`Agents.ListAudit` is available on the owner connection. It pages newest completed entries first and filters by client fingerprint, operation, decision, and receipt time. Four owner-only JSON Lines files retain up to 2 MiB inside `~/.marsa/state`. If rotation removes a cursor, the owner client starts a new query. Reviewed execution checks that the audit storage is accessible first, and the daemon syncs its terminal entry before returning the result. A caller that disconnects during normal operation can still have a completed entry. An abrupt process or storage failure can interrupt an in-flight entry.
+
+The GUI Activity screen and explicit diagnostic export are separate clients of the private audit data.
 
 ## One API for everything
 

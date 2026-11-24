@@ -20,6 +20,7 @@ impl Shares for TypedApi {
         request: Request<ListSharesRequest>,
     ) -> Result<Response<ListSharesResponse>, Status> {
         self.authorize(request)?;
+        let _admission = self.inner.factory_reset.read()?;
         let (settings, _) = self.inner.events.settings();
         let shares = settings
             .shares
@@ -86,7 +87,11 @@ impl Shares for TypedApi {
                                 .shares
                                 .iter()
                                 .position(|entry| entry == path)
-                                .ok_or_else(|| Status::not_found("unknown share ID"))?;
+                                .ok_or_else(|| super::settings_feedback::reason(
+                                    tonic::Code::NotFound,
+                                    marsa_proto::host::v1::configuration_issue::Reason::ShareUnknown,
+                                    "unknown share ID",
+                                ))?;
                             settings.shares.remove(index);
                             Ok(())
                         })
@@ -117,6 +122,7 @@ impl Shares for TypedApi {
                 &request.request_id,
                 (request.approval_id.clone(), request.decision),
                 || async move {
+                    let _admission = api.inner.factory_reset.read()?;
                     let _approval = api.inner.bind_edit.lock().await;
                     let approval = api
                         .inner
@@ -191,11 +197,15 @@ pub(super) fn validate_boot_roots<'a>(
         return Err(policy_status(ShareError::InvalidPath));
     }
     allowlist.guest_roots().map_err(|_| {
-        Status::failed_precondition(super::bind_policy::shown(
-            language,
-            "The shared folders exceed the supported guest location, count or path length.",
-            "تتجاوز المجلدات المشتركة حدود المواقع أو العدد أو طول المسار التي يدعمها الضيف.",
-        ))
+        super::settings_feedback::reason(
+            tonic::Code::FailedPrecondition,
+            marsa_proto::host::v1::configuration_issue::Reason::ShareGuestLayout,
+            super::bind_policy::shown(
+                language,
+                "The shared folders exceed the supported guest location, count or path length.",
+                "تتجاوز المجلدات المشتركة حدود المواقع أو العدد أو طول المسار التي يدعمها الضيف.",
+            ),
+        )
     })?;
     Ok(())
 }
@@ -214,14 +224,18 @@ fn wire_share(path: &Path) -> Result<Share, Status> {
 }
 
 pub(super) fn policy_status(error: ShareError) -> Status {
-    let code = match error {
-        ShareError::InvalidPath | ShareError::NotDirectory | ShareError::UnsupportedSource => {
-            tonic::Code::InvalidArgument
-        }
-        ShareError::Resolve(_) | ShareError::Protection(_) | ShareError::GuestLayout => {
-            tonic::Code::FailedPrecondition
-        }
-        ShareError::Protected | ShareError::NotAllowed => tonic::Code::PermissionDenied,
+    use marsa_proto::host::v1::configuration_issue::Reason;
+    use tonic::Code;
+
+    let (code, reason) = match error {
+        ShareError::InvalidPath => (Code::InvalidArgument, Reason::ShareInvalidPath),
+        ShareError::NotDirectory => (Code::InvalidArgument, Reason::ShareNotDirectory),
+        ShareError::UnsupportedSource => (Code::InvalidArgument, Reason::ShareUnsupportedSource),
+        ShareError::Resolve(_) => (Code::FailedPrecondition, Reason::ShareResolutionFailed),
+        ShareError::Protection(_) => (Code::FailedPrecondition, Reason::ShareProtectionUnverified),
+        ShareError::GuestLayout => (Code::FailedPrecondition, Reason::ShareGuestLayout),
+        ShareError::Protected => (Code::PermissionDenied, Reason::ShareProtected),
+        ShareError::NotAllowed => (Code::PermissionDenied, Reason::ShareNotAllowed),
     };
-    Status::new(code, error.to_string())
+    super::settings_feedback::reason(code, reason, error.to_string())
 }

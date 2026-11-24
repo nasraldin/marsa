@@ -2,13 +2,12 @@
 
 use std::{io, time::Duration};
 
-use http_body_util::{BodyExt, Empty, Limited};
-use hyper::{Request, StatusCode, body::Bytes, client::conn::http1};
-use hyper_util::rt::TokioIo;
 use marsa_proto::guest::DOCKER_API_PORT;
 use marsa_vm::Vm;
 use serde::Deserialize;
 use tokio::time::timeout;
+
+use super::docker_http;
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_LIST_BYTES: usize = 64 * 1024;
@@ -37,32 +36,7 @@ async fn list_active(vm: &dyn Vm) -> io::Result<u32> {
         .connect_vsock(DOCKER_API_PORT)
         .await
         .map_err(io::Error::other)?;
-    let (mut sender, connection) = http1::Builder::new()
-        .max_buf_size(16 * 1024)
-        .handshake(TokioIo::new(stream))
-        .await
-        .map_err(io::Error::other)?;
-    let request = async move {
-        let request = Request::get(ACTIVE_CONTAINERS)
-            .header("Host", "docker")
-            .header("Connection", "close")
-            .body(Empty::<Bytes>::new())
-            .map_err(io::Error::other)?;
-        let response = sender
-            .send_request(request)
-            .await
-            .map_err(io::Error::other)?;
-        if response.status() != StatusCode::OK {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
-        let body = Limited::new(response.into_body(), MAX_LIST_BYTES)
-            .collect()
-            .await
-            .map_err(io::Error::other)?
-            .to_bytes();
-        let containers: Vec<Container> = serde_json::from_slice(&body).map_err(io::Error::other)?;
-        u32::try_from(containers.len()).map_err(io::Error::other)
-    };
-    let (response, _) = tokio::join!(request, connection);
-    response
+    let body = docker_http::get(stream, ACTIVE_CONTAINERS, MAX_LIST_BYTES).await?;
+    let containers: Vec<Container> = serde_json::from_slice(&body).map_err(io::Error::other)?;
+    u32::try_from(containers.len()).map_err(io::Error::other)
 }

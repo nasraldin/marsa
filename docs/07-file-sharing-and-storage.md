@@ -118,17 +118,25 @@ Compose Watch copies files from the Mac into the selected container. This workfl
 | Default maximum size | A setting; the file only uses what is written | Proposed |
 | Contents | `/var/lib/docker`, `/var/lib/containerd`, Marsa guest state | Decided |
 
+### Inspecting usage
+
+Run `marsa disk usage` to see the bytes allocated to the sparse image on
+macOS and the image's logical capacity. These values are available with
+the VM stopped. If the VM has reported a current filesystem sample, the
+CLI also shows guest used bytes and capacity. JSON output preserves this
+distinction through the [CLI response schema](reference/cli-response.schema.json).
+
 ### Returning space to macOS
 
 ```mermaid
 sequenceDiagram
-    participant U as User or schedule
+    participant U as User
     participant D as marsad
     participant A as marsa-agent
     participant FS as ext4 on data disk
     participant H as data.img on APFS
 
-    U->>D: Prune images, or scheduled reclaim
+    U->>D: Request disk reclaim
     D->>A: RunTrim
     A->>FS: fstrim /var/lib/marsa
     FS->>H: Discard freed blocks through virtio-blk
@@ -138,21 +146,49 @@ sequenceDiagram
     D-->>U: Report observed space reclaimed
 ```
 
-On the VZ backend, `fstrim` on the mounted ext4 data filesystem returned approximately 4 GiB of physical allocation to APFS after deleting 4 GiB of files from a sparse RAW image. Use automatic caching with full synchronization and request explicit trim after cleanup and when idle. Calculate the recovered bytes using the change in the image file's allocated size on the host. The guest's trim result counts bytes submitted for potential discard. [Measured results](spikes/M1-03-disk-reclaim.md)
+On the VZ backend, `fstrim` on the mounted ext4 data filesystem returned
+approximately 4 GiB of physical allocation to APFS after deleting 4 GiB
+of files from a sparse RAW image. The backend uses automatic caching with
+full synchronization. [Measured results](spikes/M1-03-disk-reclaim.md)
 
-M9-03 tests the same path after deleting Docker images. A backend that cannot pass discard through will require offline compaction while the VM is stopped.
+Run `marsa disk reclaim` with the VM running to discard unused ext4 blocks.
+The guest synchronizes the data filesystem first so ext4 can make newly
+freed blocks available to discard after its journal commits.
+[Linux 7.3.5 ext4 allocator](https://github.com/gregkh/linux/blob/v7.3.5/fs/ext4/mballoc.c#L3782-L3796)
+
+The command measures the decrease in physical allocation of the same sparse
+image. The guest separately reports bytes submitted for potential discard.
+The command affects free filesystem blocks and leaves Docker resources in
+place. Reclaim holds lifecycle admission for the bounded request, so it
+cannot overlap a factory reset or private proxy activation. Existing
+container workloads keep running. New Docker connections can return busy
+until reclaim completes.
+
+M9-03 verifies this byte delta after removing disposable data from a signed
+test VM. M9-14 owns automatic reclaim after confirmed cleanup, idle
+scheduling and the remaining image-based test. An offline compaction fallback
+is required only for backends that cannot pass discard through.
 
 ### Disk cleanup with a preview
 
-A version 1 feature. The GUI and CLI show what would be removed and how much space returns before anything is deleted.
+Run `marsa disk cleanup --dry-run` to list unused storage on a running guest.
+The command uses Docker Engine 29.10.0's [read-only disk inventory](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/server/router/system/system_routes.go#L140-L217).
+It lists individual stopped containers, unused images and reported unused
+build-cache records. Add `--include-volumes` to list unused local volumes.
+The typed API also accepts named volume selection. The preview reports guest
+size estimates. The total adds the displayed estimates and can differ from
+actual space recovered because resources share storage. Use `disk reclaim`
+for an observed change in macOS disk usage.
+A missing category or size is surfaced as unavailable in the preview.
 
-| Category | Source |
-|---|---|
-| Stopped containers | Engine API |
-| Unused images, dangling images | Engine API |
-| Unused volumes | Engine API; listed individually and never selected by default |
-| Build cache | BuildKit prune API |
-| Reclaimable disk space | Trim estimate from the agent |
+M5-12 owns confirmed apply. Docker 29.10.0 accepts mutable names in
+[container lookup](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/container.go#L37-L58)
+and [network lookup](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/server/router/network/network_routes.go#L363-L407).
+[Volume deletion](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/server/router/volume/volume_routes.go#L158-L181)
+addresses a name. [Containerd image deletion](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/containerd/image_delete.go#L415-L455)
+uses an image-store name without a target condition. [BuildKit cache pruning](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/vendor/github.com/moby/buildkit/cache/manager.go#L1357-L1368)
+can remove a companion record alongside a matching record. These operations
+lack the conditional deletion needed for a preview-bound apply.
 
 ### Resizing
 

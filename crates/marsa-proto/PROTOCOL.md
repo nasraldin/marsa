@@ -37,12 +37,40 @@ process-local history, evicting completed requests before admitting new ones.
 Retry an interrupted request with the same UUID and payload. Reusing a cached
 UUID with a different operation or payload fails with `ALREADY_EXISTS`.
 
+Host API minor 3 adds settings reset. Send `PrepareSettingsReset`, obtain user
+confirmation, then send `ResetSettings` with that token and a separate request
+UUID. The token is scoped to the current configuration state.
+The same minor adds the explicit `DockerDiscovery.EnableRegistryKeychain`
+mutation. The RPC accepts no credentials and returns only whether it added
+the setting.
+
+Host API minor 4 adds factory reset. Use the separate `PrepareFactoryReset`
+and `ConfirmFactoryReset` messages. The confirmation binds to private storage
+identities and expires after 60 seconds. A committed factory reset stops the
+guest, restores settings defaults, clears grants and installs a fresh sparse
+data disk. An interrupted transaction is resolved before the daemon serves
+either socket.
+
+Host API minor 6 adds the separate owner Agents service and capability-scoped
+AgentOps endpoint. They negotiate through the daemon and keep owner approval
+authentication separate from delegated agent sessions.
+
+`Disk.Reclaim` requests discard of unused blocks from the current ready
+guest's data disk. It returns the guest's submitted discard bytes and the
+observed decrease in allocated bytes on the same host image. A stopped
+VM is not started for reclaim. The daemon admits one trim at a time and
+replays the result when the caller retries the same request UUID.
+
 `Events.Subscribe` emits a snapshot before live updates on each connection.
 The daemon takes that snapshot at an event cursor and then emits events after
 that cursor in order. Sequence numbers are scoped to the stream ID of the
 daemon process. If a subscriber falls behind the bounded buffer, the daemon
 ends the stream with `RESOURCE_EXHAUSTED`. Clients replace their view with the
 new snapshot on reconnect.
+Host minor 2 introduces `DockerDiscovery.GetEndpoint` and
+`DockerDiscovery.EnsureContext`. Registration is explicit, and the request has
+no shell command, executable path, or context selection fields.
+
 The API design and service table live in the daemon design.
 [Host typed API](../../docs/03-host-daemon.md#typed-api)
 
@@ -51,11 +79,44 @@ must match the current revision. Read it again after reconnecting to a
 different daemon process. The daemon publishes a new revision only after the
 replacement has committed. `Settings.Watch` starts with the current settings.
 
+Host API minor 10 adds optional ConfigurationIssue details to rejected
+settings updates and share operations. The status code and legacy message
+keep their existing meanings. The details encode a reason and, where
+relevant, a setting key, document position, size limit, or schema version.
+They carry no configuration values, credentials, or paths. Clients can
+localize recognized reasons and use the legacy message with older daemons.
+
+Host API minor 7 implements `Network.SetMode` for the explicit auto, NAT and
+user-space enum values.
+It persists a single-field settings edit. A successful response reports the
+mode saved by that request, plus the independently observed VM attachment
+and addresses when available. Active fields remain empty when the observer
+has no guest. Replay the same UUID and mode for the original mutation
+response, or call `Network.Status` for a fresh observation. Both replies can
+carry `NetworkStatus.restart_pending`. It compares the configured value in
+the response with the mode captured when the current VM launched and is
+false when no VM is running. It is absent when the boot policy is unknown
+or still being applied, including replies from older daemons. An automatic
+fallback changes the active attachment without making a restart pending.
+Engine restart is a separate action.
+
+
 API 1.1 adds `SettingsSnapshot.restart_required` and
 `EngineStatus.guest_health` without changing existing fields. API 1.0 clients
 ignore both fields. Missing fields have the protobuf defaults of `false` and
 unspecified health. VM stats are live observations of the active guest.
 The stream starts with a sample only when the daemon has observed one.
+
+API 1.5 adds `Network.PrepareProxyActivation` and `Network.ActivateProxy`.
+Clients read the current settings revision, request a preview, and show every
+reported potential interruption before asking the owner to approve. Apply
+only after approval using the preview token, the same settings revision and a
+fresh request UUID. The token expires after 90 seconds and is single-use.
+Replay a disconnected request with the same UUID and fields to obtain the
+original result. A changed VM lifecycle or settings revision invalidates the
+preview. Result enums report failed stop, start or persistence and whether the
+prior policy or engine was recovered. Treat approval tokens and proxy URLs as
+sensitive.
 
 Agent requests identify an
 allowlisted operation and use that operation's existing JSON Schema for its
@@ -160,7 +221,6 @@ record before retaining the facts, and abandons a connection that does
 not respond within its deadline. The guest reads the configured upstream
 interface and its default route from the kernel. The record describes
 guest state and is independent of the guest control session.
-
 
 ## Bind authorization
 

@@ -73,7 +73,22 @@ async fn packaged_bind_approval_limits_access_to_the_explicit_vm_session() {
     assert!(!resolve(&mut shares, denial, BindApprovalDecision::Deny, 2).await);
     docker(&root, &paths, "deny", &requested).await;
     let once = prompt(&mut events, &requested).await;
-    assert!(resolve(&mut shares, once, BindApprovalDecision::Once, 3).await);
+    let (code, pending) = cli(&root, &["share", "approvals", "--json"]).await;
+    assert_eq!(code, 0);
+    assert_eq!(pending["kind"], "bind_approvals");
+    assert_eq!(pending["approvals"][0]["id"], once.id);
+    assert_eq!(
+        pending["approvals"][0]["directories"][0],
+        requested.to_str().unwrap()
+    );
+    let missing = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let (code, refused) = cli(&root, &["share", "resolve", missing, "always", "--json"]).await;
+    assert_eq!(code, 1);
+    assert_eq!(refused["code"], "bind_resolution_failed");
+    let (code, approved_once) = cli(&root, &["share", "resolve", &once.id, "once", "--json"]).await;
+    assert_eq!(code, 0);
+    assert_eq!(approved_once["decision"], "once");
+    assert_eq!(approved_once["requires_restart"], true);
     assert_eq!(
         timeout(BOOT, engine.restart(action(4)))
             .await
@@ -136,6 +151,23 @@ async fn packaged_bind_approval_limits_access_to_the_explicit_vm_session() {
             .state(),
         EngineState::Stopped
     );
+}
+
+async fn cli(root: &Path, arguments: &[&str]) -> (i32, serde_json::Value) {
+    let program = env::var_os("MARSA_TEST_CLI").expect("set MARSA_TEST_CLI to the built marsa CLI");
+    let result = tokio::process::Command::new(program)
+        .env("HOME", root.join("home"))
+        .env("LC_ALL", "C")
+        .args(arguments)
+        .kill_on_drop(true)
+        .output()
+        .await
+        .unwrap();
+    (
+        result.status.code().unwrap(),
+        serde_json::from_slice(&result.stdout)
+            .unwrap_or_else(|error| panic!("{arguments:?}: {error} {result:?}")),
+    )
 }
 
 async fn prompt(events: &mut Streaming<DaemonEvent>, source: &Path) -> BindApproval {

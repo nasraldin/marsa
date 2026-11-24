@@ -39,7 +39,7 @@ enum RootFsFormat {
 }
 
 /// Versions of the guest base, the upstream engine bundle and the image tool.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GuestComponentVersions {
     /// Linux kernel release.
@@ -171,6 +171,11 @@ impl GuestManifest {
     /// Returns the app and guest image release version.
     pub fn image_version(&self) -> &str {
         &self.image_version
+    }
+
+    /// Returns the exact source Git object ID if the image builder recorded one.
+    pub fn source_commit(&self) -> Option<&str> {
+        self.source_commit.as_deref()
     }
 
     /// Returns the component versions recorded in this image.

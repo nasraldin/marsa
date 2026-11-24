@@ -2,6 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use marsa_core::settings::NetworkMode;
 use marsa_proto::guest::v1::EgressStage;
 use marsa_vm::{NetworkSpec, async_trait};
 use tokio::time::{Instant, timeout_at};
@@ -14,13 +15,19 @@ use super::{
 #[derive(Clone)]
 pub(crate) struct Selection {
     pub(super) host: Option<Arc<dyn HostCheck>>,
+    pub(super) configured_mode: Option<NetworkMode>,
 }
 
 impl Selection {
     pub(crate) fn new(enabled: bool) -> Self {
         Self {
             host: enabled.then(|| Arc::new(SystemHost) as Arc<dyn HostCheck>),
+            configured_mode: None,
         }
+    }
+    pub(crate) fn with_configured_mode(mut self, mode: NetworkMode) -> Self {
+        self.configured_mode = Some(mode);
+        self
     }
 }
 

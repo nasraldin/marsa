@@ -126,7 +126,7 @@ Everything visual goes through `marsa-ui`. Screens never use raw colours, raw pi
 | Spacing | 4-point scale | Used for padding, gaps, row heights |
 | Radius, elevation, motion | Small fixed scales | Motion respects the system "reduce motion" setting |
 
-**Proposed fonts:** a bundled Arabic UI font (IBM Plex Sans Arabic or Noto Sans Arabic) so Arabic looks identical everywhere, paired with a matching Latin face, and a monospace face with good Arabic fallback for mixed log lines. **Verify** licences (both candidates are open-licensed) before bundling.
+The Figma Foundations use IBM Plex Sans and IBM Plex Mono. Use the script-specific IBM Plex Sans Arabic face for Arabic text and mixed-script fallback. The [pinned font assets](../assets/fonts/README.md) include regular, medium and semibold Sans and Sans Arabic and regular Mono. The native files ship with their shared SIL Open Font License 1.1 notice. See [D-032](15-decisions.md#d-032-use-ibm-plex-for-desktop-typography).
 
 ### Themes
 
@@ -174,13 +174,19 @@ Rules, enforced by lint and review:
 | Topic | Design | Status |
 |---|---|---|
 | Locales | `en-US` (source), `ar` (Modern Standard Arabic) | Decided |
-| Translation format | Fluent (`.ftl`) files in `locales/` | Proposed |
+| Translation format | Fluent (`.ftl`) files in [`locales/`](../locales/README.md) | Implemented in M6-12 |
 | Plurals | Full CLDR rules; Arabic has six plural forms | Decided as a requirement |
 | Library | **Verify:** gpui-component is built on rust-i18n, which may not provide plural rules. Use Fluent for Marsa strings and bridge gpui-component's own strings | Verify |
 | Dates, times, sizes | Locale-aware formatting with Western digits | Proposed |
 | Runtime switching | Language changes apply live | Decided |
 | Missing strings | Build fails if any key exists in one locale and not the other | Proposed |
 | Review | Arabic strings are reviewed by a fluent speaker for terminology consistency; a glossary of technical terms lives in `locales/GLOSSARY.md` | Proposed |
+
+`marsa-l10n` validates the application catalogs and provides typed message
+keys and locale-specific Fluent bundles through `marsa-client`. The GUI supports
+English and Arabic. The CLI reads generated messages in English as specified in
+[D-033](15-decisions.md#d-033-keep-the-command-line-interface-in-english). GUI
+integration and locale formatting remain part of M6-04.
 
 Technical terms policy (**Proposed**): keep established English terms that developers actually use (Docker, container image names, Compose, volume names as typed) in Latin script where an Arabic term would confuse, and translate interface language (actions, labels, messages) fully.
 

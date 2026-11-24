@@ -32,6 +32,7 @@ impl TypedApi {
         action: Action,
     ) -> Result<Response<EngineStatus>, Status> {
         let request = self.authorize(request)?;
+        self.inner.factory_reset.read()?;
         let api = self.clone();
         let status = self
             .inner
@@ -100,8 +101,8 @@ impl Engine for TypedApi {
         &self,
         request: Request<ResetRequest>,
     ) -> Result<Response<ResetResponse>, Status> {
-        self.authorize(request)?;
-        Err(Status::unimplemented("engine reset is not available"))
+        let request = self.authorize(request)?;
+        self.engine_reset(request).await.map(Response::new)
     }
 }
 
@@ -144,6 +145,7 @@ pub(super) fn stage_name(stage: BootStage) -> &'static str {
         BootStage::Create => "create",
         BootStage::Start => "start",
         BootStage::Handshake => "handshake",
+        BootStage::DataDisk => "data_disk",
         BootStage::Network => "network",
         BootStage::Engine => "engine",
         BootStage::Running => "running",
@@ -156,7 +158,7 @@ fn bounded(text: &str) -> String {
     text[..text.floor_char_boundary(text.len().min(8192))].to_owned()
 }
 
-fn supervisor_status(error: SupervisorError) -> Status {
+pub(super) fn supervisor_status(error: SupervisorError) -> Status {
     match error {
         SupervisorError::Busy => Status::resource_exhausted(error.to_string()),
         SupervisorError::InvalidState { .. } => Status::failed_precondition(error.to_string()),
