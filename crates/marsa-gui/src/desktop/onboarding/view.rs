@@ -430,17 +430,34 @@ fn docker(screen: &ScreenContext<'_>) -> Div {
             .child(gui::GUI_SETUP_REGISTER_CONTEXT.text(locale)),
         )
         .child(
-            align(
-                div()
-                    .rounded(px(6.))
-                    .border_1()
-                    .border_color(color(palette, ColorToken::BorderSubtle))
-                    .bg(color(palette, ColorToken::BgSubtle))
-                    .p_3()
-                    .font_family("IBM Plex Mono"),
-                locale,
-            )
-            .child(technical("docker context use marsa")),
+            row(locale)
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(color(palette, ColorToken::BorderSubtle))
+                        .bg(color(palette, ColorToken::BgSubtle))
+                        .p_3()
+                        .font_family("IBM Plex Mono")
+                        .child(technical("docker context use marsa")),
+                )
+                .child(
+                    Button::new("setup-copy-context-command")
+                        .outline()
+                        .size(px(42.))
+                        .p_0()
+                        .accessibility_label(gui::GUI_DESKTOP_COPY_COMMAND.text(locale))
+                        .tooltip(gui::GUI_DESKTOP_COPY_COMMAND.text(locale))
+                        .child(IconName::Copy)
+                        .on_click(|_, _, cx| {
+                            cx.write_to_clipboard(marsa_ui::gpui::ClipboardItem::new_string(
+                                "docker context use marsa".to_owned(),
+                            ));
+                        }),
+                ),
         )
         .child(
             align(

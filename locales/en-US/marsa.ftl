@@ -1145,3 +1145,7 @@ gui-settings-ui-font-size-extra-large = Extra Large
 gui-settings-terminal-font-system = System Monospace
 gui-workload-read-image-metadata = Read image metadata
 gui-workload-target-environment = Target environment
+gui-desktop-copy-command = Copy command
+gui-overview-live = Live
+gui-overview-machine = Machine
+gui-overview-engine-type = Engine

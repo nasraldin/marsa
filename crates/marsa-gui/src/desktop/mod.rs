@@ -16,13 +16,15 @@ pub(crate) mod toast;
 use marsa_ui::gui_keys as gui;
 use std::{collections::VecDeque, sync::Arc};
 
+use std::time::Duration;
+
 use marsa_client::api::EngineState;
 use marsa_ui::{
     ColorToken, Locale, Palette,
     gpui::{
         self, App, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-        KeyBinding, ParentElement, Pixels, Render, ScrollHandle, Styled, Subscription, Task,
-        WeakFocusHandle, Window, WindowAppearance, actions, div, px, svg,
+        KeyBinding, ParentElement, Pixels, Render, ScrollHandle, StatefulInteractiveElement,
+        Styled, Subscription, Task, WeakFocusHandle, Window, WindowAppearance, actions, div, px,
     },
     gpui_component::{
         IconName,
@@ -104,8 +106,13 @@ pub(crate) struct Desktop {
     _route_subscription: Subscription,
     _store: Option<Task<()>>,
     _setup_probe: Option<Task<()>>,
+    _auto_start_task: Option<Task<()>>,
     onboarding: Option<onboarding::Setup>,
     setup_task: Option<Task<()>>,
+    /// The launch-time engine boot was attempted once for this session.
+    auto_start_done: bool,
+    /// The owner explicitly stopped the engine in this session.
+    user_requested_stop: bool,
 }
 
 impl Desktop {
@@ -226,6 +233,56 @@ impl Desktop {
                 }
             })
         });
+        // Boot the local engine automatically on launch, the way Docker
+        // Desktop does, unless the owner stopped it during this session.
+        let auto_start_task = services.clone().map(|auto_services| {
+            cx.spawn(async move |this, cx| {
+                for _ in 0..40 {
+                    let settled = this
+                        .update(cx, |desktop, _| {
+                            (
+                                desktop.engine(),
+                                desktop.auto_start_done,
+                                desktop.user_requested_stop,
+                            )
+                        })
+                        .ok();
+                    let Some((Some(state), false, false)) = settled else {
+                        return;
+                    };
+                    match state {
+                        EngineState::Stopped | EngineState::Failed => {
+                            let _ = this.update(cx, |desktop, _| desktop.auto_start_done = true);
+                            if let Ok(request_id) = marsa_client::request_id() {
+                                auto_services
+                                    .dispatch(crate::services::Command::Engine {
+                                        action: crate::services::EngineAction::Start,
+                                        request_id,
+                                    })
+                                    .result()
+                                    .await;
+                            }
+                            return;
+                        }
+                        // Already running or transitioning: nothing to boot.
+                        EngineState::Starting
+                        | EngineState::Booting
+                        | EngineState::Ready
+                        | EngineState::Idle
+                        | EngineState::Paused
+                        | EngineState::Stopping => {
+                            let _ = this.update(cx, |desktop, _| desktop.auto_start_done = true);
+                            return;
+                        }
+                        _ => {}
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(500))
+                        .await;
+                }
+            })
+        });
+        let _auto_start_task = auto_start_task;
         let _search_subscription = palette::observe_query(&query, window, cx);
         let _setup_probe = services
             .as_deref()
@@ -266,8 +323,11 @@ impl Desktop {
             _route_subscription,
             _store: store,
             _setup_probe,
+            _auto_start_task,
             onboarding: None,
             setup_task: None,
+            auto_start_done: false,
+            user_requested_stop: false,
         }
     }
 
@@ -366,6 +426,7 @@ impl Desktop {
         if !self.environment.read(cx).includes_marsa() {
             return;
         }
+        self.user_requested_stop = action == EngineAction::Stop;
         self.palette_open = false;
         self.palette_previous_focus = None;
         self.system.update(cx, |view, cx| {
@@ -416,6 +477,17 @@ impl Render for Desktop {
             .gap_3()
             .child(
                 align(div().flex_1(), self.locale)
+                    .id("desktop-titlebar")
+                    .on_click(|click, window, _| {
+                        // Double-clicking the header zooms the window, matching
+                        // the native title-bar behaviour the transparent
+                        // titlebar otherwise hides.
+                        if let marsa_ui::gpui::ClickEvent::Mouse(mouse) = click
+                            && mouse.up.click_count == 2
+                        {
+                            window.titlebar_double_click();
+                        }
+                    })
                     .child(
                         screen
                             .typography(Role::Title)
@@ -469,23 +541,8 @@ impl Render for Desktop {
                             this.request_engine(EngineAction::Start, window, cx);
                         }))
                 }),
-            )
-            .children((route == Route::Overview).then(|| {
-                Button::new("overview-open-containers")
-                    .primary()
-                    .size(px(36.))
-                    .p_0()
-                    .bg(color(palette, ColorToken::AccentDefault))
-                    .accessibility_label(gui::GUI_DESKTOP_OPEN_CONTAINERS.text(self.locale))
-                    .tooltip(gui::GUI_DESKTOP_OPEN_CONTAINERS.text(self.locale))
-                    .child(
-                        svg()
-                            .path(marsa_ui::direction::launch_arrow(self.locale))
-                            .size(px(18.))
-                            .text_color(color(palette, ColorToken::TextOnAccent)),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.navigate(Route::Containers, cx)))
-            }));
+            );
+
         let view = if route == Route::Overview {
             self.overview_screen(&screen, window, cx).into_any_element()
         } else if failed {
@@ -560,7 +617,13 @@ impl Render for Desktop {
             .flex_1()
             .min_h_0()
             .child(view);
-        let content = if route == Route::Settings || (route == Route::Containers && !failed) {
+        let content = if route == Route::Settings
+            || (route == Route::Containers && !failed)
+            || matches!(
+                route,
+                Route::Images | Route::Volumes | Route::Networks | Route::Compose
+            ) && !failed
+        {
             content.overflow_hidden().into_any_element()
         } else {
             content.overflow_y_scrollbar().into_any_element()
