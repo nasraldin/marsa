@@ -3,14 +3,14 @@
 use std::{
     io,
     sync::{Arc, Weak},
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use marsa_proto::guest::{
     CONTROL_PORT, DEFER_ENGINE_START_MINOR, ProtocolError, negotiate,
     v1::{
         CommandResult, CommandStatus, ConfigureNetwork, EgressStage, EngineHealth, HelloAck,
-        PortEvent, Trim, TrimResult, VmStats, guest_envelope::Body as GuestBody,
+        PortEvent, SetTime, Trim, TrimResult, VmStats, guest_envelope::Body as GuestBody,
         host_envelope::Body as HostBody,
     },
 };
@@ -23,8 +23,6 @@ use tokio::{
 
 use crate::supervisor::{GuestProbe, GuestSession};
 
-mod bind_authorization;
-pub(crate) mod docker_http;
 mod observations;
 mod session;
 mod wire;
@@ -86,8 +84,8 @@ pub enum GuestControlError {
     /// A valid message arrived in an invalid session state.
     #[error("guest control protocol violation: {0}")]
     Sequence(&'static str),
-    /// The guest rejected a clock update.
-    #[error("guest rejected clock update ({0:?})")]
+    /// Initial guest clock setup was rejected.
+    #[error("guest rejected initial clock setup ({0:?})")]
     ClockRejected(CommandStatus),
     /// The running guest rejected orderly shutdown.
     #[error("guest rejected shutdown ({0:?})")]
@@ -125,12 +123,6 @@ pub struct GuestControl {
     events: observations::EventBus,
     clock: fn() -> SystemTime,
     agent_connect_timeout: Duration,
-    bind_policy: Option<Arc<dyn BindPolicy>>,
-}
-
-#[async_trait]
-pub(crate) trait BindPolicy: Send + Sync {
-    async fn authorize(&self, sources: Vec<String>) -> Option<&'static str>;
 }
 
 impl Default for GuestControl {
@@ -140,7 +132,6 @@ impl Default for GuestControl {
             events: observations::EventBus::default(),
             clock: SystemTime::now,
             agent_connect_timeout: AGENT_CONNECT_TIMEOUT,
-            bind_policy: None,
         }
     }
 }
@@ -166,11 +157,6 @@ impl TrimSession {
 }
 
 impl GuestControl {
-    pub(crate) fn authorize_binds(mut self, policy: impl BindPolicy + 'static) -> Self {
-        self.bind_policy = Some(Arc::new(policy));
-        self
-    }
-
     pub(crate) fn observe_active(
         mut self,
         observer: impl Fn(&GuestEvent) + Send + Sync + 'static,
@@ -251,14 +237,31 @@ impl GuestControl {
         )
         .await?;
 
-        let session = session::Session::start(
-            stream,
-            self.active.clone(),
-            self.events.clone(),
-            deferred,
-            self.clock,
-        );
-        session.set_clock(HANDSHAKE_TIMEOUT).await?;
+        let session =
+            session::Session::start(stream, self.active.clone(), self.events.clone(), deferred);
+        let now = (self.clock)()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| GuestControlError::InvalidClock)?;
+        let response = session
+            .client
+            .request(
+                HostBody::SetTime(SetTime {
+                    unix_seconds: i64::try_from(now.as_secs())
+                        .map_err(|_| GuestControlError::InvalidClock)?,
+                    nanoseconds: now.subsec_nanos(),
+                }),
+                HANDSHAKE_TIMEOUT,
+            )
+            .await?;
+        match response {
+            GuestResponse::Command(result) if result.status() == CommandStatus::Ok => (),
+            GuestResponse::Command(result) => {
+                return Err(GuestControlError::ClockRejected(result.status()).into());
+            }
+            GuestResponse::Trim(_) | GuestResponse::Egress(_) => {
+                return Err(GuestControlError::Sequence("expected clock setup result").into());
+            }
+        }
         if let Some(policy) = policy {
             let response = session
                 .client
@@ -297,12 +300,9 @@ impl GuestProbe for GuestControl {
         let stream = timeout(self.agent_connect_timeout, wire::open(vm, CONTROL_PORT))
             .await
             .map_err(|_| GuestControlError::TimedOut("connecting to the guest agent"))??;
-        let mut session = timeout(HANDSHAKE_TIMEOUT, self.connect(stream, policy))
+        let session = timeout(HANDSHAKE_TIMEOUT, self.connect(stream, policy))
             .await
             .map_err(|_| GuestControlError::TimedOut("negotiating the guest session"))??;
-        if let Some(policy) = &self.bind_policy {
-            session.retain_bind_worker(bind_authorization::connect(vm, policy.clone()).await?);
-        }
         Ok(Box::new(session))
     }
 }

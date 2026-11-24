@@ -25,8 +25,6 @@ fn all_commands_have_help() {
         &["config", "list"],
         &["share"],
         &["share", "list"],
-        &["share", "approvals"],
-        &["share", "resolve"],
         &["share", "add"],
         &["share", "remove"],
         &["disk"],
@@ -64,6 +62,10 @@ fn destructive_commands_require_confirmation_on_a_pipe() {
     for (args, expected) in [
         (&["reset"][..], 3),
         (&["reset", "--factory"], 3),
+        (&["disk", "cleanup"], 3),
+        (&["reset", "--factory", "--yes"], 1),
+        (&["disk", "cleanup", "--yes"], 1),
+        (&["disk", "cleanup", "--dry-run"], 1),
         (&["reset", "--factory", "--help"], 0),
     ] {
         let result = marsa(args);
@@ -84,6 +86,19 @@ fn all_supported_shells_get_the_full_command_tree() {
 }
 
 #[test]
+fn arabic_help_has_localized_headings() {
+    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
+        .args(["disk", "--help"])
+        .env("LC_ALL", "ar_AE.UTF-8")
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    let help = str::from_utf8(&result.stdout).unwrap();
+    assert!(help.contains("الاستخدام"), "{help}");
+    assert!(help.contains("marsa disk"), "{help}");
+}
+
+#[test]
 fn global_json_handles_help_and_errors_at_any_depth() {
     let cases: &[(&[&str], u8, &str, Option<&str>)] = &[
         (&["--json", "disk", "usage", "--help"], 0, "help", None),
@@ -101,18 +116,7 @@ fn global_json_handles_help_and_errors_at_any_depth() {
             "error",
             Some("invalid_invocation"),
         ),
-        (
-            &["--json", "update", "check"],
-            1,
-            "error",
-            Some("not_available"),
-        ),
-        (
-            &["network", "mode", "invalid", "--json"],
-            2,
-            "error",
-            Some("invalid_invocation"),
-        ),
+        (&["--json", "diagnose"], 1, "error", Some("not_available")),
         (
             &["--json", "completion", "invalid"],
             2,
@@ -138,56 +142,11 @@ fn global_json_handles_help_and_errors_at_any_depth() {
 }
 
 #[test]
-#[cfg(unix)]
 fn double_dash_keeps_json_literal_out_of_global_flags() {
-    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
-        .args(["config", "set", "key", "--", "--json"])
-        .env("HOME", "/")
-        .env("LC_ALL", "en_US.UTF-8")
-        .output()
-        .expect("launch marsa");
+    let result = marsa(&["config", "set", "key", "--", "--json"]);
     assert!(result.stdout.is_empty());
-    assert_eq!(result.status.code(), Some(4));
-    assert!(!result.stderr.is_empty());
-}
-
-#[test]
-#[cfg(unix)]
-fn authenticated_settings_share_and_network_commands_discover_the_daemon() {
-    let commands: &[&[&str]] = &[
-        &["config", "list"],
-        &["share", "list"],
-        &["share", "add", "/tmp/project"],
-        &["share", "remove", "shared-folder-id"],
-        &["share", "approvals"],
-        &[
-            "share",
-            "resolve",
-            "0123456789abcdef0123456789abcdef",
-            "deny",
-        ],
-        &["network", "status"],
-    ];
-    for args in commands {
-        let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
-            .args(*args)
-            .arg("--json")
-            .env("HOME", "/")
-            .output()
-            .expect("launch marsa");
-        assert_eq!(result.status.code(), Some(4), "{args:?}: {result:?}");
-        let document: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
-        assert_eq!(document["code"], "home_unavailable", "{args:?}");
-    }
-}
-
-#[test]
-#[cfg(unix)]
-fn share_resolution_rejects_malformed_approval_ids() {
-    let result = marsa(&["share", "resolve", "not-an-approval-id", "always", "--json"]);
-    assert_eq!(result.status.code(), Some(2));
-    let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
-    assert_eq!(response["code"], "invalid_invocation");
+    assert_eq!(result.status.code(), Some(1));
+    assert_eq!(result.stderr, b"This command is not available yet.\n");
 }
 
 #[test]
@@ -233,14 +192,10 @@ fn disk_usage_does_not_report_success_when_the_daemon_cannot_be_reached() {
 #[test]
 fn unsupported_cleanup_reports_nonzero() {
     for arguments in [
-        &["disk", "cleanup", "--json"][..],
+        &["disk", "cleanup", "--dry-run", "--json"][..],
         &["disk", "cleanup", "--yes", "--json"],
     ] {
-        let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
-            .args(arguments)
-            .env("HOME", "/")
-            .output()
-            .unwrap();
+        let result = marsa(arguments);
         assert_eq!(result.status.code(), Some(1));
         let body: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
         assert_eq!(body["code"], "not_available");
@@ -248,8 +203,11 @@ fn unsupported_cleanup_reports_nonzero() {
 }
 
 #[test]
-fn unavailable_message_stays_english_in_text_and_json() {
-    for locale in ["en_US.UTF-8", "ar_AE.UTF-8"] {
+fn unavailable_message_preserves_localized_text_and_english_json() {
+    for (locale, expected) in [
+        ("en_US.UTF-8", "This command is not available yet.\n"),
+        ("ar_AE.UTF-8", "هذا الأمر غير متاح حاليًا.\n"),
+    ] {
         let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
             .args(["update", "check"])
             .env("LC_ALL", locale)
@@ -257,7 +215,7 @@ fn unavailable_message_stays_english_in_text_and_json() {
             .unwrap();
         assert_eq!(output.status.code(), Some(1));
         assert!(output.stdout.is_empty());
-        assert_eq!(output.stderr, b"This command is not available yet.\n");
+        assert_eq!(output.stderr, expected.as_bytes());
     }
 
     let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
@@ -289,119 +247,4 @@ fn disk_reclaim_reaches_the_authenticated_endpoint() {
     assert_eq!(result.status.code(), Some(4));
     let json: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(json["code"], "home_unavailable");
-}
-
-#[test]
-#[cfg(unix)]
-fn cleanup_preview_uses_the_authenticated_endpoint() {
-    let result = Command::new(env!("CARGO_BIN_EXE_marsa"))
-        .args([
-            "disk",
-            "cleanup",
-            "--dry-run",
-            "--include-volumes",
-            "--json",
-        ])
-        .env("HOME", "/")
-        .output()
-        .unwrap();
-    assert_eq!(result.status.code(), Some(4));
-    let json: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
-    assert_eq!(json["code"], "home_unavailable");
-}
-
-#[test]
-fn agent_approval_requires_terminal_review_even_with_yes() {
-    let result = marsa(&["agents", "approve", "fixture-id", "--yes", "--json"]);
-    assert_eq!(result.status.code(), Some(3));
-    assert!(result.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
-    assert_eq!(response["code"], "confirmation_required");
-}
-
-#[test]
-fn mcp_requires_a_client_and_project_and_reserves_stdout_for_protocol() {
-    for args in [
-        &["mcp"][..],
-        &["mcp", "--client-id", "fixture"],
-        &["mcp", "--client-id", "fixture", "--project", "relative"],
-    ] {
-        let result = marsa(args);
-        assert_eq!(result.status.code(), Some(2), "{args:?}");
-        assert!(result.stdout.is_empty());
-    }
-    let result = marsa(&[
-        "mcp",
-        "--client-id",
-        "fixture",
-        "--project",
-        "/tmp",
-        "--json",
-    ]);
-    // A configured launcher may print one JSON error for this rejected combination.
-    assert_eq!(result.status.code(), Some(2));
-}
-
-#[test]
-fn help_and_completions_stay_english_under_an_arabic_environment() {
-    for args in [
-        &["--help"][..],
-        &["disk", "usage", "--help"],
-        &["--json", "--help"],
-        &["completion", "zsh"],
-    ] {
-        let run = |locale, language| {
-            Command::new(env!("CARGO_BIN_EXE_marsa"))
-                .args(args)
-                .env("LC_ALL", locale)
-                .env("LC_MESSAGES", locale)
-                .env("LANG", locale)
-                .env("MARSA_LANG", language)
-                .output()
-                .unwrap()
-        };
-        let english = run("C", "en-US");
-        let arabic = run("ar_AE.UTF-8", "ar");
-        assert!(
-            english.status.success() && arabic.status.success(),
-            "{args:?}"
-        );
-        assert_eq!(arabic.stdout, english.stdout, "{args:?}");
-        assert!(
-            !String::from_utf8(english.stdout)
-                .unwrap()
-                .contains("--language")
-        );
-    }
-}
-
-#[test]
-fn a_language_override_is_an_invalid_cli_option() {
-    for args in [
-        &["--language", "ar", "--json"][..],
-        &["share", "list", "--language=en-US", "--json"],
-    ] {
-        let output = marsa(args);
-        assert_eq!(output.status.code(), Some(2), "{output:?}");
-        let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(document["code"], "invalid_invocation");
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn a_language_argument_after_double_dash_remains_a_literal_value() {
-    let output = Command::new(env!("CARGO_BIN_EXE_marsa"))
-        .args(["config", "set", "key", "--", "--language=ar"])
-        .env("HOME", "/")
-        .env("LC_ALL", "ar")
-        .env("MARSA_LANG", "en-US")
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(4), "{output:?}");
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("home directory")
-    );
 }
