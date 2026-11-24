@@ -9,7 +9,7 @@ trap 'rm -rf -- "$scratch"' EXIT
 trap 'exit 1' HUP INT TERM
 
 verify() {
-    if ! printf '%s  %s\n' "$1" "$2" | sha256sum -c -; then
+    if ! printf '%s  %s\n' "$1" "$2" | sha256sum -c - 2>/dev/null; then
         printf 'Guest input checksum mismatch: %s\n' "$2" >&2
         exit 1
     fi
