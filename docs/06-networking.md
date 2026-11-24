@@ -34,9 +34,15 @@ flowchart TB
 | Speed | Highest | Lower |
 | VPNs and strict firewalls | Can fail when the VPN blocks forwarded traffic | Uses ordinary host sockets and is subject to VPN and process-filter policy |
 | Guest IP reachable from host | Yes | No; ports are forwarded through the stack |
-| Framework attachment | NAT attachment | File-handle (datagram socket) attachment |
+| Framework attachment | `VZNATNetworkDeviceAttachment` | `VZFileHandleNetworkDeviceAttachment` with a datagram socket |
 
-**Verify:** the exact Virtualization.framework attachment classes and whether the NAT attachment needs any extra entitlement on the minimum macOS version.
+Native NAT uses the standard virtualization entitlement on macOS 27. The
+framework does not expose the assigned guest address. The backend reads the
+guest's current upstream IPv4 address and default route over the host-only
+network facts socket after the guest configures networking. These values are
+guest-reported and do not authorize host connections.
+[Apple’s NAT attachment](https://developer.apple.com/documentation/virtualization/vznatnetworkdeviceattachment),
+[network facts wire format](../crates/marsa-proto/PROTOCOL.md#guest-network-facts).
 
 ### The user-space stack
 

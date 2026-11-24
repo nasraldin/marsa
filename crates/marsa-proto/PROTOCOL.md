@@ -208,7 +208,11 @@ fields are additionally bounded as shown. String limits count UTF-8 bytes.
 | Guest → host | `VmStats` | 128 B | Memory and disk usage cannot exceed their corresponding totals. |
 | Guest → host | `TrimResult` | 64 B | Trimmed and used byte counts. |
 | Guest → host | `CommandResult` | 3 KiB | Known status and detail ≤2,048 bytes. |
+<<<<<<< HEAD
+
+=======
 | Guest → host | `EgressResult` | 32 B | A known, nonzero diagnostic stage. |
+>>>>>>> origin/main
 
 ## Guest network facts
 
@@ -221,6 +225,8 @@ record before retaining the facts, and abandons a connection that does
 not respond within its deadline. The guest reads the configured upstream
 interface and its default route from the kernel. The record describes
 guest state and is independent of the guest control session.
+<<<<<<< HEAD
+=======
 
 ## Bind authorization
 
@@ -243,3 +249,4 @@ and attachments for that VM. A denial carries an actionable message of at
 most 1024 bytes. An allow has an empty message. Source and message strings
 exclude control characters. Neither the Docker body nor any headers cross
 this channel.
+>>>>>>> origin/main

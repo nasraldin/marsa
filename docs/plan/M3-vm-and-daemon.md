@@ -66,6 +66,20 @@ The native qualification is independent of the VZ device and runtime work.
 Run the strict test on Apple silicon with
 `MARSA_ENTITLED_NATIVE_IPV4=1 bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest`.
 
+The entitled tests on macOS 27.2.1 verified the read-only share at its
+original host path, guest balloon inflation, and pause and resume events.
+Marsa acquired a DHCP lease on one run and resolved the HTTPS destination.
+The guest request timed out while the host could reach the destination
+directly. Other runs received no lease. In a separate probe with a temporary
+static address, the guest reached the NAT gateway and the backend reported
+the same address and gateway as the guest kernel. A stock Ubuntu 26.04 VM
+under Lima 2.3.0 obtained a DHCP lease and also timed out on HTTPS bound to
+its Apple `vzNAT` interface.
+
+Repeat the strict acceptance test on an Apple silicon host with working native
+NAT using
+`bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest packaged_guest_nat_address_gateway_and_https`.
+
 ### M3-05 `marsad` skeleton
 
 - **Status:** done

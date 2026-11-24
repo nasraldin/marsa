@@ -6,6 +6,8 @@ export MARSA_VZ_GUEST_DIR="${1:-"$PWD/target/guest"}"
 if (( $# > 0 )); then
     shift
 fi
+<<<<<<< HEAD
+=======
 package=marsa-vm-vz
 test_name=real_vm
 features=()
@@ -21,6 +23,7 @@ elif [[ ${MARSA_ENTITLED_NATIVE_IPV4:-0} == 1 ]]; then
 elif [[ -n "${MARSA_VZ_NETWORK_HELPER:-}" ]]; then
     features=(--features userspace-system-test)
 fi
+>>>>>>> origin/main
 test_executable=$(
     MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p "$package" \
         --test "$test_name" --no-run --message-format=json ${features[@]+"${features[@]}"} |

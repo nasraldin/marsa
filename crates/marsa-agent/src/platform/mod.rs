@@ -115,6 +115,11 @@ pub(crate) fn run() -> io::Result<()> {
             let listener = vsock::Listener::bind(CONTROL_PORT)?;
             let bridge = vsock::Listener::bind(DOCKER_API_PORT)?;
             let facts = vsock::Listener::bind(marsa_proto::guest::NETWORK_FACTS_PORT)?;
+<<<<<<< HEAD
+            let interface = network_facts::interface()?;
+            tokio::spawn(network_facts::serve(facts, interface));
+            tokio::spawn(async move { bridge::serve(&bridge, ENGINE_SOCKET).await });
+=======
             let bind_listener = vsock::Listener::bind(BIND_AUTHORIZATION_PORT)?;
             let plugin = authorization::bind_plugin()?;
             let policy = crate::authorization::Policy::default();
@@ -123,6 +128,7 @@ pub(crate) fn run() -> io::Result<()> {
             let interface = network_facts::interface()?;
             tokio::spawn(network_facts::serve(facts, interface));
             tokio::spawn(async move { bridge::serve(&bridge, GUEST_ENGINE_SOCKET).await });
+>>>>>>> origin/main
             loop {
                 let stream = listener.accept_host().await?;
                 if let Err(error) =
