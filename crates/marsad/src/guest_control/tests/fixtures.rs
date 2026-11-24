@@ -84,10 +84,7 @@ pub(super) fn hello(major: u32) -> AgentStep {
     send(
         0,
         GuestBody::Hello(Hello {
-            protocol: Some(ProtocolVersion {
-                major,
-                minor: u32::MAX,
-            }),
+            protocol: Some(ProtocolVersion { major, minor: 0 }),
             image_version: "scripted-agent".into(),
             ..Hello::default()
         }),
@@ -137,7 +134,11 @@ pub(super) fn startup() -> Vec<AgentStep> {
         expect(
             0,
             HostBody::HelloAck(HelloAck {
-                protocol: Some(PROTOCOL_VERSION),
+                protocol: Some(ProtocolVersion {
+                    major: PROTOCOL_VERSION.major,
+                    minor: 0,
+                }),
+                defer_engine_start: false,
             }),
         ),
         send(0, health(EngineHealthState::Starting)),

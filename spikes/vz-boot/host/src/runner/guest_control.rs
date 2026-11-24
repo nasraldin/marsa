@@ -86,7 +86,9 @@ pub(super) fn verify(
         return Err(invalid("expected Hello as first control frame"));
     };
     let hello_at = Instant::now();
-    if hello.protocol != Some(VERSION_1_0)
+    if !hello
+        .protocol
+        .is_some_and(|version| version.major == VERSION_1_0.major)
         || hello.image_version.is_empty()
         || hello.components.is_empty()
         || ["mount_system", "data_disk", "shared_folders", "network"]
@@ -99,7 +101,7 @@ pub(super) fn verify(
             })
     {
         return Err(invalid(
-            "Hello lacked protocol 1.0, versions, or boot timings",
+            "Hello lacked compatible protocol, versions, or boot timings",
         ));
     }
     send(
@@ -107,6 +109,7 @@ pub(super) fn verify(
         0,
         HostBody::HelloAck(HelloAck {
             protocol: Some(VERSION_1_0),
+            defer_engine_start: false,
         }),
     )?;
     if !use_host_time && let Some(ca) = std::env::var_os(TEST_CA) {
@@ -164,7 +167,7 @@ pub(super) fn verify(
                     engine_ready.get_or_insert_with(Instant::now);
                 }
             }
-            Some(GuestBody::Stats(_) | GuestBody::PortEvent(_)) => {},
+            Some(GuestBody::Stats(_) | GuestBody::PortEvent(_)) => {}
             _ => return Err(invalid("unexpected guest control result or event")),
         }
         if time_set && let Some(engine_ready) = engine_ready {

@@ -42,17 +42,29 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
   - The console log contains the full boot output.
   - The root disk is not writable from the guest.
 
-### M3-04 `vz` backend: shares, network, memory target, pause
+### M3-04 Qualify strict native IPv4 NAT
 
-- **Status:** blocked (external HTTPS over native NAT times out on the Tier 2 Mac)
-- **Depends on:** M3-03
+- **Status:** blocked (external HTTPS over native NAT times out or DHCP fails on the Tier 2 Mac)
+- **Depends on:** M3-03, M3-16
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [06 Network modes](../06-networking.md#network-modes)
-- **Do:** Attach virtiofs shares from `VmSpec`, the NAT network attachment, the balloon device with `set_memory_target`, and pause and resume. Report accurate `Capabilities`, including whether shares can be added without a restart.
-- **Deliver:** backend code and Tier 2 tests.
+- **Do:** Qualify the native VZ attachment with the strict IPv4 guest test on Apple silicon.
+- **Deliver:** The entitled native-only DHCP, gateway and HTTPS test and recorded passing hardware evidence.
 - **Accept when:**
-  - A shared folder is visible in the guest at its host path.
-  - The guest has outbound connectivity in NAT mode and `network_info` reports its address.
-  - Pause and resume work and are reported as events.
+  - A guest in explicit native NAT mode obtains IPv4, the backend reports its address and gateway, and the guest reaches HTTPS with certificate verification.
+
+The entitled tests on macOS 27.2.1 verified the read-only share at its
+original host path, guest balloon inflation, and pause and resume events.
+Marsa acquired a DHCP lease on one run and resolved the HTTPS destination.
+The guest request timed out while the host could reach the destination
+directly. Other runs received no lease. In a separate probe with a temporary
+static address, the guest reached the NAT gateway and the backend reported
+the same address and gateway as the guest kernel. A stock Ubuntu 26.04 VM
+under Lima 2.3.0 obtained a DHCP lease and also timed out on HTTPS bound to
+its Apple `vzNAT` interface.
+
+The native qualification is independent of the VZ device and runtime work.
+Run the strict test on Apple silicon with
+`MARSA_ENTITLED_NATIVE_IPV4=1 bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest`.
 
 The entitled tests on macOS 27.2.1 verified the read-only share at its
 original host path, guest balloon inflation, and pause and resume events.
@@ -135,7 +147,7 @@ NAT using
 
 ### M3-10 Signed "hello VM" build (gate G3)
 
-- **Status:** todo
+- **Status:** blocked (Q-04 and a clean second Apple silicon Mac pending)
 - **Depends on:** M3-03, Q-04
 - **Docs:** [12 Signing and notarization](../12-build-release-update.md#signing-and-notarization), R-09
 - **Do:** Produce a Developer ID signed, hardened-runtime build of `marsad` with the virtualization entitlement, notarize it, and boot the VM on a second, clean Mac. This proves the signing and entitlement path long before release.
@@ -144,25 +156,124 @@ NAT using
   - The notarized build boots the VM on a Mac that has no developer tools installed.
   - The exact entitlements used are recorded in [12](../12-build-release-update.md).
 
+- **Evidence:** Xcode 27.2 used the existing local Developer ID Application identity and signed-in account to submit and export the daemon qualification archive. The exported bundle passed strict signature and staple validation and retained only the virtualization entitlement on the daemon. With a private home, the exported daemon selected Userspace networking, reached Ready on the physical M1 Max with macOS 27.2.1, and answered Docker `/_ping`. An earlier guest fixture failed at the handshake. The passing test used the previously qualified native-init fixture.
+
+G3 still requires the clean second physical Apple silicon boot. Apple's
+`VZGenericPlatformConfiguration.isNestedVirtualizationSupported` returned
+`false` on the M1 Max host. In a fresh Tart guest restored from Apple's macOS
+27.2.1 image, the operator verified assigned IPv4, a responding default gateway,
+and HTTPS by IP and DNS name. The ZIP checksum passed, Gatekeeper accepted the
+app with a test quarantine marker, and first launch created the daemon socket.
+The Linux VM boot inside that guest is outside the host's capabilities.
+Project custody and update-key ownership remain tracked by Q-04. [Tart nested virtualization support](https://tart.run/faq/#nested-virtualization-support).
+
 ### M3-11 Power and network watcher
 
-- **Status:** todo
-- **Depends on:** M3-07, M3-04
+- **Status:** blocked (manual system sleep and wake measurement pending)
+- **Depends on:** M3-07, M3-16
 - **Docs:** [03 Sleep, wake and network changes](../03-host-daemon.md#sleep-wake-and-network-changes)
 - **Do:** Subscribe to host sleep, wake and network-change notifications. Pause on sleep, resume on wake, push the current time to the agent, and publish events. Network-change handling here only emits the event; M4 consumes it.
 - **Deliver:** the watcher in the macOS platform module, with the logic tested through an injectable event source.
 - **Accept when:**
   - After a real sleep and wake, the guest clock is within one second of the host (Tier 2 or manual test recorded).
   - The sequence is covered by tests with injected events.
+- **Evidence:** Injected sleep and wake, startup races, manual pause ownership, and daemon event ordering passed. On Apple silicon, the entitled harness registered native notifications and measured 2.762 ms of preflight skew with the user-space attachment. After incorporating the bind-approval event, a second entitled preflight measured 32.791 ms. The two-minute manual measurement window opened at 03:43 and ended before the recorded 03:47 host sleep. A real sleep and wake measurement is still required.
 
 ### M3-12 Compose the packaged VM runtime
 
-- **Status:** todo
-- **Depends on:** M3-03, M3-04, M3-07, M3-08
+- **Status:** done
+- **Depends on:** M3-03, M3-07, M3-08, M3-15, M3-16
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [04 Boot sequence](../04-virtualization-macos.md#boot-sequence), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
-- **Do:** Wire the packaged daemon to the native VZ backend, guest artefact validation, guest-control session and typed API. Create the private sparse data disk on first activation. Build each VM spec from the current settings and apply restart-scoped settings on the next activation. Publish health and stats from the active control session.
+- **Do:** Wire the packaged daemon to the native VZ backend, guest artefact validation, guest-control session and typed API. Create the private sparse data disk on first activation. Build each VM spec from the current settings and apply restart-scoped settings on the next activation. Publish health and stats from the active control session. Install the signed user-space helper and use the boot selector when network mode is automatic.
 - **Deliver:** Runtime composition in `marsad` and an entitled system test through the normal daemon socket.
 - **Accept when:**
   - A packaged daemon started with a fresh per-user state directory accepts a real `Engine.Start`, reaches Ready through the agent and Docker API, and reports guest health and stats.
   - Subsequent Stop and Restart use the same data disk. A restart-scoped settings change becomes effective on restart.
   - Invalid or missing guest files fail cleanly before a VM starts and preserve existing user data.
+- **Evidence:** An ad-hoc-signed bundle on macOS 27.2.1 reached Docker Ready over its Unix socket on a fresh default 64 GiB sparse disk. It verified the user-space fallback with the native route unavailable and exposed health and stats. Restart applied new memory on the same disk inode. A missing image, corrupt image, and broken resource seal preserved the disk.
+
+### M3-13 Keep guest control available without an upstream lease
+
+- **Status:** done
+- **Depends on:** M2-05, M2-07
+- **Docs:** [05 Boot and init](../05-guest-image.md), [06 Network modes](../06-networking.md#network-modes)
+- **Do:** Bring up guest loopback as a boot requirement. Keep the bounded initial upstream setup, but continue with the control agent and Docker if the upstream link or DHCP setup fails. Record the reason on the guest console. Keep the data disk and service failure handling.
+- **Deliver:** Guest init change, regression tests for the setup sequence, and an entitled boot test with no upstream link or DHCP.
+- **Accept when:**
+  - Successful startup still uses DHCP, and an explicitly disabled interface still skips it.
+  - A failed upstream link or DHCP attempt keeps the control agent and the local Docker API available. The guest logs why upstream setup failed.
+  - A failure to configure loopback still stops startup.
+
+### M3-14 Qualify the unprivileged user-space transport
+
+- **Status:** done
+- **Depends on:** M3-03, M3-13
+- **Docs:** [06 Network modes](../06-networking.md#network-modes), [11 Security](../11-security.md)
+- **Do:** Attach a private datagram transport to the VZ guest. Pin and supervise the user-space helper. Qualify a helper configuration that honors the scoped macOS resolver, restricts host service access and uses ordinary host egress policy. Leave boot mode selection to M3-15 and production port forwarding to M4-10.
+- **Deliver:** A supported VZ user-space attachment, dependency and licence evidence, and an entitled system test.
+- **Accept when:**
+  - The packaged guest obtains a lease and reaches a configured HTTPS endpoint with valid TLS through a user-space-only attachment.
+  - The helper runs unprivileged, has no public listeners, and releases all resources on stop or abnormal exit.
+  - Tests verify scoped resolver behavior and denied access to unapproved host loopback and metadata endpoints.
+  - Tests cover the helper being unavailable or blocked and show a bounded, diagnosable outcome.
+- **Evidence:** The entitled VM obtained a DHCP lease, resolved a temporary macOS scoped DNS record and pulled an image from Docker Hub over verified TLS on macOS 27.2.1 with NordVPN, LuLu and the macOS firewall active. The socketpair and Rust tests verify destination restrictions, helper readiness, timeout, restart and cleanup.
+
+### M3-15 Select the network mode before Docker starts
+
+- **Status:** done
+- **Depends on:** M3-06, M3-07, M3-08, M3-14
+- **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection)
+- **Do:** Add versioned guest control to synchronize time and probe HTTPS before allowing Docker to start. Pair guest and host evidence by destination, address family and policy. Select native NAT or one user-space candidate for an automatic boot. Keep configured modes pinned and release the engine even when external connectivity is unavailable. Leave packaged runtime wiring to M3-12 and port forwarding and network-change transitions to M4-10.
+- **Deliver:** Guest control negotiation, typed connectivity results and a boot-only supervisor selector with fake and entitled system tests.
+- **Accept when:**
+  - A healthy native path and explicitly selected modes never restart to switch.
+  - With native IPv4 forwarding unavailable and equivalent host HTTPS healthy, auto selects a verified user-space path before starting Docker.
+  - A host failure, unknown proxy policy, TLS validation failure or incompatible guest leaves local Docker available without a false recovery claim.
+  - The supervisor confirms the first guest is stopped before reusing its data disk, and exposes the active mode and failure stage in daemon status and events.
+- **Evidence:** The entitled daemon API test on macOS 27.2.1 started Docker through its local socket after the selector reported a native IPv4 route failure and verified the user-space attachment over HTTPS. NordVPN, LuLu and the macOS firewall were active. The test received the selected attachment and failure stage from the daemon event stream.
+
+### M3-16 Integrate VZ devices independently of native egress
+
+- **Status:** done
+- **Depends on:** M3-03, M3-14
+- **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [06 Network modes](../06-networking.md#network-modes)
+- **Do:** Integrate the existing native virtiofs, balloon, pause, resume and guest IPv4 facts support with both VZ network attachments. Keep the strict native NAT entitlement test independently selectable.
+- **Deliver:** VZ device support, backend capabilities, and separate entitled device and native qualification tests.
+- **Accept when:**
+  - A shared folder mounts at its original path with the configured read-only access.
+  - Balloon inflation, pause and resume work on Apple silicon and state changes are published.
+  - The user-space attachment still passes HTTPS verification and the strict native test still requires IPv4, gateway and HTTPS through native NAT.
+- **Evidence:** The entitled suite on macOS 27.2.1 passed read-only virtiofs, balloon inflation, pause and resume, guest IPv4 facts, and a TLS-verified registry pull through the user-space attachment. The separately selected native test recorded five DHCP discovers and no IPv4 lease.
+
+### M3-17 Reserve lifecycle admission for maintenance
+
+- **Status:** done
+- **Depends on:** M3-06, M4-02
+- **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle)
+- **Do:** Add an exclusive supervisor permit for daemon maintenance. Optionally compare the caller's preview with the lifecycle revision in the actor. Suspend automatic retry and idle stop, and block ordinary lifecycle and new Docker connections while the permit is held. Let the holder stop the guest or start one candidate.
+- **Deliver:** A daemon-internal admission interface and fake backend tests for proxy activation and factory reset.
+- **Accept when:**
+  - Two callers cannot reserve maintenance at once. A stale preview is rejected before admission.
+  - Ordinary start, stop, restart, pause, resume, and Docker connection requests return busy while maintenance is reserved.
+  - The holder can stop or cancel the current boot, then start a candidate with no automatic retry. An unfinished candidate is cleaned up before the permit releases its reservation.
+  - Cancellation of a waiting reservation and release of a held permit leave ordinary admission usable.
+
+### M3-18 Automate Tart qualification for signed macOS builds
+
+- **Status:** done
+- **Depends on:** M3-12, M3-14
+- **Docs:** [12 Signing and clean-Mac handoff](../12-build-release-update.md#signing-and-clean-mac-handoff)
+- **Do:** Run the signed qualification build's network, Gatekeeper and first-launch checks from the host through Tart Guest Agent on a disposable macOS 27 or newer guest.
+- **Deliver:** A host runner, a reusable guest script, a dedicated graphical viewer setup and exact qualification instructions.
+- **Accept when:**
+  - The test validates guest IPv4, gateway reachability and direct and DNS-based HTTPS without changing host controls.
+  - The guest verifies the ZIP against the host's trusted digest, checks the signature and enabled Gatekeeper with a test quarantine marker, then launches with a clean Marsa home and observes the daemon socket becoming ready.
+  - An agent-enabled macOS 27 guest completes the checks from the host without manual input inside the VM.
+- **Evidence:** Tart 2.42.0 and Guest Agent 0.15.0 ran the checks on a fresh Apple
+  macOS 27.2.1 restore using the verified user-space attachment with NordVPN and
+  the host firewall enabled. IPv4, gateway reachability, both HTTPS probes, the
+  archive digest, the code signature and Gatekeeper passed. A uniquely
+  identified Tart viewer resolved the window targeting timeout while CI kept
+  running. The agent selected Open in macOS's normal first-open dialog and the
+  runner confirmed daemon readiness. A separate guest check verified the
+  daemon socket existed with mode `0600` and Gatekeeper remained enabled.

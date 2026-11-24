@@ -60,7 +60,7 @@ flowchart TB
 | T3 | A container escapes to the guest kernel | The VM contains it. Guest kernel and runc are patched quickly. The guest holds no host credentials |
 | T4 | A guest compromise attacks the host through virtual devices or the control channel | Minimal device set; the control protocol is a strict, versioned schema with bounded message sizes; `marsad` treats everything from the guest as untrusted input |
 | T5 | An AI agent is tricked (for example by text in container logs) into destructive actions | Permission tiers; destructive actions always need human approval; workload output is marked untrusted; full audit log |
-| T6 | A tampered update or guest image is installed | Signature verification with a pinned public key before anything is applied; notarized app; rollback on failed start |
+| T6 | A tampered update or guest image is installed | TUF verification against an embedded public root before installation; notarized app; rollback on failed start |
 | T7 | Supply-chain compromise of a dependency | Pinned versions and checksums; `cargo-deny` and `cargo-audit` in CI; SBOM per release; reproducible guest build |
 | T8 | Registry credentials leak | Stored only in the macOS keychain through the credential helper; never written to disk in plain text; never sent to the guest except per request by the engine |
 | T9 | Published container ports exposed to the local network unintentionally | Loopback binding by default; LAN exposure is an explicit setting |
@@ -85,8 +85,58 @@ See [07](07-file-sharing-and-storage.md#the-allowlist). Security-relevant points
 
 ## Registry credentials
 
-- `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS keychain. Marsa sets `credsStore` in the Docker CLI configuration only with the user's consent and never overwrites an existing store.
+- `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS Keychain when that helper is on the Docker CLI's `PATH`. The authenticated opt-in adds `credsStore = osxkeychain` to the configured Docker client file only after the caller obtains consent. Existing `credsStore` and `credHelpers` entries remain untouched. If Docker already holds credentials in the file, log out before enabling Keychain and log in again afterwards. [Docker login](https://docs.docker.com/reference/cli/docker/login/), [pinned helper source](https://github.com/docker/docker-credential-helpers/blob/v0.9.13/osxkeychain/osxkeychain.go).
 - The engine in the guest receives credentials per pull or push from the CLI, as in standard Docker. Nothing is persisted in the guest.
+
+## SSH agent access
+
+For builds, the Docker client selects the host agent and offers it through its own Buildx session. BuildKit makes the socket available to Dockerfile steps that request an SSH mount within that session. A build with an SSH grant can request signatures from the chosen agent for the lifetime of its session. The upstream provider permits signing without exporting private keys. Adding, removing and locking keys through the forwarded socket is refused by the upstream provider. [Pinned provider source](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).
+
+The Docker byte proxy has no independent indication that a client granted access to an arbitrary guest workload. A predictable guest listener would remain reachable to other guest processes with permission to mount or open it. Container-mounted forwarding requires a host-enforced, revocable grant and is tracked in [M4-17](plan/M4-docker-integration.md#m4-17-explicit-ssh-agent-access-for-containers).
+
+[M4-24](plan/M4-docker-integration.md#m4-24-qualify-ssh-agent-transport-and-guest-peer-identity)
+qualifies a host-opened vsock relay and Linux Unix-socket opener identity.
+A socket bind can be inherited, so an approved path does not establish that
+a new opener is the approved workload. The production grant must bind the
+opener to an immutable Docker ID and fail closed when that identity cannot
+be verified. An engine administrator can execute code in the approved
+container, and the approved workload can relay signing access while its
+grant is active. The transport fixture does not qualify those privileges,
+Mac socket selection policy, or container lifecycle revocation. [Pinned Moby mount inheritance](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/volumes.go)
+
+
+### Container agent grant boundary
+
+The container grant remains unavailable under the current trust model.
+The M4-24 fixture verified that the guest kernel can distinguish ordinary
+openers in separate cgroups and that closing the VZ stream disconnects the
+guest client. It used synthetic cgroups and a disposable host agent.
+[Entitled fixture](../crates/marsa-vm-vz/tests/real_vm/ssh_fixture/README.md)
+
+- The stock engine reports a full container ID and a numeric init PID.
+  The ID persists across restart. The API has no stable handle for one
+  process lifetime. A Linux pidfd can pin it inside the guest and prevent
+  numeric PID reuse from renewing a grant. Docker publishes its `die`
+  event after exit processing. Event delivery, names and timestamps cannot
+  establish a stable host-side lifetime. [Pinned inspect source](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/inspect.go) · [Pinned start source](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/start.go) · [Pinned exit processing](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/monitor.go) · [Pinned Linux socket peer code](https://github.com/gregkh/linux/blob/v7.3.5/net/core/sock.c)
+- `--volumes-from` can inherit a bind without listing its source in the new
+  request. A guest opener check addresses that case for ordinary workloads.
+  The supported guest Docker socket also grants engine administration.
+  Its holder can ask Docker to run a process in the approved container.
+  That process belongs to the approved task and can satisfy the opener
+  identity check. [Pinned mount inheritance](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/volumes.go) · [Pinned exec implementation](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/exec.go) · [Pinned runc cgroup placement](https://github.com/opencontainers/runc/blob/v1.5.3/libcontainer/process_linux.go)
+- A host-initiated VZ connection identifies the VM endpoint and provides
+  port information and a byte stream. It carries no host-authenticated
+  Docker ID, guest namespace or guest process lifetime. A compromised
+  guest can still send requests on a host-opened stream while that stream
+  exists. A bounded signing protocol limits operations, while the host
+  still lacks independent authorization for the requesting workload.
+  [Apple VZ connection contract](https://developer.apple.com/documentation/virtualization/vzvirtiosocketconnection)
+
+Reopen M4-17 when the host can verify a workload and its lifetime independently,
+or the owner approves a trust decision that explicitly scopes admin and
+compromised-guest access while a grant is active. BuildKit keeps its separate
+client-authorized session contract.
 
 ## Guest hardening
 
@@ -111,11 +161,11 @@ See [07](07-file-sharing-and-storage.md#the-allowlist). Security-relevant points
 flowchart LR
     rel["Release build in CI"] --> sign["Sign app (Developer ID)<br/>and notarize"]
     rel --> man["Create update manifest<br/>(versions, sizes, hashes)"]
-    man --> msig["Sign manifest with<br/>offline update key"]
+    man --> msig["Sign target metadata with<br/>offline targets keys"]
     sign --> pub["Publish artifacts"]
     msig --> pub
     pub --> chk["marsad downloads manifest"]
-    chk --> v1{"Signature valid with<br/>pinned public key?"}
+    chk --> v1{"TUF signatures, version<br/>and expiry valid?"}
     v1 -- no --> rej["Reject, report, keep current version"]
     v1 -- yes --> dl["Download artifact"]
     dl --> v2{"Hash matches manifest and<br/>code signature valid?"}
@@ -126,7 +176,7 @@ flowchart LR
     hc -- yes --> done["Done"]
 ```
 
-- The update signing key is separate from the Apple signing identity and kept offline or in a hardware-backed store.
+- TUF root and targets keys are held separately from the Apple signing identity, offline or hardware-backed with threshold signatures. See the [key handling procedures](reference/update-manifest.md#keys-and-expiry).
 - Downgrades are refused unless the user explicitly requests one.
 - Details in [12](12-build-release-update.md).
 

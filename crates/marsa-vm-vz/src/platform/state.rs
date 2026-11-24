@@ -65,6 +65,10 @@ impl Lifecycle {
         }
     }
 
+    pub(super) fn network_unavailable(&self, detail: String) {
+        let _ = self.events.send(VmEvent::NetworkUnavailable { detail });
+    }
+
     pub(super) fn unexpected_exit(&self, cause: VmExitCause, detail: String) {
         if !matches!(
             self.current(),

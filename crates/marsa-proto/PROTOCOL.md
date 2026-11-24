@@ -37,12 +37,40 @@ process-local history, evicting completed requests before admitting new ones.
 Retry an interrupted request with the same UUID and payload. Reusing a cached
 UUID with a different operation or payload fails with `ALREADY_EXISTS`.
 
+Host API minor 3 adds settings reset. Send `PrepareSettingsReset`, obtain user
+confirmation, then send `ResetSettings` with that token and a separate request
+UUID. The token is scoped to the current configuration state.
+The same minor adds the explicit `DockerDiscovery.EnableRegistryKeychain`
+mutation. The RPC accepts no credentials and returns only whether it added
+the setting.
+
+Host API minor 4 adds factory reset. Use the separate `PrepareFactoryReset`
+and `ConfirmFactoryReset` messages. The confirmation binds to private storage
+identities and expires after 60 seconds. A committed factory reset stops the
+guest, restores settings defaults, clears grants and installs a fresh sparse
+data disk. An interrupted transaction is resolved before the daemon serves
+either socket.
+
+Host API minor 6 adds the separate owner Agents service and capability-scoped
+AgentOps endpoint. They negotiate through the daemon and keep owner approval
+authentication separate from delegated agent sessions.
+
+`Disk.Reclaim` requests discard of unused blocks from the current ready
+guest's data disk. It returns the guest's submitted discard bytes and the
+observed decrease in allocated bytes on the same host image. A stopped
+VM is not started for reclaim. The daemon admits one trim at a time and
+replays the result when the caller retries the same request UUID.
+
 `Events.Subscribe` emits a snapshot before live updates on each connection.
 The daemon takes that snapshot at an event cursor and then emits events after
 that cursor in order. Sequence numbers are scoped to the stream ID of the
 daemon process. If a subscriber falls behind the bounded buffer, the daemon
 ends the stream with `RESOURCE_EXHAUSTED`. Clients replace their view with the
 new snapshot on reconnect.
+Host minor 2 introduces `DockerDiscovery.GetEndpoint` and
+`DockerDiscovery.EnsureContext`. Registration is explicit, and the request has
+no shell command, executable path, or context selection fields.
+
 The API design and service table live in the daemon design.
 [Host typed API](../../docs/03-host-daemon.md#typed-api)
 
@@ -51,11 +79,44 @@ must match the current revision. Read it again after reconnecting to a
 different daemon process. The daemon publishes a new revision only after the
 replacement has committed. `Settings.Watch` starts with the current settings.
 
+Host API minor 10 adds optional ConfigurationIssue details to rejected
+settings updates and share operations. The status code and legacy message
+keep their existing meanings. The details encode a reason and, where
+relevant, a setting key, document position, size limit, or schema version.
+They carry no configuration values, credentials, or paths. Clients can
+localize recognized reasons and use the legacy message with older daemons.
+
+Host API minor 7 implements `Network.SetMode` for the explicit auto, NAT and
+user-space enum values.
+It persists a single-field settings edit. A successful response reports the
+mode saved by that request, plus the independently observed VM attachment
+and addresses when available. Active fields remain empty when the observer
+has no guest. Replay the same UUID and mode for the original mutation
+response, or call `Network.Status` for a fresh observation. Both replies can
+carry `NetworkStatus.restart_pending`. It compares the configured value in
+the response with the mode captured when the current VM launched and is
+false when no VM is running. It is absent when the boot policy is unknown
+or still being applied, including replies from older daemons. An automatic
+fallback changes the active attachment without making a restart pending.
+Engine restart is a separate action.
+
+
 API 1.1 adds `SettingsSnapshot.restart_required` and
 `EngineStatus.guest_health` without changing existing fields. API 1.0 clients
 ignore both fields. Missing fields have the protobuf defaults of `false` and
 unspecified health. VM stats are live observations of the active guest.
 The stream starts with a sample only when the daemon has observed one.
+
+API 1.5 adds `Network.PrepareProxyActivation` and `Network.ActivateProxy`.
+Clients read the current settings revision, request a preview, and show every
+reported potential interruption before asking the owner to approve. Apply
+only after approval using the preview token, the same settings revision and a
+fresh request UUID. The token expires after 90 seconds and is single-use.
+Replay a disconnected request with the same UUID and fields to obtain the
+original result. A changed VM lifecycle or settings revision invalidates the
+preview. Result enums report failed stop, start or persistence and whether the
+prior policy or engine was recovered. Treat approval tokens and proxy URLs as
+sensitive.
 
 Agent requests identify an
 allowlisted operation and use that operation's existing JSON Schema for its
@@ -65,7 +126,7 @@ applies permission and audit policy before sending any request to the engine.
 
 ## Guest control channel
 
-The guest listens on AF_VSOCK port 5000 and accepts the host CID. Port 5001 is a separate unframed, host-CID-only byte stream to the guest Docker socket. Send `HelloAck` and an initial `SetTime` before expecting the Docker engine to become ready. The agent publishes readiness to PID 1 after setting the clock.
+The guest listens on AF_VSOCK port 5000 and accepts the host CID. Port 5001 is a separate unframed, host-CID-only byte stream to the guest Docker socket. Send `HelloAck` and an initial `SetTime` before expecting the Docker engine to become ready. The agent normally releases PID 1 to start Docker after setting the clock.
 
 The host opens the control vsock connection to the guest. Each record begins
 with an unsigned four-byte big-endian integer containing the protobuf payload
@@ -73,6 +134,13 @@ length. Read that header and call `frame_length` before reserving a buffer or
 reading the body. Read exactly that many bytes, then call `decode_host` or
 `decode_guest` for the expected direction. The global payload limit is 1 MiB.
 The separate Docker API bridge uses the Docker byte stream directly.
+
+The guest bind-authorization channel uses a separate host-initiated vsock
+stream on port 5003. Each length-prefixed protobuf payload is at most 64 KiB.
+Queries carry only the explicit absolute bind sources and a request ID.
+Version 1.0 requires matching sequential IDs and a valid allow or deny response.
+The guest denies these binds if the policy channel cannot answer. Boot-mounted
+virtiofs roots remain the host isolation boundary.
 
 1. After connecting, the guest sends `Hello` with request ID zero. The image
    version, component versions and boot timings describe the running image.
@@ -98,6 +166,24 @@ Wire validation checks shape. The agent still checks mount allowlists,
 certificate validity and operating system constraints before applying changes.
 Treat peer diagnostics and proxy URLs as potentially sensitive.
 
+### Deferred engine start (guest protocol 1.1)
+
+A host that negotiates minor 1 or later can set `HelloAck.defer_engine_start`.
+The guest then acknowledges `SetTime` without releasing Docker. After the clock
+is set, the host may send `ProbeEgress` on the deferred session. It supplies the
+four network-order bytes of an IPv4 address selected for
+`https://registry-1.docker.io/v2/`. The guest retains the hostname for DNS, TLS
+and HTTP checks. The probe returns a correlated `EgressResult` with a diagnostic
+stage. A probe outside the permitted state or one that exceeds its control
+deadline returns `POLICY`. Neither is evidence of blocked native egress.
+
+After the host selects the attachment, `StartEngine` releases PID 1 and
+returns `CommandResult`. It requires a successful `SetTime` and is idempotent.
+`Shutdown` remains available before Docker is released. Hosts that negotiate
+1.0 or omit the deferral flag retain the original `SetTime` startup behavior.
+Once Docker has been released, reconnecting cannot make that guest eligible for
+another deferred probe.
+
 ### Guest message limits
 
 Limits apply to the serialized envelope including the request ID, excluding
@@ -115,12 +201,18 @@ fields are additionally bounded as shown. String limits count UTF-8 bytes.
 | Host → guest | `MountShare` | 5 KiB | Tag ≤36 bytes. Absolute guest path ≤4,096 bytes, without empty, dot or parent segments. |
 | Host → guest | `UnmountShare` | 128 B | Tag ≤36 bytes. |
 | Host → guest | `Shutdown` | 32 B | No payload fields. |
+| Host → guest | `StartEngine` | 32 B | No payload fields. |
+| Host → guest | `ProbeEgress` | 32 B | Exactly four address bytes. |
 | Guest → host | `PortEvent` | 256 B | Known action and TCP or UDP transport, 64-digit hex container ID, IP literal ≤45 bytes, ports 1–65,535. |
 | Guest → host | `EngineHealth` | 3 KiB | Known health value and detail ≤2,048 bytes. |
 | Guest → host | `VmStats` | 128 B | Memory and disk usage cannot exceed their corresponding totals. |
 | Guest → host | `TrimResult` | 64 B | Trimmed and used byte counts. |
 | Guest → host | `CommandResult` | 3 KiB | Known status and detail ≤2,048 bytes. |
+<<<<<<< HEAD
 
+=======
+| Guest → host | `EgressResult` | 32 B | A known, nonzero diagnostic stage. |
+>>>>>>> origin/main
 
 ## Guest network facts
 
@@ -133,3 +225,28 @@ record before retaining the facts, and abandons a connection that does
 not respond within its deadline. The guest reads the configured upstream
 interface and its default route from the kernel. The record describes
 guest state and is independent of the guest control session.
+<<<<<<< HEAD
+=======
+
+## Bind authorization
+
+The host initiates a dedicated AF_VSOCK connection to guest port 5003.
+Only the host CID can enter the listener. The guest sends
+`BindAuthorizationRequest` and the host replies with
+`BindAuthorizationResponse`. Each protobuf payload has a four-byte
+big-endian length prefix, with a limit of 64 KiB. This channel declares
+protocol 1.0 in each frame independently of the guest control session.
+
+One request is outstanding at a time. The guest starts request IDs at one
+after each connection and increments by one for each query. A response must
+echo the outstanding ID. Unexpected IDs, versions, incomplete frames or a
+deadline close the stream and provide no authorization.
+
+Queries carry only one to 64 absolute UTF-8 bind source strings of at most
+4096 bytes each. A request supplies candidate paths, not approvals or an
+attachment inventory. The host validates every source against the grants
+and attachments for that VM. A denial carries an actionable message of at
+most 1024 bytes. An allow has an empty message. Source and message strings
+exclude control characters. Neither the Docker body nor any headers cross
+this channel.
+>>>>>>> origin/main

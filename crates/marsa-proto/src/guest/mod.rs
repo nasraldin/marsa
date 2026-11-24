@@ -1,9 +1,16 @@
 //! Bounded protobuf messages and version negotiation for guest control.
 
+mod bind_authorization;
 mod frame;
 mod network_facts;
 mod validation;
 
+pub use bind_authorization::{
+    BIND_AUTHORIZATION_PORT, BIND_AUTHORIZATION_VERSION, MAX_BIND_AUTHORIZATION_FRAME_BYTES,
+    MAX_BIND_AUTHORIZATION_SOURCES, bind_authorization_frame_length,
+    decode_bind_authorization_request, decode_bind_authorization_response,
+    encode_bind_authorization_request, encode_bind_authorization_response,
+};
 pub use frame::{decode_guest, decode_host, encode_guest, encode_host, frame_length};
 pub use network_facts::{
     NETWORK_FACTS_BYTES, NETWORK_FACTS_PORT, NetworkFacts, decode_network_facts,
@@ -28,8 +35,14 @@ pub const DOCKER_API_PORT: u32 = 5_001;
 /// Largest accepted length of a serialized guest control envelope, in bytes.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
+/// First protocol minor supporting deferred engine startup and egress probes.
+pub const DEFER_ENGINE_START_MINOR: u32 = 1;
+
 /// Current guest control version advertised by this build.
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 0 };
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion {
+    major: 1,
+    minor: DEFER_ENGINE_START_MINOR,
+};
 
 /// A rejected guest control frame or incompatible protocol version.
 #[derive(Debug, Error)]

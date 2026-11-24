@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 //! Verify devices and NAT using the packaged guest on an entitled Apple silicon host.
 
 use std::{env, fs, path::Path, time::Duration};
@@ -8,6 +9,17 @@ use marsa_vm_vz::VzHypervisor;
 use tokio::time::{sleep, timeout};
 
 use super::{LIMIT, handshake, spec, transition};
+=======
+//! Verify virtiofs, memory ballooning and power controls using the packaged guest on an entitled Apple silicon host.
+
+use std::{env, fs, path::Path, time::Duration};
+
+use marsa_vm::{Hypervisor, ShareSpec, VmError, VmState};
+use marsa_vm_vz::VzHypervisor;
+use tokio::time::timeout;
+
+use super::{LIMIT, connect_control, console_with, handshake, spec, transition};
+>>>>>>> origin/main
 
 #[tokio::test]
 #[ignore = "requires virtualization entitlement and MARSA_VZ_GUEST_DIR on Apple silicon"]
@@ -87,6 +99,12 @@ async fn packaged_guest_share_balloon_and_pause_resume() {
     timeout(LIMIT, vm.resume()).await.unwrap().unwrap();
     transition(&mut events, VmState::Paused, VmState::Running).await;
     assert_eq!(vm.state(), VmState::Running);
+<<<<<<< HEAD
+=======
+    drop(stream);
+    let mut stream = connect_control(&*vm, &console).await;
+    timeout(LIMIT, handshake(&mut stream)).await.unwrap();
+>>>>>>> origin/main
     timeout(LIMIT, vm.stop(Duration::from_secs(3)))
         .await
         .unwrap()
@@ -95,6 +113,7 @@ async fn packaged_guest_share_balloon_and_pause_resume() {
     transition(&mut events, VmState::Stopping, VmState::Stopped).await;
     assert!(vm.network_info().is_none());
 }
+<<<<<<< HEAD
 
 async fn connect_control(vm: &dyn Vm, console: &Path) -> VsockStream {
     timeout(LIMIT, async {
@@ -185,3 +204,5 @@ async fn packaged_guest_nat_address_gateway_and_https() {
         .unwrap();
     assert!(vm.network_info().is_none());
 }
+=======
+>>>>>>> origin/main

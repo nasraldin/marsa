@@ -27,14 +27,22 @@ const CONNECTION_BUFFER: usize = 16 * 1024;
 /// Deterministic behavior assigned to each VM made by a fake backend.
 #[derive(Debug, Default, Clone)]
 pub struct FakeScenario {
+    start_publication_delay: Option<Duration>,
     start_timeout: Option<Duration>,
     exit_after: Option<Duration>,
+    network_unavailable_after: Option<Duration>,
     failed_stops: u32,
     agents: BTreeMap<u32, Vec<AgentStep>>,
     network_info: Option<NetworkInfo>,
 }
 
 impl FakeScenario {
+    /// Delay publishing the first state change after accepting a start request.
+    pub fn with_start_publication_delay(mut self, delay: Duration) -> Self {
+        self.start_publication_delay = Some(delay);
+        self
+    }
+
     /// Have startup fail after a simulated deadline.
     pub fn with_start_timeout(mut self, limit: Duration) -> Self {
         self.start_timeout = Some(limit);
@@ -44,6 +52,12 @@ impl FakeScenario {
     /// Make the running guest exit unexpectedly after this delay.
     pub fn with_exit_after(mut self, delay: Duration) -> Self {
         self.exit_after = Some(delay);
+        self
+    }
+
+    /// Report a transport failure without ending the running guest.
+    pub fn with_network_unavailable_after(mut self, delay: Duration) -> Self {
+        self.network_unavailable_after = Some(delay);
         self
     }
 
@@ -100,6 +114,7 @@ impl Hypervisor for FakeHypervisor {
             lifecycle: Arc::new(Lifecycle::new()),
             connections: Arc::new(Mutex::new(JoinSet::new())),
             exit: None,
+            network: None,
             memory_bytes: spec.memory_bytes,
             failed_stops: self.scenario.failed_stops,
         }))
@@ -111,6 +126,7 @@ struct FakeVm {
     lifecycle: Arc<Lifecycle>,
     connections: Arc<Mutex<JoinSet<()>>>,
     exit: Option<JoinHandle<()>>,
+    network: Option<JoinHandle<()>>,
     memory_bytes: u64,
     failed_stops: u32,
 }
@@ -118,6 +134,9 @@ struct FakeVm {
 #[async_trait]
 impl Vm for FakeVm {
     async fn start(&mut self) -> Result<(), VmError> {
+        if let Some(delay) = self.scenario.start_publication_delay {
+            sleep(delay).await;
+        }
         self.lifecycle.transition(
             "start",
             &[VmState::Created, VmState::Stopped],
@@ -134,6 +153,13 @@ impl Vm for FakeVm {
         }
         self.lifecycle
             .transition("start", &[VmState::Starting], VmState::Running)?;
+        if let Some(delay) = self.scenario.network_unavailable_after {
+            let lifecycle = self.lifecycle.clone();
+            self.network = Some(tokio::spawn(async move {
+                sleep(delay).await;
+                lifecycle.network_unavailable();
+            }));
+        }
         if let Some(delay) = self.scenario.exit_after {
             let lifecycle = self.lifecycle.clone();
             let connections = self.connections.clone();
@@ -226,6 +252,9 @@ impl Vm for FakeVm {
 
 impl FakeVm {
     fn abort_tasks(&mut self) {
+        if let Some(network) = self.network.take() {
+            network.abort();
+        }
         if let Some(exit) = self.exit.take() {
             exit.abort();
         }

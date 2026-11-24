@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+export PATH=/usr/bin:/usr/sbin:/bin:/sbin
+mount -t devtmpfs devtmpfs /dev
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t tmpfs -o size=512m tmpfs /tmp
+counter=0
+while [ ! -b /dev/vda ] || [ ! -b /dev/vdb ]; do
+  counter=$((counter+1))
+  [ "$counter" -lt 101 ] || { echo M4-21-formatter-missing-device; poweroff -f; }
+  sleep 0.1
+done
+trap 'echo M4-21-formatter-failed; poweroff -f' EXIT
+if [ "$(cat /sys/block/vda/ro)" = 1 ] && [ "$(cat /sys/block/vdb/ro)" = 0 ]; then
+  source=/dev/vda
+  target=/dev/vdb
+elif [ "$(cat /sys/block/vdb/ro)" = 1 ] && [ "$(cat /sys/block/vda/ro)" = 0 ]; then
+  source=/dev/vdb
+  target=/dev/vda
+else
+  exit 1
+fi
+mkfs.erofs --quiet -b4096 -T0 -U00000000-0000-0000-0000-000000000000 \
+  --workers=1 --sort=path --tar=f /tmp/result.img "$source"
+fsck.erofs /tmp/result.img
+dd if=/tmp/result.img of="$target" bs=1M conv=fsync status=none
+printf 'M4-21-formatter-size:%s\n' "$(wc -c </tmp/result.img)"
+trap - EXIT
+poweroff -f

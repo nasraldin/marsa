@@ -18,6 +18,8 @@ message HostEnvelope {
     MountShare mount_share = 7;
     UnmountShare unmount_share = 8;
     Shutdown shutdown = 9;
+    StartEngine start_engine = 10;
+    ProbeEgress probe_egress = 11;
   }
 }
 
@@ -31,5 +33,6 @@ message GuestEnvelope {
     VmStats stats = 5;
     TrimResult trim_result = 6;
     CommandResult command_result = 7;
+    EgressResult egress_result = 8;
   }
 }

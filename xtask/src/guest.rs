@@ -250,18 +250,7 @@ fn assemble_image(guest: &Path, output: &Path, user: &str, versions: &Versions) 
     let rootfs = File::open(&rootfs_path)?;
     let manifest = GuestManifest::create(
         env!("CARGO_PKG_VERSION").to_owned(),
-        GuestComponentVersions {
-            linux: versions.kernel.version.clone(),
-            alpine: versions.alpine.version.clone(),
-            docker: versions.docker.version.clone(),
-            buildkit: versions.docker.buildkit.clone(),
-            containerd: versions.docker.containerd.clone(),
-            runc: versions.docker.runc.clone(),
-            docker_init: versions.docker.docker_init.clone(),
-            erofs_utils: versions.erofs.version.clone(),
-            marsa_init: Some(env!("CARGO_PKG_VERSION").to_owned()),
-            marsa_agent: Some(env!("CARGO_PKG_VERSION").to_owned()),
-        },
+        versions.components(),
         source_commit,
         kernel,
         rootfs,
@@ -323,10 +312,13 @@ fn build_guest_programs(workspace: &Path, output: &Path) -> io::Result<PathBuf> 
         workspace.display(),
         cargo_home.display(),
     );
-    let status = Command::new("cargo")
+    let mut build = Command::new("cargo");
+    build
         .current_dir(workspace)
         .env("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER", "rust-lld")
         .env("CARGO_ENCODED_RUSTFLAGS", remap_flags)
+        .env("CC_aarch64_unknown_linux_musl", "clang")
+        .env("AR_aarch64_unknown_linux_musl", guest_archiver(workspace)?)
         .args([
             "build",
             "--locked",
@@ -336,8 +328,14 @@ fn build_guest_programs(workspace: &Path, output: &Path) -> io::Result<PathBuf> 
             "--target-dir",
         ])
         .arg(target_dir)
-        .args(["-p", "marsa-init", "-p", "marsa-agent"])
-        .status()?;
+        .args(["-p", "marsa-init", "-p", "marsa-agent"]);
+    if cfg!(target_os = "macos") {
+        // Apple clang's musl stddef wrapper includes a system header that
+        // ring's freestanding build deliberately excludes. Select the
+        // compiler's freestanding definitions without changing the target ABI.
+        build.env("CFLAGS_aarch64_unknown_linux_musl", "-U__musl__");
+    }
+    let status = build.status()?;
     if !status.success() {
         return Err(io::Error::other(format!(
             "guest Rust build exited with {status}"
@@ -346,7 +344,44 @@ fn build_guest_programs(workspace: &Path, output: &Path) -> io::Result<PathBuf> 
     Ok(target_dir.join(TARGET).join("release"))
 }
 
+fn guest_archiver(workspace: &Path) -> io::Result<PathBuf> {
+    let output = Command::new("rustc")
+        .current_dir(workspace)
+        .args(["--print", "target-libdir"])
+        .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other("rustc could not locate guest build tools"));
+    }
+    let directory = String::from_utf8(output.stdout).map_err(io::Error::other)?;
+    let archiver = Path::new(directory.trim())
+        .parent()
+        .ok_or_else(|| io::Error::other("rustc returned an invalid host library directory"))?
+        .join("bin")
+        .join("llvm-ar");
+    if !archiver.is_file() {
+        return Err(io::Error::other(
+            "install the pinned Rust llvm-tools component to build the guest",
+        ));
+    }
+    Ok(archiver)
+}
+
 impl Versions {
+    fn components(&self) -> GuestComponentVersions {
+        GuestComponentVersions {
+            linux: self.kernel.version.clone(),
+            alpine: self.alpine.version.clone(),
+            docker: self.docker.version.clone(),
+            buildkit: self.docker.buildkit.clone(),
+            containerd: self.docker.containerd.clone(),
+            runc: self.docker.runc.clone(),
+            docker_init: self.docker.docker_init.clone(),
+            erofs_utils: self.erofs.version.clone(),
+            marsa_init: Some(env!("CARGO_PKG_VERSION").to_owned()),
+            marsa_agent: Some(env!("CARGO_PKG_VERSION").to_owned()),
+        }
+    }
+
     fn inputs(&self) -> io::Result<[String; 8]> {
         let kernel = version(&self.kernel.version)?;
         let alpine = version(&self.alpine.version)?;
@@ -398,6 +433,26 @@ impl Versions {
     }
 }
 
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
+pub(super) fn verify_release_manifest(pins: &str, manifest: &GuestManifest) -> io::Result<()> {
+    let versions: Versions = toml::from_str(pins).map_err(io::Error::other)?;
+    if manifest.source_commit().is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "release guest manifest has no source commit",
+        ));
+    }
+    if manifest.image_version() != env!("CARGO_PKG_VERSION")
+        || manifest.components() != &versions.components()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "release guest does not match the pinned component and workspace versions",
+        ));
+    }
+    Ok(())
+}
+
 fn docker_image(guest: &Path, args: &[&str]) -> io::Result<String> {
     let output = Command::new("docker")
         .args(["build", "--quiet"])
@@ -429,7 +484,7 @@ fn native_id(flag: &str) -> io::Result<u32> {
         .map_err(io::Error::other)
 }
 
-fn digest(value: &str) -> io::Result<()> {
+pub(super) fn digest(value: &str) -> io::Result<()> {
     if value.len() == 64
         && value
             .bytes()

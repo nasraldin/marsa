@@ -1,12 +1,14 @@
 //! Marsa desktop client.
 
-// Keep the architecture's dependency edges until this crate uses them directly.
 use marsa_client as _;
-use marsa_ui as _;
-
 use std::process::ExitCode;
 
+#[cfg(target_os = "macos")]
 fn main() -> ExitCode {
-    // Report failure until this binary has a working entry point.
+    marsa_ui::run()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() -> ExitCode {
     ExitCode::FAILURE
 }

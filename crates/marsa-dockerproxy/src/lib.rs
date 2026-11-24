@@ -1,5 +1,10 @@
-//! Docker socket forwarding and request policy.
+//! Forward Docker connections without interpreting HTTP framing or upgraded streams.
 
-// Keep the architecture's dependency edges until this crate uses them directly.
-use marsa_core as _;
-use marsa_share as _;
+/// Bounded parsing of Docker container bind sources shared with the guest authorization policy.
+pub mod bind_mounts;
+
+#[cfg(unix)]
+mod platform;
+
+#[cfg(unix)]
+pub use platform::{Startup, serve};

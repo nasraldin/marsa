@@ -1,0 +1,1 @@
+{"hostconfig":{"binds":["/workspace/a:/a"],"mounts":[{"type":"bind","source":"/workspace/b","target":"/b","ignored":{"مفتاح":"قيمة"}}]},"Labels":{"نوع":"اختبار"}}

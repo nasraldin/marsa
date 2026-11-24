@@ -1,0 +1,3 @@
+[submodule "gpui"]
+	path = third-party/gpui
+	url = https://github.com/nasraldin/marsa.git

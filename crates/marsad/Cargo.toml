@@ -22,10 +22,19 @@ workspace = true
 [target.'cfg(unix)'.dependencies]
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 getrandom = "=0.4.3"
+http-body-util = "=0.1.5"
+hyper = { version = "=1.12.0", features = ["client", "http1"] }
+hyper-util = { version = "=0.1.21", features = ["tokio"] }
 tempfile = "=3.27.0"
+tar = { version = "=0.4.46", default-features = false }
+serde_json = "=1.0.154"
+time = { version = "=0.3.55", features = ["parsing"] }
 marsa-core = { path = "../marsa-core" }
 nix = { version = "=0.32.0", features = ["fs", "user"] }
-tokio = { version = "=1.54.1", features = ["io-util", "macros", "net", "rt", "signal", "sync", "time"] }
+rustix = { version = "=1.1.6", features = ["fs"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+sha2 = { version = "=0.11.1", default-features = false }
+tokio = { version = "=1.54.1", features = ["io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
 tokio-stream = { version = "=0.1.19", features = ["net"] }
 tonic = "=0.14.9"
 tracing = "=0.1.44"
@@ -37,12 +46,10 @@ marsa-vm = { path = "../marsa-vm", features = ["fake"] }
 tokio = { version = "=1.54.1", features = ["test-util"] }
 
 [target.'cfg(unix)'.dev-dependencies]
-hyper-util = { version = "=0.1.21", features = ["tokio"] }
 nix = { version = "=0.32.0", features = ["signal"] }
-serde_json = "=1.0.154"
 tower = { version = "=0.5.3", features = ["util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.6.5"
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSBundle", "NSError", "NSString"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSBundle", "NSError", "NSString", "NSURL", "NSValue"] }
 objc2-service-management = { version = "=0.3.2", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService"] }

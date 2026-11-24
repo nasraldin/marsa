@@ -28,12 +28,13 @@ unsound = "all"
 multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
-# Current upstream code generators require these incompatible versions.
-# Recheck after upgrading Prost, Tonic, or petgraph.
+# Recheck these exact upstream constraints on dependency upgrades.
 skip = [
     { name = "hashbrown", version = "=0.15.5", reason = "Prost code generation uses petgraph 0.8.3, which requires hashbrown 0.15." },
     { name = "prettyplease", version = "=0.2.37", reason = "Tonic 0.14.9 generates code with prettyplease 0.2, while Prost uses 0.3." },
     { name = "syn", version = "=2.0.119", reason = "Tonic code generation, Prost derive, and tracing attributes require syn 2." },
+    { name = "getrandom", version = "=0.2.17", reason = "ring 0.17.14 requires getrandom 0.2 for the guest TLS provider." },
+    { name = "windows-sys", version = "=0.52.0", reason = "ring 0.17.14 declares this Windows-only dependency. The guest target is Linux." },
 ]
 deny = [
     { name = "failure", reason = "Use thiserror for library error types and anyhow for binary entry points." },

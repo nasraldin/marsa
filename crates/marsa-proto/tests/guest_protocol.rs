@@ -51,6 +51,7 @@ fn round_trips_handshake_frames_in_both_directions() {
         request_id: 0,
         body: Some(host_envelope::Body::HelloAck(HelloAck {
             protocol: Some(PROTOCOL_VERSION),
+            defer_engine_start: false,
         })),
     };
     let encoded = encode_host(&ack).unwrap();
@@ -185,4 +186,78 @@ fn rejects_shape_errors_in_a_mount_path_and_a_published_port() {
         decode_guest(&event.encode_to_vec()),
         Err(ProtocolError::InvalidField("published_port"))
     ));
+}
+
+#[test]
+fn deferred_engine_extensions_validate_versions_shapes_and_correlation() {
+    use marsa_proto::guest::v1::{EgressResult, EgressStage, ProbeEgress, StartEngine};
+
+    let legacy = ProtocolVersion {
+        major: PROTOCOL_VERSION.major,
+        minor: 0,
+    };
+    assert_eq!(negotiate(legacy).unwrap(), legacy);
+
+    let ack = |protocol, defer_engine_start| HostEnvelope {
+        request_id: 0,
+        body: Some(host_envelope::Body::HelloAck(HelloAck {
+            protocol: Some(protocol),
+            defer_engine_start,
+        })),
+    };
+    assert!(encode_host(&ack(legacy, false)).is_ok());
+    assert!(matches!(
+        encode_host(&ack(legacy, true)),
+        Err(ProtocolError::InvalidField("defer_engine_start"))
+    ));
+    assert!(encode_host(&ack(PROTOCOL_VERSION, true)).is_ok());
+
+    for address_v4 in [vec![], vec![1; 3], vec![1; 5], vec![1; 16]] {
+        let probe = HostEnvelope {
+            request_id: 1,
+            body: Some(host_envelope::Body::ProbeEgress(ProbeEgress { address_v4 })),
+        };
+        assert!(matches!(
+            encode_host(&probe),
+            Err(ProtocolError::InvalidField("address_v4"))
+        ));
+    }
+    for body in [
+        host_envelope::Body::StartEngine(StartEngine {}),
+        host_envelope::Body::ProbeEgress(ProbeEgress {
+            address_v4: vec![1, 2, 3, 4],
+        }),
+    ] {
+        let mut envelope = HostEnvelope {
+            request_id: 1,
+            body: Some(body),
+        };
+        let frame = encode_host(&envelope).unwrap();
+        assert_eq!(decode_host(&frame[4..]).unwrap(), envelope);
+        envelope.request_id = 0;
+        assert!(matches!(
+            encode_host(&envelope),
+            Err(ProtocolError::InvalidField("request_id"))
+        ));
+    }
+
+    let result = |request_id, stage| GuestEnvelope {
+        request_id,
+        body: Some(guest_envelope::Body::EgressResult(EgressResult { stage })),
+    };
+    let healthy = result(2, EgressStage::Healthy.into());
+    assert_eq!(
+        decode_guest(&encode_guest(&healthy).unwrap()[4..]).unwrap(),
+        healthy
+    );
+    assert!(matches!(
+        encode_guest(&result(0, EgressStage::Healthy.into())),
+        Err(ProtocolError::InvalidField("request_id"))
+    ));
+    for value in [EgressStage::Unspecified.into(), i32::MAX] {
+        assert!(matches!(
+            encode_guest(&result(2, value)),
+            Err(ProtocolError::InvalidField("egress_stage"))
+        ));
+    }
 }

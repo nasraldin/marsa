@@ -8,12 +8,22 @@ use objc2_foundation::{NSArray, NSFileHandle, NSString, NSURL};
 use objc2_virtualization::{
     VZDirectorySharingDeviceConfiguration, VZDiskImageCachingMode,
     VZDiskImageStorageDeviceAttachment, VZDiskImageSynchronizationMode,
+<<<<<<< HEAD
     VZFileHandleSerialPortAttachment, VZLinuxBootLoader, VZNATNetworkDeviceAttachment,
     VZSharedDirectory, VZSingleDirectoryShare, VZVirtioBlockDeviceConfiguration,
     VZVirtioConsoleDeviceSerialPortConfiguration, VZVirtioEntropyDeviceConfiguration,
     VZVirtioFileSystemDeviceConfiguration, VZVirtioNetworkDeviceConfiguration,
     VZVirtioSocketDeviceConfiguration, VZVirtioTraditionalMemoryBalloonDeviceConfiguration,
     VZVirtualMachine, VZVirtualMachineConfiguration,
+=======
+    VZFileHandleNetworkDeviceAttachment, VZFileHandleSerialPortAttachment, VZLinuxBootLoader,
+    VZMACAddress, VZNATNetworkDeviceAttachment, VZSharedDirectory, VZSingleDirectoryShare,
+    VZVirtioBlockDeviceConfiguration, VZVirtioConsoleDeviceSerialPortConfiguration,
+    VZVirtioEntropyDeviceConfiguration, VZVirtioFileSystemDeviceConfiguration,
+    VZVirtioNetworkDeviceConfiguration, VZVirtioSocketDeviceConfiguration,
+    VZVirtioTraditionalMemoryBalloonDeviceConfiguration, VZVirtualMachine,
+    VZVirtualMachineConfiguration,
+>>>>>>> origin/main
 };
 
 use super::{
@@ -23,6 +33,7 @@ use super::{
 
 pub(super) fn build(
     prepared: Prepared,
+    network_socket: Option<File>,
 ) -> Result<Retained<VZVirtualMachineConfiguration>, VmError> {
     let spec = prepared.spec;
     let kernel = file_url("kernel", &spec.kernel)?;
@@ -78,7 +89,22 @@ pub(super) fn build(
             );
         console.setAttachment(Some(&console_attachment));
         let network = VZVirtioNetworkDeviceConfiguration::new();
-        network.setAttachment(Some(&VZNATNetworkDeviceAttachment::new()));
+        if let Some(socket) = network_socket {
+            let file = handle(socket);
+            let attachment = VZFileHandleNetworkDeviceAttachment::initWithFileHandle(
+                VZFileHandleNetworkDeviceAttachment::alloc(),
+                &file,
+            );
+            let address = VZMACAddress::initWithString(
+                VZMACAddress::alloc(),
+                &NSString::from_str(super::userspace::GUEST_MAC),
+            )
+            .ok_or_else(|| backend("create", "invalid user-space MAC address"))?;
+            network.setMACAddress(&address);
+            network.setAttachment(Some(&attachment));
+        } else {
+            network.setAttachment(Some(&VZNATNetworkDeviceAttachment::new()));
+        }
 
         let config = VZVirtualMachineConfiguration::new();
         config.setCPUCount(spec.cpus as usize);

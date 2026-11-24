@@ -77,11 +77,19 @@ The native VM, retained delegate and active socket connections live in a
 private slot. Delegate and lifecycle completion callbacks assert the queue and
 enqueue a job to avoid reentering the slot. Cancelling a Rust start leaves
 the native completion in charge of the state transition. Dropping the last
+<<<<<<< HEAD
 VM handle queues teardown and retains the VM through in-flight start and
 forced-stop calls. Pause and resume publish their state only after native
 completion. Stop or teardown can wait for a cancelled caller’s in-flight
 transition. The socket connect call releases its slot borrow before calling VZ so the completion can retain the connection
 even when invoked inline. Tokio receives a close-on-exec descriptor duplicate,
+=======
+VM handle queues teardown and retains the VM through in-flight start,
+pause, resume and forced-stop calls. Pause and resume publish state changes
+after the native completion. A stop request waits for any in-flight power
+transition. The socket connect call releases its slot borrow before calling
+VZ so the completion can retain the connection even when invoked inline. Tokio receives a close-on-exec descriptor duplicate,
+>>>>>>> origin/main
 which it registers in nonblocking mode, and a Rust lease that releases the
 native connection on the VM queue. The lease also handles cancelled connect
 futures. The VM releases remaining connections on stop or teardown. Apple's
@@ -94,12 +102,22 @@ attachment is read-only. The virtio console writes directly to an append-only
 descriptor opened before the VM starts. Marsa opens a private user-owned
 regular file and checks for symbolic links and inode aliases.
 
+<<<<<<< HEAD
 The VZ backend creates one virtiofs device per approved share and uses the
 same specification to mount it at its host path in the guest. Read-only
 shares carry that setting on the framework attachment. The backend requires a
 restart to add shares. The balloon accepts whole MiB between the framework
 minimum and the configured guest memory while the VM is running.
 [Apple’s balloon target contract](https://developer.apple.com/documentation/virtualization/vzvirtiotraditionalmemoryballoondevice/targetvirtualmachinememorysize).
+=======
+The backend attaches one virtiofs device per approved share with either
+network attachment. The guest init mounts each tag at its original host path,
+and the framework enforces the share's configured read-only access. Adding a
+share requires a VM restart. The backend accepts whole-MiB balloon targets
+between the framework minimum and the configured guest memory while the VM is
+running. [Apple’s virtiofs configuration](https://developer.apple.com/documentation/virtualization/vzvirtiofilesystemdeviceconfiguration)
+· [Apple’s balloon target](https://developer.apple.com/documentation/virtualization/vzvirtiotraditionalmemoryballoondevice).
+>>>>>>> origin/main
 
 With the pinned Linux 7.3.5 kernel, virtio-console discards the kernel's
 initial replay while registering `hvc0`. The messages remain in the kernel
@@ -112,7 +130,9 @@ the output the guest managed to send over the live console.
 The [entitled system tests](../crates/marsa-vm-vz/README.md) boot the packaged
 guest on Apple silicon. They check native lifecycle events, a versioned agent
 handshake, root device and filesystem write rejection, and ordered console
-output from the kernel through Docker API readiness.
+output from the kernel through Docker API readiness. They also check
+read-only mounts at the original path, guest balloon inflation, and pause
+and resume events.
 [Apple's initializer contract](https://developer.apple.com/documentation/virtualization/vzvirtualmachine/init(configuration:queue:)).
 
 ### Calling the framework from Rust
@@ -156,10 +176,10 @@ Boot-time budget (**Proposed**, measured by the agent handshake timings): kernel
 ## The `krun` backend
 
 - Links libkrun into `marsad` (or a small helper process if isolation of the VMM proves necessary).
-- Uses the same guest kernel configuration where possible. **Verify** whether libkrun requires its own bundled kernel (libkrunfw) or can boot Marsa's kernel; this affects the guest image build.
+- Libkrun 1.19.8 booted Marsa’s stock arm64 kernel and read-only EROFS image directly without its firmware package. The release’s generic arm64 macOS backend requires macOS 14 or newer.
 - Maps the same `VmSpec`: virtio block for disks, virtiofs for shares, vsock for control, virtio-net for networking.
 - Needs the `com.apple.security.hypervisor` entitlement.
-- **Verify** the current libkrun release, its macOS requirements and its C API before starting; planning research found version 1.19.x with macOS 14 or newer on arm64.
+- [M11-02](spikes/M11-02-libkrun.md) recommends stopping the version 1 implementation. The pinned release needs a separate host isolation boundary to enforce Marsa’s shared-folder policy.
 
 ## Choosing the default: the benchmark gate
 
@@ -176,18 +196,24 @@ Boot-time budget (**Proposed**, measured by the agent handshake timings): kernel
 
 ## Memory management
 
-**Proposed**, with every mechanism to be measured:
+The default boot allocation is half of host RAM capped at 8 GiB.
+`vm.memory` overrides it. When no workload or Docker connection needs
+the VM, `vm.idle_stop` and `vm.idle_timeout` govern stopping it. This
+releases the VZ worker and network helper, leaving the daemon running to
+start the next request.
 
-1. **Right-size at start.** Default memory is a fraction of host RAM, capped, and changeable in settings.
-2. **Balloon on idle.** When containers stop, lower the guest memory target through the balloon device. **Verify** how much memory Virtualization.framework actually returns to macOS; planning research found this is its weak point.
-3. **Stop when idle.** With no running containers for `idle_timeout`, stop the VM. This always returns all memory and is the dependable mechanism.
-4. **Fast restart.** Because boot is fast, stopping when idle is nearly invisible to the user.
+On macOS 27.2.1 the guest accepted a 2.5 GiB balloon request after a
+2 GiB workload. The VZ worker footprint did not fall within 25 seconds.
+Idle stop released both VM-related processes about 4.4 seconds after the
+workload ended with a four-second timeout. The production idle policy
+therefore uses stopping. [M9-04 VZ measurements](spikes/M9-04-memory.md).
 
 ## Failure handling
 
 | Failure | Detection | Response |
 |---|---|---|
 | VM exits unexpectedly | Backend state event | Move to `Failed`, capture console tail, retry with backoff |
+| Host daemon is killed | The OS closes daemon-owned descriptors and the user-space helper observes EOF | The old VZ guest and helper exit. The replacement acquires the same instance lock, replaces stale private runtime paths and starts from `Stopped`. The next boot reuses the data image and ext4 replays its journal when needed. |
 | Agent handshake timeout | Supervisor timer | Stop the VM, report `Failed` with the boot stage reached |
 | dockerd never healthy | Agent health report | Report the engine log tail; keep the VM up for diagnosis if the user asks |
 | Entitlement missing | VM creation error | Fail fast with a clear message; this is a packaging bug |

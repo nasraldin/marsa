@@ -25,6 +25,8 @@ pub(super) struct Instance {
     // launcher must always contend on the same inode.
     _lock: File,
     socket: Option<OwnedPath>,
+    docker_socket: Option<OwnedPath>,
+    agent_socket: Option<OwnedPath>,
     pid: Option<OwnedPath>,
 }
 
@@ -61,25 +63,22 @@ impl Instance {
         Ok(Self {
             _lock: lock,
             socket: None,
+            docker_socket: None,
+            agent_socket: None,
             pid: None,
         })
     }
 
-    pub(super) fn publish(&mut self, paths: &MarsaPaths, uid: u32) -> io::Result<UnixListener> {
-        let socket = paths.daemon_socket();
+    pub(super) fn publish(
+        &mut self,
+        paths: &MarsaPaths,
+        uid: u32,
+    ) -> io::Result<(UnixListener, UnixListener, UnixListener)> {
         let pid = paths.daemon_pid_file();
-        remove_stale(&socket, |entry| {
-            entry.file_type().is_socket() && entry.uid() == uid
-        })?;
         remove_stale(&pid, |entry| is_owned_file(entry, uid))?;
-        let listener = UnixListener::bind(&socket)?;
-        let metadata = fs::symlink_metadata(&socket)?;
-        if !metadata.file_type().is_socket() || metadata.uid() != uid {
-            return Err(unexpected(&socket));
-        }
-        self.socket = Some(OwnedPath::new(socket.clone(), &metadata));
-        fs::set_permissions(&socket, Permissions::from_mode(PRIVATE_FILE))?;
-        listener.set_nonblocking(true)?;
+        let api = bind_socket(paths.daemon_socket(), uid, &mut self.socket)?;
+        let docker = bind_socket(paths.docker_socket(), uid, &mut self.docker_socket)?;
+        let agent = bind_socket(paths.agent_socket(), uid, &mut self.agent_socket)?;
 
         let mut process = OpenOptions::new()
             .write(true)
@@ -88,13 +87,15 @@ impl Instance {
             .open(&pid)?;
         self.pid = Some(OwnedPath::new(pid, &process.metadata()?));
         writeln!(process, "{}", std::process::id())?;
-        Ok(listener)
+        Ok((api, docker, agent))
     }
 
     pub(super) fn cleanup(&mut self) -> io::Result<()> {
         let socket = self.socket.take().map_or(Ok(()), OwnedPath::remove);
+        let docker = self.docker_socket.take().map_or(Ok(()), OwnedPath::remove);
+        let agent = self.agent_socket.take().map_or(Ok(()), OwnedPath::remove);
         let pid = self.pid.take().map_or(Ok(()), OwnedPath::remove);
-        socket.and(pid)
+        socket.and(docker).and(agent).and(pid)
     }
 }
 
@@ -102,6 +103,20 @@ impl Drop for Instance {
     fn drop(&mut self) {
         let _ = self.cleanup();
     }
+}
+
+fn bind_socket(path: PathBuf, uid: u32, owned: &mut Option<OwnedPath>) -> io::Result<UnixListener> {
+    let is_owned_socket = |entry: &Metadata| entry.file_type().is_socket() && entry.uid() == uid;
+    remove_stale(&path, is_owned_socket)?;
+    let listener = UnixListener::bind(&path)?;
+    let metadata = fs::symlink_metadata(&path)?;
+    if !is_owned_socket(&metadata) {
+        return Err(unexpected(&path));
+    }
+    *owned = Some(OwnedPath::new(path.clone(), &metadata));
+    fs::set_permissions(path, Permissions::from_mode(PRIVATE_FILE))?;
+    listener.set_nonblocking(true)?;
+    Ok(listener)
 }
 
 pub(super) fn read_settings(paths: &MarsaPaths, uid: u32) -> io::Result<Settings> {

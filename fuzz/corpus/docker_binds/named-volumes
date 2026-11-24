@@ -1,0 +1,1 @@
+{"HostConfig":{"Binds":["fixtures:/fixtures","/anonymous"],"Mounts":[{"Type":"tmpfs","Target":"/scratch"}]}}

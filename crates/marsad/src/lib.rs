@@ -1,6 +1,14 @@
 //! Shared host daemon services.
 
 #[cfg(unix)]
+/// Agent operation decisions and private project grants.
+pub mod agent_policy;
+
+#[cfg(unix)]
+/// Recovery of interrupted factory storage transactions.
+pub mod factory;
+
+#[cfg(unix)]
 /// Negotiation and bounded requests for a Linux guest session.
 pub mod guest_control;
 

@@ -11,7 +11,7 @@ use tonic::{Request, Response, Status};
 
 use crate::supervisor::{BootStage, State, SupervisorError, Transition};
 
-use super::TypedApi;
+use super::{TypedApi, events::Bus};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum Action {
@@ -23,14 +23,7 @@ pub(super) enum Action {
 impl TypedApi {
     /// Publish a health value from the active, validated guest session.
     pub fn publish_guest_health(&self, health: &EngineHealth) {
-        let health = match health.state() {
-            GuestHealth::Unspecified => return,
-            GuestHealth::Starting => EngineHealthState::Starting,
-            GuestHealth::Ready => EngineHealthState::Ready,
-            GuestHealth::Unhealthy => EngineHealthState::Unhealthy,
-            GuestHealth::Restarting => EngineHealthState::Restarting,
-        };
-        self.inner.events.health(health);
+        publish_health(&self.inner.events, health);
     }
 
     async fn action(
@@ -39,6 +32,7 @@ impl TypedApi {
         action: Action,
     ) -> Result<Response<EngineStatus>, Status> {
         let request = self.authorize(request)?;
+        self.inner.factory_reset.read()?;
         let api = self.clone();
         let status = self
             .inner
@@ -59,6 +53,17 @@ impl TypedApi {
             .await?;
         Ok(Response::new(status))
     }
+}
+
+pub(super) fn publish_health(events: &Bus, health: &EngineHealth) {
+    let health = match health.state() {
+        GuestHealth::Unspecified => return,
+        GuestHealth::Starting => EngineHealthState::Starting,
+        GuestHealth::Ready => EngineHealthState::Ready,
+        GuestHealth::Unhealthy => EngineHealthState::Unhealthy,
+        GuestHealth::Restarting => EngineHealthState::Restarting,
+    };
+    events.health(health);
 }
 
 #[tonic::async_trait]
@@ -96,8 +101,8 @@ impl Engine for TypedApi {
         &self,
         request: Request<ResetRequest>,
     ) -> Result<Response<ResetResponse>, Status> {
-        self.authorize(request)?;
-        Err(Status::unimplemented("engine reset is not available"))
+        let request = self.authorize(request)?;
+        self.engine_reset(request).await.map(Response::new)
     }
 }
 
@@ -134,11 +139,14 @@ pub(super) fn wire_state(state: State) -> EngineState {
     }
 }
 
-fn stage_name(stage: BootStage) -> &'static str {
+pub(super) fn stage_name(stage: BootStage) -> &'static str {
     match stage {
+        BootStage::Prepare => "prepare",
         BootStage::Create => "create",
         BootStage::Start => "start",
         BootStage::Handshake => "handshake",
+        BootStage::DataDisk => "data_disk",
+        BootStage::Network => "network",
         BootStage::Engine => "engine",
         BootStage::Running => "running",
         BootStage::Resume => "resume",
@@ -150,7 +158,7 @@ fn bounded(text: &str) -> String {
     text[..text.floor_char_boundary(text.len().min(8192))].to_owned()
 }
 
-fn supervisor_status(error: SupervisorError) -> Status {
+pub(super) fn supervisor_status(error: SupervisorError) -> Status {
     match error {
         SupervisorError::Busy => Status::resource_exhausted(error.to_string()),
         SupervisorError::InvalidState { .. } => Status::failed_precondition(error.to_string()),
