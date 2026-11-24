@@ -189,9 +189,10 @@ impl Desktop {
     ) -> Div {
         let locale = screen.locale;
         let selection = self.environment.read(cx);
+        let local = selection.includes_marsa();
         let external = self.active_workspace(cx);
         let data = self.overview.sample.as_ref();
-        let engine = if !selection.includes_marsa()
+        let engine = if !local
             && data.is_some_and(|data| !observed(data))
             && matches!(self.overview.target, Some(Target::External(_)))
         {
@@ -203,7 +204,7 @@ impl Desktop {
             .external_inventory
             .iter()
             .find(|workspace| selection.includes_external(workspace));
-        let (name, glyph) = if selection.includes_marsa() || workspace.is_some() {
+        let (name, glyph) = if local || workspace.is_some() {
             let (name, icon) = self
                 .system
                 .read(cx)
@@ -222,7 +223,7 @@ impl Desktop {
             })
         });
         let platform = version.map(|details| format!("{}/{}", details.os, details.arch));
-        let lifecycle = match (selection.includes_marsa(), engine) {
+        let lifecycle = match (local, engine) {
             (true, Some(EngineState::Stopped | EngineState::Failed)) => Some((
                 EngineAction::Start,
                 gui::GUI_DESKTOP_START_MACHINE,
@@ -250,6 +251,17 @@ impl Desktop {
                 _ => button.outline(),
             }
         });
+        let (lifecycle, lima_state, lima_feedback) = if local {
+            (lifecycle, None, None)
+        } else {
+            self.system.update(cx, |system, cx| {
+                (
+                    system.overview_lima_power(locale, cx),
+                    system.lima_machine_state(),
+                    system.lima_machine_feedback(screen),
+                )
+            })
+        };
         let refresh = Button::new("overview-refresh")
             .ghost()
             .size(px(36.))
@@ -257,13 +269,13 @@ impl Desktop {
             .child(IconName::RefreshCw)
             .accessibility_label(gui::GUI_DESKTOP_REFRESH.text(locale))
             .tooltip(gui::GUI_DESKTOP_REFRESH.text(locale))
-            .on_click(cx.listener(|desktop, _, _, cx| {
+            .on_click(cx.listener(|desktop, _, window, cx| {
                 desktop.overview.task = None;
                 desktop.overview.disk_task = None;
                 if !desktop.environment.read(cx).includes_marsa() {
                     desktop
                         .system
-                        .update(cx, |system, cx| system.refresh_external_inventory(cx));
+                        .update(cx, |system, cx| system.refresh_lima_selection(window, cx));
                 }
                 cx.notify();
             }));
@@ -304,8 +316,14 @@ impl Desktop {
                                     .child(status::inline_badge(
                                         locale,
                                         screen.palette,
-                                        engine,
-                                        self.context_status_text(engine, cx),
+                                        lima_state
+                                            .filter(|state| *state == EngineState::Stopped)
+                                            .or(engine),
+                                        if lima_state == Some(EngineState::Stopped) {
+                                            gui::GUI_DESKTOP_STOPPED.text(locale)
+                                        } else {
+                                            self.context_status_text(engine, cx)
+                                        },
                                     )),
                             )
                             .child(
@@ -345,11 +363,15 @@ impl Desktop {
                                     ),
                             ),
                     ),
-            );
+            )
+            .children(lima_feedback);
         if !matches!(engine, Some(EngineState::Ready | EngineState::Idle)) {
-            let explanation = match (selection.includes_marsa(), engine) {
+            let explanation = match (local, engine) {
                 (true, Some(EngineState::Stopped)) => gui::GUI_SYSTEM_MACHINE_STOPPED_HINT,
                 (true, Some(EngineState::Failed)) => gui::GUI_DESKTOP_NOTIFICATION_ENGINE_BODY,
+                (false, _) if lima_state == Some(EngineState::Stopped) => {
+                    gui::GUI_SYSTEM_MACHINE_STOPPED_HINT
+                }
                 (false, Some(EngineState::Failed)) => gui::GUI_ENVIRONMENT_OFFLINE,
                 _ => gui::GUI_DESKTOP_OVERVIEW_WAITING_ENGINE,
             };

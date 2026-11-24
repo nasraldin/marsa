@@ -36,6 +36,10 @@ pub struct LimaInstance {
 /// Effective Lima configuration and the current VM lifecycle state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LimaSettings {
+    /// Verified virtualization backend.
+    pub backend: &'static str,
+    /// Guest architecture reported by Lima, when recognized.
+    pub architecture: Option<&'static str>,
     /// Configured virtual CPUs.
     pub cpus: u32,
     /// Configured guest RAM in bytes.
@@ -314,6 +318,8 @@ struct InstanceRecord {
     status: String,
     dir: PathBuf,
     vm_type: String,
+    #[serde(default)]
+    arch: String,
     cpus: u32,
     memory: u64,
     disk: u64,
@@ -398,6 +404,20 @@ fn decode_settings(
             .all(|network| network.lima.as_deref().is_none_or(str::is_empty)))
     .then(|| record.config.network_opts.host_loopback.unwrap_or(true));
     Ok(LimaSettings {
+        backend: if record.vm_type == "vz" {
+            "Virtualization.framework"
+        } else {
+            "QEMU"
+        },
+        architecture: match record.arch.as_str() {
+            "aarch64" => Some("aarch64"),
+            "x86_64" => Some("x86_64"),
+            "riscv64" => Some("riscv64"),
+            "armv7l" => Some("armv7l"),
+            "ppc64le" => Some("ppc64le"),
+            "s390x" => Some("s390x"),
+            _ => None,
+        },
         cpus: record.cpus,
         memory_bytes: record.memory,
         disk_bytes: record.disk,
@@ -428,6 +448,7 @@ fn edit_values(
         stopped: true,
         running: false,
         host_loopback: update.host_loopback.or(current.host_loopback),
+        ..current
     };
     if requested.disk_bytes < current.disk_bytes {
         return Err(LimaSettingsError::DiskShrink);

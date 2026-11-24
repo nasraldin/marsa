@@ -10,7 +10,7 @@ use marsa_ui::{
         Window, div, px,
     },
     gpui_component::{
-        Disableable as _, IconName,
+        Disableable as _, IconName, WindowExt as _,
         button::{Button, ButtonVariants as _},
         checkbox::Checkbox,
         input::{InputEvent, InputState},
@@ -65,6 +65,7 @@ pub(in crate::screens::system) struct VmEditor {
     loopback: Option<bool>,
     task: Option<Task<()>>,
     applying: bool,
+    editing: bool,
     feedback: Option<(TextKey, ColorToken)>,
     _input_changes: [Subscription; 3],
 }
@@ -112,6 +113,7 @@ impl VmEditor {
             loopback: None,
             task: None,
             applying: false,
+            editing: false,
             feedback: None,
             _input_changes: changes,
         }
@@ -193,8 +195,9 @@ impl SystemView {
 
     pub(crate) fn clear_lima_machine_target(&mut self) {
         self.machine_lima_target = None;
-        if self.machine_vm.as_ref().is_some_and(|vm| !vm.applying()) {
-            self.machine_vm = None;
+        match &mut self.machine_vm {
+            Some(vm) if vm.applying() => vm.editing = false,
+            _ => self.machine_vm = None,
         }
     }
 
@@ -219,16 +222,162 @@ impl SystemView {
         }
     }
 
-    pub(crate) fn lima_machine(&self, screen: &ScreenContext<'_>, cx: &Context<Self>) -> Div {
-        match self.lima_vm(VmScope::Machine) {
-            Some(vm) => self.lima_form(vm, VmScope::Machine, VmSection::Machine, screen, cx),
-            None => settings_text(
-                screen,
-                Role::Small,
-                gui::GUI_DESKTOP_WORKING.text(screen.locale),
-                ColorToken::TextMuted,
-            ),
+    pub(in crate::screens::system) fn lima_machine_settings(&self) -> Option<LimaSettings> {
+        self.lima_vm(VmScope::Machine)?.original
+    }
+
+    pub(crate) fn lima_machine_state(&self) -> Option<marsa_client::api::EngineState> {
+        use marsa_client::api::EngineState;
+        let settings = self.lima_machine_settings()?;
+        match (settings.running, settings.stopped) {
+            (true, false) => Some(EngineState::Ready),
+            (false, true) => Some(EngineState::Stopped),
+            _ => None,
         }
+    }
+
+    pub(crate) fn overview_lima_power(&self, locale: Locale, cx: &Context<Self>) -> Option<Button> {
+        let vm = self.lima_vm(VmScope::Machine)?;
+        self.lima_power_button(vm, VmScope::Machine, locale, true, cx)
+    }
+
+    pub(crate) fn refresh_lima_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_lima_vm(VmScope::Machine, VmWork::Inspect, window, cx);
+        self.refresh_external_inventory(cx);
+    }
+
+    pub(in crate::screens::system) fn lima_machine_actions(
+        &self,
+        locale: Locale,
+        cx: &Context<Self>,
+    ) -> Div {
+        let vm = self.lima_vm(VmScope::Machine);
+        row(locale)
+            .gap_2()
+            .flex_wrap()
+            .children(
+                vm.and_then(|vm| self.lima_power_button(vm, VmScope::Machine, locale, false, cx)),
+            )
+            .children(
+                vm.filter(|vm| vm.original.is_some_and(|settings| settings.running))
+                    .map(|vm| {
+                        Button::new("restart-lima-machine")
+                            .outline()
+                            .icon(IconName::RefreshCw)
+                            .label(gui::GUI_DESKTOP_RESTART_MACHINE.text(locale))
+                            .disabled(vm.task.is_some() || self.services.is_none())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.request_lima_control(
+                                    VmScope::Machine,
+                                    VmWork::Restart,
+                                    locale,
+                                    window,
+                                    cx,
+                                );
+                            }))
+                    }),
+            )
+    }
+
+    pub(in crate::screens::system) fn lima_machine_edit_button(
+        &self,
+        locale: Locale,
+        cx: &Context<Self>,
+    ) -> Button {
+        let vm = self.lima_vm(VmScope::Machine);
+        let editing = vm.is_some_and(|vm| vm.editing);
+        Button::new("edit-lima-machine-resources")
+            .outline()
+            .disabled(vm.is_none_or(|vm| {
+                vm.task.is_some()
+                    || (!editing && vm.original.is_none_or(|settings| !settings.stopped))
+            }))
+            .label(if editing {
+                gui::GUI_DESKTOP_CANCEL.text(locale)
+            } else {
+                gui::GUI_DESKTOP_EDIT_RESOURCES.text(locale)
+            })
+            .on_click(cx.listener(|this, _, window, cx| {
+                if let Some(vm) = this.lima_vm_mut(VmScope::Machine) {
+                    vm.editing = !vm.editing;
+                    if !vm.editing
+                        && let Some(settings) = vm.original
+                    {
+                        vm.show(settings, window, cx);
+                    }
+                    cx.notify();
+                }
+            }))
+    }
+
+    pub(in crate::screens::system) fn lima_machine_editor(
+        &self,
+        screen: &ScreenContext<'_>,
+        cx: &Context<Self>,
+    ) -> Option<Div> {
+        let vm = self.lima_vm(VmScope::Machine).filter(|vm| vm.editing)?;
+        Some(self.lima_form(vm, VmScope::Machine, VmSection::Machine, screen, cx))
+    }
+
+    pub(crate) fn lima_machine_feedback(&self, screen: &ScreenContext<'_>) -> Option<Div> {
+        let vm = self.lima_vm(VmScope::Machine)?;
+        let (key, color) = vm.feedback.or_else(|| {
+            vm.task
+                .is_some()
+                .then_some((gui::GUI_DESKTOP_WORKING, ColorToken::TextMuted))
+        })?;
+        Some(settings_text(
+            screen,
+            Role::Small,
+            key.text(screen.locale),
+            color,
+        ))
+    }
+
+    fn lima_power_button(
+        &self,
+        vm: &VmEditor,
+        scope: VmScope,
+        locale: Locale,
+        icon_only: bool,
+        cx: &Context<Self>,
+    ) -> Option<Button> {
+        let settings = vm.original?;
+        let (running, icon, label) = lima_next_action(settings)?;
+        let label = label.text(locale);
+        let pending_changes = vm
+            .draft_changes(settings, cx)
+            .is_none_or(|changes| changes != LimaSettingsUpdate::default());
+        let button = Button::new(if icon_only {
+            "overview-lima-lifecycle"
+        } else {
+            "change-lima-lifecycle"
+        })
+        .disabled(
+            vm.task.is_some()
+                || self.services.is_none()
+                || !self.lima_provider_matches(scope, cx)
+                || (running && pending_changes),
+        )
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.request_lima_control(scope, VmWork::Lifecycle(running), locale, window, cx);
+        }));
+        let button = if icon_only {
+            button
+                .w(px(36.))
+                .h(px(36.))
+                .p_0()
+                .child(icon)
+                .accessibility_label(label)
+                .tooltip(label)
+        } else {
+            button.icon(icon).label(label)
+        };
+        Some(if running && matches!(scope, VmScope::Machine) {
+            button.primary()
+        } else {
+            button.outline()
+        })
     }
 
     fn lima_vm(&self, scope: VmScope) -> Option<&VmEditor> {
@@ -239,8 +388,10 @@ impl SystemView {
                 .as_ref()
                 .map(|editor| &editor.vm),
             VmScope::Machine => self.machine_vm.as_ref().filter(|vm| {
-                self.route == crate::desktop::Route::Machine
-                    && self.machine_lima_target.is_some()
+                matches!(
+                    self.route,
+                    crate::desktop::Route::Machine | crate::desktop::Route::Overview
+                ) && self.machine_lima_target.is_some()
                     && vm.instance == self.machine_lima_target
             }),
         }
@@ -298,7 +449,9 @@ impl SystemView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.lima_provider_matches(scope, cx) {
+        if !self.lima_provider_matches(scope, cx)
+            || (matches!(scope, VmScope::Machine) && window.has_active_dialog(cx))
+        {
             return;
         }
         if matches!(work, VmWork::Lifecycle(true)) {
@@ -366,6 +519,9 @@ impl SystemView {
                     match result {
                         Some(Ok(Ok(settings))) => {
                             vm.show(settings, window, cx);
+                            if matches!(work, VmWork::Edit(..)) {
+                                vm.editing = false;
+                            }
                             vm.feedback = match work {
                                 VmWork::Inspect => None,
                                 VmWork::Edit(..) => Some((
@@ -440,88 +596,40 @@ impl SystemView {
         let locale = screen.locale;
         let busy = vm.task.is_some();
         let provider_matches = self.lima_provider_matches(scope, cx);
-        let pending_changes = vm.original.is_some_and(|settings| {
-            vm.draft_changes(settings, cx)
-                .is_none_or(|changes| changes != LimaSettingsUpdate::default())
-        });
-        let actions = row(locale)
-            .gap_2()
-            .flex_wrap()
-            .children(
-                vm.original
-                    .and_then(lima_next_action)
-                    .map(|(running, icon, label)| {
-                        Button::new("change-lima-lifecycle")
-                            .outline()
-                            .icon(icon)
-                            .label(label.text(locale))
-                            .disabled(
-                                busy || self.services.is_none()
-                                    || !provider_matches
-                                    || (running && pending_changes),
-                            )
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.request_lima_control(
-                                    scope,
-                                    VmWork::Lifecycle(running),
-                                    locale,
-                                    window,
-                                    cx,
-                                );
-                            }))
-                    }),
-            )
-            .children(
-                (matches!(scope, VmScope::Machine)
-                    && vm.original.is_some_and(|settings| settings.running))
-                .then(|| {
-                    Button::new("restart-lima-machine")
+        let mut body = div().flex().flex_col().gap_4();
+        if !matches!(section, VmSection::Machine) {
+            let actions = row(locale)
+                .gap_2()
+                .flex_wrap()
+                .children(self.lima_power_button(vm, scope, locale, false, cx))
+                .child(
+                    Button::new("refresh-lima-settings")
                         .outline()
-                        .icon(IconName::RotateCw)
-                        .label(gui::GUI_DESKTOP_RESTART_MACHINE.text(locale))
-                        .disabled(busy || self.services.is_none() || !provider_matches)
+                        .icon(IconName::RefreshCw)
+                        .tooltip(gui::GUI_DESKTOP_REFRESH.text(locale))
+                        .accessibility_label(gui::GUI_DESKTOP_REFRESH.text(locale))
+                        .disabled(busy || self.services.is_none())
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.request_lima_control(scope, VmWork::Restart, locale, window, cx);
-                        }))
-                }),
-            )
-            .child(
-                Button::new("refresh-lima-settings")
-                    .outline()
-                    .icon(IconName::RefreshCw)
-                    .tooltip(gui::GUI_DESKTOP_REFRESH.text(locale))
-                    .accessibility_label(gui::GUI_DESKTOP_REFRESH.text(locale))
-                    .disabled(busy || self.services.is_none())
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.run_lima_vm(scope, VmWork::Inspect, window, cx);
-                        if matches!(scope, VmScope::Machine) {
-                            this.refresh_external_inventory(cx);
-                        }
-                    })),
-            );
-        let mut body =
-            div()
-                .flex()
-                .flex_col()
-                .gap_4()
+                            this.run_lima_vm(scope, VmWork::Inspect, window, cx);
+                        })),
+                );
+            body = body
                 .child(
                     row(locale)
                         .items_center()
                         .justify_between()
                         .gap_3()
+                        .flex_wrap()
                         .child(settings_text(
                             screen,
                             Role::Lead,
                             match section {
                                 VmSection::Network => gui::GUI_ENVIRONMENT_LIMA_NETWORK,
-                                VmSection::Resources | VmSection::Machine => {
-                                    gui::GUI_ENVIRONMENT_LIMA_RESOURCES
-                                }
+                                _ => gui::GUI_ENVIRONMENT_LIMA_RESOURCES,
                             }
                             .text(locale),
                             ColorToken::TextPrimary,
                         ))
-                        .flex_wrap()
                         .child(actions),
                 )
                 .children(vm.feedback.map(|(key, token)| {
@@ -535,27 +643,30 @@ impl SystemView {
                         ColorToken::TextMuted,
                     )
                 }));
+        }
         let Some(settings) = vm.original else {
             return body;
         };
         let disabled = busy || !settings.stopped || !provider_matches;
-        body = body.child(settings_text(
-            screen,
-            Role::Small,
-            if settings.stopped {
-                gui::GUI_ENVIRONMENT_LIMA_STOPPED
-            } else if settings.running {
-                gui::GUI_ENVIRONMENT_LIMA_RUNNING
-            } else {
-                gui::GUI_ENVIRONMENT_LIMA_UNKNOWN_STATE
-            }
-            .text(locale),
-            if settings.stopped {
-                ColorToken::TextMuted
-            } else {
-                ColorToken::StatusWarning
-            },
-        ));
+        if !matches!(section, VmSection::Machine) {
+            body = body.child(settings_text(
+                screen,
+                Role::Small,
+                if settings.stopped {
+                    gui::GUI_ENVIRONMENT_LIMA_STOPPED
+                } else if settings.running {
+                    gui::GUI_ENVIRONMENT_LIMA_RUNNING
+                } else {
+                    gui::GUI_ENVIRONMENT_LIMA_UNKNOWN_STATE
+                }
+                .text(locale),
+                if settings.stopped {
+                    ColorToken::TextMuted
+                } else {
+                    ColorToken::StatusWarning
+                },
+            ));
+        }
         if !matches!(section, VmSection::Network) {
             body = body
                 .child(
@@ -714,13 +825,13 @@ fn field(
 }
 
 pub(super) fn lima_next_action(settings: LimaSettings) -> Option<(bool, IconName, TextKey)> {
-    if settings.running {
+    if settings.running && !settings.stopped {
         Some((
             false,
             IconName::Square,
             gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOP,
         ))
-    } else if settings.stopped {
+    } else if settings.stopped && !settings.running {
         Some((
             true,
             IconName::Play,
@@ -750,5 +861,47 @@ pub(super) fn error_text(error: LimaSettingsError) -> TextKey {
         LimaSettingsError::LifecycleState => gui::GUI_ENVIRONMENT_LIMA_UNKNOWN_STATE,
         LimaSettingsError::LifecycleFailed => gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_FAILED,
         _ => gui::GUI_ENVIRONMENT_LIMA_FAILED,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lima_power_control_requires_a_verified_running_or_stopped_state() {
+        let stopped = LimaSettings {
+            backend: "Virtualization.framework",
+            architecture: Some("aarch64"),
+            cpus: 2,
+            memory_bytes: 2 * GIB,
+            disk_bytes: 12 * GIB,
+            stopped: true,
+            running: false,
+            host_loopback: None,
+        };
+        assert_eq!(
+            lima_next_action(stopped).map(|(start, _, _)| start),
+            Some(true)
+        );
+        assert_eq!(
+            lima_next_action(LimaSettings {
+                stopped: false,
+                running: true,
+                ..stopped
+            })
+            .map(|(start, _, _)| start),
+            Some(false),
+        );
+        for (stopped_state, running) in [(false, false), (true, true)] {
+            assert!(
+                lima_next_action(LimaSettings {
+                    stopped: stopped_state,
+                    running,
+                    ..stopped
+                })
+                .is_none()
+            );
+        }
     }
 }

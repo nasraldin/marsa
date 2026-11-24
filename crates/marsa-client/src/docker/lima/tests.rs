@@ -24,7 +24,7 @@ fn only_exact_lima_docker_socket_paths_identify_instances() {
 
 fn fixture(docker_forward: &str, network: &str) -> Vec<u8> {
     format!(
-        r#"{{"name":"docker","status":"Stopped","dir":"/Users/owner/.lima/docker","vmType":"vz","cpus":2,"memory":4294967296,"disk":21474836480,"config":{{"networks":{network},"networkOpts":{{"hostLoopback":true}},"portForwards":[{{"guestSocket":"/run/user/501/docker.sock","hostSocket":"{docker_forward}"}}]}}}}"#
+        r#"{{"name":"docker","status":"Stopped","dir":"/Users/owner/.lima/docker","vmType":"vz","arch":"aarch64","cpus":2,"memory":4294967296,"disk":21474836480,"config":{{"networks":{network},"networkOpts":{{"hostLoopback":true}},"portForwards":[{{"guestSocket":"/run/user/501/docker.sock","hostSocket":"{docker_forward}"}}]}}}}"#
     )
     .into_bytes()
 }
@@ -35,6 +35,8 @@ fn effective_config_must_bind_the_selected_docker_socket() {
     let mut bytes = fixture(socket.to_str().unwrap(), "[]");
     bytes.push(b'\n');
     let settings = decode_settings(&bytes, "docker", socket, true).unwrap();
+    assert_eq!(settings.backend, "Virtualization.framework");
+    assert_eq!(settings.architecture, Some("aarch64"));
     assert_eq!(settings.cpus, 2);
     assert_eq!(settings.memory_bytes, 4 * GIB);
     assert_eq!(settings.disk_bytes, 20 * GIB);
@@ -72,6 +74,8 @@ fn loopback_capability_is_restricted_to_supported_networks() {
 #[test]
 fn edits_reject_running_guests_stale_settings_and_disk_shrink() {
     let current = LimaSettings {
+        backend: "Virtualization.framework",
+        architecture: Some("aarch64"),
         cpus: 2,
         memory_bytes: 4 * GIB,
         disk_bytes: 20 * GIB,

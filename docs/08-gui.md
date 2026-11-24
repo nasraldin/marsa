@@ -254,11 +254,14 @@ to connect. [Hawser connection requirements](11-security.md#the-docker-socket).
 
 On macOS, a matching owner-managed Lima Docker VM exposes CPU, memory, and
 primary disk capacity in Resources, and supported host loopback access in
-Network. The Machine page for the selected Lima environment shows its
-configured CPU count, guest memory, primary disk capacity, and supported
-loopback setting even while Docker is stopped. Start, stop, or restart Lima
-from Machine. Stop and restart confirm the exact VM name and use graceful
-shutdown. The Environments list and editor also offer start and stop.
+Network. Machine uses the same identity, Resources, and Boot & diagnostics
+layout for the built-in, local Lima, and connection-only environments. A
+verified Lima VM shows its backend, guest architecture, CPU count, guest
+memory, primary disk capacity, and supported loopback setting even while
+Docker is stopped. Start, stop, or restart Lima from Machine. Stop and restart
+confirm the exact VM name and use graceful shutdown. The Environments list and
+editor also offer start and stop. Connection-only environments show the
+available Docker endpoint and connection details.
 After stopping, the resource form reloads the allocation so you can apply
 changes and start the VM again. Lima takes the saved allocation on
 the next start and only grows the primary disk. Deleting a saved connection
@@ -293,8 +296,9 @@ sizes on a common scale because shared data can appear in more than one
 category. The built-in environment uses the owner API to query an already
 running guest without starting it. When the desktop opens on the built-in
 environment after setup, it requests a start once if the daemon reports a
-stopped engine. The built-in environment's Overview card contains the Start
-and Stop controls and reuses the Machine page's stop confirmation.
+stopped engine. The Overview card shows an icon-only Start or Stop button for
+the selected built-in engine or verified local Lima VM. The button uses the
+same stop confirmation as Machine.
 [Moby 29.10.0 Engine API](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml),
 [Moby disk accounting compatibility](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L207-L248).
 

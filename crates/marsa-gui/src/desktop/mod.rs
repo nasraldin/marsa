@@ -479,7 +479,7 @@ impl Render for Desktop {
         let failed = local
             && matches!(route, Route::Machine | Route::Containers)
             && self.engine() == Some(EngineState::Failed);
-        let lima = (route == Route::Machine && !local)
+        let lima = (matches!(route, Route::Machine | Route::Overview) && !local)
             .then(|| {
                 let selection = self.environment.read(cx);
                 self.external_inventory
@@ -488,7 +488,7 @@ impl Render for Desktop {
                     .and_then(|workspace| self.system.read(cx).lima_machine_instance(workspace))
             })
             .flatten();
-        if route == Route::Machine {
+        if matches!(route, Route::Machine | Route::Overview) {
             self.system.update(cx, |system, cx| {
                 system.prepare_lima_machine(lima, window, cx)
             });
@@ -526,7 +526,7 @@ impl Render for Desktop {
                             .text_color(color(palette, ColorToken::TextMuted))
                             .child(if failed {
                                 gui::GUI_SYSTEM_ENGINE_FAILED_SUBTITLE.text(self.locale)
-                            } else if route == Route::Machine && !local {
+                            } else if route == Route::Machine {
                                 gui::GUI_SYSTEM_MACHINE_ENVIRONMENT_DESCRIPTION.text(self.locale)
                             } else {
                                 route.description(self.locale)

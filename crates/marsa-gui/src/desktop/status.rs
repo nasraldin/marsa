@@ -57,7 +57,7 @@ pub(super) fn inline_badge(
         .child(div().min_w_0().truncate().child(label))
 }
 
-fn badge_with_text(
+pub(crate) fn badge_with_text(
     locale: Locale,
     palette: Palette,
     state: Option<EngineState>,
