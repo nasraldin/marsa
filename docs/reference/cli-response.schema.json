@@ -5,16 +5,68 @@
     { "$ref": "#/$defs/help" },
     { "$ref": "#/$defs/completion" },
     { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/bind_approvals" },
+    { "$ref": "#/$defs/bind_resolution" },
     { "$ref": "#/$defs/disk_usage" },
+    { "$ref": "#/$defs/disk_reclaim" },
+    { "$ref": "#/$defs/disk_cleanup_preview" },
+    { "$ref": "#/$defs/network_status" },
+    { "$ref": "#/$defs/network_mode" },
+    { "$ref": "#/$defs/settings" },
+    { "$ref": "#/$defs/setting" },
+    { "$ref": "#/$defs/shares" },
+    { "$ref": "#/$defs/share_added" },
+    { "$ref": "#/$defs/share_removed" },
     { "$ref": "#/$defs/env" },
     { "$ref": "#/$defs/status" },
     { "$ref": "#/$defs/version" },
     { "$ref": "#/$defs/lifecycle" },
     { "$ref": "#/$defs/logs" },
     { "$ref": "#/$defs/log" },
-    { "$ref": "#/$defs/disk_reclaim" }
+    { "$ref": "#/$defs/diagnose" },
+    { "$ref": "#/$defs/reset" },
+    { "$ref": "#/$defs/agents" },
+    { "$ref": "#/$defs/agent_decision" }
   ],
   "$defs": {
+    "bind_approvals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "approvals"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "bind_approvals" },
+        "approvals": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "directories", "expires_at_unix_millis"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+              "directories": {
+                "type": "array", "minItems": 1, "maxItems": 16,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "expires_at_unix_millis": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "bind_resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "id", "decision", "requires_restart"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "bind_resolution" },
+        "id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "decision": { "enum": ["once", "always", "deny"] },
+        "requires_restart": { "type": "boolean" }
+      }
+    },
     "disk_reclaim": {
       "type": "object",
       "additionalProperties": false,
@@ -27,6 +79,36 @@
         "usage": { "$ref": "#/$defs/disk_usage" }
       }
     },
+    "disk_cleanup_preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "apply_supported", "candidates", "unavailable_categories", "estimated_reclaimable_bytes"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "disk_cleanup_preview" },
+        "apply_supported": { "const": false },
+        "estimated_reclaimable_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "unavailable_categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/cleanup_category" }
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["category", "id", "name", "size_bytes"],
+            "properties": {
+              "category": { "$ref": "#/$defs/cleanup_category" },
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "size_bytes": { "type": ["integer", "null"], "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "cleanup_category": { "enum": ["containers", "images", "volumes", "build_cache"] },
     "disk_usage": {
       "type": "object",
       "additionalProperties": false,
@@ -65,6 +147,100 @@
             }
           }
         }
+      }
+    },
+    "network_mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "configured_mode", "active_mode", "restart_pending"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "network_mode" },
+        "configured_mode": { "enum": ["auto", "nat", "userspace", null] },
+        "active_mode": { "enum": ["nat", "userspace", null] },
+        "restart_pending": { "type": ["boolean", "null"] }
+      }
+    },
+    "network_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "configured_mode", "active_mode", "reason", "guest_address", "gateway_address"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "network_status" },
+        "configured_mode": { "enum": ["auto", "nat", "userspace", null] },
+        "active_mode": { "enum": ["nat", "userspace", null] },
+        "reason": { "type": ["string", "null"] },
+        "guest_address": { "type": ["string", "null"] },
+        "gateway_address": { "type": ["string", "null"] }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "settings", "revision", "restart_required"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "settings" },
+        "settings": { "type": "object" },
+        "revision": { "$ref": "#/$defs/settings_revision" },
+        "restart_required": { "type": "boolean" }
+      }
+    },
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "key", "value", "revision", "restart_required"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "setting" },
+        "key": { "type": "string", "minLength": 1 },
+        "value": {},
+        "revision": { "$ref": "#/$defs/settings_revision" },
+        "restart_required": { "type": "boolean" }
+      }
+    },
+    "settings_revision": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+    "shared_folder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "read_only", "requires_restart"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "read_only": { "type": "boolean" },
+        "requires_restart": { "type": "boolean" }
+      }
+    },
+    "shares": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "shares"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "shares" },
+        "shares": { "type": "array", "items": { "$ref": "#/$defs/shared_folder" } }
+      }
+    },
+    "share_added": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "share"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "share_added" },
+        "share": { "$ref": "#/$defs/shared_folder" }
+      }
+    },
+    "share_removed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "id", "requires_restart"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "share_removed" },
+        "id": { "type": "string", "minLength": 1 },
+        "requires_restart": { "type": "boolean" }
       }
     },
     "env": {
@@ -221,6 +397,26 @@
         "script": { "type": "string", "minLength": 1 }
       }
     },
+    "diagnose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "bundle_path"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "diagnose" },
+        "bundle_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "reset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "scope"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "reset" },
+        "scope": { "enum": ["settings", "factory"] }
+      }
+    },
     "error": {
       "type": "object",
       "additionalProperties": false,
@@ -228,8 +424,101 @@
       "properties": {
         "schema_version": { "const": 1 },
         "kind": { "const": "error" },
-        "code": { "enum": ["confirmation_required", "invalid_invocation", "not_available", "connection_failed", "home_unavailable", "unprivileged_user_required", "incompatible_daemon", "operation_failed"] },
+        "code": { "enum": ["confirmation_required", "invalid_invocation", "not_available", "connection_failed", "home_unavailable", "unprivileged_user_required", "incompatible_daemon", "operation_failed", "request_rejected", "bind_resolution_failed", "confirmation_declined", "daemon_unavailable", "agent_request_failed", "agent_approval_missing", "agent_grant_missing", "mcp_unavailable"] },
         "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "data"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "agents" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["clients", "grants", "pending_requests"],
+          "properties": {
+            "clients": { "type": "array", "items": { "$ref": "#/$defs/agent_client" } },
+            "grants": { "type": "array", "items": { "$ref": "#/$defs/agent_grant" } },
+            "pending_requests": { "type": "array", "items": { "$ref": "#/$defs/agent_approval" } }
+          }
+        }
+      }
+    },
+    "agent_client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client_id", "client_name", "project_path"],
+      "properties": {
+        "client_id": { "type": "string" },
+        "client_name": { "type": "string" },
+        "project_path": { "type": "string" }
+      }
+    },
+    "agent_grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "client_id", "project_path", "operation", "expires_at_unix_millis"],
+      "properties": {
+        "id": { "type": "string" },
+        "client_id": { "type": "string" },
+        "project_path": { "type": "string" },
+        "operation": { "type": "string" },
+        "expires_at_unix_millis": { "type": "integer" }
+      }
+    },
+    "agent_approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "client_id", "client_name", "project_path", "operation", "tier", "redacted_arguments", "affected", "expires_at_unix_millis", "can_grant_for_project"],
+      "properties": {
+        "id": { "type": "string" },
+        "client_id": { "type": "string" },
+        "client_name": { "type": "string" },
+        "project_path": { "type": "string" },
+        "operation": { "type": "string" },
+        "tier": { "type": "string" },
+        "redacted_arguments": { "type": "object" },
+        "affected": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "name", "size_bytes", "related_containers"],
+            "properties": {
+              "kind": { "type": "string" },
+              "name": { "type": "string" },
+              "size_bytes": { "type": ["integer", "null"] },
+              "related_containers": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "expires_at_unix_millis": { "type": "integer" },
+        "can_grant_for_project": { "type": "boolean" }
+      }
+    },
+    "agent_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "data"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "agent_decision" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decision"],
+          "properties": {
+            "decision": { "enum": ["approved", "denied", "revoked"] },
+            "approval_id": { "type": "string" },
+            "grant_id": { "type": "string" }
+          },
+          "if": { "properties": { "decision": { "const": "revoked" } } },
+          "then": { "required": ["grant_id"], "not": { "required": ["approval_id"] } },
+          "else": { "required": ["approval_id"], "not": { "required": ["grant_id"] } }
+        }
       }
     }
   }
