@@ -10,7 +10,7 @@ Until M4 is done, GUI work runs against the fake backend and, for real container
 
 ### M6-01 GUI application skeleton
 
-- **Status:** blocked (maintained GPUI and component release graph pending)
+- **Status:** done
 - **Depends on:** M1-05, M0-01, M6-14
 - **Docs:** [08 Architecture](../08-gui.md#architecture), [08 Framework version policy](../08-gui.md#framework-version-policy)
 - **Do:** Create `marsa-gui` and `marsa-ui`. Pin GPUI and gpui-component to the revisions validated in M1-01 and document the upgrade procedure. Open a window, handle app lifecycle, and exit the process when the window closes.
@@ -30,7 +30,20 @@ Requalification on 2026-11-22 resolved the published [GPUI Kit 0.10.0](https://d
 
 Both Apple silicon graphs include the unmaintained `chrono`, `rustybuzz` and `ttf-parser` and the disallowed MPL-2.0 dependencies `cbindgen` and `option-ext`. The target-filtered run also reports two unmatched skips for existing non-Apple dependencies. Both unfiltered workspace runs independently fail the dependency policy. Neither candidate is eligible to enter the production workspace.
 
-M6-14 reproduced a passing native GPUI core graph with source-level patches and the unmodified policy. AccessKit's binding migration is still open upstream and the current component release pins a different GPUI revision. The workspace still needs a maintained, compatible component and core graph. See the [remediation evidence](../spikes/M6-14-gpui-dependency-remediation.md).
+M6-14 reproduced a passing native GPUI core graph with source-level patches and the unmodified policy. AccessKit's binding migration is still open upstream and the current component release pins a different GPUI revision. That experiment covered the native core before the compatible Component port. See the [remediation evidence](../spikes/M6-14-gpui-dependency-remediation.md).
+
+
+The native graph now pairs GPUI 0.3.13 with the ported gpui-component 0.10.0.
+The source pin includes the macOS AccessKit update, Jiff civil dates,
+the current html5ever and URI parsers, and the dependency version alignment
+recorded in the [GPUI upgrade procedure](../reference/gpui-upgrade.md).
+The standard graph audits use the existing policy. A supplemental advisory
+audit preserves the original registry identity of the reviewed path patches.
+On macOS 27.2.1 the native shell opened in English light, English dark,
+Arabic light, and Arabic dark. The final window closed through the native
+window control and Command-W, and the app process exited. Light appearance
+was forced only in a disposable test bundle. M6-08 owns production keyboard,
+Arabic editing and VoiceOver integration.
 
 ### M6-02 Design tokens, themes and fonts
 

@@ -215,3 +215,8 @@ cli-agents-denied = تم رفض الطلب.
 cli-agents-revoke-prompt = هل تريد إلغاء هذا الإذن؟
 cli-agents-revoked = تم إلغاء الإذن.
 cli-agents-confirm-instructions = اكتب { $answer } ثم اضغط { $enter }.
+
+### سطح المكتب
+gui-window-title = مرسى
+gui-window-open-failed = تعذّر على مرسى فتح نافذة.
+gui-window-close = أغلق النافذة
