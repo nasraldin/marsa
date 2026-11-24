@@ -487,3 +487,15 @@ Verified both transports and terminal I/O against [Hawser upstream bca2770](http
 - **Docs:** [08 GUI](../08-gui.md)
 - **Do:** Review the desktop routes and refine task grouping, control placement, and readable states. Group desktop preferences and provide native font and size pickers.
 - **Accept when:** The typography controls persist and apply real fonts and sizes. Major route actions and states are discoverable, and scrollable content remains reachable in both supported languages and appearances.
+
+### M7-35 Restore desktop scrolling and finish the usability controls
+
+- **Status:** in progress
+- **Depends on:** M7-19, M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Repair the workspace scroll areas affected by PR #116 and finish its Overview and sidebar controls.
+- **Accept when:**
+  - Container, image, volume, network, and stack rows scroll within the remaining viewport. The page title, table headings, and filters stay visible.
+  - Resource details can scroll independently. Selecting the active sidebar route returns to its list.
+  - Overview exposes the container filters and local engine lifecycle controls, shows measured history for top containers, and identifies the active environment.
+  - Verify overflow and layout in English light, English dark, Arabic light, and Arabic dark.
