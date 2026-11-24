@@ -18,12 +18,12 @@ use marsa_proto::{
     guest::v1 as guest,
     host::v1::{
         AddShareRequest, CapabilitiesRequest, DaemonEvent, EngineActionRequest, EngineHealthState,
-        EngineState, EngineStatusRequest, GetSettingsRequest, ListSharesRequest, NetworkMode,
-        NetworkStatusRequest, RemoveShareRequest, SubscribeRequest, UpdateSettingsRequest,
-        VmStatsRequest, WatchSettingsRequest, daemon_event::Body, engine_client::EngineClient,
-        events_client::EventsClient, meta_client::MetaClient, network_client::NetworkClient,
-        network_server::Network, settings_client::SettingsClient, shares_client::SharesClient,
-        stats_client::StatsClient,
+        EngineState, EngineStatusRequest, GetSettingsRequest, HostEventKind, ListSharesRequest,
+        NetworkMode, NetworkStatusRequest, RemoveShareRequest, SubscribeRequest,
+        UpdateSettingsRequest, VmStatsRequest, WatchSettingsRequest, daemon_event::Body,
+        engine_client::EngineClient, events_client::EventsClient, meta_client::MetaClient,
+        network_client::NetworkClient, network_server::Network, settings_client::SettingsClient,
+        shares_client::SharesClient, stats_client::StatsClient,
     },
 };
 use marsa_vm::{
@@ -31,6 +31,7 @@ use marsa_vm::{
     fake::{AgentStep, FakeHypervisor, FakeScenario},
 };
 use marsad::{
+    host_events::{HostEvent, HostNotification},
     supervisor::{GuestProbe, GuestSession, Supervisor, SupervisorConfig},
     typed_api::TypedApi,
 };
@@ -38,7 +39,7 @@ use tempfile::TempDir;
 use tokio::{
     io::AsyncReadExt,
     net::{UnixListener, UnixStream},
-    sync::oneshot,
+    sync::{mpsc, oneshot},
     time::timeout,
 };
 use tonic::{
@@ -198,6 +199,62 @@ async fn network_status_reports_current_guest_facts_and_clears_them_on_stop() {
             .into_inner(),
         stopped
     );
+}
+
+#[tokio::test]
+async fn host_notifications_publish_in_order_and_resume_only_the_host_pause() {
+    let fixture = Fixture::new(vec![AgentStep::Send(b"HR".to_vec())]).await;
+    fixture.supervisor.ensure_ready().await.unwrap();
+    let mut stream = fixture.events().await;
+    let initial = next(&mut stream).await;
+    let (send, receive) = mpsc::unbounded_channel();
+    let api = fixture.api.clone();
+    let watcher = tokio::spawn(async move { api.watch_host_events(receive).await });
+
+    for event in [
+        HostEvent::WillSleep,
+        HostEvent::Woke,
+        HostEvent::NetworkChanged,
+    ] {
+        send.send(HostNotification::from(event)).unwrap();
+    }
+    let expected = [
+        Expected::Host(HostEventKind::WillSleep),
+        Expected::Engine(EngineState::Paused),
+        Expected::Host(HostEventKind::Woke),
+        Expected::Engine(EngineState::Ready),
+        Expected::Host(HostEventKind::NetworkChanged),
+    ];
+    let mut sequence = initial.sequence;
+    for item in expected {
+        let event = next(&mut stream).await;
+        sequence += 1;
+        assert_eq!(event.sequence, sequence);
+        assert_eq!(event.stream_id, initial.stream_id);
+        match (item, event.body) {
+            (Expected::Host(expected), Some(Body::Host(host))) => assert_eq!(host.kind(), expected),
+            (Expected::Engine(expected), Some(Body::Engine(engine))) => {
+                assert_eq!(engine.state(), expected);
+            }
+            (_, actual) => panic!("unexpected event {actual:?}"),
+        }
+    }
+
+    fixture.supervisor.pause().await.unwrap();
+    for event in [HostEvent::WillSleep, HostEvent::Woke] {
+        send.send(HostNotification::from(event)).unwrap();
+    }
+    drop(send);
+    watcher.await.unwrap();
+    assert_eq!(
+        fixture.supervisor.snapshot().state,
+        marsad::supervisor::State::Paused
+    );
+}
+
+enum Expected {
+    Host(HostEventKind),
+    Engine(EngineState),
 }
 
 #[tokio::test]

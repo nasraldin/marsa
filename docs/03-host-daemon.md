@@ -429,6 +429,22 @@ The fixture uses an ad-hoc signature, a unique label and a temporary home. On ma
 | Host woke | Resume the VM, send the current time to the agent, re-check network mode, refresh port forwards |
 | Network changed | Re-evaluate `auto` network mode and refresh DNS. Keep the current approved proxy |
 
+On macOS, the daemon uses [IOKit sleep and wake notifications](https://developer.apple.com/library/archive/qa/qa1340/_index.html) on a private dispatch queue. It allows idle sleep immediately and gives the supervisor up to two seconds to finish a pause before acknowledging system sleep. A wake resumes a guest paused by the watcher. The resume handshake updates the guest clock before declaring the engine ready. If the guest stayed running, the daemon updates the clock on its active control session. A boot interrupted before Docker starts is cleaned up and restarted after wake. Once Docker may be running, the supervisor keeps the same VM and rechecks readiness after wake. Pending startup requests wait through either path.
+
+The daemon uses a [Network framework path monitor](https://developer.apple.com/documentation/network/nw_path_monitor_t?language=_5) for default network path changes. The initial snapshot establishes the baseline. Changes are coalesced and published as transient `HostEvent` messages on the same stream as sleep, wake, and engine state. Later network tasks consume these events for configuration and forwarding refreshes.
+
+### Manual sleep and wake test
+
+On a Mac with Apple silicon, use the packaged guest artefacts and the signed user-space network helper to run the entitled harness.
+
+```sh
+MARSA_ENTITLED_DAEMON_POWER=1 \
+MARSA_VZ_NETWORK_HELPER=/absolute/path/to/marsa-net-helper \
+  bash crates/marsa-vm-vz/tests/run-entitled.sh /absolute/path/to/guest
+```
+
+After the test prints `M3-11 ready for manual system sleep`, choose Sleep from the Apple menu. Wake the Mac within two minutes. The test requires the event stream to report host sleep, engine pause, host wake, and engine readiness in that order. It brackets Docker's guest `SystemTime` sample with host timestamps and checks both bounds against the one-second limit. Set `MARSA_POWER_WATCHER_PREFLIGHT=1` to verify guest boot, notification registration, and clock sampling before attempting a sleep cycle. [Pinned Docker clock source](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/info.go#L52)
+
 ## Observability
 
 - Structured logs with levels use JSON lines and rotate daily in `~/.marsa/logs/`. The daemon keeps at most seven dated logs. `marsad.log` points to the current log.

@@ -13,9 +13,10 @@ use futures_util::{Stream, stream};
 use marsa_core::settings::{NetworkMode, Settings, VmBackend};
 use marsa_proto::guest::v1::EgressStage;
 use marsa_proto::host::v1::{
-    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, ListPendingApprovalsResponse,
-    NetworkMode as WireMode, NetworkStatus, PendingApproval, SettingsChanged, SettingsSnapshot,
-    SubscribeRequest, VmStatsSample, daemon_event::Body, events_server::Events,
+    DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, HostEvent, HostEventKind,
+    ListPendingApprovalsResponse, NetworkMode as WireMode, NetworkStatus, PendingApproval,
+    SettingsChanged, SettingsSnapshot, SubscribeRequest, VmStatsSample, daemon_event::Body,
+    events_server::Events,
 };
 use marsa_vm::NetworkSpec;
 use tokio::{
@@ -59,6 +60,11 @@ struct StateAtCursor {
 }
 
 impl Bus {
+    pub(super) fn host(&self, kind: HostEventKind) {
+        self.lock()
+            .publish(Body::Host(HostEvent { kind: kind.into() }));
+    }
+
     pub(super) fn new(settings: Settings) -> io::Result<Self> {
         let mut stream_id = [0; 16];
         getrandom::fill(&mut stream_id).map_err(io::Error::other)?;

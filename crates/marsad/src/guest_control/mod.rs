@@ -3,14 +3,14 @@
 use std::{
     io,
     sync::{Arc, Weak},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime},
 };
 
 use marsa_proto::guest::{
     CONTROL_PORT, DEFER_ENGINE_START_MINOR, ProtocolError, negotiate,
     v1::{
         CommandResult, CommandStatus, ConfigureNetwork, EgressStage, EngineHealth, HelloAck,
-        PortEvent, SetTime, Trim, TrimResult, VmStats, guest_envelope::Body as GuestBody,
+        PortEvent, Trim, TrimResult, VmStats, guest_envelope::Body as GuestBody,
         host_envelope::Body as HostBody,
     },
 };
@@ -86,8 +86,8 @@ pub enum GuestControlError {
     /// A valid message arrived in an invalid session state.
     #[error("guest control protocol violation: {0}")]
     Sequence(&'static str),
-    /// Initial guest clock setup was rejected.
-    #[error("guest rejected initial clock setup ({0:?})")]
+    /// The guest rejected a clock update.
+    #[error("guest rejected clock update ({0:?})")]
     ClockRejected(CommandStatus),
     /// The running guest rejected orderly shutdown.
     #[error("guest rejected shutdown ({0:?})")]
@@ -251,31 +251,14 @@ impl GuestControl {
         )
         .await?;
 
-        let session =
-            session::Session::start(stream, self.active.clone(), self.events.clone(), deferred);
-        let now = (self.clock)()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| GuestControlError::InvalidClock)?;
-        let response = session
-            .client
-            .request(
-                HostBody::SetTime(SetTime {
-                    unix_seconds: i64::try_from(now.as_secs())
-                        .map_err(|_| GuestControlError::InvalidClock)?,
-                    nanoseconds: now.subsec_nanos(),
-                }),
-                HANDSHAKE_TIMEOUT,
-            )
-            .await?;
-        match response {
-            GuestResponse::Command(result) if result.status() == CommandStatus::Ok => (),
-            GuestResponse::Command(result) => {
-                return Err(GuestControlError::ClockRejected(result.status()).into());
-            }
-            GuestResponse::Trim(_) | GuestResponse::Egress(_) => {
-                return Err(GuestControlError::Sequence("expected clock setup result").into());
-            }
-        }
+        let session = session::Session::start(
+            stream,
+            self.active.clone(),
+            self.events.clone(),
+            deferred,
+            self.clock,
+        );
+        session.set_clock(HANDSHAKE_TIMEOUT).await?;
         if let Some(policy) = policy {
             let response = session
                 .client

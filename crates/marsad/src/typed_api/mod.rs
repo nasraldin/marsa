@@ -38,7 +38,10 @@ use marsa_proto::host::v1::{
 use marsa_share::{Allowlist, SharePolicy};
 use marsa_vm::{Capabilities, Hypervisor, NetworkSpec, VmSpec};
 use nix::unistd::{Uid, User};
-use tokio::{net::UnixListener, sync::watch};
+use tokio::{
+    net::UnixListener,
+    sync::{mpsc, watch},
+};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{
     Request, Status,
@@ -48,6 +51,7 @@ use tonic::{
 use crate::{
     agent_policy::GrantStore,
     guest_control::{GuestControl, GuestEvent},
+    host_events::{HostEvent, HostNotification},
     supervisor::{
         DockerStream, GuestProbe, Supervisor, SupervisorConfig, launch::Launch, network::Selection,
     },
@@ -176,6 +180,28 @@ impl TypedApi {
         (self, supervisor)
     }
 
+    /// Publish host notifications in arrival order and apply power changes to the active VM.
+    ///
+    /// The source closes when its watcher is dropped. Each sleep notification is
+    /// acknowledged to the watcher once the supervisor finishes handling it.
+    pub async fn watch_host_events(&self, mut source: mpsc::UnboundedReceiver<HostNotification>) {
+        while let Some(notification) = source.recv().await {
+            let event = notification.event;
+            self.inner.events.host(event.into());
+            if let Some(supervisor) = &self.supervisor {
+                let result = match event {
+                    HostEvent::WillSleep => supervisor.host_will_sleep().await,
+                    HostEvent::Woke => supervisor.host_woke().await,
+                    HostEvent::NetworkChanged => Ok(()),
+                };
+                if let Err(error) = result {
+                    tracing::warn!(?event, %error, "host power change failed");
+                }
+            }
+            notification.finish();
+        }
+    }
+
     /// Install the runtime used by the bundled daemon.
     ///
     /// The factory runs on a blocking worker at every cold activation. It sees
@@ -268,6 +294,7 @@ impl TypedApi {
         let supervisor = Supervisor::spawn_packaged(
             preparation,
             self.inner.paths.console_log(),
+            capabilities.pause_resume,
             control,
             config,
             Arc::new(move |transition| events.engine(transition)),
