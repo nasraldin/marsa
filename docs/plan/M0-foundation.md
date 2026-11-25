@@ -106,3 +106,11 @@
 - **Accept when:**
   - Documentation-only pull requests and pushes to `main` run the documentation check and report the build jobs as skipped.
   - Mixed changes, workflow changes and unavailable diffs keep the build jobs eligible to run.
+
+### M0-10 Record owner decisions for implementation gates
+
+- **Status:** in progress
+- **Depends on:** M0-02, M0-09
+- **Docs:** [15 Decisions](../15-decisions.md), [16 Open questions](../16-risks-and-open-questions.md)
+- **Do:** Record the owner's choices for Arabic review, Docker socket link placement and opt-in crash reporting.
+- **Accept when:** The plan identifies the resolved choices and remaining implementation or review requirements.
