@@ -13,16 +13,17 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "macos")]
+use marsa_client::docker::ContainerSummary;
 use marsa_client::{
     ClientError, DaemonEndpoint, EventSubscription,
     api::{DaemonEvent, EngineActionRequest, EngineState, daemon_event::Body},
     compose::{ComposeCommand, ComposeError, ComposeOutput, ComposeStream},
     docker::{
-        ContainerAction, ContainerDetails, ContainerId, ContainerRemoval, ContainerSummary,
-        DockerClient, DockerError, DockerLogs, DockerStats, EnvironmentReveal, ExecControl,
-        ExternalEndpoint, ImageDetails, ImageId, ImagePull, ImageReference, LogLine,
-        MAX_TERMINAL_INPUT, PullProgress, RevealedEnvironment, StatsSample, TerminalSize,
-        VolumeUsage,
+        ContainerAction, ContainerDetails, ContainerId, ContainerRemoval, DockerClient,
+        DockerError, DockerLogs, DockerStats, EnvironmentReveal, ExecControl, ExternalEndpoint,
+        ImageDetails, ImageId, ImagePull, ImageReference, LogLine, MAX_TERMINAL_INPUT,
+        PullProgress, RevealedEnvironment, StatsSample, TerminalSize, VolumeUsage,
     },
     runtime::{Background, Cancellation, Receiver, Sender, Task, delay, queue},
 };
