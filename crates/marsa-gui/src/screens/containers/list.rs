@@ -151,23 +151,65 @@ pub(super) fn render(
     let rows = Arc::new(rows);
 
     let loaded = status == states::TableState::Rows;
-    let toolbar = status.can_create().then(|| {
-        let filters = row(cx)
-            .items_center()
-            .flex_wrap()
-            .gap_2()
-            .children(view.input.as_ref().map(|input| {
-                div().w(px(224.)).child(
-                    resource_input(input)
-                        .cleanable(true)
-                        .prefix(IconName::Search)
-                        .aria_label(gui::GUI_DESKTOP_SEARCH_CONTAINERS.text(locale)),
-                )
-            }))
-            .child({
-                let filter_view = entity.downgrade();
-                let current = view.filter;
-                Button::new("state-filter")
+    let mut toolbar = row(cx)
+        .w_full()
+        .gap_2()
+        .items_center()
+        .flex_wrap()
+        .flex_shrink_0()
+        .min_h(px(46.));
+    let groups = rows
+        .iter()
+        .filter_map(|entry| match entry {
+            TableRow::Group { key, .. } => Some(key.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if loaded {
+        toolbar = toolbar
+            .p_2()
+            .rounded(px(12.))
+            .border_1()
+            .border_color(color(palette, ColorToken::BorderSubtle))
+            .bg(color(palette, ColorToken::BgSidebar));
+    }
+    if let Some(input) = view.input.as_ref() {
+        toolbar = toolbar.child(
+            div().w(px(216.)).child(
+                resource_input(input)
+                    .cleanable(true)
+                    .prefix(IconName::Search)
+                    .aria_label(gui::GUI_DESKTOP_SEARCH_CONTAINERS.text(locale)),
+            ),
+        );
+    }
+
+    let filter_view = entity.downgrade();
+    toolbar = toolbar.child(
+        Button::new("state-filter")
+            .outline()
+            .h(px(Space::S36.pixels()))
+            .icon(IconName::ChevronDown)
+            .label(view.filter.label(locale))
+            .dropdown_menu(move |menu, _, _| {
+                StatusFilter::ALL.into_iter().fold(menu, |menu, filter| {
+                    let weak = filter_view.clone();
+                    menu.item(
+                        PopupMenuItem::new(filter.label(locale)).on_click(move |_, _, cx| {
+                            let _ = weak.update(cx, |view, cx| {
+                                view.set_status_filter(filter, cx);
+                            });
+                        }),
+                    )
+                })
+            }),
+    );
+    if loaded {
+        toolbar = toolbar
+            .child(view_mode_rail(mode, &screen, cx))
+            .children((!groups.is_empty()).then(|| {
+                let weak = entity.downgrade();
+                Button::new("container-group-actions")
                     .outline()
                     .h(px(Space::S36.pixels()))
                     .child(
@@ -300,13 +342,25 @@ pub(super) fn render(
         .size_full()
         .min_h_0()
         .gap_3()
-        .child(header)
-        .children(toolbar)
+        .child(header.flex_shrink_0())
+        .children(
+            matches!(
+                status,
+                states::TableState::Rows | states::TableState::NoMatches
+            )
+            .then_some(toolbar),
+        )
         .children((loaded && !view.selected.is_empty()).then(|| bulk_toolbar(view, &screen, cx)));
 
     if !loaded {
         return body
-            .child(states::render(view, status, &screen, cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .child(states::render(view, status, &screen, cx)),
+            )
             .into_any_element();
     }
 
@@ -314,6 +368,7 @@ pub(super) fn render(
     let all_selected =
         !visible_ids.is_empty() && visible_ids.iter().all(|id| selected.contains(id));
     let columns = cell_row(palette, cx)
+        .flex_shrink_0()
         .bg(color(palette, ColorToken::BgSubtle))
         .text_color(color(palette, ColorToken::TextMuted))
         .child(
@@ -1143,55 +1198,6 @@ fn column(value: SharedString) -> Div {
 
 fn fixed_column(width: f32, value: SharedString) -> Div {
     div().w(px(width)).flex_shrink_0().truncate().child(value)
-}
-
-fn filter_label(locale: Locale, filter: StatusFilter) -> &'static str {
-    match filter {
-        StatusFilter::All => copy(locale, "All states", "كل الحالات"),
-        StatusFilter::Running => copy(locale, "Running", "قيد التشغيل"),
-        StatusFilter::Paused => copy(locale, "Paused", "متوقفة مؤقتًا"),
-        StatusFilter::Stopped => copy(locale, "Stopped", "متوقفة"),
-        StatusFilter::Healthy => gui::GUI_OVERVIEW_HEALTHY.text(locale),
-        StatusFilter::Unhealthy => gui::GUI_OVERVIEW_UNHEALTHY.text(locale),
-    }
-}
-
-fn group_toggle(
-    groups: Vec<GroupKey>,
-    collapsed: &BTreeSet<GroupKey>,
-    locale: Locale,
-    cx: &Context<ContainerView>,
-) -> Button {
-    let expand = groups.iter().any(|group| collapsed.contains(group));
-    let (label, icon) = if expand {
-        (
-            gui::GUI_DESKTOP_EXPAND_ALL_GROUPS,
-            "icons/list-chevrons-up-down.svg",
-        )
-    } else {
-        (
-            gui::GUI_DESKTOP_COLLAPSE_ALL_GROUPS,
-            "icons/list-chevrons-down-up.svg",
-        )
-    };
-    let title = label.text(locale);
-    Button::new("toggle-container-groups")
-        .outline()
-        .size(px(Space::S36.pixels()))
-        .p_0()
-        .icon(Icon::default().path(icon))
-        .accessibility_label(title)
-        .tooltip(title)
-        .on_click(cx.listener(move |view, _, _, cx| {
-            if expand {
-                for group in &groups {
-                    view.collapsed.remove(group);
-                }
-            } else {
-                view.collapsed.extend(groups.iter().cloned());
-            }
-            cx.notify();
-        }))
 }
 
 fn view_mode_rail(mode: ViewMode, screen: &ScreenContext<'_>, cx: &Context<ContainerView>) -> Div {

@@ -10,6 +10,7 @@ use marsa_client::compose::{
 use marsa_ui::{
     ColorToken, Locale,
     gpui::{Context, Div, ParentElement, PathPromptOptions, Styled, div, px},
+    gpui_component::scroll::ScrollableElement as _,
     tokens::{scale::Space, typography::Role},
 };
 
@@ -194,6 +195,7 @@ pub(super) fn render_output(screen: &ScreenContext<'_>, view: &ResourcesView) ->
                 div()
                     .flex()
                     .flex_col()
+                    .max_h(px(176.))
                     .gap(px(Space::S4.pixels()))
                     .p(px(Space::S12.pixels()))
                     .bg(tone(screen, ColorToken::BgCode))
@@ -203,8 +205,11 @@ pub(super) fn render_output(screen: &ScreenContext<'_>, view: &ResourcesView) ->
                             ComposeSource::Stdout => ColorToken::TextPrimary,
                             ComposeSource::Stderr => ColorToken::TextMuted,
                         };
-                        text(screen, Role::Mono, value).text_color(tone(screen, token))
-                    })),
+                        text(screen, Role::Mono, value)
+                            .flex_shrink_0()
+                            .text_color(tone(screen, token))
+                    }))
+                    .overflow_y_scrollbar(),
             ),
     )
 }
