@@ -203,7 +203,7 @@ glow and rail use the same active accent as the controls.
 
 ### M6-10 Tray item
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M3-12, M6-01, M8-02, Q-06
 - **Docs:** [03 Responsibilities](../03-host-daemon.md#responsibilities), D-003
 - **Do:** Implement the menu-bar item owned by `marsad`: engine state, start and stop, open the GUI, pending agent approvals count, quit. Localised and following the system appearance.
