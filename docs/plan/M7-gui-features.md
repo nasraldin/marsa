@@ -821,7 +821,7 @@ requests. Native snapshots show the focused control and opened modal in
 
 ### M7-52 Check registry image digests for the built-in engine
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-48
 - **Docs:** [08 Screens](../08-gui.md#screens), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
 - **Do:** Define owner authorization for managed registry traffic. Add a typed, bounded lookup through the passive owner API for an already-running Docker engine and compare the results against the current normalized inventory on an independent schedule.
