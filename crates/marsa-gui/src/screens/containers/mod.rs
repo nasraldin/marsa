@@ -137,6 +137,23 @@ impl StatusFilter {
         .text(locale)
     }
 
+    pub(crate) fn icon(self) -> (&'static str, ColorToken) {
+        match self {
+            Self::All => ("icons/circle-dashed.svg", ColorToken::TextMuted),
+            Self::Running => ("icons/play.svg", ColorToken::StatusRunning),
+            Self::Paused => ("icons/pause.svg", ColorToken::StatusPaused),
+            Self::Stopped => ("icons/square-stop.svg", ColorToken::StatusStopped),
+            Self::Restarting => ("icons/rotate-cw.svg", ColorToken::StatusStarting),
+            Self::Other => ("icons/circle.svg", ColorToken::TextMuted),
+            Self::Updates => ("icons/arrow-up-from-line.svg", ColorToken::TextMuted),
+            Self::Healthy => ("icons/circle-check.svg", ColorToken::StatusRunning),
+            Self::Unhealthy => ("icons/triangle-alert.svg", ColorToken::StatusWarning),
+            Self::HealthStarting => ("icons/loader-circle.svg", ColorToken::StatusStarting),
+            Self::NoHealth => ("icons/circle.svg", ColorToken::TextMuted),
+            Self::UnknownHealth => ("icons/circle-question-mark.svg", ColorToken::TextMuted),
+        }
+    }
+
     fn accepts(self, summary: &ContainerSummary) -> bool {
         let state = summary.state();
         match self {
@@ -736,6 +753,7 @@ impl ContainerView {
             self.palette,
         )
         .on_click(cx.listener(|view, _, _, cx| {
+            cx.stop_propagation();
             view.command_failed = false;
             cx.notify();
         }));

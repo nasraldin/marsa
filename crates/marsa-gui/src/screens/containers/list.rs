@@ -19,7 +19,7 @@ use marsa_ui::{
         ParentElement as _, SharedString, Styled as _, Window, div, px, uniform_list,
     },
     gpui_component::{
-        Disableable as _, Icon, IconName, Sizable as _,
+        Disableable as _, Icon, IconName, Side, Sizable as _,
         button::{Button, ButtonVariants as _},
         checkbox::Checkbox,
         menu::{DropdownMenu as _, PopupMenuItem},
@@ -213,10 +213,15 @@ pub(super) fn render(
                     )
                     .accessibility_label(current.label(locale))
                     .dropdown_menu(move |menu, _, _| {
+                        let menu = menu.check_side(Side::Right);
                         StatusFilter::ALL.into_iter().fold(menu, |menu, filter| {
                             let weak = filter_view.clone();
+                            let (icon, tint) = filter.icon();
                             menu.item(
                                 PopupMenuItem::new(filter.label(locale))
+                                    .icon(
+                                        Icon::default().path(icon).text_color(color(palette, tint)),
+                                    )
                                     .checked(filter == current)
                                     .on_click(move |_, _, cx| {
                                         let _ = weak.update(cx, |view, cx| {
@@ -397,7 +402,16 @@ pub(super) fn render(
         )
         .child(div().w(px(80.)).flex_shrink_0());
 
-    let local_source = (!view.external_inventory.is_empty()).then(|| SharedString::from("Marsa"));
+    // Badges only when multiple environments are mixed in this list.
+    let show_sources = {
+        let external = view
+            .external_inventory
+            .iter()
+            .filter(|inventory| filter.includes_external(inventory))
+            .count();
+        external + usize::from(filter.includes_marsa()) > 1
+    };
+    let local_source = show_sources.then(|| SharedString::from("Marsa"));
     let presentation = RowPresentation {
         palette,
         locale,
@@ -438,10 +452,14 @@ pub(super) fn render(
                 TableRow::Group { key, count, source } => group_row(
                     key,
                     *count,
-                    source
-                        .as_ref()
-                        .map(|source| &source.badge)
-                        .or(local_source.as_ref()),
+                    show_sources
+                        .then(|| {
+                            source
+                                .as_ref()
+                                .map(|source| &source.badge)
+                                .or(local_source.as_ref())
+                        })
+                        .flatten(),
                     collapsed.contains(key),
                     &presentation,
                     cx,
@@ -595,7 +613,8 @@ fn render_entry(
         ),
         TableRow::External(entry, engine) => (
             entry,
-            Some(&engine.badge),
+            // Same rule as Marsa rows: only when the list mixes environments.
+            local_source.is_some().then_some(&engine.badge),
             None,
             ContainerTarget::External {
                 id: entry.id.clone(),

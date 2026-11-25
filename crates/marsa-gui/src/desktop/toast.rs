@@ -5,8 +5,8 @@ use marsa_ui::{
     direction::LogicalStyle,
     gpui::{
         Animation, AnimationExt, AnyElement, App, ElementId, InteractiveElement, IntoElement,
-        ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, div, ease_out_quint,
-        px, svg,
+        MouseButton, ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, div,
+        ease_out_quint, px, svg,
     },
     gpui_component::button::{Button, ButtonVariants as _},
     gui_keys as gui,
@@ -51,6 +51,8 @@ pub(crate) fn dismiss_button(id: impl Into<ElementId>, locale: Locale, palette: 
                 .size(px(14.))
                 .text_color(color(palette, ColorToken::TextMuted)),
         )
+        // Dismiss must not fall through to the row / control under the toast.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
 /// Anchor a toast above the content at the logical bottom-end of the workspace.
@@ -98,6 +100,9 @@ pub(crate) fn render(
         .bottom(px(24.))
         .inset_end(px(24.), cx)
         .w(px(384.))
+        // Block hit-testing so closing the toast never activates the control under it.
+        .occlude()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(content)
         .with_animation(
             id,

@@ -141,7 +141,7 @@ impl Launch {
         let docker = services.resource_docker(endpoint.clone());
         let mut launch = services.pending(async move {
             Ok(docker
-                .run_image_configured(&image, name.as_ref(), &options, review)
+                .run_image_configured(&image, name.as_ref(), &options, review, true)
                 .await?)
         });
         let result = launch.result().await;

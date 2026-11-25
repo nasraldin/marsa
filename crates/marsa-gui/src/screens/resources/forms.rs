@@ -27,7 +27,7 @@ use marsa_ui::{
 use super::{ResourceKind, ResourcesView, text, tone};
 
 #[derive(Clone)]
-pub(super) enum FormKind {
+pub(crate) enum FormKind {
     Pull,
     ImportImage,
     PushImage {
@@ -60,6 +60,13 @@ pub(super) enum FormKind {
         reference: String,
         users: Vec<String>,
     },
+    RemoveImages {
+        items: Vec<(String, String, Vec<String>)>,
+    },
+    /// Bulk prune via Docker `/images/prune`. `dangling` selects untagged layers only.
+    PruneImages {
+        dangling: bool,
+    },
     CreateVolume,
     RemoveVolume {
         name: String,
@@ -87,14 +94,17 @@ pub(super) enum FormKind {
 impl FormKind {
     pub(super) fn page(&self) -> ResourceKind {
         match self {
-            Self::ImportImage | Self::PushImage { .. } | Self::ExportImage { .. } => {
-                ResourceKind::Images
-            }
+            Self::ImportImage
+            | Self::PushImage { .. }
+            | Self::ExportImage { .. }
+            | Self::Pull
+            | Self::Run { .. }
+            | Self::RemoveImage { .. }
+            | Self::RemoveImages { .. }
+            | Self::PruneImages { .. }
+            | Self::TagImage { .. } => ResourceKind::Images,
             Self::NetworkMembership { .. } => ResourceKind::Networks,
             Self::CreateStack { .. } | Self::DeployStack => ResourceKind::Compose,
-            Self::Pull | Self::Run { .. } | Self::RemoveImage { .. } | Self::TagImage { .. } => {
-                ResourceKind::Images
-            }
             Self::CreateVolume | Self::RemoveVolume { .. } => ResourceKind::Volumes,
             Self::CreateNetwork | Self::RemoveNetwork { .. } => ResourceKind::Networks,
             Self::ComposeUp { .. } | Self::ComposeRestart { .. } | Self::ComposeDown { .. } => {
@@ -119,7 +129,15 @@ impl FormKind {
             Self::Pull => gui::GUI_DESKTOP_PULL_IMAGE.text(locale),
             Self::Run { .. } => gui::GUI_DESKTOP_RUN_IMAGE.text(locale),
             Self::TagImage { .. } => gui::GUI_DESKTOP_TAG_IMAGE.text(locale),
-            Self::RemoveImage { .. } => gui::GUI_DESKTOP_REMOVE_IMAGE.text(locale),
+            Self::RemoveImage { .. } | Self::RemoveImages { .. } => {
+                gui::GUI_DESKTOP_REMOVE_IMAGE.text(locale)
+            }
+            Self::PruneImages { dangling: true } => {
+                gui::GUI_DESKTOP_PRUNE_DANGLING_IMAGES.text(locale)
+            }
+            Self::PruneImages { dangling: false } => {
+                gui::GUI_DESKTOP_PRUNE_UNUSED_IMAGES.text(locale)
+            }
             Self::CreateVolume => gui::GUI_DESKTOP_CREATE_VOLUME.text(locale),
             Self::RemoveVolume { .. } => gui::GUI_DESKTOP_REMOVE_VOLUME.text(locale),
             Self::CreateNetwork => gui::GUI_DESKTOP_CREATE_NETWORK.text(locale),
@@ -141,15 +159,23 @@ impl FormKind {
                 Some(reference)
             }
             Self::NetworkMembership { name, .. } => Some(name),
-            Self::ImportImage | Self::CreateStack { .. } | Self::DeployStack => None,
+            Self::ImportImage
+            | Self::CreateStack { .. }
+            | Self::DeployStack
+            | Self::PruneImages { .. }
+            | Self::Pull
+            | Self::CreateVolume
+            | Self::CreateNetwork => None,
             Self::Run { reference, .. }
             | Self::RemoveImage { reference, .. }
             | Self::TagImage { reference, .. } => Some(reference),
+            Self::RemoveImages { items } => {
+                items.first().map(|(_, reference, _)| reference.as_str())
+            }
             Self::RemoveVolume { name, .. } | Self::RemoveNetwork { name, .. } => Some(name),
             Self::ComposeUp { project }
             | Self::ComposeRestart { project }
             | Self::ComposeDown { project, .. } => Some(project),
-            Self::Pull | Self::CreateVolume | Self::CreateNetwork => None,
         }
     }
 
@@ -159,9 +185,8 @@ impl FormKind {
                 Some(gui::GUI_DESKTOP_STACK_NAME.text(locale))
             }
             Self::NetworkMembership { .. } => Some(gui::GUI_DESKTOP_NETWORK_CONTAINER.text(locale)),
-            Self::Pull | Self::TagImage { .. } => {
-                Some(gui::GUI_DESKTOP_IMAGE_REFERENCE.text(locale))
-            }
+            Self::TagImage { .. } => Some(gui::GUI_DESKTOP_IMAGE_REFERENCE.text(locale)),
+            Self::Pull => None,
             Self::Run { .. } => Some(gui::GUI_DESKTOP_CONTAINER_NAME_OPTIONAL.text(locale)),
             Self::CreateNetwork => Some(gui::GUI_DESKTOP_NETWORK_NAME.text(locale)),
             Self::CreateVolume => Some(gui::GUI_DESKTOP_VOLUME_NAME.text(locale)),
@@ -184,6 +209,12 @@ impl FormKind {
             Self::RemoveVolume { in_use: false, .. } | Self::ComposeDown { volumes: true, .. } => {
                 Some(gui::GUI_SYSTEM_ACTIVITY_DESTROY_EXPLANATION)
             }
+            Self::PruneImages { dangling: true } => {
+                Some(gui::GUI_DESKTOP_PRUNE_DANGLING_IMAGES_HELP)
+            }
+            Self::PruneImages { dangling: false } => {
+                Some(gui::GUI_DESKTOP_PRUNE_UNUSED_IMAGES_HELP)
+            }
             _ => None,
         }
     }
@@ -193,6 +224,10 @@ impl FormKind {
             Self::RemoveImage { users, .. }
             | Self::RemoveVolume { users, .. }
             | Self::RemoveNetwork { users, .. } => users,
+            Self::RemoveImages { items } => items
+                .iter()
+                .find(|(_, _, users)| !users.is_empty())
+                .map_or(&[], |(_, _, users)| users.as_slice()),
             _ => &[],
         }
     }
@@ -201,6 +236,8 @@ impl FormKind {
         matches!(
             self,
             Self::RemoveImage { .. }
+                | Self::RemoveImages { .. }
+                | Self::PruneImages { .. }
                 | Self::RemoveVolume { .. }
                 | Self::RemoveNetwork { .. }
                 | Self::NetworkMembership { attach: false, .. }
@@ -212,7 +249,6 @@ impl FormKind {
 /// An operation emitted only after its applicable confirmation has passed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ResourceRequest {
-    Pull(String),
     ImportImage,
     PushImage {
         id: String,
@@ -240,6 +276,13 @@ pub(crate) enum ResourceRequest {
     RemoveImage {
         id: String,
         force: bool,
+    },
+    RemoveImages {
+        ids: Vec<String>,
+        force: bool,
+    },
+    PruneImages {
+        dangling: bool,
     },
     CreateVolume(String),
     RemoveVolume {
@@ -353,7 +396,7 @@ impl Form {
                     attach: *attach,
                 }
             }
-            FormKind::Pull => ResourceRequest::Pull(nonempty()?.to_owned()),
+            FormKind::Pull => return None,
             FormKind::Run { id, .. } => ResourceRequest::Run {
                 id: id.clone(),
                 name: nonempty().map(str::to_owned),
@@ -368,6 +411,17 @@ impl Form {
                     force: self.force,
                 }
             }
+            FormKind::RemoveImages { items }
+                if items.iter().all(|(_, _, users)| users.is_empty()) || self.force =>
+            {
+                ResourceRequest::RemoveImages {
+                    ids: items.iter().map(|(id, _, _)| id.clone()).collect(),
+                    force: self.force,
+                }
+            }
+            FormKind::PruneImages { dangling } => ResourceRequest::PruneImages {
+                dangling: *dangling,
+            },
             FormKind::CreateVolume => ResourceRequest::CreateVolume(nonempty()?.to_owned()),
             FormKind::RemoveVolume {
                 name,
@@ -469,7 +523,11 @@ impl Form {
                 .p(px(Space::S12.pixels())),
             );
         }
-        if matches!(self.kind, FormKind::RemoveImage { .. }) && !self.kind.users().is_empty() {
+        if matches!(
+            self.kind,
+            FormKind::RemoveImage { .. } | FormKind::RemoveImages { .. }
+        ) && !self.kind.users().is_empty()
+        {
             let view = view.clone();
             form = form.child(
                 Checkbox::new("force-image-remove")
