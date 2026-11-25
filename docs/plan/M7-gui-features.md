@@ -753,7 +753,7 @@ English and Arabic copy cover the history card, disk card, resources label, and 
 
 ### M7-48 Drive Overview inventory from Docker invalidations
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-07, M7-41
 - **Docs:** [08 Data flow](../08-gui.md#data-flow), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
 - **Do:** Bind the managed Overview resource counts to the normalized store. Keep live utilization, registry update checks, and disk measurements on their own schedules so the utilization timer does not repeatedly reload collection JSON.
