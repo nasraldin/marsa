@@ -887,7 +887,7 @@ requests. Native snapshots show the focused control and opened modal in
 
 ### M7-50 Schedule environment maintenance reviews
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-21
 - **Docs:** [08 Screens](../08-gui.md#screens), [03 Host daemon](../03-host-daemon.md), [11 Security](../11-security.md)
 - **Do:** Let the owner configure when to refresh the existing read-only maintenance review for each environment. Define the schedule owner, restart behavior and supported transports so the interface can state when a configured review will run.

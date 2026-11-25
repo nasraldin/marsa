@@ -371,6 +371,12 @@ optional in schema version 1 and use the same private settings file and revision
 checks as other desktop preferences. Environment and label values are stored in
 that file. Use a secret provider for values that need separate protection.
 
+Maintenance review schedules live under the optional `ui.maintenance_reviews`
+setting and use the same owner API and private configuration file. The daemon
+persists schedules. The open desktop workspace runs reviews and holds their
+latest results in memory. A reopened workspace starts a fresh interval
+after loading settings. Closed and missed intervals are never replayed.
+
 ## Diagnostics archive
 
 The owner-only Unix API creates one private tar archive in `~/.marsa/diagnostics/` when explicitly asked, even with the engine stopped. Review the archive before sharing it. Collection makes no network requests. Replaying a request ID while the daemon retains its result returns the same path.
