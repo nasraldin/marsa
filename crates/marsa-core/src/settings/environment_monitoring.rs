@@ -34,7 +34,7 @@ pub struct EnvironmentMonitoring {
     pub collect_activity: bool,
     /// Maximum age requested for retained activity.
     pub activity_retention: ActivityRetention,
-    /// Check whether images used by containers have newer registry digests.
+    /// Check for changed local image tags and compare registry digests on external engines.
     pub check_image_updates: bool,
     /// List unused volumes as candidates when reviewing storage.
     pub show_volume_candidates: bool,

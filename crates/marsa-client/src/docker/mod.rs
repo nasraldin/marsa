@@ -67,7 +67,7 @@ pub use images::{
 pub use overview::{
     ContainerCounts, ContainerUtilization, DiskBreakdown, EngineVersion, OverviewClient,
     OverviewSample, OverviewUtilization, container_needs_update, image_tag_index,
-    normalize_image_ref,
+    local_image_updates, normalize_image_ref,
 };
 use resources::ComposeLabels;
 pub use resources::{

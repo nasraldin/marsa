@@ -224,6 +224,9 @@ impl Desktop {
                                     state,
                                 );
                             this.state = state.clone();
+                            if inventory_changed && this.route == Route::Overview {
+                                this.overview.sync_inventory(state);
+                            }
                             if let Some(current) =
                                 this.engine().filter(|current| Some(*current) != before)
                             {
@@ -745,6 +748,13 @@ fn route_inventory_changed(
     let networks_changed = || !Arc::ptr_eq(&before.networks(), &after.networks());
     let projects_changed = || !Arc::ptr_eq(&before.compose_projects(), &after.compose_projects());
 
+    if route == Route::Overview {
+        return before.has_docker_inventory() != after.has_docker_inventory()
+            || containers_changed()
+            || images_changed()
+            || volumes_changed()
+            || networks_changed();
+    }
     if palette_open || route == Route::Reports {
         return containers_changed()
             || images_changed()
@@ -767,6 +777,24 @@ mod state_tests {
     use marsa_client::docker::{DockerInventory, VolumeSummary};
 
     use super::*;
+
+    #[test]
+    fn a_loaded_empty_inventory_invalidates_overview_with_the_palette_open() {
+        let empty = AppState::default();
+        let loaded = AppState::index_resources(DockerInventory::default());
+        assert!(route_inventory_changed(
+            Route::Overview,
+            true,
+            &empty,
+            &loaded
+        ));
+        assert!(!route_inventory_changed(
+            Route::Overview,
+            true,
+            &loaded,
+            &loaded
+        ));
+    }
 
     #[test]
     fn unrelated_inventory_does_not_invalidate_the_current_route() {
@@ -811,6 +839,7 @@ mod state_tests {
         assert_eq!(redraw_count(Route::Images, false), 0);
         assert_eq!(redraw_count(Route::Containers, false), 0);
         assert_eq!(redraw_count(Route::Volumes, false), 1);
+        assert_eq!(redraw_count(Route::Overview, false), 1);
         assert_eq!(redraw_count(Route::Images, true), 1);
     }
 }
