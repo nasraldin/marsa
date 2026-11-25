@@ -330,6 +330,18 @@ persistent event history. An opt-in local alert reports new transitions to
 unhealthy while a Marsa window monitors the selected engine. [Docker Engine event history](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/events/events.go#L12-L32),
 [Docker Engine date filtering](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L274-L305).
 
+In Observation and maintenance, schedule an hourly, daily or weekly cleanup
+review for the built-in engine or a verified registered local Unix engine.
+The schedule is off by default and applies to the engine shown when it is
+saved. The Settings card shows the next review and its latest outcome. The
+open desktop workspace runs reviews and starts a fresh interval after reopening.
+If several intervals elapse while the Mac sleeps, the next check runs once.
+A stopped engine is reported as offline. A changed connection or engine identity
+requires the owner to save a new schedule. Settings lists a schedule for a
+removed connection until it is turned off. Scheduled candidates open in the
+read-only review. A review exceeding the existing 512-candidate limit
+reports a failure.
+
 Overview opens with four equal cards: the selected environment (icon, name,
 status, runtime, OS/arch, plus container status counts and a health banner),
 CPU and memory history with percent and absolute consumption against the host

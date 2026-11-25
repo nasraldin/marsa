@@ -2,6 +2,7 @@
 
 mod actions;
 mod cleanup;
+pub use cleanup::ScheduledCleanup;
 mod contexts;
 pub(crate) mod deploy_secrets;
 mod environment_report;

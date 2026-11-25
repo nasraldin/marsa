@@ -79,6 +79,13 @@ flowchart TB
 - Every external action captures the selected endpoint. Deployment uses an owner-only temporary Unix socket backed by that authenticated connection. Compose uses a local YAML file the user chose, or one the user reviewed and created in a chosen project directory. Template creation preserves any existing `compose.yaml`. The Compose process may read includes and associated files. Engine-provided project labels cannot select a local file.
 - Mounting the socket into a container (`-v /var/run/docker.sock:...`) works for compatibility, with the guest's socket, and is shown with a warning badge in the GUI. Agents are refused this by default.
 
+Scheduled maintenance uses the built-in passive owner API or a registered
+owner-authenticated Unix socket. The external review verifies the saved
+registration and canonical path, then checks the Docker engine ID on the same
+connection used to fetch disk usage. Reviews never start a VM, use a remote
+transport, retrieve credentials, or authorize cleanup. The manual preview and
+confirmation govern destructive operations.
+
 ## Shared folders
 
 See [07](07-file-sharing-and-storage.md#the-allowlist). Security-relevant points:
