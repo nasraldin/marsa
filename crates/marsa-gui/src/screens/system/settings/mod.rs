@@ -5,6 +5,7 @@ mod accents;
 mod appearance;
 mod compose_template;
 mod config_sets;
+mod deploy_secrets;
 mod external_docker;
 mod git_sources;
 mod integrations;
@@ -43,6 +44,7 @@ use crate::screens::common::{ScreenContext, align, color, copy, panel, row};
 
 use super::{Notice, SystemView, machine::title_text, notifications::Kind};
 
+pub(super) use deploy_secrets::DeploySecrets;
 pub(crate) use external_docker::icon_path as environment_icon_path;
 pub(super) use external_docker::{EnvironmentSettings, Observations, VmEditor};
 pub(super) use git_sources::GitSources;
@@ -198,7 +200,12 @@ impl SystemView {
             SettingsTab::Logs => self.log_settings_card(screen, cx),
             SettingsTab::Agents => self.agent_settings(screen, cx),
             SettingsTab::Updates => self.updates(screen, cx),
-            SettingsTab::ComposeTemplate => self.compose_template_settings(screen, cx),
+            SettingsTab::ComposeTemplate => div()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .child(self.compose_template_settings(screen, cx))
+                .child(self.deploy_secret_settings(screen, cx)),
             SettingsTab::About => self.about(screen, cx),
         };
         let layout = if compact {

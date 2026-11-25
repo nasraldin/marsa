@@ -92,6 +92,7 @@ pub(super) enum Outcome {
     ComposeFileExists,
     ComposeFileWriteFailed,
     ComposeFileKept,
+    ComposeKeychainFailed,
     UnsupportedImagePlatform,
     Cancelled,
 }
@@ -110,6 +111,7 @@ impl Outcome {
             Self::ComposeFileExists => 4,
             Self::ComposeFileWriteFailed => 5,
             Self::ComposeFileKept => 6,
+            Self::ComposeKeychainFailed => 9,
             Self::UnsupportedImagePlatform => 7,
             Self::Cancelled => 8,
         }
@@ -257,7 +259,16 @@ impl ResourcesView {
                 );
                 return;
             }
-            ResourceRequest::DeployStack(project) | ResourceRequest::ComposeUp(project) => {
+            ResourceRequest::DeployStack { project, keychain } => {
+                let invocation = if keychain {
+                    Invocation::Keychain
+                } else {
+                    Invocation::Standard(ComposeOperation::Up)
+                };
+                self.run_compose(project, (invocation, endpoint), service, locale, cx);
+                return;
+            }
+            ResourceRequest::ComposeUp(project) => {
                 self.run_compose(
                     project,
                     (Invocation::Standard(ComposeOperation::Up), endpoint),
@@ -509,6 +520,10 @@ impl ResourcesView {
             Outcome::ComposeFileKept => (
                 message(screen.locale, gui::GUI_COMPOSE_FILE_KEPT),
                 Tone::Warning,
+            ),
+            Outcome::ComposeKeychainFailed => (
+                message(screen.locale, gui::GUI_DEPLOY_SECRETS_DEPLOY_FAILED),
+                Tone::Error,
             ),
             Outcome::UnsupportedImagePlatform => (
                 message(

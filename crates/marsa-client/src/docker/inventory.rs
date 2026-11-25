@@ -61,6 +61,16 @@ pub(super) enum ExternalTransport {
 }
 
 impl ExternalEndpoint {
+    #[cfg(test)]
+    pub(crate) async fn test_unix_socket(path: &Path) -> io::Result<Self> {
+        let socket = tokio::fs::canonicalize(path).await?;
+        let identity = Some(platform::socket_identity(&socket).await?);
+        Ok(Self::discovered(
+            None,
+            ExternalTransport::Unix { socket, identity },
+        ))
+    }
+
     pub(super) fn managed(id: String, transport: ExternalTransport) -> Self {
         Self::discovered(Some(id), transport)
     }
@@ -397,6 +407,12 @@ fn resource_route(method: &Method, path: &str, has_body: bool) -> bool {
                         .or_else(|| rest.strip_suffix("/history"))
                 })
                 .is_some_and(valid_id)
+                || path
+                    .strip_prefix("/images/")
+                    .and_then(|rest| rest.strip_suffix("/json"))
+                    .is_some_and(|reference| {
+                        !matches!(reference, "." | "..") && valid_pull_query(reference)
+                    })
         }
         Method::DELETE if !has_body => {
             path.strip_prefix("/images/sha256:")
