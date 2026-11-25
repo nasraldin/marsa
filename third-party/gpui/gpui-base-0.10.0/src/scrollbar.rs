@@ -836,6 +836,7 @@ pub struct Scrollbar {
     pub(crate) id: ElementId,
     axis: ScrollbarAxis,
     mode: Option<ScrollbarMode>,
+    direction: Option<LayoutDirection>,
     scroll_handle: Rc<dyn ScrollbarHandle>,
     scroll_size: Option<Size<Pixels>>,
     viewport_bounds: Option<Bounds<Pixels>>,
@@ -861,6 +862,7 @@ impl Scrollbar {
             id: ElementId::CodeLocation(*caller),
             axis: ScrollbarAxis::Both,
             mode: None,
+            direction: None,
             scroll_handle: Rc::new(scroll_handle.clone()),
             max_fps: 120,
             scroll_size: None,
@@ -897,6 +899,16 @@ impl Scrollbar {
     pub fn mode(mut self, mode: ScrollbarMode) -> Self {
         self.mode = Some(mode);
         self
+    }
+
+    /// Use the viewport's reading direction when it differs from the app.
+    pub(crate) fn layout_direction(mut self, direction: LayoutDirection) -> Self {
+        self.direction = Some(direction);
+        self
+    }
+
+    fn resolved_direction(&self, cx: &App) -> LayoutDirection {
+        self.direction.unwrap_or_else(|| LayoutDirection::global(cx))
     }
 
     /// Set a special scroll size of the content area, default is None.
@@ -1395,7 +1407,7 @@ impl Element for Scrollbar {
             .scroll_size
             .unwrap_or(self.scroll_handle.content_size());
         let scroll_viewport_size = self.scroll_viewport_size.unwrap_or(hitbox.size);
-        let direction = LayoutDirection::global(cx);
+        let direction = self.resolved_direction(cx);
         let track_width = self
             .styles
             .track
@@ -1574,7 +1586,7 @@ impl Element for Scrollbar {
         let view_id = window.current_view();
         let hitbox_bounds = prepaint.hitbox.bounds;
         let is_hover_to_show = mode.is_hover();
-        let direction = LayoutDirection::global(cx);
+        let direction = self.resolved_direction(cx);
 
         window.with_content_mask(
             Some(ContentMask {

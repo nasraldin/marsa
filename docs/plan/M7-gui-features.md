@@ -440,7 +440,7 @@ capability boundaries. See M7-50 and M7-51.
 
 ### M7-24 Compose template and new stack creation
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** done
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Let users save or restore the default Compose template in Settings. Use the template when creating a new stack in an explicitly chosen project directory.
@@ -449,7 +449,21 @@ capability boundaries. See M7-50 and M7-51.
   - A saved template survives relaunch. Restoring the built-in template has an explicit action.
   - A new stack opens with the saved template. Creating a Compose file keeps any existing file intact and deployment uses the environment selected when the flow began.
 
-The signed Compose client created the reviewed file in a disposable directory, deployed to the selected Lima socket, and removed the test stack afterward. Unit tests cover refusing existing files and symlinks. The Mac locked before the final four-variant desktop checks.
+The custom template survived a signed desktop relaunch and appeared in New
+stack. Choosing an occupied directory through the native folder picker left its
+Compose file intact. Unit tests cover refusing existing files and symlinks.
+
+The signed desktop created byte-identical YAML in a disposable directory and
+deployed a cached arm64 service with networking disabled to the originally
+selected Lima socket after the workspace selection changed to Marsa. The Mac
+was locked during the clean-directory check, so the fixture supplied that
+directory through the folder picker callback. The native Restore default
+confirmation removed the override from the owner daemon's persisted settings.
+
+Reviewed the template settings and New Stack in English light, English dark,
+Arabic light, and Arabic dark. The Arabic editor keeps its scrollbar clear of
+the YAML, with a native regression for its scroll track. [Template settings](../spikes/M7-24-compose-template/compose-template-settings.jpg)
+and [New Stack](../spikes/M7-24-compose-template/new-stack.jpg).
 
 ### M7-25 Desktop log preferences
 
