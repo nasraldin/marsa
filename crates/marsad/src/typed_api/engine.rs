@@ -38,20 +38,27 @@ impl TypedApi {
             .inner
             .engine_requests
             .run(&request.request_id, action, || async move {
-                let supervisor = api
-                    .supervisor
-                    .as_ref()
-                    .ok_or_else(|| Status::unavailable("no VM runtime is attached"))?;
-                match action {
-                    Action::Start => supervisor.ensure_ready().await,
-                    Action::Stop => supervisor.stop().await,
-                    Action::Restart => supervisor.restart().await,
-                }
-                .map_err(supervisor_status)?;
+                api.perform_engine_action(action).await?;
                 Ok(api.inner.events.engine_status())
             })
             .await?;
         Ok(Response::new(status))
+    }
+
+    pub(super) async fn perform_engine_action(&self, action: Action) -> Result<(), Status> {
+        // The supervisor's reservation guards the actual lifecycle mutation.
+        // Do not hold the factory gate while waiting for a boot to finish.
+        self.inner.factory_reset.read()?;
+        let supervisor = self
+            .supervisor
+            .as_ref()
+            .ok_or_else(|| Status::unavailable("no VM runtime is attached"))?;
+        match action {
+            Action::Start => supervisor.ensure_ready().await,
+            Action::Stop => supervisor.stop().await,
+            Action::Restart => supervisor.restart().await,
+        }
+        .map_err(supervisor_status)
     }
 }
 
