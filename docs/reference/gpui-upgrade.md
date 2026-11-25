@@ -55,4 +55,7 @@ the maintained html5ever parser with a private tree adapter.
 
 DataTable scopes its accessibility root to the table state entity. Keep this
 identity stable across redraws and focus changes while allowing multiple tables
-in one window. The native `data_table_render` test verifies both properties.
+in one window. The native `component_render` test verifies both properties.
+
+In-app toast dismissal stays visible and keyboard reachable. Its accessible
+name is localized, and toast placement follows the interface direction.

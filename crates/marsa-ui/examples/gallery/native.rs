@@ -28,8 +28,8 @@ use marsa_ui::{
     direction::{align_to_start, position_window_controls, row_for, set_locale},
     gpui::{
         AppContext as _, ClipboardItem, Context, Div, Entity, FontWeight, Hsla,
-        InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _, Window, div,
-        px,
+        InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle,
+        StatefulInteractiveElement as _, Styled as _, Window, div, px,
     },
     gpui_component::{
         Disableable as _, IconName, IndexPath, Theme, WindowExt as _,
@@ -88,6 +88,7 @@ struct Gallery {
     tables: [Entity<TableState<data::Rows>>; 2],
     tree: Entity<TreeState>,
     split: SplitView,
+    scroll: ScrollHandle,
     checked: bool,
     live: bool,
     tab: usize,
@@ -142,6 +143,7 @@ impl Gallery {
             tables,
             tree,
             split: SplitView::new(cx),
+            scroll: ScrollHandle::new(),
             checked: false,
             live: true,
             tab: 0,
@@ -458,6 +460,7 @@ impl Render for Gallery {
         let controls = self.controls(cx);
         let data = self.data();
         let feedback = self.feedback(cx);
+        let scroll = self.scroll.clone();
         Role::Body
             .with_ui_font(locale == Locale::Arabic, DisplaySettings::default().ui_font)
             .apply(
@@ -484,7 +487,24 @@ impl Render for Gallery {
                             .id("gallery-scroll")
                             .flex_1()
                             .min_h_0()
-                            .overflow_y_scrollbar()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.scroll)
+                            .on_key_down(move |event, window, cx| {
+                                if event.keystroke.modifiers.modified() {
+                                    return;
+                                }
+                                let page = match event.keystroke.key.as_str() {
+                                    "pageup" => 1.,
+                                    "pagedown" => -1.,
+                                    _ => return,
+                                };
+                                let mut offset = scroll.offset();
+                                offset.y = (offset.y + scroll.bounds().size.height * page)
+                                    .clamp(-scroll.max_offset().y, px(0.));
+                                scroll.set_offset(offset);
+                                window.refresh();
+                                cx.stop_propagation();
+                            })
                             .child(
                                 row_for(locale)
                                     .items_start()
@@ -492,7 +512,8 @@ impl Render for Gallery {
                                     .child(controls)
                                     .child(data)
                                     .child(feedback),
-                            ),
+                            )
+                            .vertical_scrollbar(&self.scroll),
                     ),
             )
     }

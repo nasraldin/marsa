@@ -39,5 +39,5 @@ name = "typography_native"
 harness = false
 
 [[test]]
-name = "data_table_render"
+name = "component_render"
 harness = false

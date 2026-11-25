@@ -25,7 +25,7 @@ mod native {
             RenderOnce as _, SharedString, Styled as _, Window, WindowBounds, WindowOptions,
             WindowingRequest, canvas, div, px, size,
         },
-        gpui_component,
+        gpui_component::{self, Root, WindowExt as _, notification::Notification},
         preferences::DisplaySettings,
     };
 
@@ -90,6 +90,7 @@ mod native {
                     palette.apply_to_components(locale, DisplaySettings::default(), cx);
                     verify_tables(locale, cx);
                     verify_split(locale, palette, cx);
+                    verify_toast(cx);
                 }
                 std::process::exit(0);
             });
@@ -205,6 +206,38 @@ mod native {
             window.remove_window();
         })
         .expect("resize both panes by keyboard");
+    }
+
+    struct EmptyView;
+
+    impl Render for EmptyView {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full()
+        }
+    }
+
+    fn verify_toast(cx: &mut App) {
+        let options = window_options(cx);
+        let handle = cx
+            .open_window(options, |window, cx| {
+                let view = cx.new(|_| EmptyView);
+                cx.new(|cx| Root::new(view, window, cx))
+            })
+            .expect("open hidden toast window");
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.push_notification(Notification::new().message("Saved").autohide(false), cx);
+            window.draw(cx).clear(cx);
+            window.focus_next(cx);
+            let stack = window.focused(cx).expect("toast stack is in the tab order");
+            window.focus_next(cx);
+            assert_ne!(
+                window.focused(cx),
+                Some(stack),
+                "keyboard focus reaches the toast dismissal without pointer hover"
+            );
+            window.remove_window();
+        })
+        .expect("reach the toast dismissal");
     }
 
     fn table_ids(
