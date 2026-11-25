@@ -12,7 +12,7 @@ use marsa_client::docker::{
 };
 use marsa_ui::{
     ColorToken, Locale,
-    direction::{LogicalStyle as _, isolate_technical_text, row, top_start_anchor},
+    direction::{LogicalStyle as _, POPOVER_TOP_START, isolate_technical_text, row},
     gpui::{
         App, Context, Div, FontWeight, IntoElement, ParentElement as _, PromptButton, PromptLevel,
         SharedString, Styled as _, WeakEntity, Window, div, px,
@@ -296,7 +296,6 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
             let choices = entries.clone();
             let selection = selected.clone();
             let selected_id = selected.borrow().as_ref().map(|(id, _)| id.clone());
-            let anchor = top_start_anchor(locale);
             let image_label = gui::GUI_DESKTOP_IMAGE.text(locale);
             let label = selected
                 .borrow()
@@ -312,7 +311,7 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
                     .dropdown_caret(true)
                     .accessibility_label(format!("{image_label} · {label}"))
                     .label(label)
-                    .dropdown_menu_with_anchor(anchor, move |menu, window, _| {
+                    .dropdown_menu_with_anchor(POPOVER_TOP_START, move |menu, window, _| {
                         let menu = menu
                             .max_h(window.viewport_size().height * 0.5)
                             .scrollable(true);
@@ -375,7 +374,7 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
                         .dropdown_caret(true)
                         .accessibility_label(format!("{set_label} · {label}"))
                         .label(label)
-                        .dropdown_menu_with_anchor(anchor, move |menu, window, _| {
+                        .dropdown_menu_with_anchor(POPOVER_TOP_START, move |menu, window, _| {
                             let menu = menu
                                 .max_h(window.viewport_size().height * 0.5)
                                 .scrollable(true);

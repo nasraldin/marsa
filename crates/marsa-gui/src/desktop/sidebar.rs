@@ -2,7 +2,7 @@
 
 use marsa_ui::{
     ColorToken, brand_mark_for_source,
-    direction::{LogicalStyle as _, bottom_start_anchor},
+    direction::{LogicalStyle as _, POPOVER_BOTTOM_START},
     gpui::{
         AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement, ParentElement,
         Styled, div, img, prelude::FluentBuilder, px, svg,
@@ -282,8 +282,7 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
                 ),
         )
     };
-    let anchor = bottom_start_anchor(locale);
-    button.dropdown_menu_with_anchor(anchor, move |menu, _, _| {
+    button.dropdown_menu_with_anchor(POPOVER_BOTTOM_START, move |menu, _, _| {
         let menu = choices.iter().fold(menu, |menu, (choice, name, icon)| {
             let picked = choice.clone();
             let desktop = desktop_entity.clone();

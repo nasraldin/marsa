@@ -7,4 +7,8 @@ fn sample(left: i32, right: i32) {
     div().pl_2().r#right(px(4.)).justify_end().text_align(TextAlign::Left);
     Styled::rounded_tr_lg(div());
     show(Anchor::TopRight);
+    show(Anchor::LeftCenter);
+    show(Anchor::RightCenter);
+    let _edges = gpui::Edges { top: left, left, right: 0, bottom: 0 };
+    let _data = Other { left, right };
 }

@@ -172,11 +172,13 @@ Rules, enforced by lint and review:
 Screen code uses `marsa_ui::direction` for asymmetric inline edges,
 row alignment and popover anchors. The `marsa-gui` build checks Rust
 tokens under `src` for physical layout calls on macOS and headless
-targets. Marsa supplies directional component
-icons in their English orientation, and the resolver mirrors the asset
-once in Arabic. A chart's samples and hover targets
-use the same fixed-direction technical row so every point matches its
-time interval in both languages.
+targets. The check recognizes direct Rust calls and geometry names. Review
+checks aliases and layout semantics. Marsa supplies component popover
+anchors and directional icons in their English orientation. The framework
+resolves them for the active direction. A chart's samples and hover
+targets use the same fixed-direction technical row so every point matches
+its time interval in both languages. Sparkline bars share the available
+width as the sample count grows.
 
 ### Internationalisation
 

@@ -57,21 +57,19 @@ pub fn align_column_to_start(element: Div, locale: Locale) -> Div {
     }
 }
 
-/// Anchor a popover at the top of the trigger's logical start edge.
-pub fn top_start_anchor(locale: Locale) -> Anchor {
+/// Align the children of a column to its logical end.
+pub fn align_column_to_end(element: Div, locale: Locale) -> Div {
     match locale {
-        Locale::EnglishUs => Anchor::TopLeft,
-        Locale::Arabic => Anchor::TopRight,
+        Locale::EnglishUs => element.items_end(),
+        Locale::Arabic => element.items_start(),
     }
 }
 
-/// Anchor a popover at the bottom of the trigger's logical start edge.
-pub fn bottom_start_anchor(locale: Locale) -> Anchor {
-    match locale {
-        Locale::EnglishUs => Anchor::BottomLeft,
-        Locale::Arabic => Anchor::BottomRight,
-    }
-}
+/// Top-start anchor for a component popover. GPUI Kit resolves it for the current direction.
+pub const POPOVER_TOP_START: Anchor = Anchor::TopLeft;
+
+/// Bottom-start anchor for a component popover. GPUI Kit resolves it for the current direction.
+pub const POPOVER_BOTTOM_START: Anchor = Anchor::BottomLeft;
 
 /// Align element text to the inline start for the specified language.
 pub fn align_to_start(element: Div, locale: Locale) -> Div {
@@ -276,7 +274,32 @@ pub fn isolate_technical_text(value: &str) -> SharedString {
 
 #[cfg(test)]
 mod tests {
-    use super::isolate_technical_text;
+    use super::*;
+    use gpui_base::logical_anchor;
+
+    #[test]
+    fn component_popover_anchors_are_mirrored_once() {
+        for (direction, top, bottom) in [
+            (LayoutDirection::Ltr, Anchor::TopLeft, Anchor::BottomLeft),
+            (LayoutDirection::Rtl, Anchor::TopRight, Anchor::BottomRight),
+        ] {
+            assert_eq!(logical_anchor(POPOVER_TOP_START, direction), top);
+            assert_eq!(logical_anchor(POPOVER_BOTTOM_START, direction), bottom);
+        }
+    }
+
+    #[test]
+    fn column_end_alignment_follows_the_locale() {
+        use gpui::AlignItems;
+
+        for (locale, expected) in [
+            (Locale::EnglishUs, AlignItems::FlexEnd),
+            (Locale::Arabic, AlignItems::FlexStart),
+        ] {
+            let mut column = align_column_to_end(div().flex().flex_col(), locale);
+            assert_eq!(column.style().align_items, Some(expected));
+        }
+    }
 
     #[test]
     fn starts_a_fresh_isolate_after_a_paragraph_break() {

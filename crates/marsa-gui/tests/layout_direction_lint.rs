@@ -13,7 +13,7 @@ fn rejects_physical_layout_without_matching_strings_comments_or_mouse_buttons() 
             .iter()
             .map(|violation| violation.line)
             .collect::<Vec<_>>(),
-        [7, 7, 7, 7, 8, 9]
+        [7, 7, 7, 7, 8, 9, 10, 11, 12, 12]
     );
     let methods: Vec<_> = violations
         .iter()
@@ -27,7 +27,11 @@ fn rejects_physical_layout_without_matching_strings_comments_or_mouse_buttons() 
             "justify_end",
             "TextAlign::Left",
             "rounded_tr_lg",
-            "Anchor::TopRight"
+            "Anchor::TopRight",
+            "Anchor::LeftCenter",
+            "Anchor::RightCenter",
+            "Edges.left",
+            "Edges.right",
         ],
     );
 }

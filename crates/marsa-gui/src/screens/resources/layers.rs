@@ -7,9 +7,12 @@ use marsa_ui::{
     ColorToken, Locale, Palette,
     gpui::{
         Div, FontWeight, IntoElement, ParentElement as _, SharedString, Styled as _, div, px,
-        relative, svg,
+        relative,
     },
-    gpui_component::button::{Button, ButtonVariants as _},
+    gpui_component::{
+        Icon, IconName,
+        button::{Button, ButtonVariants as _},
+    },
     gui_keys as gui,
     tokens::{
         scale::{Radius, Space},
@@ -184,14 +187,13 @@ fn layer_row(
                 .items_center()
                 .gap_2()
                 .child(
-                    svg()
-                        .path(if expanded {
-                            "icons/chevron-down.svg"
-                        } else {
-                            "icons/chevron-right.svg"
-                        })
-                        .size(px(14.))
-                        .text_color(color(palette, ColorToken::TextMuted)),
+                    Icon::new(if expanded {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .size(px(14.))
+                    .text_color(color(palette, ColorToken::TextMuted)),
                 )
                 .child(
                     div()

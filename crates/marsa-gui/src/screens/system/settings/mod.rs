@@ -20,7 +20,7 @@ use marsa_client::api::UpdateSettingsRequest;
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken, Locale, TextKey,
-    direction::{LogicalStyle, top_start_anchor},
+    direction::{LogicalStyle, POPOVER_TOP_START},
     gpui::{
         Context, Div, InteractiveElement, ParentElement, PromptButton, PromptLevel, SharedString,
         Styled, Window, div, px, svg,
@@ -242,14 +242,13 @@ impl SystemView {
         let locale = screen.locale;
         let current = self.settings_tab;
         let view = cx.weak_entity();
-        let anchor = top_start_anchor(locale);
         Button::new("settings-section-picker")
             .outline()
             .icon(marsa_ui::gpui_component::Icon::default().path(current.icon()))
             .label(current.title(locale))
             .dropdown_caret(true)
             .accessibility_label(gui::GUI_SETTINGS_CHOOSE_SECTION.text(locale))
-            .dropdown_menu_with_anchor(anchor, move |mut menu, _, _| {
+            .dropdown_menu_with_anchor(POPOVER_TOP_START, move |mut menu, _, _| {
                 for (label, items) in SettingsTab::GROUPS {
                     menu = menu.label(label.text(locale));
                     for &tab in items {
