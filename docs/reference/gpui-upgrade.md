@@ -35,6 +35,10 @@ the exact resolved graph and source manifest to audit the original published
 versions. Scheduled Cargo Audit also checks those versions against the
 unchanged RustSec requirements.
 
+The built-in code editor keeps its scrollbar and overview ruler in the
+technical text flow inside right-to-left interfaces. This prevents the track
+from covering YAML, code, or line numbers.
+
 The native macOS graph retains the CoreText font backend, the Metal renderer,
 and AccessKit. The Component branch keeps Linux, Windows, and web dependencies
 behind explicit features for future work on those platforms. The unfiltered

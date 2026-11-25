@@ -15,6 +15,18 @@ fn main() -> ExitCode {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
     if !arguments.is_empty() {
         #[cfg(target_os = "macos")]
+        if let [action] = arguments.as_slice()
+            && action == "uninstall"
+        {
+            return match platform::uninstall() {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("marsad: {error}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        #[cfg(target_os = "macos")]
         if let [command, action] = arguments.as_slice()
             && command == "login"
         {

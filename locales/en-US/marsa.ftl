@@ -1266,6 +1266,25 @@ gui-environment-scan-low = Low
 gui-environment-scan-negligible = Negligible
 gui-environment-scan-unknown = Unknown
 
+gui-environment-scan-retention = Keep the latest report for this environment
+gui-environment-scan-session = Until I close this editor
+gui-environment-scan-one-day = 1 day
+gui-environment-scan-seven-days = 7 days
+gui-environment-scan-retained = The latest report is saved on this Mac.
+gui-environment-scan-session-result = These findings stay in this editor until you close it.
+gui-environment-scan-discard = Stop saving reports
+gui-environment-scan-discard-confirm = Remove the saved report for this environment and keep future findings only until you close this editor?
+gui-environment-scan-discarded = The previous saved report was removed.
+gui-environment-scan-expired = The saved report expired and was removed.
+gui-environment-scan-unchanged = This scan did not replace the latest saved report.
+gui-environment-scan-retention-failed = Could not update or open the saved scan report.
+gui-environment-scan-saved-image = Saved findings for image
+gui-environment-scan-cache-clear = Clear scanner caches
+gui-environment-scan-cache-confirm = Clear the Grype and Trivy database caches shared by all environments on this Mac? Future scans may download the databases again.
+gui-environment-scan-cache-cleared = Cache cleared.
+gui-environment-scan-cache-empty = Cache was already empty.
+gui-environment-scan-cache-failed = Could not fully clear the cache.
+
 gui-overview-description = Engine, workloads, and storage for the active environment.
 gui-overview-view-disk = View storage
 gui-overview-measuring = Collecting measurements…

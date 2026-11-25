@@ -7,6 +7,8 @@ mod diagnostics;
 mod disk;
 mod disk_preview;
 mod docker_discovery;
+#[cfg(target_os = "macos")]
+pub use docker_discovery::{ContextRemoval, ContextRemovalError, prepare_context_removal};
 mod engine;
 mod events;
 mod factory_reset;

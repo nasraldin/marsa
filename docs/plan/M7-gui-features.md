@@ -412,20 +412,35 @@ the option, and Escape dismissed the editor in each variant.
 [Arabic light](../screenshots/m7-22/ar-light.png) ·
 [Arabic dark](../screenshots/m7-22/ar-dark.png).
 
-### M7-23 Configure scanning, jobs, and downloads
+### M7-23 Configure image scanning and retention
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-21
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
-- **Do:** Add image scanner settings and cache controls, system-job configuration, and volume file downloads.
-- **Deliver:** Persisted settings consumed by the corresponding workflows.
+- **Do:** Add scanner report retention and controls for the desktop scanner database caches. Preserve each environment's existing scanner opt-in and tool preference.
+- **Deliver:** Persisted scanner settings and report retention, explicit cache cleanup, and visible outcomes.
 - **Accept when:**
-  - Scanner settings affect a scan, maintenance schedules affect subsequent runs, and scan retention and cache cleanup report their outcomes.
-  - Volume file downloads use the saved download format when the selected environment supports secure read-only access.
+  - The selected engine's saved tool setting controls a scan.
+  - Report retention affects what can be reopened and reports its outcome.
+  - Confirmed scanner-cache cleanup reports its outcome and serializes with scanning.
+
+Native offscreen qualification used a disposable Unix engine and isolated
+scanner processes. Keyboard activation saved Trivy and one-day retention,
+requested the selected image archive and reopened its findings. The AppKit
+Cancel button left the cache in place. Confirming cleanup reported the Trivy
+cache removed and the Grype cache already empty. Confirming editor-only
+retention removed the saved report. The engine recorded only reads.
+[English light](../spikes/M7-23-scanner-retention/en-light.png),
+[English dark](../spikes/M7-23-scanner-retention/en-dark.png),
+[Arabic light](../spikes/M7-23-scanner-retention/ar-light.png), and
+[Arabic dark](../spikes/M7-23-scanner-retention/ar-dark.png).
+
+Scheduled maintenance review and volume downloads have independent owners and
+capability boundaries. See M7-50 and M7-51.
 
 ### M7-24 Compose template and new stack creation
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** done
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Let users save or restore the default Compose template in Settings. Use the template when creating a new stack in an explicitly chosen project directory.
@@ -434,7 +449,21 @@ the option, and Escape dismissed the editor in each variant.
   - A saved template survives relaunch. Restoring the built-in template has an explicit action.
   - A new stack opens with the saved template. Creating a Compose file keeps any existing file intact and deployment uses the environment selected when the flow began.
 
-The signed Compose client created the reviewed file in a disposable directory, deployed to the selected Lima socket, and removed the test stack afterward. Unit tests cover refusing existing files and symlinks. The Mac locked before the final four-variant desktop checks.
+The custom template survived a signed desktop relaunch and appeared in New
+stack. Choosing an occupied directory through the native folder picker left its
+Compose file intact. Unit tests cover refusing existing files and symlinks.
+
+The signed desktop created byte-identical YAML in a disposable directory and
+deployed a cached arm64 service with networking disabled to the originally
+selected Lima socket after the workspace selection changed to Marsa. The Mac
+was locked during the clean-directory check, so the fixture supplied that
+directory through the folder picker callback. The native Restore default
+confirmation removed the override from the owner daemon's persisted settings.
+
+Reviewed the template settings and New Stack in English light, English dark,
+Arabic light, and Arabic dark. The Arabic editor keeps its scrollbar clear of
+the YAML, with a native regression for its scroll track. [Template settings](../spikes/M7-24-compose-template/compose-template-settings.jpg)
+and [New Stack](../spikes/M7-24-compose-template/new-stack.jpg).
 
 ### M7-25 Desktop log preferences
 
@@ -519,7 +548,7 @@ source evidence and allowed connection paths.
 
 ### M7-28 Save and check out HTTPS Git repositories
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** done
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md#git-sources)
 - **Do:** Manage named HTTPS Git repository and branch references, test branch access, and create a checkout in a chosen folder for explicit selection by the Compose workflow.
@@ -529,11 +558,18 @@ source evidence and allowed connection paths.
   - Test verifies the branch exists. Checkout uses the selected reference and does not overwrite existing files.
   - Git ignores ambient configuration. The desktop keeps checkout and engine-pinned Compose deployment as distinct owner actions.
 
-The client tested a real HTTPS branch, rejected a missing ref, and completed separate checkouts into explicitly chosen folders. Authenticated HTTPS and SSH are tracked in M7-30. The Mac locked before the final four-variant desktop checks.
+An ad hoc signed native desktop fixture used a real daemon and the operating system's Apple Git 2.54.0 (Apple Git-157). In all four variants, the fixture saved and edited a repository, recovered the same entry after relaunch, and verified both cancellation and confirmed removal across restarts. It accepted the public Docker Compose examples repository's `master` branch over HTTPS and rejected a missing branch. A direct Git control failed under the supplied ambient URL rewrite and transport settings. Marsa used trusted Git and completed the checkout with those same overrides present, bypassing the Git executable injected into `PATH`.
+
+The fixture supplied the chosen folder and removal response at the native callbacks. The resulting checkout matched the tested branch and revision, preserved existing sentinel files, and had owner-only permissions even under a more broadly readable parent. The repository store was owner-only. A distinct action opened the Deploy Stack dialog for the selected Lima engine. The fixture skipped Finder reveal and stopped before submitting a deployment. Authenticated HTTPS and SSH are tracked in M7-30.
+
+[English light](../screenshots/m7-28/en-light.png) ·
+[English dark](../screenshots/m7-28/en-dark.png) ·
+[Arabic light](../screenshots/m7-28/ar-light.png) ·
+[Arabic dark](../screenshots/m7-28/ar-dark.png).
 
 ### M7-29 Reusable container configuration sets
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** done
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings), [11 Security](../11-security.md)
 - **Do:** Save named sets of container network, restart, environment, label, port and mount options. Let users apply and edit a copy before creating a container.
@@ -543,7 +579,23 @@ The client tested a real HTTPS branch, rejected a missing ref, and completed sep
   - The create form shows the saved values and accepts overrides without changing the set. Docker receives the reviewed options for the selected engine.
   - Local binds remain subject to Marsa's existing allowlist. An external bind requires confirmation of the destination engine, source path and access mode.
 
-A disposable Lima container verified options including environment, labels, restart policy, TCP and UDP ports, and read-only mounts. The same fixture verified the requirement for explicit external bind review. The Mac locked before the final four-variant desktop checks.
+A native fixture launched an ad hoc-signed desktop with an isolated owner
+profile in all four language and appearance combinations. It added and
+edited a configuration set, relaunched, and applied the saved values in the
+create form. The saved defaults included bridge networking and TCP and UDP
+ports. The submitted copy used an environment override, no ports and an
+isolated network. Docker inspection verified those values, the label and
+restart policy, and the read-only host and volume mounts. The owner profile
+retained the original settings until a separate confirmed delete.
+
+The localized external-bind review showed the pinned Lima engine and
+address, the exact source and destination, and read-only access. Cancelling
+created no container. After changing the selected environment, confirming
+the open draft created the container on the original engine. The decoy
+engine received no write requests. Cancelling set removal preserved the
+set. Confirmation removed it, and the fixture cleaned up only its named
+container, volume and bind directory. Local mounts still go through the
+existing host allowlist.
 
 ### M7-30 Authenticate Git sources
 
@@ -839,6 +891,28 @@ requests. Native snapshots show the focused control and opened modal in
 [English dark](../spikes/M7-49-image-details-keyboard/en-dark.png),
 [Arabic light](../spikes/M7-49-image-details-keyboard/ar-light.png), and
 [Arabic dark](../spikes/M7-49-image-details-keyboard/ar-dark.png).
+
+### M7-50 Schedule environment maintenance reviews
+
+- **Status:** todo
+- **Depends on:** M7-21
+- **Docs:** [08 Screens](../08-gui.md#screens), [03 Host daemon](../03-host-daemon.md), [11 Security](../11-security.md)
+- **Do:** Let the owner configure when to refresh the existing read-only maintenance review for each environment. Define the schedule owner, restart behavior and supported transports so the interface can state when a configured review will run.
+- **Deliver:** Persisted per-environment schedules, read-only review execution and an observable outcome.
+- **Accept when:**
+  - A saved schedule changes subsequent runs and continues to address the engine it was configured for.
+  - Offline, skipped and failed reviews report their outcome. Review execution preserves the exact destructive preview and confirmation gate.
+
+### M7-51 Download files from a supported volume
+
+- **Status:** todo
+- **Depends on:** M7-31
+- **Docs:** [07 File sharing and storage](../07-file-sharing-and-storage.md), [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Define and implement a read-only provider that confines reads to the selected volume on the selected engine. The existing container archive API resolves paths against a container filesystem and provides no volume-scoped confinement guarantee.
+- **Deliver:** Capability-gated volume file downloads using the saved Logs & files download format.
+- **Accept when:**
+  - A supported environment uses the saved format for volume file downloads. An unsupported environment states that it cannot provide secure volume reads.
+  - Reads fail closed on volume identity changes or paths that escape the volume, and writes only publish to the new destination the owner selected.
 
 ### M7-52 Check registry image digests for the built-in engine
 

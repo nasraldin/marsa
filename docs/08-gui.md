@@ -366,6 +366,15 @@ Verified Marsa release updates use the app-wide updater described in
 the reviewed identity. Host allocation and reclaim apply to the built-in
 Marsa VM only. See [Disk cleanup with a preview](07-file-sharing-and-storage.md#disk-cleanup-with-a-preview).
 
+Settings → Environments → Security configures Grype, Trivy, or both for an
+explicit scan of a local image from that environment. Findings stay in the
+editor by default. The optional one-day and seven-day settings save the latest
+successful findings and their image ID on this Mac. Reopening Security or
+running another scan checks the saved report's expiry. Confirming the switch
+back to editor-only retention immediately removes the saved report. A second
+confirmation clears the desktop database caches shared by all environments and
+shows what happened for each tool. Future scans may download the databases again.
+
 The Reports page follows the active environment. Reports for an external engine
 refresh its container inventory
 and show container names, image references and lifecycle states, plus the
@@ -442,7 +451,7 @@ File browser for containers and volumes; build view (BuildKit progress and cache
 
 ### Later
 
-In-app AI assistant; vulnerability scanning; volume backup, restore and export; local domain names and HTTPS; optional Kubernetes; dev containers; extensions.
+In-app AI assistant; volume backup, restore and export; local domain names and HTTPS; optional Kubernetes; dev containers; extensions.
 
 ## Performance rules
 

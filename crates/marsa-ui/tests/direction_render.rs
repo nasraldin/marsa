@@ -17,12 +17,18 @@ mod native {
         ColorToken, Locale, Palette,
         direction::{self, LogicalStyle as _},
         gpui::{
-            AppContext as _, Application, Bounds, Context, Hsla, IntoElement, ParentElement,
-            Pixels, Render, SharedString, Styled, TextRun, Window, WindowBounds, WindowOptions,
-            WindowingRequest, canvas, div, font, px, size,
+            App, AppContext as _, Application, Bounds, Context, Entity, Hsla, IntoElement,
+            MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
+            PlatformInput, Render, SharedString, Styled, TextRun, Window, WindowBounds,
+            WindowOptions, WindowingRequest, canvas, div, font, point, px, size,
         },
-        gpui_component::{self, IconName, resolve_icon_path},
+        gpui_component::{
+            self, IconName,
+            input::{Editor, EditorState},
+            resolve_icon_path,
+        },
         gui_keys,
+        preferences::DisplaySettings,
     };
 
     const TECHNICAL: [&str; 2] = ["/tmp/work:123", "--name=api-43"];
@@ -76,6 +82,7 @@ mod native {
         let app = Application::with_platform(Rc::new(gpui_macos::MacPlatform::new(false)))
             .with_windowing(WindowingRequest::Headless);
         app.run(|cx| {
+            gpui_component::init(cx);
             direction::init(Locale::EnglishUs, cx);
             let centers = Rc::new(Cell::new([px(0.); 2]));
             let window = cx
@@ -164,11 +171,80 @@ mod native {
                     println!("{locale:?} {palette:?} row centers {expected:?}");
                 })
                 .expect("direction test window updates");
+                assert_code_editor_scrollbar(locale, palette, cx);
             }
             direction::set_locale(Locale::EnglishUs, cx);
             assert_locale_labels(Locale::EnglishUs);
             std::process::exit(0);
         });
+    }
+
+    struct CodePanel(Entity<EditorState>);
+
+    impl Render for CodePanel {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            Editor::new(&self.0).w(px(320.)).h(px(150.))
+        }
+    }
+
+    fn assert_code_editor_scrollbar(locale: Locale, palette: Palette, cx: &mut App) {
+        palette.apply_to_components(locale, DisplaySettings::default(), cx);
+        let options = WindowOptions {
+            focus: false,
+            show: false,
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                None,
+                size(px(360.), px(200.)),
+                cx,
+            ))),
+            ..WindowOptions::default()
+        };
+        let handle = cx
+            .open_window(options, |window, cx| {
+                let yaml = "    image: alpine\n".repeat(50);
+                let editor = cx.new(|cx| EditorState::new(window, cx).default_value(yaml));
+                cx.new(|_| CodePanel(editor))
+            })
+            .expect("open hidden code editor");
+        cx.update_window(handle.into(), |view, window, cx| {
+            let editor = view.downcast::<CodePanel>().unwrap().read(cx).0.clone();
+            window.draw(cx).clear(cx);
+            assert_eq!(editor.read(cx).scroll_offset().y, px(0.));
+            // Press the scrollbar towards the end of the technical text.
+            let position = point(px(313.), px(128.));
+            window.dispatch_event(
+                PlatformInput::MouseMove(MouseMoveEvent {
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent {
+                    button: MouseButton::Left,
+                    position,
+                    click_count: 1,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent {
+                    button: MouseButton::Left,
+                    position,
+                    click_count: 1,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            window.draw(cx).clear(cx);
+            assert!(
+                editor.read(cx).scroll_offset().y < px(0.),
+                "{locale:?} {palette:?}: scrollbar follows the technical text direction",
+            );
+            window.remove_window();
+        })
+        .unwrap();
     }
 
     fn assert_locale_labels(locale: Locale) {
