@@ -14,6 +14,9 @@ mod events;
 mod factory_reset;
 mod inventory_cache;
 mod inventory_events;
+/// Daemon state and actions exposed to its macOS menu bar item.
+#[cfg(target_os = "macos")]
+pub mod menu_bar;
 mod meta;
 mod network;
 mod proxy_activation;

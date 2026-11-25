@@ -57,6 +57,8 @@ struct StateAtCursor {
     events: broadcast::Sender<DaemonEvent>,
     settings_events: broadcast::Sender<SettingsSnapshot>,
     stats_events: broadcast::Sender<VmStatsSample>,
+    #[cfg(target_os = "macos")]
+    menu_bar: watch::Sender<super::menu_bar::MenuBarState>,
 }
 
 impl Bus {
@@ -72,6 +74,13 @@ impl Bus {
         initial_revision.copy_from_slice(&stream_id[..8]);
         let initial_revision = (u64::from_be_bytes(initial_revision) >> 1) + 1;
         let initial_toml = settings.to_toml().map_err(io::Error::other)?;
+        #[cfg(target_os = "macos")]
+        let menu_bar = watch::channel(super::menu_bar::MenuBarState {
+            engine: engine::wire_state(State::Stopped),
+            language: settings.ui.language,
+            pending_approvals: 0,
+        })
+        .0;
         Ok(Self(Arc::new(Mutex::new(StateAtCursor {
             stream_id: stream_id.iter().map(|byte| format!("{byte:02x}")).collect(),
             sequence: 0,
@@ -98,6 +107,8 @@ impl Bus {
             events: broadcast::channel(CAPACITY).0,
             settings_events: broadcast::channel(8).0,
             stats_events: broadcast::channel(CAPACITY).0,
+            #[cfg(target_os = "macos")]
+            menu_bar,
         }))))
     }
 
@@ -343,6 +354,11 @@ impl Bus {
         stream_from(state.stats, state.stats_events.subscribe(), stop)
     }
 
+    #[cfg(target_os = "macos")]
+    pub(super) fn watch_menu_bar(&self) -> watch::Receiver<super::menu_bar::MenuBarState> {
+        self.lock().menu_bar.subscribe()
+    }
+
     pub(super) fn pending_approvals(&self) -> ListPendingApprovalsResponse {
         self.lock().approvals.list(Instant::now())
     }
@@ -424,6 +440,9 @@ impl StateAtCursor {
     }
 
     fn publish(&mut self, body: Body) {
+        #[cfg(target_os = "macos")]
+        self.menu_bar
+            .send_if_modified(|state| state.apply(&body, self.settings.ui.language));
         self.sequence += 1;
         let event = self.envelope(body);
         if let Some(Body::Engine(status)) = &event.body {

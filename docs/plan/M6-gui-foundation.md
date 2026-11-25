@@ -229,7 +229,7 @@ glow and rail use the same active accent as the controls.
 
 ### M6-10 Tray item
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-12, M6-01, M8-02, Q-06
 - **Docs:** [03 Responsibilities](../03-host-daemon.md#responsibilities), D-003
 - **Do:** Implement the menu-bar item owned by `marsad`: engine state, start and stop, open the GUI, pending agent approvals count, quit. Localised and following the system appearance.
@@ -243,6 +243,20 @@ glow and rail use the same active accent as the controls.
 M3-12 installs a VM supervisor behind the engine API. M6-01 supplies the
 launchable GUI. M8-02 owns the approval queue and publishes its updates.
 The tray stays in the daemon and runs with the GUI closed.
+
+The daemon installs an AppKit status item in its graphical login session.
+Native menu labels, direction and the template image follow the selected
+language and AppKit appearance. The signed Apple silicon qualification used
+the production menu selectors and daemon runtime with a disposable 1 GiB
+userspace-network VM and pinned Docker 29.10.0. It proved the status item
+without a desktop process, the approval count changing from 0 to 1 and
+back, and all four language and appearance variants. Stop canceled an
+in-progress boot, Start reached Ready, Open launched the packaged desktop,
+and Quit stopped the running VM and removed the private sockets and PID
+file. The ext4 superblock had a clean state with no journal replay required.
+A separate native confirmation test sent SIGTERM while the dialog was open
+and verified exit and socket cleanup. [M3-19](M3-vm-and-daemon.md#m3-19-qualify-default-capacity-cold-boot)
+tracks the timeout during preparation of a fresh default-capacity disk.
 
 ### M6-11 Onboarding
 

@@ -11,6 +11,8 @@ mod uninstall;
 #[cfg(target_os = "macos")]
 pub(super) use uninstall::run as uninstall;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod menu_bar;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod runtime;
 
 use std::{error::Error, io, time::Duration};
@@ -39,6 +41,48 @@ pub(super) fn run() -> Result<(), DaemonError> {
     let home =
         std::env::home_dir().ok_or_else(|| io::Error::other("could not find the user home"))?;
     let paths = MarsaPaths::from_home(&home)?;
+    let uid = uid.as_raw();
+    // Acquire the daemon lock before creating a status item. A losing
+    // launcher has no AppKit work and never briefly shows a second item.
+    let instance = files::Instance::acquire(&paths, uid)?;
+    let prepared = Prepared {
+        uid,
+        home,
+        paths,
+        instance,
+    };
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        if let Some(bundle) =
+            runtime::Packaged::discover()?.and_then(|package| package.menu_bar_bundle())
+        {
+            return menu_bar::run(bundle, move |ui| run_daemon(prepared, ui));
+        }
+        run_daemon(prepared, None)
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    run_daemon(prepared)
+}
+
+struct Prepared {
+    uid: u32,
+    home: std::path::PathBuf,
+    paths: MarsaPaths,
+    instance: files::Instance,
+}
+
+fn run_daemon(
+    prepared: Prepared,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))] mut ui: Option<menu_bar::DaemonUi>,
+) -> Result<(), DaemonError> {
+    let Prepared {
+        uid,
+        home,
+        paths,
+        mut instance,
+    } = prepared;
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    drop(home);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -47,8 +91,6 @@ pub(super) fn run() -> Result<(), DaemonError> {
         Signals::register()?
     };
 
-    let uid = uid.as_raw();
-    let mut instance = files::Instance::acquire(&paths, uid)?;
     marsad::factory::recover(&paths, uid)?;
     let settings = files::read_settings(&paths, uid)?;
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -75,8 +117,15 @@ pub(super) fn run() -> Result<(), DaemonError> {
             let api = api.clone();
             tokio::spawn(async move { api.watch_host_events(events).await });
         }
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        let quit = ui.take().map(|mut ui| {
+            ui.attach(&api);
+            ui.quit
+        });
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        let quit = None;
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "daemon started");
-        serve(socket, docker, agent, api, uid, signals).await
+        serve(socket, docker, agent, api, uid, signals, quit).await
     });
     // A canceled RPC may leave a durability worker in spawn_blocking. Keep
     // the instance lock until the runtime has joined any such worker.
@@ -162,6 +211,7 @@ async fn serve(
     api: TypedApi,
     uid: u32,
     signals: Signals,
+    quit: Option<oneshot::Receiver<()>>,
 ) -> Result<(), DaemonError> {
     let (shutdown, stop) = oneshot::channel();
     let server = api.serve(listener, async {
@@ -191,7 +241,7 @@ async fn serve(
             result = &mut server => return result.map_err(Into::into),
             result = &mut agents => result.map_err(io::Error::other),
             result = &mut proxy => result,
-            signal = signals.wait() => {
+            signal = signals.wait(quit) => {
                 tracing::info!(signal, "daemon shutdown requested");
                 Ok(())
             }
@@ -216,10 +266,16 @@ impl Signals {
         })
     }
 
-    async fn wait(mut self) -> &'static str {
+    async fn wait(mut self, quit: Option<oneshot::Receiver<()>>) -> &'static str {
         tokio::select! {
             _ = self.terminate.recv() => "SIGTERM",
             _ = self.interrupt.recv() => "SIGINT",
+            _ = async {
+                if let Some(quit) = quit && quit.await.is_ok() {
+                    return;
+                }
+                std::future::pending::<()>().await;
+            } => "menu bar",
         }
     }
 }

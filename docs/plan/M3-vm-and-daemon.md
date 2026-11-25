@@ -272,3 +272,28 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
   running. The agent selected Open in macOS's normal first-open dialog and the
   runner confirmed daemon readiness. A separate guest check verified the
   daemon socket existed with mode `0600` and Gatekeeper remained enabled.
+
+
+### M3-19 Qualify default-capacity cold boot
+
+- **Status:** todo
+- **Depends on:** M3-12
+- **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [07 Data disk](../07-file-sharing-and-storage.md#data-disk)
+- **Do:** Diagnose and eliminate timing failures when the packaged VM starts with a new default 64 GiB data disk, including after cancellation of a first start. Record preparation, agent connection and Docker readiness separately. Preserve the complete blank-device verification for disks of unknown provenance.
+- **Deliver:** Any required production boot or disk-preparation changes and signed native qualification.
+- **Accept when:**
+  - Repeated fresh and interrupted-first-start boots of the default-capacity disk reach Ready within the daemon's documented startup budget and shut down cleanly.
+  - Existing foreign and nonblank disks still fail closed without being formatted.
+  - The qualification documents the tested pinned guest and uses the same settings in the fresh and interrupted cases.
+
+The M6-10 default-capacity fixture twice stopped after the guest's system
+mount, before formatting an entirely sparse 64 GiB new image. Prior
+64 GiB boots succeeded. The subsequent 1 GiB fixture reached Docker 29.10.0
+and shut down cleanly. The two results establish a timing risk and a
+working packaged control path.
+
+A controlled signed test with matching 64 GiB userspace settings reached
+Ready in 34.949 s from a fresh disk and 36.843 s from the same sparse inode
+after interruption. Guest disk preparation took 30.153 s and 32.735 s.
+Both stopped cleanly. The earlier Auto-network timeout still needs a
+matched comparison.

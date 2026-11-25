@@ -59,6 +59,13 @@ impl Packaged {
             })
     }
 
+    pub(super) fn menu_bar_bundle(&self) -> Option<PathBuf> {
+        std::fs::symlink_metadata(self.bundle.join("Contents/MacOS/marsa-gui"))
+            .ok()
+            .filter(|metadata| metadata.is_file() && metadata.mode() & 0o111 != 0)
+            .map(|_| self.bundle.clone())
+    }
+
     pub(super) fn component_versions(&self) -> io::Result<Vec<ComponentVersion>> {
         let path = self
             .bundle
