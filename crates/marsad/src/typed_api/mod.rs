@@ -99,6 +99,7 @@ struct Shared {
     grants: GrantStore,
     reclaim_requests: requests::Cache<(), marsa_proto::host::v1::DiskReclaimResponse>,
     reclaim_active: tokio::sync::Mutex<()>,
+    registry_observations: tokio::sync::Semaphore,
     share_policy: SharePolicy,
     add_share_requests:
         requests::Cache<marsa_proto::host::v1::AddShareRequest, marsa_proto::host::v1::Share>,
@@ -142,6 +143,7 @@ impl TypedApi {
                 factory_reset: factory_reset::FactoryReset::new(),
                 reclaim_requests: requests::Cache::new(),
                 reclaim_active: tokio::sync::Mutex::new(()),
+                registry_observations: tokio::sync::Semaphore::new(4),
                 share_policy,
                 add_share_requests: requests::Cache::new(),
                 remove_share_requests: requests::Cache::new(),

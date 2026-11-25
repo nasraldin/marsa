@@ -623,7 +623,7 @@ reference was rejected, and the client refused the redirect.
 
 ### M7-31 Download container files
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** done
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Download an explicitly named path from a container to an owner-selected destination. Offer a persistent TAR or single-file download preference.
@@ -632,7 +632,24 @@ reference was rejected, and the client refused the redirect.
   - Downloads use the selected container and its pinned environment. A single file can be saved directly, while directories use TAR.
   - Truncated transfers and existing destinations are preserved. Marsa does not unpack archive paths into the host filesystem.
 
-A disposable Lima container returned a binary file directly and a directory as TAR. The download refused to replace the existing destination. The pinned [Moby 29.10.0 schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml) documents the archive routes and path metadata header. The Mac locked before the final four-variant desktop checks.
+Signed desktop qualification on disposable, network-disabled Lima containers
+saved the same binary as TAR and directly, preserved nested contents inside a
+directory archive, and kept an existing destination byte-for-byte. The request
+retained its original container and engine when the selected container and
+workspace changed. Changing the format through Settings took effect immediately
+and survived a daemon restart and desktop relaunch. Direct mode also saved a
+regular file whose long name used PAX metadata. The locked-host fixture supplied
+the destination through the macOS save picker callback.
+
+A Unix-socket regression verifies that a truncated zero-filled entry never
+publishes an archive or leaves a staging file. The archive check follows member
+sizes, including bounded PAX metadata, before accepting end-of-archive markers.
+Host archive paths are never unpacked. [Moby 29.10.0 archive schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml)
+and [Go archive writer](https://github.com/golang/go/blob/go1.26.10/src/archive/tar/writer.go).
+
+Reviewed the request and persisted preference in English light, English dark,
+Arabic light, and Arabic dark. [Download dialog](../spikes/M7-31-container-downloads/download-dialog.jpg)
+and [Download settings](../spikes/M7-31-container-downloads/download-settings.jpg).
 
 ### M7-32 Connect to Hawser agents
 
@@ -931,7 +948,7 @@ requests. Native snapshots show the focused control and opened modal in
 
 ### M7-52 Check registry image digests for the built-in engine
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-48
 - **Docs:** [08 Screens](../08-gui.md#screens), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
 - **Do:** Define owner authorization for managed registry traffic. Add a typed, bounded lookup through the passive owner API for an already-running Docker engine and compare the results against the current normalized inventory on an independent schedule.
@@ -940,6 +957,25 @@ requests. Native snapshots show the focused control and opened modal in
   - Registry lookups require the agreed owner authorization. Existing settings with image checks enabled by default do not silently authorize managed registry traffic.
   - A registry check uses validated image references, starts no VM, makes no inventory collection requests, and applies neither stale results nor results from a different engine.
   - Tests cover an authorized distribution request and absent requests when authorization is off or the engine is stopped.
+
+**Qualification.** The owner RPC tests verified the exact distribution route,
+rejection without the saved opt-in, and rejection on a stopped engine without
+starting it. The desktop test discards results from another engine epoch or
+an outdated inventory. The opt-in survived a settings round trip, and the
+legacy local-image preference preserved its previous serialized shape.
+
+The [pinned Docker 29.10.0 router](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/distribution/distribution_routes.go)
+uses the distribution descriptor and accepts absent registry authentication.
+A real Lima engine returned the descriptor for the public Alpine tag. A
+signed Marsa guest reached Ready and exercised the new owner route, but its
+stock distribution request failed on existing guest egress in this
+environment. M4-08 retains the native DNS qualification separately.
+
+Signed Settings rendered both saved switch states in every variant.
+[English light](../screenshots/m7-52/en-light.png) ·
+[English dark](../screenshots/m7-52/en-dark.png) ·
+[Arabic light](../screenshots/m7-52/ar-light.png) ·
+[Arabic dark](../screenshots/m7-52/ar-dark.png).
 
 ### M7-53 Authenticate Git sources over SSH
 

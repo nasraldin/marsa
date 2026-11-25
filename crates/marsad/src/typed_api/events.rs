@@ -198,6 +198,17 @@ impl Bus {
         (state.settings.clone(), state.settings_snapshot.clone())
     }
 
+    pub(super) fn permits_registry_observations(&self) -> bool {
+        self.lock()
+            .settings
+            .ui
+            .environment_monitoring
+            .get("marsa")
+            .is_some_and(|settings| {
+                settings.check_image_updates && settings.check_managed_registry_updates
+            })
+    }
+
     pub(super) fn boot_configuration(&self) -> (Settings, Vec<PathBuf>) {
         let state = self.lock();
         (state.settings.clone(), state.once_staged.clone())

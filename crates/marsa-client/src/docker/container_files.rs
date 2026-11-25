@@ -1,16 +1,12 @@
 //! Download a path from an explicitly selected container without unpacking paths on the host.
 
-use std::{fmt::Write as _, io, path::Path, time::Duration};
+use std::{fmt::Write as _, io, ops::Range, path::Path, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use http_body_util::{BodyExt as _, Full};
 use hyper::{HeaderMap, Method, body::Bytes, header};
 use serde::Deserialize;
-use tokio::{
-    fs::File,
-    io::{AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _},
-    time::timeout,
-};
+use tokio::{fs::File, io::AsyncWriteExt as _, time::timeout};
 
 use super::{ContainerId, DockerClient, DockerError};
 
@@ -18,6 +14,9 @@ const IDLE: Duration = Duration::from_secs(60);
 const TRANSFER: Duration = Duration::from_secs(30 * 60);
 const LIMIT: u64 = 16 * 1024 * 1024 * 1024;
 const MAX_PATH: usize = 4096;
+const TAR_BLOCK: u64 = 512;
+// Go's archive/tar bounds extended headers in Docker's archive writer.
+const MAX_PAX_HEADER: u64 = 1 << 20;
 // Go's os.FileMode serializes directory, symlink, device, pipe, socket and irregular bits.
 const GO_FILE_TYPE_MASK: u32 = 0x8f28_0000;
 
@@ -172,7 +171,7 @@ impl DockerClient {
         if matches!(format, ContainerFileFormat::SingleFile) && !stat.regular_file() {
             return Err(invalid_archive());
         }
-        timeout(TRANSFER, async {
+        let length = timeout(TRANSFER, async {
             let mut length = 0;
             while let Some(frame) = timeout(IDLE, response.body.frame())
                 .await
@@ -189,30 +188,26 @@ impl DockerClient {
                         .map_err(DockerError::ContainerArchive)?;
                 }
             }
-            if length < 1024 || length % 512 != 0 {
+            if length < TAR_BLOCK * 2 || length % TAR_BLOCK != 0 {
                 return Err(invalid_archive());
             }
-            file.seek(io::SeekFrom::End(-1024))
+            file.sync_all()
                 .await
                 .map_err(DockerError::ContainerArchive)?;
-            let mut end_marker = [0; 1024];
-            file.read_exact(&mut end_marker)
-                .await
-                .map_err(DockerError::ContainerArchive)?;
-            if end_marker.iter().any(|&byte| byte != 0) {
-                return Err(invalid_archive());
-            }
-            file.sync_all().await.map_err(DockerError::ContainerArchive)
+            Ok(length)
         })
         .await
         .map_err(|_| DockerError::Timeout)??;
-        drop(file);
+        let mut archive = file.into_std().await;
         tokio::task::spawn_blocking(move || match format {
-            ContainerFileFormat::Tar => staging
-                .persist_noclobber(destination)
-                .map_err(|error| DockerError::ContainerArchive(error.error)),
+            ContainerFileFormat::Tar => {
+                validate_tar(&mut archive, length).map_err(DockerError::ContainerArchive)?;
+                staging
+                    .persist_noclobber(destination)
+                    .map_err(|error| DockerError::ContainerArchive(error.error))
+            }
             ContainerFileFormat::SingleFile => {
-                publish_single_file(&staging, &destination, stat.size as u64)
+                publish_single_file(&mut archive, &destination, stat.size as u64)
                     .map_err(DockerError::ContainerArchive)
             }
         })
@@ -221,20 +216,123 @@ impl DockerClient {
     }
 }
 
-fn publish_single_file(staging: &Path, destination: &Path, expected: u64) -> io::Result<()> {
+// Verify that the end markers follow complete entries. File data can itself
+// end in zero blocks, so the final bytes alone cannot prove completeness.
+fn validate_tar(file: &mut std::fs::File, length: u64) -> io::Result<Option<Range<u64>>> {
+    use std::io::{Read as _, Seek as _};
+
+    let invalid = || io::Error::from(io::ErrorKind::InvalidData);
+    let last_marker_offset = length.checked_sub(TAR_BLOCK * 2).ok_or_else(invalid)?;
+    let mut offset = 0;
+    let mut size_override = None;
+    let mut pending_metadata = false;
+    let mut seen_entry = false;
+    let mut single_file = None;
+
+    while offset <= last_marker_offset {
+        file.seek(io::SeekFrom::Start(offset))?;
+        let mut header = tar::Header::new_old();
+        file.read_exact(header.as_mut_bytes())?;
+        if header.as_bytes().iter().all(|&byte| byte == 0) {
+            if pending_metadata {
+                return Err(invalid());
+            }
+            let mut padding = [0; 8192];
+            let mut remaining = length - offset - TAR_BLOCK;
+            while remaining != 0 {
+                let count = remaining.min(padding.len() as u64) as usize;
+                file.read_exact(&mut padding[..count])?;
+                if padding[..count].iter().any(|&byte| byte != 0) {
+                    return Err(invalid());
+                }
+                remaining -= count as u64;
+            }
+            return Ok(single_file);
+        }
+
+        let checksum = header.cksum()?;
+        header.set_cksum();
+        if header.cksum()? != checksum {
+            return Err(invalid());
+        }
+        let kind = header.entry_type();
+        let local_metadata =
+            kind.is_pax_local_extensions() || kind.is_gnu_longname() || kind.is_gnu_longlink();
+        let metadata = local_metadata || kind.is_pax_global_extensions();
+        let header_size = header.entry_size()?;
+        let size = if metadata {
+            header_size
+        } else {
+            size_override.take().unwrap_or(header_size)
+        };
+        pending_metadata = local_metadata;
+
+        if kind.is_gnu_sparse() {
+            let mut extended = header.as_gnu().ok_or_else(invalid)?.is_extended();
+            let mut sparse = tar::GnuExtSparseHeader::new();
+            while extended {
+                file.read_exact(sparse.as_mut_bytes())?;
+                extended = sparse.is_extended();
+            }
+        }
+
+        let payload = file.stream_position()?;
+        let available = last_marker_offset
+            .checked_sub(payload)
+            .ok_or_else(invalid)?;
+        if size > available {
+            return Err(invalid());
+        }
+        if kind.is_pax_local_extensions() {
+            if size > MAX_PAX_HEADER {
+                return Err(invalid());
+            }
+            let mut data = vec![0; size as usize];
+            file.read_exact(&mut data)?;
+            size_override = pax_entry_size(&data).ok_or_else(invalid)?;
+        }
+        if !metadata {
+            single_file = (!seen_entry && kind.is_file()).then_some(payload..payload + size);
+            seen_entry = true;
+        }
+        offset = payload + size.next_multiple_of(TAR_BLOCK);
+    }
+    Err(invalid())
+}
+
+// PAX record lengths include the length field itself. Use them to skip
+// arbitrary metadata values, including values with embedded newlines.
+fn pax_entry_size(mut data: &[u8]) -> Option<Option<u64>> {
+    let mut size = None;
+    while !data.is_empty() {
+        let separator = data.iter().position(|&byte| byte == b' ')?;
+        let length: usize = std::str::from_utf8(&data[..separator]).ok()?.parse().ok()?;
+        let (record, remaining) = data.split_at_checked(length)?;
+        let field = record.get(separator + 1..)?.strip_suffix(b"\n")?;
+        if let Some(value) = field.strip_prefix(b"size=") {
+            size = Some(std::str::from_utf8(value).ok()?.parse().ok()?);
+        }
+        data = remaining;
+    }
+    Some(size)
+}
+
+fn publish_single_file(
+    archive: &mut std::fs::File,
+    destination: &Path,
+    expected: u64,
+) -> io::Result<()> {
+    use std::io::{Read as _, Seek as _};
+
+    let length = archive.metadata()?.len();
+    let payload = validate_tar(archive, length)?
+        .filter(|range| range.end - range.start == expected)
+        .ok_or(io::ErrorKind::InvalidData)?;
+    archive.seek(io::SeekFrom::Start(payload.start))?;
+
     let directory = destination.parent().ok_or(io::ErrorKind::InvalidInput)?;
     let mut output = tempfile::NamedTempFile::new_in(directory)?;
-    let mut archive = tar::Archive::new(std::fs::File::open(staging)?);
-    // Raw iteration avoids allocating data from untrusted long-name or PAX records.
-    let mut entries = archive.entries()?.raw(true);
-    let mut entry = entries.next().ok_or(io::ErrorKind::InvalidData)??;
-    if !entry.header().entry_type().is_file()
-        || entry.size() != expected
-        || io::copy(&mut entry, output.as_file_mut())? != expected
-    {
-        return Err(io::ErrorKind::InvalidData.into());
-    }
-    if entries.next().is_some() {
+    if io::copy(&mut archive.take(expected), output.as_file_mut())? != expected {
         return Err(io::ErrorKind::InvalidData.into());
     }
     output.as_file().sync_all()?;
@@ -266,6 +364,151 @@ mod tests {
         assert!(ContainerPath::parse("/").is_ok());
     }
 
+    #[tokio::test]
+    async fn a_zero_filled_partial_entry_does_not_publish_a_tar() {
+        use std::os::unix::fs::PermissionsExt as _;
+        use tokio::{io::AsyncReadExt as _, net::UnixListener};
+
+        let root = tempfile::Builder::new()
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir_in("/tmp")
+            .unwrap();
+        let socket = root.path().join("docker.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let destination = root.path().join("download.tar");
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(stream.read_u8().await.unwrap());
+            }
+            let mut header = tar::Header::new_ustar();
+            header.set_path("payload.bin").unwrap();
+            header.set_mode(0o644);
+            header.set_size(4096);
+            header.set_cksum();
+            let stat = STANDARD.encode(br#"{"mode":420,"size":4096}"#);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/x-tar\r\nContent-Length: 2048\r\nX-Docker-Container-Path-Stat: {stat}\r\n\r\n"
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+            stream.write_all(header.as_bytes()).await.unwrap();
+            stream.write_all(&[0; 1536]).await.unwrap();
+        });
+
+        let id = ContainerId::parse("a".repeat(64)).unwrap();
+        let path = ContainerPath::parse("/payload.bin").unwrap();
+        let result = DockerClient::at(socket)
+            .download_container_file(&id, &path, ContainerFileFormat::Tar, &destination)
+            .await;
+        server.await.unwrap();
+        assert!(result.is_err(), "a partial regular file cannot end a TAR");
+        assert!(!destination.exists());
+        assert_eq!(root.path().read_dir().unwrap().count(), 1);
+    }
+
+    #[test]
+    fn archive_validation_follows_extended_entry_lengths() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("download.tar");
+        let mut archive = tar::Builder::new(Vec::new());
+        archive
+            .append_pax_extensions([
+                ("path", b"file\nwith newline".as_slice()),
+                ("size", b"1024".as_slice()),
+            ])
+            .unwrap();
+        let mut bytes = archive.into_inner().unwrap();
+        bytes.truncate(bytes.len() - 1024);
+        let mut header = tar::Header::new_ustar();
+        header.set_path("payload.bin").unwrap();
+        header.set_mode(0o644);
+        header.set_size(0);
+        header.set_cksum();
+        bytes.extend_from_slice(header.as_bytes());
+        // The PAX size supplies the payload boundary when it does not fit
+        // (and is omitted from) the main TAR header.
+        bytes.extend_from_slice(&[0; 1024 + 1024]);
+
+        std::fs::write(&path, &bytes).unwrap();
+        validate_tar(&mut std::fs::File::open(&path).unwrap(), bytes.len() as u64).unwrap();
+        bytes.truncate(bytes.len() - 512);
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(
+            validate_tar(&mut std::fs::File::open(&path).unwrap(), bytes.len() as u64).is_err()
+        );
+    }
+
+    #[test]
+    fn raw_download_accepts_a_regular_file_with_a_pax_path() {
+        let root = tempfile::tempdir().unwrap();
+        let archive_path = root.path().join("download.tar");
+        let output = root.path().join("payload.bin");
+        let name = format!("fixture-{}.bin", "a".repeat(120));
+        let contents = b"\x00\xfffile with a long name";
+        let mut archive = tar::Builder::new(std::fs::File::create(&archive_path).unwrap());
+        archive
+            .append_pax_extensions([("path", name.as_bytes())])
+            .unwrap();
+        let mut header = tar::Header::new_ustar();
+        header.set_size(contents.len() as u64);
+        header.set_mode(0o644);
+        archive
+            .append_data(&mut header, "payload.bin", &contents[..])
+            .unwrap();
+        archive.finish().unwrap();
+
+        publish_single_file(
+            &mut std::fs::File::open(archive_path).unwrap(),
+            &output,
+            contents.len() as u64,
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(output).unwrap(), contents);
+        assert!(!root.path().join(name).exists());
+    }
+
+    #[test]
+    fn raw_download_refuses_an_archive_with_multiple_payloads() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("download.tar");
+        let output = root.path().join("payload.bin");
+        let mut archive = tar::Builder::new(std::fs::File::create(&path).unwrap());
+        for name in ["one", "two"] {
+            let mut header = tar::Header::new_ustar();
+            header.set_size(1);
+            header.set_mode(0o644);
+            archive
+                .append_data(&mut header, name, b"x".as_slice())
+                .unwrap();
+        }
+        archive.finish().unwrap();
+
+        assert!(publish_single_file(&mut std::fs::File::open(path).unwrap(), &output, 1).is_err());
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn raw_download_refuses_concatenated_archives() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("download.tar");
+        let output = root.path().join("payload.bin");
+        let mut archive = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_ustar();
+        header.set_size(1);
+        header.set_mode(0o644);
+        archive
+            .append_data(&mut header, "one", b"x".as_slice())
+            .unwrap();
+        let bytes = archive.into_inner().unwrap();
+        std::fs::write(&path, bytes.repeat(2)).unwrap();
+
+        assert!(publish_single_file(&mut std::fs::File::open(path).unwrap(), &output, 1).is_err());
+        assert!(!output.exists());
+    }
+
     #[test]
     fn raw_download_accepts_only_one_regular_entry_and_keeps_original_destination() {
         let root = tempfile::tempdir().unwrap();
@@ -278,9 +521,21 @@ mod tests {
         header.set_mode(0o644);
         archive.append_data(&mut header, "file", content).unwrap();
         archive.finish().unwrap();
-        publish_single_file(&source, &output, content.len() as u64).unwrap();
+        publish_single_file(
+            &mut std::fs::File::open(&source).unwrap(),
+            &output,
+            content.len() as u64,
+        )
+        .unwrap();
         assert_eq!(std::fs::read(&output).unwrap(), content);
-        assert!(publish_single_file(&source, &output, content.len() as u64).is_err());
+        assert!(
+            publish_single_file(
+                &mut std::fs::File::open(&source).unwrap(),
+                &output,
+                content.len() as u64,
+            )
+            .is_err()
+        );
         assert_eq!(std::fs::read(&output).unwrap(), content);
         assert!(!root.path().join("file").exists());
     }
