@@ -1,4 +1,4 @@
-//! Images table: usage filter, sort, columns, multi-select. Row click opens details.
+//! Images table: usage filter, sort, columns, multi-select, and row actions.
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -605,24 +605,30 @@ fn image_list_row(
     let meta_bits = columns
         .iter()
         .copied()
-        .filter(|column| !matches!(column, ColumnId::Image))
+        .filter(|column| !matches!(column, ColumnId::Image | ColumnId::Actions))
         .filter_map(|column| list_meta(screen, entry, column))
         .collect::<Vec<_>>();
     let subtitle = meta_bits.join(" · ");
-    let body = row(screen.locale).w_full().items_center().gap_3().child(
-        div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(image_identity(screen, entry, show_sources))
-            .child(
-                text(screen, Role::Small, subtitle)
-                    .text_color(tone(screen, ColorToken::TextMuted))
-                    .truncate(),
-            ),
-    );
+    let show_actions = columns.contains(&ColumnId::Actions);
+    let body = row(screen.locale)
+        .w_full()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(image_identity(screen, entry, show_sources))
+                .child(
+                    text(screen, Role::Small, subtitle)
+                        .text_color(tone(screen, ColorToken::TextMuted))
+                        .truncate(),
+                ),
+        )
+        .children(show_actions.then(|| actions_cell(screen, view, entry, data)));
     let key = entry.key().to_owned();
     let checked = selected.contains(&key);
     let is_selected = data.selection.as_ref().is_some_and(|(kind, selected_key)| {
@@ -665,17 +671,17 @@ fn list_meta(screen: &ScreenContext<'_>, entry: &ResourceRow, column: ColumnId) 
         ColumnId::Size => entry.cells.get(2).cloned().unwrap_or_default(),
         ColumnId::Age => entry.cells.get(3).cloned().unwrap_or_default(),
         ColumnId::State => meta.usage.label(screen.locale).to_string(),
-        ColumnId::Image => return None,
+        ColumnId::Image | ColumnId::Actions => return None,
     })
 }
 
 fn image_cell(
     screen: &ScreenContext<'_>,
-    _view: &Entity<ResourcesView>,
+    view: &Entity<ResourcesView>,
     entry: &ResourceRow,
     column: ColumnId,
     show_sources: bool,
-    _data: &ResourcesView,
+    data: &ResourcesView,
 ) -> Div {
     match column {
         ColumnId::Image => image_identity(screen, entry, show_sources),
@@ -692,6 +698,7 @@ fn image_cell(
                 .unwrap_or_else(|| message(screen.locale, gui::GUI_DESKTOP_UNUSED));
             status_pill(screen, label, fg, bg)
         }
+        ColumnId::Actions => actions_cell(screen, view, entry, data),
     }
 }
 
@@ -772,4 +779,116 @@ fn muted_text(screen: &ScreenContext<'_>, value: String) -> Div {
     text(screen, Role::Small, value)
         .text_color(tone(screen, ColorToken::TextMuted))
         .truncate()
+}
+
+/// Parent-table actions: run · push · delete. Layers live in the details modal.
+fn actions_cell(
+    screen: &ScreenContext<'_>,
+    view: &Entity<ResourcesView>,
+    entry: &ResourceRow,
+    data: &ResourcesView,
+) -> Div {
+    let busy = data.busy.is_some();
+    let appearance = (screen.locale, screen.palette, screen.display);
+    let service = screen.services.cloned();
+    let source = entry.source().cloned();
+    let run = FormKind::Run {
+        id: entry.id.clone(),
+        reference: entry.action_target.clone(),
+    };
+    let push = FormKind::PushImage {
+        id: entry.id.clone(),
+        reference: entry.action_target.clone(),
+    };
+    let remove = FormKind::RemoveImage {
+        id: entry.id.clone(),
+        reference: entry.action_target.clone(),
+        users: entry.users.clone(),
+    };
+    let can_push = !entry.action_target.is_empty()
+        && entry.action_target != entry.id
+        && !entry.action_target.contains('@');
+    let can_run = !entry.action_target.is_empty();
+    row(screen.locale)
+        .gap_1()
+        .items_center()
+        .child(action_icon(
+            entry,
+            "run",
+            "icons/play.svg",
+            message(screen.locale, gui::GUI_DESKTOP_RUN_IMAGE),
+            service.is_none() || busy || !can_run,
+            view,
+            run,
+            source.clone(),
+            appearance,
+            service.clone(),
+        ))
+        .child(action_icon(
+            entry,
+            "push",
+            "icons/upload.svg",
+            message(screen.locale, gui::GUI_DESKTOP_PUSH_IMAGE),
+            service.is_none() || busy || !can_push,
+            view,
+            push,
+            source.clone(),
+            appearance,
+            service.clone(),
+        ))
+        .child(action_icon(
+            entry,
+            "remove",
+            "icons/trash.svg",
+            message(screen.locale, gui::GUI_DESKTOP_REMOVE_IMAGE),
+            service.is_none() || busy,
+            view,
+            remove,
+            source,
+            appearance,
+            service,
+        ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn action_icon(
+    entry: &ResourceRow,
+    id: &'static str,
+    icon: &'static str,
+    label: SharedString,
+    disabled: bool,
+    view: &Entity<ResourcesView>,
+    kind: FormKind,
+    source: Option<ResourceSource>,
+    appearance: (
+        Locale,
+        marsa_ui::Palette,
+        marsa_ui::preferences::DisplaySettings,
+    ),
+    service: Option<Arc<Services>>,
+) -> Button {
+    let state = view.clone();
+    let row_key = SharedString::from(format!("{id}:{}", entry.key()));
+    Button::new(row_key)
+        .ghost()
+        .size(px(28.))
+        .p_0()
+        .icon(Icon::default().path(icon))
+        .accessibility_label(label.clone())
+        .tooltip(label)
+        .disabled(disabled)
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            if let Some(service) = &service {
+                state.update(cx, |state, cx| {
+                    state.open_form(
+                        (kind.clone(), source.clone()),
+                        appearance,
+                        Arc::clone(service),
+                        window,
+                        cx,
+                    );
+                });
+            }
+        })
 }

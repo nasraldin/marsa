@@ -22,11 +22,18 @@ pub(crate) enum ColumnId {
     Size = 2,
     Age = 3,
     State = 4,
+    Actions = 5,
 }
 
 impl ColumnId {
-    pub(crate) const DEFAULT_ORDER: [Self; 5] =
-        [Self::Image, Self::Tags, Self::Size, Self::Age, Self::State];
+    pub(crate) const DEFAULT_ORDER: [Self; 6] = [
+        Self::Image,
+        Self::Tags,
+        Self::Size,
+        Self::Age,
+        Self::State,
+        Self::Actions,
+    ];
 
     pub(crate) fn label(self, locale: Locale) -> SharedString {
         message(
@@ -37,6 +44,7 @@ impl ColumnId {
                 Self::Size => gui::GUI_DESKTOP_SIZE,
                 Self::Age => gui::GUI_DESKTOP_AGE,
                 Self::State => gui::GUI_DESKTOP_STATE,
+                Self::Actions => gui::GUI_DESKTOP_ACTIONS,
             },
         )
     }
@@ -46,7 +54,7 @@ impl ColumnId {
     }
 
     pub(crate) fn sortable(self) -> bool {
-        true
+        !matches!(self, Self::Actions)
     }
 
     pub(crate) fn sort_field(self) -> Option<super::SortField> {
@@ -56,6 +64,7 @@ impl ColumnId {
             Self::Size => super::SortField::Size,
             Self::Age => super::SortField::Age,
             Self::State => super::SortField::State,
+            Self::Actions => return None,
         })
     }
 }

@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn columns_picker_pins_image_and_resets() {
         let mut state = ColumnsPickerState::default();
-        assert_eq!(state.visible_ids().len(), 5);
+        assert_eq!(state.visible_ids().len(), 6);
         state.toggle(ColumnId::Tags);
         assert!(!state.visible_ids().contains(&ColumnId::Tags));
         state.toggle(ColumnId::Image);
@@ -74,7 +74,7 @@ mod tests {
             .map(|column| column.id)
             .collect::<Vec<_>>();
         assert_eq!(order[0], ColumnId::Image);
-        assert_eq!(ColumnsPickerState::reset().visible_ids().len(), 5);
+        assert_eq!(ColumnsPickerState::reset().visible_ids().len(), 6);
     }
 
     #[test]

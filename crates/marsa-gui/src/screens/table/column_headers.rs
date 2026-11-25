@@ -79,13 +79,14 @@ fn sort_caret(screen: &ScreenContext<'_>, order: SortOrder) -> Div {
 
 /// Default flex weights for the Images column set.
 ///
-/// Compact columns (Size, Age) stay narrow so Image/Tags can grow.
+/// Compact columns (Size, Age, Actions) stay narrow so Image/Tags can grow.
 pub(crate) fn default_flex(column: ColumnId) -> f32 {
     match column {
-        ColumnId::Image => 280.,
-        ColumnId::Tags => 160.,
+        ColumnId::Image => 260.,
+        ColumnId::Tags => 140.,
         ColumnId::Size => 72.,
         ColumnId::Age => 52.,
-        ColumnId::State => 110.,
+        ColumnId::State => 100.,
+        ColumnId::Actions => 112.,
     }
 }

@@ -615,12 +615,12 @@ English and Arabic copy cover the history card, disk card, resources label, and 
 - **Status:** done
 - **Depends on:** M7-06, M7-42
 - **Docs:** [08 Screens](../08-gui.md#screens)
-- **Do:** Add reusable table chrome (filter/sort/columns dropdowns, sortable headers, multi-select) and apply it on Images: one row per image; columns Image, Tags, Size, Age, State; usage filter All / In use / Some unused / Unused with icons; Tags count + in-use tag badges. Per-image actions live in the details modal (M7-46).
+- **Do:** Add reusable table chrome (filter/sort/columns dropdowns, sortable headers, multi-select) and apply it on Images: one row per image; columns Image, Tags, Size, Age, State, Actions; usage filter All / In use / Some unused / Unused with icons; Tags count + in-use tag badges; Run / Push / Remove row actions. Layers open from the details modal (M7-46).
 - **Deliver:** `screens/table` module, Images wiring, English and Arabic copy, unit tests for filter/sort/columns helpers.
 - **Accept when:**
   - Images shows the default columns and supports header-click sort plus the Sort by / Order menu.
   - Usage filter and Columns picker (show/hide, Reset) work; Image column stays pinned.
-  - Multi-select supports bulk remove with confirmation; row click opens image details.
+  - Multi-select supports bulk remove with confirmation; row actions run, push, and remove; row click opens image details.
   - Verify English/Arabic and light/dark.
 
 ### M7-44 Environment brand marks and Images toolbar
@@ -652,10 +652,10 @@ English and Arabic copy cover the history card, disk card, resources label, and 
 - **Status:** done
 - **Depends on:** M7-45
 - **Docs:** [08 Screens](../08-gui.md#screens)
-- **Do:** Opening an Images row shows a wide details modal titled like the layers screenshot (`Image layers: sha256:…`) with the expandable layer stack (size bars, opcode colours, Normal/Large, expand for Created/Size/Command/Comment). Put image actions (run, push, export, tag, remove) as icon buttons in that modal — not on the parent table. Create-container dialog from Run uses a single scrollbar. Parent Images columns stay Image/Tags/Size/Age/State with flexible widths.
-- **Deliver:** `resources/image_detail`, `resources/layers`, `resources/run`, Images table without row action icons, English and Arabic copy.
+- **Do:** Opening an Images row shows a wide details modal titled like the layers screenshot (`Image layers: sha256:…`) with the expandable layer stack (size bars, opcode colours, Normal/Large, expand for Created/Size/Command/Comment). Keep run/push/remove on the parent table; also expose run/push/export/tag/remove as icons in the modal. Create-container from Run uses a single scrollbar. Parent columns use flexible widths.
+- **Deliver:** `resources/image_detail`, `resources/layers`, `resources/run`, English and Arabic copy.
 - **Accept when:**
-  - Parent Images table has no per-row action icons; clicking a row opens the details modal.
+  - Parent table keeps run/push/remove; clicking a row opens the details/layers modal.
   - Modal shows the layer stack matching the product screenshot and the five action icons.
   - Create container from Run has one scrollbar; columns fit Size/Age tightly.
   - Verify English/Arabic and light/dark.
