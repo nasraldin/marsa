@@ -52,14 +52,35 @@ pub fn align_to_start(element: Div, locale: Locale) -> Div {
     }
 }
 
+/// Width of the collapsed icon rail, including its border.
+/// Wide enough for centered 36px icon buttons with equal start/end padding, and
+/// for the traffic-light cluster above them.
+pub const COLLAPSED_SIDEBAR_WIDTH: f32 = 88.;
+/// Shell inset around the sidebar — must match the desktop row `p_2`.
+const SHELL_INSET: f32 = 8.;
+/// Width of the close→zoom traffic-light cluster (buttons + gaps).
+/// Used to center the cluster on the same axis as the collapsed toggle/brand.
+const TRAFFIC_LIGHT_WIDTH: f32 = 54.;
+/// Vertical inset for the traffic lights (GPUI pads this amount above and below).
+const TRAFFIC_LIGHT_Y: f32 = 22.;
+
 /// Position the native macOS controls in the workspace's leading sidebar.
+///
+/// Compact mode centers the traffic-light cluster on the collapsed sidebar so it
+/// lines up with the toggle and brand below. Expanded mode uses a standard
+/// titlebar leading inset.
 pub fn position_window_controls(window: &Window, locale: Locale, compact: bool) {
-    let padding = if compact { 18. } else { 24. };
-    let inset = match locale {
-        Locale::EnglishUs => px(padding),
-        Locale::Arabic => window.viewport_size().width - px(padding + 58.),
+    let x = if compact {
+        // Sidebar starts after the shell inset; center the cluster in that rail.
+        SHELL_INSET + (COLLAPSED_SIDEBAR_WIDTH - TRAFFIC_LIGHT_WIDTH) * 0.5
+    } else {
+        24.
     };
-    window.set_traffic_light_position(point(inset, px(30.)));
+    let inset = match locale {
+        Locale::EnglishUs => px(x),
+        Locale::Arabic => window.viewport_size().width - px(x + TRAFFIC_LIGHT_WIDTH),
+    };
+    window.set_traffic_light_position(point(inset, px(TRAFFIC_LIGHT_Y)));
 }
 
 /// Return the sidebar toggle glyph for the current reading direction and state.

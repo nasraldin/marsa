@@ -14,6 +14,9 @@ pub mod direction;
 mod assets;
 
 #[cfg(target_os = "macos")]
+pub use assets::{brand_mark_for_source, is_brand_mark};
+
+#[cfg(target_os = "macos")]
 pub use {
     gpui,
     gpui_base::{DialogClose, FocusTrapElement},

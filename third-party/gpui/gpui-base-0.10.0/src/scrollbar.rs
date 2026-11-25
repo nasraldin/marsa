@@ -3,12 +3,12 @@ use std::{cell::Cell, ops::Deref, panic::Location, rc::Rc};
 use web_time::{Duration, Instant};
 
 use crate::{
-    AxisExt,
+    AxisExt, LayoutDirection,
     animation::{ease_in_cubic, ease_out_cubic},
     theme::ActiveTheme as _,
 };
 use gpui::{
-    Anchor, App, Axis, Background, BorderStyle, Bounds, ContentMask, CursorStyle, Edges, Element,
+    App, Axis, Background, BorderStyle, Bounds, ContentMask, CursorStyle, Edges, Element,
     ElementId, EntityId, GlobalElementId, Hitbox, HitboxBehavior, Hsla, InspectorElementId, IsZero,
     LayoutId, ListState, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
     Position, ScrollEvent, ScrollHandle, Size, Style, TouchDragEvent, TouchPhase,
@@ -473,10 +473,15 @@ impl VisibilityAnimation {
     }
 }
 
-fn visibility_translation(axis: Axis, track_width: Pixels, progress: f32) -> Point<Pixels> {
+fn visibility_translation(
+    axis: Axis,
+    track_width: Pixels,
+    progress: f32,
+    direction: LayoutDirection,
+) -> Point<Pixels> {
     let offset = track_width * (1.0 - progress.clamp(0.0, 1.0));
     if axis.is_vertical() {
-        point(offset, px(0.))
+        point(if direction.is_rtl() { -offset } else { offset }, px(0.))
     } else {
         point(px(0.), offset)
     }
@@ -803,11 +808,27 @@ impl ScrollbarAxis {
         match self {
             Self::Vertical => vec![Axis::Vertical],
             Self::Horizontal => vec![Axis::Horizontal],
-            // This should keep Horizontal first, Vertical is the primary axis
-            // if Vertical not need display, then Horizontal will not keep right margin.
+            // Paint the horizontal track before the vertical track.
             Self::Both => vec![Axis::Horizontal, Axis::Vertical],
         }
     }
+}
+
+/// The vertical track sits at the inline end of the viewport.
+pub(crate) fn vertical_track_bounds(
+    viewport: Bounds<Pixels>,
+    track_width: Pixels,
+    direction: LayoutDirection,
+) -> Bounds<Pixels> {
+    let x = if direction.is_rtl() {
+        viewport.origin.x
+    } else {
+        viewport.right() - track_width
+    };
+    Bounds::new(
+        point(x, viewport.origin.y),
+        size(track_width, viewport.size.height),
+    )
 }
 
 /// Scrollbar control for scroll-area or a uniform-list.
@@ -1205,14 +1226,13 @@ struct ThumbGeometry {
 impl ThumbGeometry {
     fn new(
         origin: Pixels,
-        track_size: Pixels,
+        track: Pixels,
         viewport_size: Pixels,
         content: Pixels,
-        margin_end: Pixels,
         inset: Pixels,
         min_length: Pixels,
     ) -> Self {
-        let track = (track_size - margin_end).max(px(0.));
+        let track = track.max(px(0.));
         let logical_length = (viewport_size / content * track).max(min_length).min(track);
         let inset = inset.clamp(px(0.), logical_length / 2.);
         Self {
@@ -1371,74 +1391,58 @@ impl Element for Scrollbar {
         state.set(inner);
 
         let mut states = vec![];
-        let mut has_both = self.axis.is_both();
         let scroll_size = self
             .scroll_size
             .unwrap_or(self.scroll_handle.content_size());
         let scroll_viewport_size = self.scroll_viewport_size.unwrap_or(hitbox.size);
-
-        for axis in self.axis.all().into_iter() {
-            let is_vertical = axis.is_vertical();
-            let track_width = self
-                .styles
-                .track
-                .width
-                .or(cx.theme().scrollbar.styles().track.width)
-                .unwrap_or(WIDTH);
-            let (scroll_area_size, container_size, scroll_viewport_size, scroll_position) =
-                if is_vertical {
-                    (
-                        scroll_size.height,
-                        hitbox.size.height,
-                        scroll_viewport_size.height,
-                        self.scroll_handle.offset().y,
-                    )
-                } else {
-                    (
-                        scroll_size.width,
-                        hitbox.size.width,
-                        scroll_viewport_size.width,
-                        self.scroll_handle.offset().x,
-                    )
-                };
-
-            // The horizontal scrollbar is set avoid overlapping with the vertical scrollbar, if the vertical scrollbar is visible.
-            let margin_end = if has_both && !is_vertical {
-                track_width
+        let direction = LayoutDirection::global(cx);
+        let track_width = self
+            .styles
+            .track
+            .width
+            .or(cx.theme().scrollbar.styles().track.width)
+            .unwrap_or(WIDTH);
+        let corner_width =
+            if self.axis.is_both() && scroll_size.height > scroll_viewport_size.height {
+                track_width.min(hitbox.size.width)
             } else {
                 px(0.)
             };
 
+        for axis in self.axis.all().into_iter() {
+            let is_vertical = axis.is_vertical();
+            let (scroll_area_size, scroll_viewport_size, scroll_position) = if is_vertical {
+                (
+                    scroll_size.height,
+                    scroll_viewport_size.height,
+                    self.scroll_handle.offset().y,
+                )
+            } else {
+                (
+                    scroll_size.width,
+                    scroll_viewport_size.width,
+                    self.scroll_handle.offset().x,
+                )
+            };
+
             // Hide scrollbar, if the scroll area is smaller than the container.
             if scroll_area_size <= scroll_viewport_size {
-                has_both = false;
                 continue;
             }
 
-            let bounds = Bounds {
-                origin: if is_vertical {
-                    point(
-                        hitbox.origin.x + hitbox.size.width - track_width,
-                        hitbox.origin.y,
-                    )
+            let bounds = if is_vertical {
+                vertical_track_bounds(hitbox.bounds, track_width, direction)
+            } else {
+                // Leave the corner to the vertical track when both axes overflow.
+                let x = if direction.is_rtl() {
+                    hitbox.origin.x + corner_width
                 } else {
-                    point(
-                        hitbox.origin.x,
-                        hitbox.origin.y + hitbox.size.height - track_width,
-                    )
-                },
-                size: gpui::Size {
-                    width: if is_vertical {
-                        track_width
-                    } else {
-                        hitbox.size.width
-                    },
-                    height: if is_vertical {
-                        hitbox.size.height
-                    } else {
-                        track_width
-                    },
-                },
+                    hitbox.origin.x
+                };
+                Bounds::new(
+                    point(x, hitbox.bounds.bottom() - track_width),
+                    size(hitbox.size.width - corner_width, track_width),
+                )
             };
 
             let is_always_to_show = mode.is_always();
@@ -1485,61 +1489,43 @@ impl Element for Scrollbar {
                 window.request_animation_frame();
             }
 
-            let origin = if is_vertical {
-                bounds.origin.y
+            let (origin, track_size) = if is_vertical {
+                (bounds.origin.y, bounds.size.height)
             } else {
-                bounds.origin.x
+                (bounds.origin.x, bounds.size.width)
             };
             let geometry = ThumbGeometry::new(
                 origin,
-                container_size,
+                track_size,
                 scroll_viewport_size,
                 scroll_area_size,
-                margin_end,
                 inset,
                 min_length,
             );
             let (_, _, _, _, active_inset, _, active_min_length) = self.style_for_active(cx);
             let active_geometry = ThumbGeometry::new(
                 origin,
-                container_size,
+                track_size,
                 scroll_viewport_size,
                 scroll_area_size,
-                margin_end,
                 active_inset,
                 active_min_length,
             );
-            let thumb_start = geometry.start(scroll_position) - origin;
-
-            // The clickable area of the thumb
-            let thumb_length = geometry.length;
-            let thumb_bounds = if is_vertical {
-                Bounds::from_anchor_and_size(
-                    Anchor::TopRight,
-                    bounds.top_right() + point(-inset, thumb_start),
-                    size(track_width, thumb_length),
-                )
-            } else {
-                Bounds::from_anchor_and_size(
-                    Anchor::BottomLeft,
-                    bounds.bottom_left() + point(thumb_start, -inset),
-                    size(thumb_length, track_width),
-                )
-            };
-
-            // The actual render area of the thumb
-            let thumb_fill_bounds = if is_vertical {
-                Bounds::from_anchor_and_size(
-                    Anchor::TopRight,
-                    bounds.top_right() + point(-inset, thumb_start),
-                    size(thumb_width, thumb_length),
-                )
-            } else {
-                Bounds::from_anchor_and_size(
-                    Anchor::BottomLeft,
-                    bounds.bottom_left() + point(thumb_start, -inset),
-                    size(thumb_length, thumb_width),
-                )
+            let thumb_start = geometry.start(scroll_position);
+            let thumb_bounds = |width| {
+                if is_vertical {
+                    let x = if direction.is_rtl() {
+                        bounds.origin.x + inset
+                    } else {
+                        bounds.right() - inset - width
+                    };
+                    Bounds::new(point(x, thumb_start), size(width, geometry.length))
+                } else {
+                    Bounds::new(
+                        point(thumb_start, bounds.bottom() - inset - width),
+                        size(geometry.length, width),
+                    )
+                }
             };
 
             let bar_hitbox = window.with_content_mask(Some(ContentMask { bounds }), |window| {
@@ -1553,8 +1539,8 @@ impl Element for Scrollbar {
                 radius,
                 bg: bar_bg,
                 border: bar_border,
-                thumb_bounds,
-                thumb_fill_bounds,
+                thumb_bounds: thumb_bounds(track_width),
+                thumb_fill_bounds: thumb_bounds(thumb_width),
                 thumb_bg,
                 geometry,
                 active_geometry,
@@ -1588,6 +1574,7 @@ impl Element for Scrollbar {
         let view_id = window.current_view();
         let hitbox_bounds = prepaint.hitbox.bounds;
         let is_hover_to_show = mode.is_hover();
+        let direction = LayoutDirection::global(cx);
 
         window.with_content_mask(
             Some(ContentMask {
@@ -1607,8 +1594,12 @@ impl Element for Scrollbar {
                     let is_vertical = axis.is_vertical();
                     let visibility_opacity = state.visibility_opacity;
                     let is_visible = state.visibility_requested || visibility_opacity > 0.0;
-                    let translation =
-                        visibility_translation(axis, state.track_width, state.visibility_position);
+                    let translation = visibility_translation(
+                        axis,
+                        state.track_width,
+                        state.visibility_position,
+                        direction,
+                    );
                     let painted_bounds = state.bounds + translation;
                     let painted_thumb_bounds = state.thumb_fill_bounds + translation;
                     let painted_track_bg = state.bg.opacity(visibility_opacity);
@@ -2019,7 +2010,12 @@ mod tests {
         assert_eq!(shown.position, 1.0);
         assert!(!shown.running, "a motionless theme must request no frames");
         assert_eq!(
-            visibility_translation(Axis::Vertical, px(16.), shown.position),
+            visibility_translation(
+                Axis::Vertical,
+                px(16.),
+                shown.position,
+                LayoutDirection::Ltr
+            ),
             Point::default()
         );
 
@@ -2090,15 +2086,19 @@ mod tests {
     #[test]
     fn visibility_translation_moves_toward_the_nearest_edge() {
         assert_eq!(
-            visibility_translation(Axis::Vertical, px(16.), 0.0),
+            visibility_translation(Axis::Vertical, px(16.), 0.0, LayoutDirection::Ltr),
             point(px(16.), px(0.))
         );
         assert_eq!(
-            visibility_translation(Axis::Horizontal, px(16.), 0.0),
+            visibility_translation(Axis::Vertical, px(16.), 0.0, LayoutDirection::Rtl),
+            point(px(-16.), px(0.))
+        );
+        assert_eq!(
+            visibility_translation(Axis::Horizontal, px(16.), 0.0, LayoutDirection::Rtl),
             point(px(0.), px(16.))
         );
         assert_eq!(
-            visibility_translation(Axis::Vertical, px(16.), 1.0),
+            visibility_translation(Axis::Vertical, px(16.), 1.0, LayoutDirection::Ltr),
             Point::default()
         );
     }
@@ -2510,6 +2510,75 @@ mod tests {
     }
 
     #[gpui::test]
+    fn vertical_thumb_mirrors_and_drags_after_a_direction_change(cx: &mut TestAppContext) {
+        let (cx, handle) = harness(
+            cx,
+            ScrollbarAxis::Vertical,
+            ScrollbarMode::Always,
+            size(px(100.), px(500.)),
+        );
+
+        let assert_thumb_at = |cx: &mut VisualTestContext, x| {
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                let thumb = Bounds::new(point(px(x), px(4.)), size(px(6.), px(40.)));
+                assert!(
+                    window
+                        .painted_quads()
+                        .iter()
+                        .any(|quad| quad.bounds == thumb.scale(window.scale_factor())),
+                    "expected vertical thumb at x={x}"
+                );
+            });
+        };
+        assert_thumb_at(cx, 90.);
+        cx.update(|_, cx| crate::LayoutDirection::Rtl.set_global(cx));
+        assert_thumb_at(cx, 4.);
+
+        cx.simulate_click(point(px(95.), px(80.)), Modifiers::default());
+        assert_eq!(handle.offset(), Point::default());
+        cx.simulate_mouse_down(
+            point(px(6.), px(20.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        assert_eq!(handle.drag_starts.get(), 1);
+        assert_eq!(handle.offset(), Point::default());
+        cx.simulate_mouse_move(
+            point(px(6.), px(95.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        cx.simulate_mouse_up(
+            point(px(6.), px(95.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        assert_eq!(handle.drag_ends.get(), 1);
+        assert_eq!(handle.offset(), point(px(0.), px(-400.)));
+    }
+
+    #[gpui::test]
+    fn rtl_scrollbars_with_both_axes_keep_the_corner_for_the_vertical_track(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(|cx| crate::LayoutDirection::Rtl.set_global(cx));
+        let (cx, handle) = harness(
+            cx,
+            ScrollbarAxis::Both,
+            ScrollbarMode::Always,
+            size(px(500.), px(500.)),
+        );
+        cx.simulate_click(point(px(6.), px(95.)), Modifiers::default());
+        assert!(handle.offset().y < px(0.));
+        assert_eq!(handle.offset().x, px(0.));
+
+        let vertical_offset = handle.offset().y;
+        cx.simulate_click(point(px(95.), px(95.)), Modifiers::default());
+        assert_eq!(handle.offset(), point(px(-400.), vertical_offset));
+    }
+
+    #[gpui::test]
     fn horizontal_track_click_updates_horizontal_offset(cx: &mut TestAppContext) {
         let (cx, horizontal) = harness(
             cx,
@@ -2738,8 +2807,7 @@ mod tests {
 
     #[test]
     fn full_track_thumb_does_not_reset_the_scroll_offset() {
-        let geometry =
-            ThumbGeometry::new(px(20.), px(40.), px(40.), px(500.), px(0.), px(4.), px(64.));
+        let geometry = ThumbGeometry::new(px(20.), px(40.), px(40.), px(500.), px(4.), px(64.));
         let offset = point(px(0.), px(-100.));
         assert_eq!(
             geometry.drag_offset(
@@ -2754,8 +2822,7 @@ mod tests {
 
     #[test]
     fn thumb_geometry_maps_content_viewport_to_padded_track() {
-        let geometry =
-            ThumbGeometry::new(px(20.), px(96.), px(80.), px(160.), px(0.), px(0.), px(0.));
+        let geometry = ThumbGeometry::new(px(20.), px(96.), px(80.), px(160.), px(0.), px(0.));
 
         assert_eq!(geometry.length, px(48.));
         assert_eq!(geometry.travel, px(48.));
@@ -2763,7 +2830,7 @@ mod tests {
         assert_eq!(geometry.offset(px(68.), px(0.)), px(-80.));
 
         let barely_overflowing =
-            ThumbGeometry::new(px(20.), px(96.), px(80.), px(85.), px(0.), px(0.), px(0.));
+            ThumbGeometry::new(px(20.), px(96.), px(80.), px(85.), px(0.), px(0.));
         assert_eq!(barely_overflowing.extent, px(5.));
         assert!(barely_overflowing.travel > px(0.));
         assert_eq!(

@@ -1,6 +1,15 @@
 name: Tier 1
 
-on: [push, pull_request]
+# PRs run once via pull_request. push is limited to main so a branch push
+# that already has an open PR does not schedule a second identical suite.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: tier1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

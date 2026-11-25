@@ -27,10 +27,7 @@ use marsa_client::{
 };
 use marsa_ui::{
     Locale,
-    gpui::{
-        AnyElement, Context, Div, EventEmitter, ParentElement, Styled, Task, Window, div, px, svg,
-    },
-    gpui_component::button::{Button, ButtonVariants},
+    gpui::{AnyElement, Context, Div, EventEmitter, Task, Window, div},
     preferences::{AccentColor, DisplaySettings, Language, Settings, Theme},
 };
 
@@ -44,7 +41,7 @@ use crate::{
 };
 
 pub(crate) use notifications::{NotificationDestination, Notifications, notification_destination};
-use settings::{EnvironmentSettings, GitSources, RegistrySettings, ResourceInputs};
+use settings::{EnvironmentSettings, GitSources, RegistrySettings, ResourceInputs, VmEditor};
 
 pub(crate) struct OpenRoute(pub(crate) Route);
 
@@ -64,6 +61,8 @@ pub(crate) struct SystemView {
     external_inventory: crate::screens::external_inventory::Workspaces,
     external_inventory_task: Option<Task<()>>,
     environment_settings: EnvironmentSettings,
+    machine_vm: Option<VmEditor>,
+    machine_lima_target: Option<marsa_client::docker::LimaInstance>,
     environment_observations: settings::Observations,
     git_sources: GitSources,
     registry_settings: RegistrySettings,
@@ -131,6 +130,8 @@ impl SystemView {
             external_inventory: Arc::from([]),
             external_inventory_task: None,
             environment_settings: EnvironmentSettings::default(),
+            machine_vm: None,
+            machine_lima_target: None,
             environment_observations: settings::Observations::default(),
             git_sources: GitSources::default(),
             registry_settings: RegistrySettings::default(),
@@ -267,6 +268,9 @@ impl SystemView {
     }
 
     pub(crate) fn enter(&mut self, route: Route, cx: &mut Context<Self>) {
+        if self.route != route {
+            self.clear_lima_machine_target();
+        }
         self.route = route;
         self.route_load = None;
         if route != Route::Machine {
@@ -469,31 +473,23 @@ impl SystemView {
         let notice = notice?;
         let locale = screen.locale;
         let (message, tone) = notice.presentation(locale);
-        let dismiss = (notice != Notice::Working).then(|| {
-            let label = gui::GUI_DESKTOP_DISMISS.text(locale);
-            Button::new("dismiss-notice")
-                .ghost()
-                .size(px(22.))
-                .p_0()
-                .accessibility_label(label)
-                .tooltip(label)
-                .child(svg().path("icons/x.svg").size(px(14.)))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if operation_notice.is_none() && this.daemon_notice == Some(notice) {
-                        this.daemon_notice_dismissed = true;
-                    } else if this.notice == operation_notice {
-                        this.notice = None;
-                    }
-                    cx.notify();
-                }))
-        });
+        let dismiss = toast::dismiss_button("dismiss-notice", locale, screen.palette).on_click(
+            cx.listener(move |this, _, _, cx| {
+                if operation_notice.is_none() && this.daemon_notice == Some(notice) {
+                    this.daemon_notice_dismissed = true;
+                } else if this.notice == operation_notice {
+                    this.notice = None;
+                }
+                cx.notify();
+            }),
+        );
         Some(toast::render(
             ("system-toast", notice as usize),
             locale,
             screen.palette,
             tone,
             message,
-            dismiss,
+            Some(dismiss),
             cx,
         ))
     }

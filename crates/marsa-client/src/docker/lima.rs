@@ -36,6 +36,10 @@ pub struct LimaInstance {
 /// Effective Lima configuration and the current VM lifecycle state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LimaSettings {
+    /// Verified virtualization backend.
+    pub backend: &'static str,
+    /// Guest architecture reported by Lima, when recognized.
+    pub architecture: Option<&'static str>,
     /// Configured virtual CPUs.
     pub cpus: u32,
     /// Configured guest RAM in bytes.
@@ -139,6 +143,38 @@ impl LimaInstance {
         let config = self.check_target().await?;
         let lima = LimaCommand::find().await?;
         let current = self.read(&lima).await?;
+        self.transition(&lima, &config, current, running).await
+    }
+
+    /// Gracefully restart this exact running instance without changing its configuration.
+    pub async fn restart(&self) -> Result<LimaSettings, LimaSettingsError> {
+        let instance = self.clone();
+        // A window can close between the two transitions. Keep the confirmed
+        // restart running on the session runtime even if its caller goes away.
+        tokio::spawn(async move { instance.restart_running().await })
+            .await
+            .map_err(|_| LimaSettingsError::LifecycleFailed)?
+    }
+
+    async fn restart_running(&self) -> Result<LimaSettings, LimaSettingsError> {
+        let _guard = MUTATION_LOCK.lock().await;
+        let config = self.check_target().await?;
+        let lima = LimaCommand::find().await?;
+        let current = self.read(&lima).await?;
+        if !current.running {
+            return Err(LimaSettingsError::LifecycleState);
+        }
+        let stopped = self.transition(&lima, &config, current, false).await?;
+        self.transition(&lima, &config, stopped, true).await
+    }
+
+    async fn transition(
+        &self,
+        lima: &LimaCommand,
+        config: &[u8],
+        current: LimaSettings,
+        running: bool,
+    ) -> Result<LimaSettings, LimaSettingsError> {
         let Some(arguments) = lifecycle_arguments(current, running)? else {
             return Ok(current);
         };
@@ -150,7 +186,7 @@ impl LimaInstance {
         lima.configure(&mut command, &self.root);
         command.args(arguments).args(["--", &self.name]);
         let completed = run_bounded(command, LIFECYCLE_TIMEOUT).await.is_ok();
-        let actual = self.read(&lima).await?;
+        let actual = self.read(lima).await?;
         // Stop can finish successfully before Lima reconciles unrelated
         // networks. In that case report the verified stopped state.
         if (running && completed && actual.running) || (!running && actual.stopped) {
@@ -282,6 +318,8 @@ struct InstanceRecord {
     status: String,
     dir: PathBuf,
     vm_type: String,
+    #[serde(default)]
+    arch: String,
     cpus: u32,
     memory: u64,
     disk: u64,
@@ -366,6 +404,20 @@ fn decode_settings(
             .all(|network| network.lima.as_deref().is_none_or(str::is_empty)))
     .then(|| record.config.network_opts.host_loopback.unwrap_or(true));
     Ok(LimaSettings {
+        backend: if record.vm_type == "vz" {
+            "Virtualization.framework"
+        } else {
+            "QEMU"
+        },
+        architecture: match record.arch.as_str() {
+            "aarch64" => Some("aarch64"),
+            "x86_64" => Some("x86_64"),
+            "riscv64" => Some("riscv64"),
+            "armv7l" => Some("armv7l"),
+            "ppc64le" => Some("ppc64le"),
+            "s390x" => Some("s390x"),
+            _ => None,
+        },
         cpus: record.cpus,
         memory_bytes: record.memory,
         disk_bytes: record.disk,
@@ -396,6 +448,7 @@ fn edit_values(
         stopped: true,
         running: false,
         host_loopback: update.host_loopback.or(current.host_loopback),
+        ..current
     };
     if requested.disk_bytes < current.disk_bytes {
         return Err(LimaSettingsError::DiskShrink);

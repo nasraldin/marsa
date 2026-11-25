@@ -78,7 +78,12 @@ pub(super) fn render(
     let card_columns = if compact { 2 } else { 3 };
     let filter = view.environment.read(cx);
     let mut rows = if filter.includes_marsa() {
-        collect_rows(view, &view.state.containers(), None)
+        collect_rows(
+            view,
+            &view.state.containers(),
+            None,
+            view.state.images().as_ref(),
+        )
     } else {
         Vec::new()
     };
@@ -101,9 +106,23 @@ pub(super) fn render(
             view,
             &inventory.state.containers(),
             Some(source),
+            inventory.state.images().as_ref(),
         ));
     }
     let grouped = matches!(mode, ViewMode::Table | ViewMode::Tree);
+    let external_count = rows
+        .iter()
+        .map(|row| match row {
+            TableRow::Group {
+                key: (Some(_), _),
+                count,
+                ..
+            } => *count,
+            TableRow::External(..) if !grouped => 1,
+            _ => 0,
+        })
+        .sum::<usize>();
+
     let visible_ids = rows
         .iter()
         .filter_map(|entry| match entry {
@@ -111,7 +130,7 @@ pub(super) fn render(
             TableRow::Group { .. } | TableRow::External(..) => None,
         })
         .collect::<Vec<_>>();
-    let status = if !rows.is_empty() {
+    let status = if external_count != 0 || !rows.is_empty() {
         states::TableState::Rows
     } else if !filter.includes_marsa()
         && !view
@@ -140,8 +159,11 @@ pub(super) fn render(
             })
             .sum::<usize>()
     } else {
-        rows.len()
+        visible_ids.len() + external_count
     };
+    let selected = view.selected.clone();
+    let busy = view.command_pending;
+    let collapsed = view.collapsed.clone();
     let entity = cx.entity();
     let item_count = if mode == ViewMode::Cards {
         rows.len().div_ceil(card_columns)
@@ -149,9 +171,24 @@ pub(super) fn render(
         rows.len()
     };
     let rows = Arc::new(rows);
+    let summary = container_count(total, locale);
 
     let loaded = status == states::TableState::Rows;
-    let toolbar = status.can_create().then(|| {
+    let groups: Vec<GroupKey> = rows
+        .iter()
+        .filter_map(|entry| match entry {
+            TableRow::Group { key, .. } => Some(key.clone()),
+            _ => None,
+        })
+        .collect();
+    // Match Images/Volumes: filters on the start, actions on the end — no boxed rail.
+    let toolbar = matches!(
+        status,
+        states::TableState::Rows | states::TableState::NoMatches | states::TableState::Empty
+    )
+    .then(|| {
+        let filter_view = entity.downgrade();
+        let current = view.filter;
         let filters = row(cx)
             .items_center()
             .flex_wrap()
@@ -164,69 +201,50 @@ pub(super) fn render(
                         .aria_label(gui::GUI_DESKTOP_SEARCH_CONTAINERS.text(locale)),
                 )
             }))
-            .child({
-                let filter_view = entity.downgrade();
-                let current = view.filter;
+            .child(
                 Button::new("state-filter")
                     .outline()
                     .h(px(Space::S36.pixels()))
                     .child(
                         row(cx)
                             .gap_2()
-                            .child(filter_label(locale, current))
+                            .child(current.label(locale))
                             .child(Icon::new(IconName::ChevronDown).size(px(14.))),
                     )
-                    .accessibility_label(filter_label(locale, current))
+                    .accessibility_label(current.label(locale))
                     .dropdown_menu(move |menu, _, _| {
-                        [
-                            StatusFilter::All,
-                            StatusFilter::Running,
-                            StatusFilter::Paused,
-                            StatusFilter::Stopped,
-                            StatusFilter::Healthy,
-                            StatusFilter::Unhealthy,
-                        ]
-                        .into_iter()
-                        .fold(menu, |menu, filter| {
+                        StatusFilter::ALL.into_iter().fold(menu, |menu, filter| {
                             let weak = filter_view.clone();
                             menu.item(
-                                PopupMenuItem::new(filter_label(locale, filter))
+                                PopupMenuItem::new(filter.label(locale))
                                     .checked(filter == current)
                                     .on_click(move |_, _, cx| {
                                         let _ = weak.update(cx, |view, cx| {
-                                            view.filter = filter;
-                                            cx.notify();
+                                            view.set_status_filter(filter, cx);
                                         });
                                     }),
                             )
                         })
-                    })
-            })
+                    }),
+            )
             .child(
                 screen
                     .typography(Role::Small)
                     .apply(div())
                     .text_color(color(palette, ColorToken::TextMuted))
-                    .child(container_count(total, locale)),
+                    .child(summary),
             );
-        let groups: Vec<GroupKey> = rows
-            .iter()
-            .filter_map(|entry| match entry {
-                TableRow::Group { key, .. } => Some(key.clone()),
-                _ => None,
-            })
-            .collect();
         let actions = row(cx)
             .items_center()
             .flex_wrap()
             .gap_2()
-            .children((status != states::TableState::Empty).then(|| {
+            .children(loaded.then(|| {
                 row(cx)
                     .gap_2()
                     .child(view_mode_rail(mode, &screen, cx))
                     .children(
                         (!groups.is_empty())
-                            .then(|| group_toggle(groups, &view.collapsed, locale, cx)),
+                            .then(|| group_toggle(groups.clone(), &collapsed, locale, cx)),
                     )
             }))
             .child(
@@ -253,6 +271,7 @@ pub(super) fn render(
             .items_center()
             .flex_wrap()
             .gap_3()
+            .flex_shrink_0()
             .child(filters)
             .child(actions)
     });
@@ -261,6 +280,7 @@ pub(super) fn render(
         .w_full()
         .items_center()
         .gap_2()
+        .flex_shrink_0()
         .child(
             div()
                 .flex_1()
@@ -306,14 +326,20 @@ pub(super) fn render(
 
     if !loaded {
         return body
-            .child(states::render(view, status, &screen, cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .child(states::render(view, status, &screen, cx)),
+            )
             .into_any_element();
     }
 
-    let selected = view.selected.clone();
     let all_selected =
         !visible_ids.is_empty() && visible_ids.iter().all(|id| selected.contains(id));
     let columns = cell_row(palette, cx)
+        .flex_shrink_0()
         .bg(color(palette, ColorToken::BgSubtle))
         .text_color(color(palette, ColorToken::TextMuted))
         .child(
@@ -379,8 +405,6 @@ pub(super) fn render(
         compact,
         view: entity,
     };
-    let busy = view.command_pending;
-    let collapsed = view.collapsed.clone();
     let items = uniform_list("containers-table", item_count, move |range, _, cx| {
         if mode == ViewMode::Cards {
             return range
@@ -464,10 +488,11 @@ fn collect_rows(
     view: &ContainerView,
     source: &BTreeMap<ContainerId, ContainerSummary>,
     engine: Option<Arc<RowSource>>,
+    images: &BTreeMap<String, marsa_client::docker::ImageSummary>,
 ) -> Vec<TableRow> {
     let mut projects: BTreeMap<Option<&str>, Vec<&ContainerSummary>> = BTreeMap::new();
     for item in source.values() {
-        if matches_filter(view, item) {
+        if matches_filter(view, item, images) {
             projects
                 .entry(item.compose_project())
                 .or_default()
@@ -476,44 +501,66 @@ fn collect_rows(
     }
     // Named Compose projects precede the standalone group.
     let standalone = projects.remove(&None);
-    let grouped = matches!(view.mode, ViewMode::Table | ViewMode::Tree);
     projects
         .into_iter()
         .chain(standalone.map(|entries| (None, entries)))
         .flat_map(|(project, mut items)| {
-            let heading = grouped.then(|| TableRow::Group {
-                key: (
-                    engine.as_ref().map(|source| source.key.clone()),
-                    project.map(str::to_owned),
-                ),
+            items.sort_unstable_by(|a, b| {
+                let order = name(a).cmp(name(b)).then_with(|| a.id.cmp(&b.id));
+                if view.descending {
+                    order.reverse()
+                } else {
+                    order
+                }
+            });
+            let key = (
+                engine.as_ref().map(|source| source.key.clone()),
+                project.map(str::to_owned),
+            );
+            let grouped = matches!(view.mode, ViewMode::Table | ViewMode::Tree);
+            let collapsed = grouped && view.collapsed.contains(&key);
+            let heading = grouped.then_some(TableRow::Group {
+                key,
                 count: items.len(),
                 source: engine.clone(),
             });
-            if matches!(&heading, Some(TableRow::Group { key, .. }) if view.collapsed.contains(key))
-            {
-                items.clear();
-            } else {
-                items.sort_unstable_by(|a, b| {
-                    let order = name(a).cmp(name(b)).then_with(|| a.id.cmp(&b.id));
-                    if view.descending {
-                        order.reverse()
-                    } else {
-                        order
-                    }
-                });
-            }
             let engine = engine.clone();
-            let entries = items.into_iter().cloned().map(move |item| match &engine {
-                Some(engine) => TableRow::External(Box::new(item), engine.clone()),
-                None => TableRow::Container(Box::new(item)),
-            });
+            let entries = (!collapsed)
+                .then_some(items)
+                .into_iter()
+                .flatten()
+                .cloned()
+                .map(move |item| match &engine {
+                    Some(engine) => TableRow::External(Box::new(item), engine.clone()),
+                    None => TableRow::Container(Box::new(item)),
+                });
             heading.into_iter().chain(entries)
         })
         .collect()
 }
 
-fn matches_filter(view: &ContainerView, item: &ContainerSummary) -> bool {
-    view.filter.accepts(item)
+fn matches_filter(
+    view: &ContainerView,
+    item: &ContainerSummary,
+    images: &BTreeMap<String, marsa_client::docker::ImageSummary>,
+) -> bool {
+    let status_ok = match view.filter {
+        StatusFilter::Updates => {
+            let images: Vec<_> = images.values().cloned().collect();
+            let tags = marsa_client::docker::image_tag_index(&images);
+            let local = marsa_client::docker::container_needs_update(
+                item,
+                &images,
+                &tags,
+                &Default::default(),
+            );
+            let from_overview = marsa_client::docker::normalize_image_ref(&item.image)
+                .is_some_and(|reference| view.overview_outdated_images.contains(&reference));
+            local || from_overview
+        }
+        filter => filter.accepts(item),
+    };
+    status_ok
         && (view.query.is_empty()
             || name(item).to_lowercase().contains(&view.query)
             || item.image.to_lowercase().contains(&view.query)
@@ -629,9 +676,7 @@ fn group_row(
                 .ghost()
                 .small()
                 .compact()
-                .icon(if collapsed && locale == Locale::Arabic {
-                    IconName::ChevronLeft
-                } else if collapsed {
+                .icon(if collapsed {
                     IconName::ChevronRight
                 } else {
                     IconName::ChevronDown
@@ -1145,17 +1190,7 @@ fn fixed_column(width: f32, value: SharedString) -> Div {
     div().w(px(width)).flex_shrink_0().truncate().child(value)
 }
 
-fn filter_label(locale: Locale, filter: StatusFilter) -> &'static str {
-    match filter {
-        StatusFilter::All => copy(locale, "All states", "كل الحالات"),
-        StatusFilter::Running => copy(locale, "Running", "قيد التشغيل"),
-        StatusFilter::Paused => copy(locale, "Paused", "متوقفة مؤقتًا"),
-        StatusFilter::Stopped => copy(locale, "Stopped", "متوقفة"),
-        StatusFilter::Healthy => gui::GUI_OVERVIEW_HEALTHY.text(locale),
-        StatusFilter::Unhealthy => gui::GUI_OVERVIEW_UNHEALTHY.text(locale),
-    }
-}
-
+/// One icon that expands or collapses every project group (matches Images/Volumes tooling).
 fn group_toggle(
     groups: Vec<GroupKey>,
     collapsed: &BTreeSet<GroupKey>,
@@ -1236,7 +1271,6 @@ fn view_mode_rail(mode: ViewMode, screen: &ScreenContext<'_>, cx: &Context<Conta
                     .size(px(30.))
                     .p_0()
                     .icon(Icon::default().path(icon))
-                    .toggled(mode == target)
                     .accessibility_label(title.clone())
                     .tooltip(title);
                 let control = if mode == target {

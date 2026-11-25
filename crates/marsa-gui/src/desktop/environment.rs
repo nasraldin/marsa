@@ -39,6 +39,16 @@ impl Desktop {
         let busy = matches!(engine, Some(EngineState::Starting));
         let ready = engine == Some(EngineState::Ready);
         let system = self.system.read(cx);
+        if route == Route::Machine {
+            let name = workspace.map_or_else(
+                || selection.name().to_owned(),
+                |workspace| system.environment_presentation(Some(workspace.as_ref())).0,
+            );
+            let connection = self.context_status_text(engine, cx);
+            return self.system.update(cx, |system, cx| {
+                system.external_machine(&name, workspace.map(AsRef::as_ref), connection, screen, cx)
+            });
+        }
         let identity = if let Some(workspace) = workspace {
             let (name, icon) = system.environment_presentation(Some(workspace.as_ref()));
             (technical(&name), environment_icon_path(icon))
@@ -58,7 +68,7 @@ impl Desktop {
             .child(
                 screen
                     .typography(Role::Title)
-                    .apply(div())
+                    .apply(div().min_w_0().truncate())
                     .child(identity.0),
             )
             .child(status::inline_badge(
@@ -83,7 +93,7 @@ impl Desktop {
             .label(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
             .on_click(cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx)));
 
-        align(div().flex().flex_col(), locale).child(
+        align(div().flex().flex_col().gap_4(), locale).child(
             panel(screen)
                 .gap_4()
                 .child(

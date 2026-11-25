@@ -220,7 +220,15 @@ flowchart LR
 
 Global elements: command palette, engine status indicator, global search, toast and error surface, onboarding (first run: language, theme, shared folders).
 
-Settings → General groups the interface and terminal font menus with six
+Containers, Images, Volumes, Networks, and Stacks keep their page headings,
+filters, and table columns above the scrollable rows. Resource details scroll
+below their back control. The shared vertical scrollbar sits at the inline
+end, including on the left in Arabic. Select the current sidebar route to
+return to its list.
+
+Settings → General shares the System, Light, and Dark theme cards with
+first-run setup and offers the interface language in a dropdown. It groups
+the interface and terminal font menus with six
 base text sizes. IBM Plex supplies the defaults and Arabic glyph fallback.
 The menus include native macOS system faces and the
 [optional bundled families](../assets/fonts/README.md#optional-typefaces).
@@ -249,10 +257,16 @@ to connect. [Hawser connection requirements](11-security.md#the-docker-socket).
 
 On macOS, a matching owner-managed Lima Docker VM exposes CPU, memory, and
 primary disk capacity in Resources, and supported host loopback access in
-Network. Start and stop the verified Lima VM from its row or the editor's
-Resources and Network pages. Stop asks for confirmation and requests a
-graceful shutdown. After stopping, the editor reloads the allocation so you
-can apply changes and start the VM again. Lima takes the saved allocation on
+Network. Machine uses the same identity, Resources, and Boot & diagnostics
+layout for the built-in, local Lima, and connection-only environments. A
+verified Lima VM shows its backend, guest architecture, CPU count, guest
+memory, primary disk capacity, and supported loopback setting even while
+Docker is stopped. Start, stop, or restart Lima from Machine. Stop and restart
+confirm the exact VM name and use graceful shutdown. The Environments list and
+editor also offer start and stop. Connection-only environments show the
+available Docker endpoint and connection details.
+After stopping, the resource form reloads the allocation so you can apply
+changes and start the VM again. Lima takes the saved allocation on
 the next start and only grows the primary disk. Deleting a saved connection
 removes that record and keeps its VM and Docker resources.
 
@@ -275,13 +289,23 @@ requests the events retained from the previous 24 hours and displays the resourc
 action and time. [Docker Engine event history](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/events/events.go#L12-L32),
 [Docker Engine date filtering](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L274-L305).
 
-Overview shows the selected environment's lifecycle and health totals, resource
-counts, independently ranked CPU and memory samples, and Docker disk accounting.
-Sampling runs while Overview is visible and reports its coverage. A missing
-category or sample stays unavailable. The disk bars compare reported category
-sizes on a common scale because shared data can appear in more than one
-category. The built-in environment uses the owner API to query an already
-running guest without starting it.
+Overview opens with four equal cards: the selected environment (icon, name,
+status, runtime, OS/arch, plus container status counts and a health banner),
+CPU and memory history with percent and absolute consumption against the host
+budget, Docker disk usage as a donut with a category legend, and a resources
+card for Images, Volumes, Stacks, and Networks. The top running containers list
+stays below.
+Select a status count to open the matching Containers filter.
+Live usage and top-consumer sparklines keep the last 24 samples for the
+selected engine while Overview is visible. A missing category or sample stays
+unavailable. Disk bars use the sum of reported category sizes as the shared
+scale; shared underlying storage can still appear in more than one category.
+The built-in environment uses the owner API to query an already running guest
+without starting it. When the desktop opens on the built-in environment after
+setup, it requests a start once if the daemon reports a stopped engine. The
+Overview card shows an icon-only Start or Stop button for the selected
+built-in engine or verified local Lima VM. The button uses the same stop
+confirmation as Machine.
 [Moby 29.10.0 Engine API](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml),
 [Moby disk accounting compatibility](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L207-L248).
 

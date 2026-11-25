@@ -10,7 +10,7 @@ use marsa_ui::{
         Div, Entity, InteractiveElement, IntoElement, ParentElement, Role as AccessibleRole,
         SharedString, StatefulInteractiveElement, Styled, div, px,
     },
-    gpui_component::{Icon, IconName},
+    gpui_component::{Icon, IconName, scroll::ScrollableElement as _},
     tokens::{
         scale::{Radius, Space},
         typography::Role,
@@ -223,6 +223,7 @@ pub(super) fn table(
     let header = logical_row(screen.locale)
         .items_center()
         .h(px(Space::S36.pixels()))
+        .flex_shrink_0()
         .px(px(Space::S16.pixels()))
         .gap(px(Space::S16.pixels()))
         .bg(tone(screen, ColorToken::BgSubtle))
@@ -240,17 +241,21 @@ pub(super) fn table(
         .flex()
         .flex_col()
         .w_full()
+        .flex_1()
+        .min_h_0()
         .rounded(px(Radius::R12.pixels()))
         .border_1()
         .border_color(border)
         .overflow_hidden()
         .bg(tone(screen, ColorToken::BgElevated))
         .child(header);
-    table.children(rows.iter().enumerate().map(|(index, row)| {
+    let body = div().flex().flex_col().flex_1().min_h_0();
+    let body = body.children(rows.iter().enumerate().map(|(index, row)| {
         let id = row.key().to_owned();
         let entry = logical_row(screen.locale)
             .items_center()
             .min_h(px(Space::S40.pixels() + Space::S4.pixels()))
+            .flex_shrink_0()
             .px(px(Space::S16.pixels()))
             .gap(px(Space::S16.pixels()))
             .border_color(border);
@@ -371,7 +376,11 @@ pub(super) fn table(
                     .text_color(tone(screen, ColorToken::TextMuted))
                     .child(Icon::new(IconName::ChevronRight)),
             )
-    }))
+    }));
+    table.child(
+        body.overflow_y_scrollbar()
+            .id(("resource-rows", kind as usize)),
+    )
 }
 
 fn column(width: f32, cell: Div) -> Div {

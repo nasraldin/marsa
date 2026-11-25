@@ -16,8 +16,6 @@ pub(crate) mod toast;
 use marsa_ui::gui_keys as gui;
 use std::{collections::VecDeque, sync::Arc};
 
-use std::time::Duration;
-
 use marsa_client::api::EngineState;
 use marsa_ui::{
     ColorToken, Locale, Palette,
@@ -105,14 +103,13 @@ pub(crate) struct Desktop {
     _resource_subscription: marsa_ui::gpui::Subscription,
     _route_subscription: Subscription,
     _store: Option<Task<()>>,
-    _setup_probe: Option<Task<()>>,
-    _auto_start_task: Option<Task<()>>,
+    setup_probe: Option<Task<()>>,
+    _inventory_refresh: Option<Task<()>>,
+    auto_start_task: Option<Task<()>>,
     onboarding: Option<onboarding::Setup>,
     setup_task: Option<Task<()>>,
-    /// The launch-time engine boot was attempted once for this session.
-    auto_start_done: bool,
-    /// The owner explicitly stopped the engine in this session.
-    user_requested_stop: bool,
+    setup_complete: bool,
+    auto_start_pending: bool,
 }
 
 impl Desktop {
@@ -128,8 +125,10 @@ impl Desktop {
             this.resources
                 .update(cx, |view, _| view.switch_environment());
             this.palette_index = 0;
-            this.system
-                .update(cx, |view, cx| view.refresh_external_inventory(cx));
+            this.system.update(cx, |view, cx| {
+                view.clear_lima_machine_target();
+                view.refresh_external_inventory(cx);
+            });
             cx.notify();
         });
         let containers = cx.new(|cx| {
@@ -233,60 +232,7 @@ impl Desktop {
                 }
             })
         });
-        // Boot the local engine automatically on launch, the way Docker
-        // Desktop does, unless the owner stopped it during this session.
-        let auto_start_task = services.clone().map(|auto_services| {
-            cx.spawn(async move |this, cx| {
-                for _ in 0..40 {
-                    let settled = this
-                        .update(cx, |desktop, _| {
-                            (
-                                desktop.engine(),
-                                desktop.auto_start_done,
-                                desktop.user_requested_stop,
-                            )
-                        })
-                        .ok();
-                    let Some((Some(state), false, false)) = settled else {
-                        return;
-                    };
-                    match state {
-                        EngineState::Stopped | EngineState::Failed => {
-                            let _ = this.update(cx, |desktop, _| desktop.auto_start_done = true);
-                            if let Ok(request_id) = marsa_client::request_id() {
-                                auto_services
-                                    .dispatch(crate::services::Command::Engine {
-                                        action: crate::services::EngineAction::Start,
-                                        request_id,
-                                    })
-                                    .result()
-                                    .await;
-                            }
-                            return;
-                        }
-                        // Already running or transitioning: nothing to boot.
-                        EngineState::Starting
-                        | EngineState::Booting
-                        | EngineState::Ready
-                        | EngineState::Idle
-                        | EngineState::Paused
-                        | EngineState::Stopping => {
-                            let _ = this.update(cx, |desktop, _| desktop.auto_start_done = true);
-                            return;
-                        }
-                        _ => {}
-                    }
-                    cx.background_executor()
-                        .timer(Duration::from_millis(500))
-                        .await;
-                }
-            })
-        });
-        let _auto_start_task = auto_start_task;
         let _search_subscription = palette::observe_query(&query, window, cx);
-        let _setup_probe = services
-            .as_deref()
-            .map(|services| onboarding::probe(services, cx));
         Self {
             route: Route::Overview,
             overview: overview::Overview::default(),
@@ -322,17 +268,58 @@ impl Desktop {
             _resource_subscription,
             _route_subscription,
             _store: store,
-            _setup_probe,
-            _auto_start_task,
+            setup_probe: None,
+            _inventory_refresh: None,
+            auto_start_task: None,
             onboarding: None,
             setup_task: None,
-            auto_start_done: false,
-            user_requested_stop: false,
+            setup_complete: false,
+            auto_start_pending: true,
         }
     }
 
     fn engine(&self) -> Option<EngineState> {
         self.state.engine().map(|engine| engine.state())
+    }
+
+    fn prepare_auto_start(&mut self, cx: &mut Context<Self>) {
+        if self.state.daemon().is_none() {
+            self.setup_probe = None;
+            return;
+        }
+        if !self.setup_complete && self.setup_probe.is_none() {
+            self.setup_probe = self
+                .services
+                .as_deref()
+                .map(|services| onboarding::probe(services, cx));
+        }
+        if !self.auto_start_pending || !self.setup_complete || self.onboarding.is_some() {
+            return;
+        }
+        let Some(state) = self
+            .engine()
+            .filter(|state| *state != EngineState::Unspecified)
+        else {
+            return;
+        };
+        self.auto_start_pending = false;
+        if state != EngineState::Stopped || !self.environment.read(cx).includes_marsa() {
+            return;
+        }
+        let Some(services) = &self.services else {
+            return;
+        };
+        let Ok(request_id) = marsa_client::request_id() else {
+            return;
+        };
+        let mut pending = services.dispatch(crate::services::Command::Engine {
+            action: EngineAction::Start,
+            request_id,
+        });
+        self.auto_start_task = Some(cx.spawn(async move |desktop, cx| {
+            let _ = pending.result().await;
+            let _ = desktop.update(cx, |desktop, _| desktop.auto_start_task = None);
+        }));
     }
 
     fn active_workspace(&self, cx: &App) -> Option<&ExternalWorkspace> {
@@ -383,17 +370,37 @@ impl Desktop {
     }
 
     fn navigate(&mut self, route: Route, cx: &mut Context<Self>) {
-        if self.route == Route::Containers && route != Route::Containers {
+        if self.route == Route::Containers {
             self.containers.update(cx, |view, cx| view.leave(cx));
         }
         if matches!(
             self.route,
             Route::Images | Route::Volumes | Route::Networks | Route::Compose
-        ) && self.route != route
-        {
+        ) {
             self.resources.update(cx, |view, _| view.leave());
         }
         self.route = route;
+        self._inventory_refresh = self
+            .services
+            .as_ref()
+            .filter(|_| {
+                self.environment.read(cx).includes_marsa()
+                    && matches!(self.engine(), Some(EngineState::Ready | EngineState::Idle))
+                    && matches!(
+                        route,
+                        Route::Containers
+                            | Route::Images
+                            | Route::Volumes
+                            | Route::Networks
+                            | Route::Compose
+                    )
+            })
+            .map(|services| {
+                let mut refresh = services.refresh();
+                cx.spawn(async move |_, _| {
+                    let _ = refresh.result().await;
+                })
+            });
         self.palette_open = false;
         self.palette_previous_focus = None;
         self.system.update(cx, |view, cx| {
@@ -426,7 +433,7 @@ impl Desktop {
         if !self.environment.read(cx).includes_marsa() {
             return;
         }
-        self.user_requested_stop = action == EngineAction::Stop;
+        self.auto_start_pending = false;
         self.palette_open = false;
         self.palette_previous_focus = None;
         self.system.update(cx, |view, cx| {
@@ -458,6 +465,7 @@ impl Render for Desktop {
                 view.set_appearance(self.locale, palette, window, cx)
             });
         }
+        self.prepare_auto_start(cx);
         self.prepare_overview(cx);
         let screen = ScreenContext {
             locale: self.locale,
@@ -471,6 +479,20 @@ impl Render for Desktop {
         let failed = local
             && matches!(route, Route::Machine | Route::Containers)
             && self.engine() == Some(EngineState::Failed);
+        let lima = (matches!(route, Route::Machine | Route::Overview) && !local)
+            .then(|| {
+                let selection = self.environment.read(cx);
+                self.external_inventory
+                    .iter()
+                    .find(|workspace| selection.includes_external(workspace))
+                    .and_then(|workspace| self.system.read(cx).lima_machine_instance(workspace))
+            })
+            .flatten();
+        if matches!(route, Route::Machine | Route::Overview) {
+            self.system.update(cx, |system, cx| {
+                system.prepare_lima_machine(lima, window, cx)
+            });
+        }
         let sidebar = sidebar::render(self, cx);
         let header = row(self.locale)
             .justify_between()
@@ -504,6 +526,8 @@ impl Render for Desktop {
                             .text_color(color(palette, ColorToken::TextMuted))
                             .child(if failed {
                                 gui::GUI_SYSTEM_ENGINE_FAILED_SUBTITLE.text(self.locale)
+                            } else if route == Route::Machine {
+                                gui::GUI_SYSTEM_MACHINE_ENVIRONMENT_DESCRIPTION.text(self.locale)
                             } else {
                                 route.description(self.locale)
                             }),
@@ -519,30 +543,9 @@ impl Render for Desktop {
                     .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(self.locale))
                     .child(IconName::Search)
                     .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx))),
-            )
-            .children(
-                (local
-                    && route == Route::Overview
-                    && matches!(
-                        self.engine(),
-                        Some(EngineState::Stopped | EngineState::Failed)
-                    ))
-                .then(|| {
-                    let label = gui::GUI_DESKTOP_START_MACHINE.text(self.locale);
-                    Button::new("start-engine-from-overview")
-                        .ghost()
-                        .size(px(36.))
-                        .p_0()
-                        .bg(color(palette, ColorToken::GlassControl))
-                        .accessibility_label(label)
-                        .tooltip(label)
-                        .child(IconName::Play)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.request_engine(EngineAction::Start, window, cx);
-                        }))
-                }),
             );
 
+        let mut owns_scroll = false;
         let view = if route == Route::Overview {
             self.overview_screen(&screen, window, cx).into_any_element()
         } else if failed {
@@ -574,8 +577,12 @@ impl Render for Desktop {
             self.external_screen(route, &screen, cx).into_any_element()
         } else {
             match route {
-                Route::Containers => self.containers.clone().into_any_element(),
+                Route::Containers => {
+                    owns_scroll = true;
+                    self.containers.clone().into_any_element()
+                }
                 Route::Images | Route::Volumes | Route::Networks | Route::Compose => {
+                    owns_scroll = true;
                     let kind = match route {
                         Route::Images => ResourceKind::Images,
                         Route::Volumes => ResourceKind::Volumes,
@@ -593,18 +600,21 @@ impl Render for Desktop {
                     )
                     .into_any_element()
                 }
-                _ => self.system.update(cx, |system, cx| {
-                    system
-                        .render_route(
-                            route,
-                            &screen,
-                            &self.history,
-                            window.viewport_size().width
-                                < px(if self.collapsed { 840. } else { 980. }),
-                            cx,
-                        )
-                        .into_any_element()
-                }),
+                _ => {
+                    owns_scroll = route == Route::Settings;
+                    self.system.update(cx, |system, cx| {
+                        system
+                            .render_route(
+                                route,
+                                &screen,
+                                &self.history,
+                                window.viewport_size().width
+                                    < px(if self.collapsed { 840. } else { 980. }),
+                                cx,
+                            )
+                            .into_any_element()
+                    })
+                }
             }
         };
         let toast = self
@@ -616,18 +626,15 @@ impl Render for Desktop {
             .id(("screen", route as usize))
             .flex_1()
             .min_h_0()
+            .flex()
+            .flex_col()
             .child(view);
-        let content = if route == Route::Settings
-            || (route == Route::Containers && !failed)
-            || matches!(
-                route,
-                Route::Images | Route::Volumes | Route::Networks | Route::Compose
-            ) && !failed
-        {
+        let content = if owns_scroll {
             content.overflow_hidden().into_any_element()
         } else {
             content.overflow_y_scrollbar().into_any_element()
         };
+        // Match the traffic-light band so page titles clear the titlebar controls.
         let main = div()
             .flex_1()
             .min_w_0()
@@ -635,7 +642,9 @@ impl Render for Desktop {
             .flex()
             .flex_col()
             .gap_3()
-            .p_4()
+            .pt(px(20.))
+            .px_4()
+            .pb_4()
             .children((route != Route::Containers || failed).then_some(header))
             .child(content);
         screen

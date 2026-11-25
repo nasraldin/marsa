@@ -487,3 +487,98 @@ Verified both transports and terminal I/O against [Hawser upstream bca2770](http
 - **Docs:** [08 GUI](../08-gui.md)
 - **Do:** Review the desktop routes and refine task grouping, control placement, and readable states. Group desktop preferences and provide native font and size pickers.
 - **Accept when:** The typography controls persist and apply real fonts and sizes. Major route actions and states are discoverable, and scrollable content remains reachable in both supported languages and appearances.
+
+### M7-35 Restore desktop scrolling and finish the usability controls
+
+- **Status:** done
+- **Depends on:** M7-19, M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Repair the workspace scroll areas affected by PR #116 and finish its Overview and sidebar controls.
+- **Accept when:**
+  - Container, image, volume, network, and stack rows scroll within the remaining viewport. The page title, table headings, and filters stay visible.
+  - Resource details can scroll independently. Selecting the active sidebar route returns to its list.
+  - Overview exposes the container filters, shows measured history for top containers, and puts the local engine lifecycle controls in the active environment card.
+  - Verify overflow and layout in English light, English dark, Arabic light, and Arabic dark.
+
+Native macOS QA reproduced the stuck Images rows on the merged PR and verified
+body scrolling in the rebuilt app with English light, English dark, Arabic
+light, and Arabic dark. The checks reached later rows in all five workspaces
+and the logs at the bottom of a 24-service stack detail. They also covered the
+Containers keyboard shortcut, sidebar return to list, live healthy and
+unhealthy filters, and the Overview stop confirmation.
+
+### M7-36 Show the selected Lima VM on Machine
+
+- **Status:** done
+- **Depends on:** M7-19, M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Present the active owner-managed Lima instance on Machine with its resource allocation, supported network settings, and lifecycle controls.
+- **Accept when:**
+  - Machine shows the selected Lima instance and its CPU, memory, disk capacity, and supported loopback setting even when Docker is stopped.
+  - Start, graceful stop, restart, and stopped-only settings edits use the exact verified Lima instance. Stop and restart require confirmation.
+  - Switching away cannot send a pending confirmation or resource edit to the newly selected environment. Other providers keep their existing connection summary.
+  - Check the Machine page in English light, English dark, Arabic light, and Arabic dark.
+
+Verified the native Machine page in all four language and theme combinations. The
+disposable Lima integration test covered graceful stop, allocation changes,
+startup, and restart. The Machine page started the same VM and named it in
+the restart confirmation.
+
+### M7-37 Unify Machine and Overview lifecycle controls
+
+- **Status:** done
+- **Depends on:** M7-36
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Use one Machine layout for the selected environment and expose its available lifecycle controls in the Overview card.
+- **Accept when:**
+  - Marsa, owner-managed Lima, and connection-only environments use the same Machine identity, resources, and diagnostics layout.
+  - Overview shows icon-only Start or Stop for the selected controllable VM, including an offline, stopped Lima instance.
+  - Resource edits and lifecycle confirmations stay bound to the selected provider. Connection-only environments show verified information where available.
+  - Check English and Arabic in light and dark mode.
+
+Native checks covered four locale and theme combinations, Overview start and
+confirmed stop, and saving a new CPU allocation on the disposable Lima VM.
+
+### M7-38 Match Settings appearance to first-run setup
+
+- **Status:** done
+- **Depends on:** M7-35
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Present the interface language in a dropdown and share visual theme choices between Settings and first-run setup.
+- **Accept when:**
+  - The menu offers System, English (US), and العربية and reports the selected language.
+  - Both surfaces use System, Light, and Dark previews with recognizable icons and a selected state.
+  - Verify the four locale and theme combinations and the keyboard path.
+
+Native Settings checks covered the four appearance and language combinations
+and keyboard selection from the language menu.
+
+### M7-39 Mirror Arabic vertical scrollbars
+
+- **Status:** done
+- **Depends on:** M7-35
+- **Docs:** [08 Direction layer](../08-gui.md#direction-layer)
+- **Do:** Place the shared vertical scrollbar and editor overview marks at the inline end of the viewport.
+- **Accept when:**
+  - Track paint, hit testing, and dragging mirror with the interface direction.
+  - An area with both axes keeps the track corner clear and retains the existing horizontal scroll direction.
+  - Verify English and Arabic in both appearances and cover a live direction change with a regression test.
+
+Native checks dragged the Arabic Settings track and reached the final row of
+a 38-volume table with its header fixed. Headless tests cover mirrored paint,
+hit testing, dragging, and the two-axis corner.
+
+### M7-40 Chart the Overview status, usage, and disk cards
+
+- **Status:** done
+- **Depends on:** M7-37
+- **Docs:** [08 GUI](../08-gui.md)
+- **Do:** Keep top running containers. Lay out Overview as four wrapping header cards—context (with status strip), CPU/memory history (percent plus absolute size against host budget), disk usage (donut and legend), and resources—then the top consumers list.
+- **Deliver:** Overview chart layout, engine-level usage history, English and Arabic copy.
+- **Accept when:**
+  - The four header cards wrap together; context includes clickable lifecycle/health counts and the healthy banner.
+  - CPU/memory show percent and consumed size against the host budget; disk uses a donut and legend; history updates from Overview samples without changing top consumers.
+  - Verify English/Arabic and light/dark.
+
+Headless coverage for engine history and the Overview chart layout is in place.
+English and Arabic copy cover the history card, disk card, resources label, and healthy banner.

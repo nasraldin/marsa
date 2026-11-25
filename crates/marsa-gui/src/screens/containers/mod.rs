@@ -84,6 +84,7 @@ impl ContainerTarget {
     }
 }
 
+/// Container inventory filters shared by the list and Overview.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum StatusFilter {
     #[default]
@@ -91,20 +92,73 @@ pub(crate) enum StatusFilter {
     Running,
     Paused,
     Stopped,
+    Restarting,
+    Other,
+    /// Containers whose image tag now points at a newer digest.
+    Updates,
     Healthy,
     Unhealthy,
+    HealthStarting,
+    NoHealth,
+    UnknownHealth,
 }
 
 impl StatusFilter {
-    fn accepts(&self, summary: &ContainerSummary) -> bool {
+    const ALL: [Self; 12] = [
+        Self::All,
+        Self::Running,
+        Self::Paused,
+        Self::Stopped,
+        Self::Restarting,
+        Self::Other,
+        Self::Updates,
+        Self::Healthy,
+        Self::Unhealthy,
+        Self::HealthStarting,
+        Self::NoHealth,
+        Self::UnknownHealth,
+    ];
+
+    pub(crate) fn label(self, locale: Locale) -> &'static str {
+        match self {
+            Self::All => return super::common::copy(locale, "All states", "كل الحالات"),
+            Self::Running => gui::GUI_DESKTOP_RUNNING,
+            Self::Paused => gui::GUI_DESKTOP_PAUSED,
+            Self::Stopped => gui::GUI_DESKTOP_STOPPED,
+            Self::Restarting => gui::GUI_OVERVIEW_RESTARTING,
+            Self::Other => gui::GUI_OVERVIEW_OTHER,
+            Self::Updates => gui::GUI_OVERVIEW_UPDATES,
+            Self::Healthy => gui::GUI_OVERVIEW_HEALTHY,
+            Self::Unhealthy => gui::GUI_OVERVIEW_UNHEALTHY,
+            Self::HealthStarting => gui::GUI_OVERVIEW_HEALTH_STARTING,
+            Self::NoHealth => gui::GUI_OVERVIEW_NO_HEALTH,
+            Self::UnknownHealth => gui::GUI_OVERVIEW_UNKNOWN_HEALTH,
+        }
+        .text(locale)
+    }
+
+    fn accepts(self, summary: &ContainerSummary) -> bool {
         let state = summary.state();
         match self {
             Self::All => true,
             Self::Running => state == "running",
             Self::Paused => state == "paused",
-            Self::Stopped => !matches!(state, "running" | "paused"),
+            Self::Stopped => matches!(state, "created" | "exited" | "dead"),
+            Self::Restarting => state == "restarting",
+            Self::Other => !matches!(
+                state,
+                "created" | "exited" | "dead" | "running" | "paused" | "restarting"
+            ),
+            // Resolved with image inventory in `matches_filter`.
+            Self::Updates => true,
             Self::Healthy => summary.health() == Some("healthy"),
             Self::Unhealthy => summary.health() == Some("unhealthy"),
+            Self::HealthStarting => summary.health() == Some("starting"),
+            Self::NoHealth => summary.health() == Some("none"),
+            Self::UnknownHealth => !matches!(
+                summary.health(),
+                Some("healthy" | "unhealthy" | "starting" | "none")
+            ),
         }
     }
 }
@@ -126,6 +180,8 @@ pub(crate) struct ContainerView {
     input: Option<Entity<InputState>>,
     query: String,
     filter: StatusFilter,
+    /// Image refs Overview marked outdated (includes registry digest checks).
+    overview_outdated_images: BTreeSet<String>,
     selected: BTreeSet<ContainerId>,
     focused: Option<ContainerTarget>,
     tab: Tab,
@@ -205,6 +261,7 @@ impl ContainerView {
             environment,
             _context_subscription,
             filter: StatusFilter::All,
+            overview_outdated_images: BTreeSet::new(),
             selected: BTreeSet::new(),
             focused: None,
             tab: Tab::Overview,
@@ -255,6 +312,32 @@ impl ContainerView {
         }
         self.locale = locale;
         self.palette = palette;
+        cx.notify();
+    }
+
+    /// Open a filter from the Overview without retaining a previous search.
+    pub(crate) fn filter_from_overview(
+        &mut self,
+        filter: StatusFilter,
+        outdated_images: std::collections::BTreeSet<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(input) = &self.input {
+            input.update(cx, |input, cx| input.set_value("", window, cx));
+        }
+        self.query.clear();
+        self.overview_outdated_images = outdated_images;
+        self.set_status_filter(filter, cx);
+    }
+
+    fn set_status_filter(&mut self, filter: StatusFilter, cx: &mut Context<Self>) {
+        if filter != StatusFilter::Updates {
+            self.overview_outdated_images.clear();
+        }
+        self.filter = filter;
+        self.list_scroll
+            .scroll_to_item_strict(0, marsa_ui::gpui::ScrollStrategy::Top);
         cx.notify();
     }
 
@@ -644,21 +727,18 @@ impl ContainerView {
     }
 
     pub(crate) fn toast(&self, cx: &mut Context<Self>) -> Option<marsa_ui::gpui::AnyElement> {
-        use marsa_ui::gpui::{ParentElement, Styled, px, svg};
-        use marsa_ui::gpui_component::button::{Button, ButtonVariants};
         if !self.command_failed {
             return None;
         }
-        let label = gui::GUI_DESKTOP_DISMISS.text(self.locale);
-        let dismiss = Button::new("dismiss-container-toast")
-            .ghost()
-            .accessibility_label(label)
-            .tooltip(label)
-            .child(svg().path("icons/x.svg").size(px(14.)))
-            .on_click(cx.listener(|view, _, _, cx| {
-                view.command_failed = false;
-                cx.notify();
-            }));
+        let dismiss = crate::desktop::toast::dismiss_button(
+            "dismiss-container-toast",
+            self.locale,
+            self.palette,
+        )
+        .on_click(cx.listener(|view, _, _, cx| {
+            view.command_failed = false;
+            cx.notify();
+        }));
         Some(crate::desktop::toast::render(
             "container-toast",
             self.locale,

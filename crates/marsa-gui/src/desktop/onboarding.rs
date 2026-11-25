@@ -77,9 +77,14 @@ pub(super) fn probe(services: &Services, cx: &Context<Desktop>) -> Task<()> {
         Ok(!settings.ui.setup_complete)
     });
     cx.spawn(async move |desktop, cx| {
-        if let Some(Ok(true)) = request.result().await {
-            let _ = desktop.update(cx, |desktop, cx| desktop.begin_setup(cx));
-        }
+        let required = request.result().await;
+        let _ = desktop.update(cx, |desktop, cx| {
+            desktop.setup_complete = matches!(required, Some(Ok(false)));
+            if matches!(required, Some(Ok(true))) {
+                desktop.begin_setup(cx);
+            }
+            cx.notify();
+        });
     })
 }
 
@@ -283,6 +288,7 @@ impl Desktop {
             let result = response.result().await;
             let _ = desktop.update(cx, |desktop, cx| {
                 if matches!(result, Some(Ok(()))) {
+                    desktop.setup_complete = true;
                     desktop.onboarding = None;
                     desktop.navigate(super::Route::Overview, cx);
                 } else if let Some(setup) = &mut desktop.onboarding {

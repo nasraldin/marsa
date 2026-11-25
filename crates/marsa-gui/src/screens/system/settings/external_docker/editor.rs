@@ -116,8 +116,8 @@ impl Transport {
     fn title(self, locale: Locale) -> &'static str {
         match self {
             Self::Unix => gui::GUI_ENVIRONMENT_UNIX.text(locale),
-            Self::Ssh => "SSH",
-            Self::Tls => "TLS",
+            Self::Ssh => gui::GUI_ENVIRONMENT_SSH.text(locale),
+            Self::Tls => gui::GUI_ENVIRONMENT_TLS.text(locale),
             Self::HawserStandard => gui::GUI_ENVIRONMENT_HAWSER_STANDARD.text(locale),
             Self::HawserEdge => gui::GUI_ENVIRONMENT_HAWSER_EDGE.text(locale),
         }

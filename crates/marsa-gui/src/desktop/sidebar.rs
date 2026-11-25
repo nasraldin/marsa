@@ -1,20 +1,25 @@
 //! Mirrored workspace sidebar and live engine indicator.
 
 use marsa_ui::{
-    ColorToken,
+    ColorToken, brand_mark_for_source,
     gpui::{
-        Anchor, Context, Div, FontWeight, InteractiveElement, ParentElement, Styled, div, img,
-        prelude::FluentBuilder, px, svg,
+        Anchor, AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement,
+        ParentElement, Styled, div, img, prelude::FluentBuilder, px, svg,
     },
     gpui_component::{
         Icon, IconName, Selectable,
         button::{Button, ButtonVariants},
         menu::{DropdownMenu as _, PopupMenuItem},
     },
+    is_brand_mark,
 };
 use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
 
-use crate::screens::common::{align, color, row};
+use crate::screens::{
+    common::{align, color, row},
+    external_inventory::ExternalWorkspace,
+    system::{SystemView, environment_icon_path},
+};
 
 use marsa_ui::gpui_component::scroll::ScrollableElement as _;
 
@@ -24,7 +29,11 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
     let locale = desktop.locale;
     let palette = desktop.palette;
     let foreground = color(palette, ColorToken::TextMuted);
-    let width = if desktop.collapsed { 78. } else { 216. };
+    let width = if desktop.collapsed {
+        marsa_ui::direction::COLLAPSED_SIDEBAR_WIDTH
+    } else {
+        216.
+    };
     let collapse_label = if desktop.collapsed {
         gui::GUI_DESKTOP_EXPAND_SIDEBAR.text(locale)
     } else {
@@ -54,13 +63,16 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(gui::GUI_DESKTOP_MARSA.text(locale))
         }));
+    let collapsed = desktop.collapsed;
+    let nav_icon = px(36.);
     let mut navigation = div()
         .id("sidebar-navigation")
         .flex_1()
         .min_h_0()
         .flex()
         .flex_col()
-        .gap_2();
+        .gap_3()
+        .when(collapsed, |nav| nav.items_center());
     for (title, routes) in [
         (
             gui::GUI_DESKTOP_WORKSPACE.text(locale),
@@ -75,8 +87,9 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(1.))
-                .children((!desktop.collapsed).then(|| {
+                .when(collapsed, |group| group.items_center().gap_2())
+                .when(!collapsed, |group| group.gap_1())
+                .children((!collapsed).then(|| {
                     align(
                         div().text_size(ui_size(11.)).text_color(foreground).px_2(),
                         locale,
@@ -102,9 +115,13 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                         .toggled(selected)
                         .accessibility_label(label)
                         .tooltip(label)
-                        .w_full()
-                        .h(px(32.))
-                        .rounded(px(8.));
+                        .rounded(px(10.))
+                        .p_0();
+                    let item = if collapsed {
+                        item.size(nav_icon)
+                    } else {
+                        item.w_full().h(nav_icon).px_2()
+                    };
                     let item = if selected {
                         item.bg(color(palette, ColorToken::AccentSubtle))
                     } else {
@@ -112,18 +129,18 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                     };
                     item.child(
                         row(locale)
-                            .w_full()
-                            .when(desktop.collapsed, |row| row.justify_center())
-                            .gap_2()
+                            .when(collapsed, |row| row.size(nav_icon).justify_center())
+                            .when(!collapsed, |row| row.w_full().gap_2())
+                            .items_center()
                             .text_size(ui_size(13.))
                             .text_color(label_color)
                             .child(
                                 svg()
                                     .path(route.icon())
-                                    .size(px(17.))
+                                    .size(px(18.))
                                     .text_color(icon_color),
                             )
-                            .children((!desktop.collapsed).then_some(label)),
+                            .children((!collapsed).then_some(label)),
                     )
                     .on_click(cx.listener(move |desktop, _, _, cx| desktop.navigate(route, cx)))
                 })),
@@ -142,13 +159,16 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         .border_1()
         .border_color(color(palette, ColorToken::BorderSubtle))
         .bg(color(palette, ColorToken::BgSidebar))
-        .child(if desktop.collapsed {
+        .child(if collapsed {
+            // Clear the traffic lights (y≈18, ~14px tall) before the toggle and brand.
             div()
                 .flex()
                 .flex_col()
                 .items_center()
-                .pt(px(36.))
-                .gap_2()
+                .w_full()
+                .pt(px(40.))
+                .gap_3()
+                .pb_2()
                 .child(collapse)
                 .child(brand)
         } else {
@@ -156,9 +176,11 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(row(locale).h(px(40.)).justify_end().child(collapse))
+                .pt(px(4.))
+                .child(row(locale).h(px(36.)).justify_end().child(collapse))
                 .child(row(locale).px_2().pb_3().child(brand))
         })
+        // Collapsed rail still scrolls if needed; square icon buttons keep equal side padding.
         .child(navigation.overflow_y_scrollbar())
         .child(footer)
 }
@@ -185,14 +207,26 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
     let state_text = desktop.context_status_text(engine, cx);
     let description = format!("{label}: {context} · {state_text}");
     let system = desktop.system.read(cx);
-    let choices = std::iter::once((Environment::Marsa, system.environment_presentation(None).0))
-        .chain(desktop.external_inventory.iter().map(|workspace| {
-            (
-                Environment::from(workspace.as_ref()),
-                system.environment_presentation(Some(workspace)).0,
-            )
-        }))
-        .collect::<Vec<_>>();
+    let active_icon = if current.includes_marsa() {
+        "marsa/docker.svg"
+    } else {
+        workspace.map_or("icons/server.svg", |workspace| {
+            context_icon(system, workspace)
+        })
+    };
+    let choices = std::iter::once((
+        Environment::Marsa,
+        system.environment_presentation(None).0,
+        "marsa/docker.svg",
+    ))
+    .chain(desktop.external_inventory.iter().map(|workspace| {
+        (
+            Environment::from(workspace.as_ref()),
+            system.environment_presentation(Some(workspace)).0,
+            context_icon(system, workspace),
+        )
+    }))
+    .collect::<Vec<_>>();
     let desktop_entity = cx.entity().downgrade();
     let button = Button::new("sidebar-engine-state")
         .ghost()
@@ -212,12 +246,11 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
         .justify_center()
         .rounded(px(9.))
         .bg(color(palette, status_surface))
-        .child(
-            svg()
-                .path("marsa/docker-engine.svg")
-                .size(px(30.))
-                .text_color(color(palette, status_text)),
-        );
+        .child(engine_mark(
+            active_icon,
+            26.,
+            Some(color(palette, status_text)),
+        ));
     let button = if desktop.collapsed {
         button.h(px(52.)).p_0().child(engine_icon)
     } else {
@@ -256,12 +289,25 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
         marsa_ui::Locale::EnglishUs => Anchor::BottomLeft,
     };
     button.dropdown_menu_with_anchor(anchor, move |menu, _, _| {
-        let menu = choices.iter().fold(menu, |menu, (choice, name)| {
+        let menu = choices.iter().fold(menu, |menu, (choice, name, icon)| {
             let picked = choice.clone();
             let desktop = desktop_entity.clone();
+            let label = crate::screens::common::technical(name);
+            let path = *icon;
+            // Brand marks keep authored colors; monochrome glyphs use Icon tinting.
+            let item = if is_brand_mark(path) {
+                PopupMenuItem::element(move |_, _| {
+                    row(locale)
+                        .gap_2()
+                        .items_center()
+                        .child(img(path).size(px(16.)).flex_shrink_0())
+                        .child(label.clone())
+                })
+            } else {
+                PopupMenuItem::new(label).icon(Icon::default().path(path))
+            };
             menu.item(
-                PopupMenuItem::new(crate::screens::common::technical(name))
-                    .checked(choice.same_identity(&current))
+                item.checked(choice.same_identity(&current))
                     .on_click(move |_, _, cx| {
                         let _ = desktop.update(cx, |desktop, cx| {
                             desktop.select_environment(picked.clone(), cx)
@@ -278,4 +324,29 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
             ),
         )
     })
+}
+
+/// Render a context glyph. Brand SVGs/PNGs use `img` so theme tinting cannot recolor them.
+fn engine_mark(path: &'static str, size: f32, tint: Option<marsa_ui::gpui::Hsla>) -> AnyElement {
+    if is_brand_mark(path) {
+        img(path).size(px(size)).flex_shrink_0().into_any_element()
+    } else {
+        let mut glyph = svg().path(path).size(px(size));
+        if let Some(tint) = tint {
+            glyph = glyph.text_color(tint);
+        }
+        glyph.into_any_element()
+    }
+}
+
+fn context_icon(system: &SystemView, workspace: &ExternalWorkspace) -> &'static str {
+    if workspace.endpoint.lima_instance().is_some() || workspace.source.starts_with("Colima · ") {
+        return "icons/laptop.svg";
+    }
+    if workspace.endpoint.managed_id().is_none()
+        && let Some(mark) = brand_mark_for_source(&workspace.source)
+    {
+        return mark;
+    }
+    environment_icon_path(system.environment_presentation(Some(workspace)).1)
 }

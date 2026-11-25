@@ -102,7 +102,7 @@ impl Route {
         match self {
             Self::Overview => "icons/panels-top-left.svg",
             Self::Containers => "icons/box.svg",
-            Self::Images => "icons/layers.svg",
+            Self::Images => "icons/package-open.svg",
             Self::Volumes => "icons/database.svg",
             Self::Networks => "icons/network.svg",
             Self::Compose => "icons/layout-template.svg",

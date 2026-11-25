@@ -40,25 +40,44 @@ impl OverviewClient {
     /// Read the inventory and live container measurements.
     pub async fn sample(&self) -> OverviewSample {
         let containers = async {
-            let rows: Option<Vec<ContainerSummary>> = self.read(Section::Containers, None).await;
-            let Some(rows) = rows else {
-                return (None, None, None);
-            };
-            let counts = ContainerCounts::from_rows(&rows);
+            let rows: Vec<ContainerSummary> = self.read(Section::Containers, None).await?;
             let stacks = rows
                 .iter()
                 .filter_map(ContainerSummary::compose_project)
                 .collect::<BTreeSet<_>>()
                 .len();
             let utilization = self.utilization(&rows).await;
-            (Some(counts), Some(stacks), Some(utilization))
+            Some((rows, stacks, utilization))
         };
         let images = self.read::<Vec<ImageSummary>>(Section::Images, None);
         let networks = self.read::<Vec<NetworkSummary>>(Section::Networks, None);
         let volumes = self.read::<Volumes>(Section::Volumes, None);
         let version = self.read::<EngineVersion>(Section::Version, None);
-        let ((containers, stacks, utilization), images, volumes, networks, version) =
+        let (containers, images, volumes, networks, version) =
             tokio::join!(containers, images, volumes, networks, version);
+        let (containers, stacks, utilization, outdated_images) = match containers {
+            Some((rows, stacks, utilization)) => {
+                let (updates, outdated_images) = match images.as_ref() {
+                    Some(images) => {
+                        let remotes = self.remote_tag_digests(&rows).await;
+                        (
+                            outdated_updates(&rows, images, &remotes),
+                            outdated_image_refs(&rows, images, &remotes),
+                        )
+                    }
+                    None => (0, BTreeSet::new()),
+                };
+                let mut counts = ContainerCounts::from_rows(&rows);
+                counts.updates = updates;
+                (
+                    Some(counts),
+                    Some(stacks),
+                    Some(utilization),
+                    outdated_images,
+                )
+            }
+            None => (None, None, None, BTreeSet::new()),
+        };
         OverviewSample {
             containers,
             stacks,
@@ -67,6 +86,7 @@ impl OverviewClient {
             networks: networks.map(|rows| rows.len()),
             version: version.and_then(EngineVersion::checked),
             utilization,
+            outdated_images,
         }
     }
 
@@ -76,6 +96,90 @@ impl OverviewClient {
             .await
             .map(EngineDiskUsage::project)
             .filter(DiskBreakdown::has_measurements)
+    }
+
+    /// Resolve registry digests for the distinct tagged references used by containers.
+    async fn remote_tag_digests(
+        &self,
+        containers: &[ContainerSummary],
+    ) -> std::collections::BTreeMap<String, String> {
+        let mut unique = BTreeSet::new();
+        for container in containers {
+            if let Some(reference) = normalize_image_ref(&container.image) {
+                unique.insert(reference);
+            }
+        }
+        // Prefer namespaced refs (user/org images) so Hub lookups like dockhand finish
+        // before slow 403s on local-only names burn the budget.
+        let mut pending: Vec<_> = unique.into_iter().collect();
+        pending.sort_by(|left, right| {
+            registry_probe_priority(left)
+                .cmp(&registry_probe_priority(right))
+                .then_with(|| left.cmp(right))
+        });
+        let mut pending = pending.into_iter();
+        let mut digests = std::collections::BTreeMap::new();
+        let mut jobs = JoinSet::new();
+        let deadline = sleep(Duration::from_secs(20));
+        tokio::pin!(deadline);
+        loop {
+            while jobs.len() < 4 {
+                let Some(reference) = pending.next() else {
+                    break;
+                };
+                let client = self.clone();
+                jobs.spawn(async move {
+                    let digest = client.distribution_digest(&reference).await;
+                    (reference, digest)
+                });
+            }
+            if jobs.is_empty() {
+                break;
+            }
+            tokio::select! {
+                result = jobs.join_next() => {
+                    if let Some(Ok((reference, Some(digest)))) = result {
+                        digests.insert(reference, digest);
+                    }
+                }
+                () = &mut deadline => {
+                    // Keep digests already finished; drop the rest so Overview stays responsive.
+                    while let Some(result) = jobs.try_join_next() {
+                        if let Ok((reference, Some(digest))) = result {
+                            digests.insert(reference, digest);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        digests
+    }
+
+    async fn distribution_digest(&self, reference: &str) -> Option<String> {
+        #[derive(Deserialize)]
+        struct DistributionInspect {
+            #[serde(rename = "Descriptor")]
+            descriptor: DistributionDescriptor,
+        }
+        #[derive(Deserialize)]
+        struct DistributionDescriptor {
+            digest: String,
+        }
+        let path = format!("/distribution/{reference}/json");
+        let inspect: DistributionInspect = match self {
+            Self::External(client) => client
+                .snapshot_with_timeout(&path, Duration::from_secs(5))
+                .await
+                .ok()?,
+            // Guest overview RPC has no distribution section yet; local tag drift still counts.
+            Self::Marsa(_) => return None,
+        };
+        let digest = inspect.descriptor.digest;
+        digest.strip_prefix("sha256:").filter(|value| {
+            value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })?;
+        Some(digest)
     }
 
     async fn utilization(&self, rows: &[ContainerSummary]) -> OverviewUtilization {
@@ -109,11 +213,23 @@ impl OverviewClient {
                 let stats: StatsSample = client.read(Section::ContainerStats, Some(&id)).await?;
                 let cpu_percent = stats.cpu_percent();
                 let memory_bytes = stats.memory_stats.used_without_cache();
+                let memory_limit = stats.memory_stats.limit.filter(|limit| *limit > 0);
+                let online_cpus = stats
+                    .cpu_stats
+                    .online_cpus
+                    .filter(|cpus| *cpus > 0)
+                    .or_else(|| {
+                        u32::try_from(stats.cpu_stats.cpu_usage.percpu_usage.len())
+                            .ok()
+                            .filter(|cpus| *cpus > 0)
+                    });
                 (cpu_percent.is_some() || memory_bytes.is_some()).then_some(ContainerUtilization {
                     id,
                     name,
                     cpu_percent,
                     memory_bytes,
+                    memory_limit,
+                    online_cpus,
                 })
             });
         }
@@ -198,6 +314,8 @@ pub struct OverviewSample {
     pub version: Option<EngineVersion>,
     /// CPU and memory measurement availability and results.
     pub utilization: Option<OverviewUtilization>,
+    /// Normalized image refs with a newer local tag or registry digest.
+    pub outdated_images: BTreeSet<String>,
 }
 
 /// Counts of lifecycle and health states from a single listing.
@@ -215,6 +333,8 @@ pub struct ContainerCounts {
     pub restarting: usize,
     /// Containers with another lifecycle state, such as removal in progress.
     pub other: usize,
+    /// Containers whose image tag now points at a newer digest.
+    pub updates: usize,
     /// Containers reporting healthy.
     pub healthy: usize,
     /// Containers reporting unhealthy.
@@ -241,22 +361,275 @@ impl ContainerCounts {
                 "restarting" => counts.restarting += 1,
                 _ => counts.other += 1,
             }
-            let health = row.health.as_ref().map(|health| health.status.as_str());
-            match (
-                health,
-                row.status.rsplit_once(" (").map(|(_, suffix)| suffix),
-            ) {
-                (Some("healthy"), _) | (None, Some("healthy)")) => counts.healthy += 1,
-                (Some("unhealthy"), _) | (None, Some("unhealthy)")) => counts.unhealthy += 1,
-                (Some("starting"), _) | (None, Some("health: starting)")) => {
-                    counts.health_starting += 1
-                }
-                (Some("none"), _) => counts.no_health += 1,
+            match row.health() {
+                Some("healthy") => counts.healthy += 1,
+                Some("unhealthy") => counts.unhealthy += 1,
+                Some("starting") => counts.health_starting += 1,
+                Some("none") => counts.no_health += 1,
                 _ => counts.unknown_health += 1,
             }
         }
         counts
     }
+}
+
+/// Count containers whose named tag is newer locally or on the registry.
+pub fn outdated_updates(
+    containers: &[ContainerSummary],
+    images: &[ImageSummary],
+    remotes: &std::collections::BTreeMap<String, String>,
+) -> usize {
+    let tags = image_tag_index(images);
+    containers
+        .iter()
+        .filter(|container| container_needs_update(container, images, &tags, remotes))
+        .count()
+}
+
+/// Lower values are probed first when resolving registry digests.
+fn registry_probe_priority(reference: &str) -> u8 {
+    let name = reference
+        .rsplit_once(':')
+        .map_or(reference, |(name, _)| name);
+    if name.contains('.') || name.starts_with('[') {
+        0
+    } else if name.contains('/') {
+        1
+    } else if name.ends_with(".local") || reference.ends_with(":local") {
+        3
+    } else {
+        2
+    }
+}
+
+/// Normalized image references that currently need an update.
+pub fn outdated_image_refs(
+    containers: &[ContainerSummary],
+    images: &[ImageSummary],
+    remotes: &std::collections::BTreeMap<String, String>,
+) -> BTreeSet<String> {
+    let tags = image_tag_index(images);
+    containers
+        .iter()
+        .filter(|container| container_needs_update(container, images, &tags, remotes))
+        .filter_map(|container| normalize_image_ref(&container.image))
+        .collect()
+}
+
+#[cfg(test)]
+mod outdated_tests {
+    use super::*;
+
+    #[test]
+    fn counts_containers_whose_tag_moved() {
+        let containers: Vec<ContainerSummary> = serde_json::from_value(serde_json::json!([
+            {
+                "Id": "a".repeat(64),
+                "Names": ["/old"],
+                "Image": "nginx:latest",
+                "ImageID": "sha256:olddigest",
+                "Created": 0,
+                "State": "running",
+                "Status": "Up",
+            },
+            {
+                "Id": "b".repeat(64),
+                "Names": ["/fresh"],
+                "Image": "nginx:latest",
+                "ImageID": "sha256:newdigest",
+                "Created": 0,
+                "State": "running",
+                "Status": "Up",
+            },
+            {
+                "Id": "c".repeat(64),
+                "Names": ["/pin"],
+                "Image": "sha256:deadbeef",
+                "ImageID": "sha256:deadbeef",
+                "Created": 0,
+                "State": "exited",
+                "Status": "Exited",
+            }
+        ]))
+        .unwrap();
+        let images: Vec<ImageSummary> = serde_json::from_value(serde_json::json!([
+            {
+                "Id": "sha256:newdigest",
+                "RepoTags": ["nginx:latest"],
+                "RepoDigests": ["nginx@sha256:newdigest"],
+                "Created": 1,
+                "Size": 1
+            }
+        ]))
+        .unwrap();
+        assert_eq!(
+            outdated_updates(&containers, &images, &Default::default()),
+            1
+        );
+    }
+
+    #[test]
+    fn counts_containers_behind_registry_digest() {
+        let containers: Vec<ContainerSummary> = serde_json::from_value(serde_json::json!([{
+            "Id": "a".repeat(64),
+            "Names": ["/ui-dockhand"],
+            "Image": "fnsys/dockhand:latest",
+            "ImageID": "sha256:4fd64d32728c99e5caf39b952a17d85448ee0b8ae76e0961f719ba2e19013988",
+            "Created": 0,
+            "State": "running",
+            "Status": "Up",
+        }]))
+        .unwrap();
+        let images: Vec<ImageSummary> = serde_json::from_value(serde_json::json!([{
+            "Id": "sha256:4fd64d32728c99e5caf39b952a17d85448ee0b8ae76e0961f719ba2e19013988",
+            "RepoTags": ["fnsys/dockhand:latest"],
+            "RepoDigests": ["fnsys/dockhand@sha256:4fd64d32728c99e5caf39b952a17d85448ee0b8ae76e0961f719ba2e19013988"],
+            "Created": 1,
+            "Size": 1
+        }]))
+        .unwrap();
+        let remotes = std::collections::BTreeMap::from([(
+            "fnsys/dockhand:latest".into(),
+            "sha256:c2b0fc55e3ed299133f6caf63a764deb118ee402ea761548c3f8fd01d04fca06".into(),
+        )]);
+        assert_eq!(outdated_updates(&containers, &images, &remotes), 1);
+        assert_eq!(
+            outdated_updates(&containers, &images, &Default::default()),
+            0
+        );
+    }
+
+    #[test]
+    fn normalizes_pinned_tag_digest_refs() {
+        assert_eq!(
+            normalize_image_ref(
+                "postgres:18.6-trixie@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42"
+            )
+            .as_deref(),
+            Some("postgres:18.6-trixie")
+        );
+        assert_eq!(
+            normalize_image_ref("deploy-web").as_deref(),
+            Some("deploy-web:latest")
+        );
+        assert_eq!(normalize_image_ref("sha256:deadbeef"), None);
+    }
+
+    #[test]
+    fn digests_pins_never_count_as_updates() {
+        let containers: Vec<ContainerSummary> = serde_json::from_value(serde_json::json!([{
+            "Id": "a".repeat(64),
+            "Names": ["/pin"],
+            "Image": "postgres:18.6@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+            "ImageID": "sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+            "Created": 0,
+            "State": "running",
+            "Status": "Up",
+        }]))
+        .unwrap();
+        let remotes = std::collections::BTreeMap::from([(
+            "postgres:18.6".into(),
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
+        )]);
+        assert_eq!(outdated_updates(&containers, &[], &remotes), 0);
+    }
+}
+
+/// Whether this container should show under Updates.
+pub fn container_needs_update(
+    container: &ContainerSummary,
+    images: &[ImageSummary],
+    tags: &std::collections::BTreeMap<&str, &str>,
+    remotes: &std::collections::BTreeMap<String, String>,
+) -> bool {
+    // Digest pins are immutable; only floating tags can be outdated.
+    if container.image.contains("@sha256:") {
+        return false;
+    }
+    let Some(reference) = normalize_image_ref(&container.image) else {
+        return false;
+    };
+    if let Some(latest) = tags.get(reference.as_str())
+        && !image_ids_match(latest, &container.image_id)
+    {
+        return true;
+    }
+    let Some(remote) = remotes.get(&reference) else {
+        return false;
+    };
+    if image_ids_match(remote, &container.image_id) {
+        return false;
+    }
+    !image_knows_digest(images, &container.image_id, remote)
+}
+
+/// Map each repo tag to the image id that currently owns it.
+pub fn image_tag_index(images: &[ImageSummary]) -> std::collections::BTreeMap<&str, &str> {
+    let mut tags = std::collections::BTreeMap::new();
+    for image in images {
+        for tag in &image.repo_tags {
+            if tag.is_empty() || tag == "<none>:<none>" {
+                continue;
+            }
+            tags.insert(tag.as_str(), image.id.as_str());
+        }
+    }
+    tags
+}
+
+/// Strip digest pins and apply Docker's implicit `:latest` rule.
+pub fn normalize_image_ref(image: &str) -> Option<String> {
+    let image = image.trim();
+    if image.is_empty() {
+        return None;
+    }
+    // Image IDs and digest-only refs are immutable pins, not updateable tags.
+    if let Some(digest) = image.strip_prefix("sha256:")
+        && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    let without_digest = match image.split_once("@sha256:") {
+        Some((name, digest))
+            if digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()) =>
+        {
+            name
+        }
+        Some(_) => return None,
+        None => image,
+    };
+    if without_digest.is_empty() {
+        return None;
+    }
+    let name = without_digest
+        .rsplit_once('/')
+        .map_or(without_digest, |(_, name)| name);
+    if name.contains(':') {
+        Some(without_digest.to_owned())
+    } else {
+        Some(format!("{without_digest}:latest"))
+    }
+}
+
+fn image_knows_digest(images: &[ImageSummary], image_id: &str, digest: &str) -> bool {
+    images.iter().any(|image| {
+        if !image_ids_match(&image.id, image_id) {
+            return false;
+        }
+        image_ids_match(&image.id, digest)
+            || image.repo_digests.iter().any(|entry| {
+                let value = entry
+                    .rsplit_once('@')
+                    .map_or(entry.as_str(), |(_, digest)| digest);
+                image_ids_match(value, digest)
+            })
+    })
+}
+
+fn image_ids_match(left: &str, right: &str) -> bool {
+    let left = left.strip_prefix("sha256:").unwrap_or(left);
+    let right = right.strip_prefix("sha256:").unwrap_or(right);
+    left == right || left.starts_with(right) || right.starts_with(left)
 }
 
 /// Sample coverage for the currently running containers.
@@ -279,6 +652,22 @@ pub struct ContainerUtilization {
     pub cpu_percent: Option<f64>,
     /// Memory in bytes excluding inactive file cache, where reported.
     pub memory_bytes: Option<u64>,
+    /// Memory cgroup limit in bytes, typically the host budget for the engine.
+    pub memory_limit: Option<u64>,
+    /// Online logical CPUs reported with the sample.
+    pub online_cpus: Option<u32>,
+}
+
+impl OverviewUtilization {
+    /// Strongest memory limit reported with the sampled containers.
+    pub fn memory_limit(&self) -> Option<u64> {
+        self.usage.iter().filter_map(|row| row.memory_limit).max()
+    }
+
+    /// Online CPU count shared by the sampled containers.
+    pub fn online_cpus(&self) -> Option<u32> {
+        self.usage.iter().filter_map(|row| row.online_cpus).max()
+    }
 }
 
 /// Docker Engine version and platform.
@@ -492,8 +881,11 @@ mod tests {
                 "Labels": {"com.docker.compose.project": "example"},
             })
         };
+        let healthy = container("a", "running", "Up 2 minutes (healthy)", None);
+        let reported: ContainerSummary = serde_json::from_value(healthy.clone()).unwrap();
+        assert_eq!(reported.health(), Some("healthy"));
         let inventory = serde_json::to_string(&[
-            container("a", "running", "Up 2 minutes", Some("healthy")),
+            healthy,
             container("b", "paused", "Up 1 hour (Paused)", Some("none")),
             container("c", "restarting", "Restarting", Some("none")),
             container("d", "exited", "Exited", None),
@@ -502,18 +894,30 @@ mod tests {
         .unwrap();
         let routes = std::collections::BTreeMap::from([
             ("/containers/json?all=true".into(), inventory),
-            ("/images/json?all=true".into(), r#"[{"Id":"sha256:first","Created":0,"Size":128},{"Id":"sha256:second","Created":0,"Size":256}]"#.into()),
+            (
+                "/images/json?all=true".into(),
+                r#"[{"Id":"sha256:l2m","RepoTags":["example/web:latest"],"RepoDigests":["example/web@sha256:l2m"],"Created":0,"Size":128},{"Id":"sha256:second","Created":0,"Size":256}]"#.into(),
+            ),
             ("/volumes".into(), r#"{"Volumes":[{"Name":"web-data","Driver":"local","Scope":"local"}]}"#.into()),
             ("/networks".into(), "[]".into()),
             (VERSION_PATH.into(), r#"{"Version":"29.10.0","Os":"linux","Arch":"arm64"}"#.into()),
             (DISK_PATH.into(), r#"{"ImageUsage":{"TotalSize":4096},"ContainerUsage":{},"VolumeUsage":{"TotalSize":512},"BuildCacheUsage":{"TotalSize":1024}}"#.into()),
             (stats_path, r#"{"memory_stats":{"usage":4096,"stats":{"inactive_file":1024}},"cpu_stats":{"system_cpu_usage":130,"cpu_usage":{"total_usage":18},"online_cpus":2},"precpu_stats":{"system_cpu_usage":100,"cpu_usage":{"total_usage":12}}}"#.into()),
+            (
+                "/distribution/example/web:latest/json".into(),
+                r#"{"Descriptor":{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"sha256:c2b0fc55e3ed299133f6caf63a764deb118ee402ea761548c3f8fd01d04fca06","size":1609}}"#.into(),
+            ),
         ]);
         let server = tokio::spawn(async move {
             let mut replies = JoinSet::new();
             let routes = std::sync::Arc::new(routes);
-            for _ in 0..routes.len() {
-                let (mut socket, _) = listener.accept().await.unwrap();
+            // Inventory + stats + disk + distribution can overlap; serve until clients disconnect.
+            for _ in 0..16 {
+                let Ok(Ok((mut socket, _))) =
+                    tokio::time::timeout(Duration::from_millis(500), listener.accept()).await
+                else {
+                    break;
+                };
                 let routes = routes.clone();
                 replies.spawn(async move {
                     let mut request = Vec::new();
@@ -522,9 +926,14 @@ mod tests {
                     }
                     let request = String::from_utf8(request).unwrap();
                     let path = request.lines().next().unwrap().strip_prefix("GET ").unwrap().strip_suffix(" HTTP/1.1").unwrap();
-                    let body = routes.get(path).unwrap();
+                    let body = routes.get(path).map(String::as_str).unwrap_or("{}");
+                    let status = if routes.contains_key(path) {
+                        "200 OK"
+                    } else {
+                        "404 Not Found"
+                    };
                     let response = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len(),
                     );
                     socket.write_all(response.as_bytes()).await.unwrap();
@@ -545,12 +954,17 @@ mod tests {
                 paused: 1,
                 restarting: 1,
                 other: 1,
+                updates: 5,
                 healthy: 1,
                 unhealthy: 0,
                 health_starting: 0,
                 no_health: 2,
                 unknown_health: 2,
             })
+        );
+        assert_eq!(
+            sample.outdated_images,
+            BTreeSet::from(["example/web:latest".into()])
         );
         assert_eq!(sample.stacks, Some(1));
         assert_eq!(sample.images, Some(2));

@@ -63,7 +63,8 @@ pub use images::{
 };
 pub use overview::{
     ContainerCounts, ContainerUtilization, DiskBreakdown, EngineVersion, OverviewClient,
-    OverviewSample, OverviewUtilization,
+    OverviewSample, OverviewUtilization, container_needs_update, image_tag_index,
+    normalize_image_ref,
 };
 use resources::ComposeLabels;
 pub use resources::{
@@ -164,9 +165,18 @@ impl ContainerSummary {
         &self.state
     }
 
-    /// Engine health check outcome, such as `healthy` or `unhealthy`.
+    /// Engine health check outcome, including the Docker status suffix when the
+    /// engine does not expose a structured health field.
     pub fn health(&self) -> Option<&str> {
-        self.health.as_ref().map(|health| health.status.as_str())
+        if let Some(health) = &self.health {
+            return Some(&health.status);
+        }
+        match self.status.rsplit_once(" (").map(|(_, suffix)| suffix) {
+            Some("healthy)") => Some("healthy"),
+            Some("unhealthy)") => Some("unhealthy"),
+            Some("health: starting)") => Some("starting"),
+            _ => None,
+        }
     }
 
     /// Compose project label when this container is a project member.
@@ -195,6 +205,9 @@ pub struct ImageSummary {
     /// References that currently tag the image.
     #[serde(default, deserialize_with = "null_to_default")]
     pub repo_tags: Vec<String>,
+    /// Registry digests associated with this image content.
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub repo_digests: Vec<String>,
     /// Creation time in Unix seconds.
     pub created: i64,
     /// Aggregate image size in bytes.

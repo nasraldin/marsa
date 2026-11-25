@@ -176,6 +176,18 @@ impl ExternalEndpoint {
         }
     }
 
+    /// Stable connection-type key for UI labels (`unix`, `ssh`, `tls`, …).
+    pub fn connection_type(&self) -> Option<&'static str> {
+        match &self.transport {
+            ExternalTransport::Unix { .. } => Some("unix"),
+            ExternalTransport::Ssh(_) => Some("ssh"),
+            ExternalTransport::Tls(_) => Some("tls"),
+            ExternalTransport::HawserStandard(_) => Some("hawser-standard"),
+            ExternalTransport::HawserEdge(_) => Some("hawser-edge"),
+            ExternalTransport::Unavailable => None,
+        }
+    }
+
     pub(super) fn request_host(&self) -> &str {
         match &self.transport {
             ExternalTransport::Tls(endpoint) => endpoint.authority(),
@@ -268,6 +280,9 @@ pub(super) fn external_route(
     if !containers {
         return false;
     }
+    if !has_body && method == Method::GET && distribution_inspect_route(path) {
+        return true;
+    }
     if !has_body && method == Method::GET && super::environment_report::finite_activity_route(path)
     {
         return true;
@@ -322,6 +337,23 @@ pub(super) fn external_route(
         Method::POST => matches!(action, "start" | "stop" | "restart" | "pause" | "unpause"),
         _ => false,
     }
+}
+
+/// Allow engine-mediated registry digest lookups for Overview update counts.
+fn distribution_inspect_route(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/distribution/") else {
+        return false;
+    };
+    let Some((reference, "json")) = rest.rsplit_once('/') else {
+        return false;
+    };
+    !reference.is_empty()
+        && reference.len() <= 512
+        && !reference.contains("..")
+        && reference.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(byte, b'.' | b'_' | b'-' | b':' | b'/' | b'@' | b'[' | b']')
+        })
 }
 
 fn resource_route(method: &Method, path: &str, has_body: bool) -> bool {
@@ -864,6 +896,18 @@ mod tests {
         assert!(external_route(&Method::POST, &create, true, true));
         assert!(external_route(&Method::POST, &start, true, true));
         assert!(external_route(&Method::POST, &resize, true, false));
+        assert!(external_route(
+            &Method::GET,
+            "/distribution/fnsys/dockhand:latest/json",
+            true,
+            false
+        ));
+        assert!(!external_route(
+            &Method::GET,
+            "/distribution/../dockhand:latest/json",
+            true,
+            false
+        ));
         assert!(!external_route(&Method::POST, &start, false, true));
         assert!(!external_route(&Method::GET, &stats, true, true));
         assert!(!external_route(&Method::POST, &create, true, false));
