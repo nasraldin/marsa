@@ -582,3 +582,17 @@ hit testing, dragging, and the two-axis corner.
 
 Headless coverage for engine history and the Overview chart layout is in place.
 English and Arabic copy cover the history card, disk card, resources label, and healthy banner.
+
+### M7-41 Paint Overview from the daemon inventory cache
+
+- **Status:** done
+- **Depends on:** M4-26, M7-05
+- **Docs:** [08 Screens](../08-gui.md#screens), [08 Data flow](../08-gui.md#data-flow), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
+- **Do:** On Overview open, load Marsa inventory sections with `prefer_cache` so the first frame uses the daemon snapshot. Follow with a live refresh for utilization and disk. Do not add a GUI-side database.
+- **Deliver:** Overview client cache-first reads and desktop first-paint behaviour.
+- **Accept when:**
+  - With a warm daemon cache, Overview shows container and resource counts before a live Docker round-trip completes.
+  - Live stats and disk still update after the cached frame.
+  - External engines keep their existing direct path (no GUI SQLite).
+
+- **Evidence:** `OverviewClient::sample_cached` / `disk_cached` use host API minor 14. The desktop Overview loop paints from the cache when present, then immediately refreshes live utilization and disk.

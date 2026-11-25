@@ -9,7 +9,7 @@ use marsa_proto::{
         VmStatsSample, stats_server::Stats,
     },
 };
-use tokio::time::timeout;
+use tokio::time::{interval, timeout};
 use tonic::{Request, Response, Status};
 
 use crate::guest_control::docker_http;
@@ -17,12 +17,117 @@ use crate::guest_control::docker_http;
 use super::{
     TypedApi,
     events::{self, Output},
+    inventory_cache::{self, InventoryCache},
 };
 
 impl TypedApi {
     /// Publish the latest stats received from the active, validated guest session.
     pub fn publish_guest_stats(&self, stats: VmStats) {
         publish(&self.inner.events, stats);
+    }
+
+    /// Refresh cacheable overview sections while the engine stays ready.
+    pub(crate) fn spawn_inventory_refresh(&self) {
+        let api = self.clone();
+        tokio::spawn(async move {
+            let mut tick = interval(Duration::from_secs(5));
+            let mut closing = api.inner.closing.subscribe();
+            loop {
+                tokio::select! {
+                    changed = closing.changed() => {
+                        if changed.is_err() || *closing.borrow() {
+                            break;
+                        }
+                    }
+                    _ = tick.tick() => {}
+                }
+                if *closing.borrow() {
+                    break;
+                }
+                if !matches!(
+                    api.inner.events.engine_status().state(),
+                    marsa_proto::host::v1::EngineState::Ready
+                        | marsa_proto::host::v1::EngineState::Idle
+                ) {
+                    continue;
+                }
+                for section in InventoryCache::cacheable_sections() {
+                    if *section == DockerOverviewSection::Disk
+                        && let Ok(Some(cached)) = api.inner.inventory.get(*section)
+                    {
+                        let age = inventory_cache::now_millis()
+                            .saturating_sub(cached.observed_at_unix_millis);
+                        if age < 60_000 {
+                            continue;
+                        }
+                    }
+                    if let Err(error) = api.refresh_overview_section(*section).await {
+                        tracing::debug!(?section, %error, "inventory cache refresh skipped");
+                    }
+                    if *closing.borrow() {
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    async fn refresh_overview_section(&self, section: DockerOverviewSection) -> Result<(), Status> {
+        let request = DockerOverviewRequest {
+            section: section.into(),
+            container_id: String::new(),
+            prefer_cache: false,
+        };
+        let _ = self.fetch_overview(request, false).await?;
+        Ok(())
+    }
+
+    async fn fetch_overview(
+        &self,
+        request: DockerOverviewRequest,
+        prefer_cache: bool,
+    ) -> Result<DockerOverviewResponse, Status> {
+        let section = request.section();
+        if prefer_cache
+            && InventoryCache::is_cacheable(section)
+            && let Ok(Some(cached)) = self.inner.inventory.get(section)
+        {
+            return Ok(DockerOverviewResponse {
+                json: cached.json,
+                observed_at_unix_millis: cached.observed_at_unix_millis,
+            });
+        }
+
+        let deadline = match section {
+            DockerOverviewSection::Disk => Duration::from_secs(40),
+            _ => Duration::from_secs(10),
+        };
+        let path = overview_path(request).map_err(Status::invalid_argument)?;
+        let not_running = || Status::failed_precondition("Docker overview requires a running VM");
+        let supervisor = self.supervisor.as_ref().ok_or_else(not_running)?;
+        let json = timeout(deadline, async {
+            let stream = supervisor.connect_running_docker().await?;
+            docker_http::get(stream, &path, 2 * 1024 * 1024).await
+        })
+        .await
+        .map_err(|_| Status::deadline_exceeded("Docker overview timed out"))?
+        .map_err(|error| match error.kind() {
+            io::ErrorKind::NotConnected => not_running(),
+            _ => Status::unavailable("could not read Docker overview"),
+        })?;
+        let observed_at_unix_millis = inventory_cache::now_millis();
+        if InventoryCache::is_cacheable(section)
+            && let Err(error) = self
+                .inner
+                .inventory
+                .put(section, &json, observed_at_unix_millis)
+        {
+            tracing::warn!(%error, ?section, "failed to store overview section");
+        }
+        Ok(DockerOverviewResponse {
+            json: json.to_vec(),
+            observed_at_unix_millis,
+        })
     }
 }
 
@@ -65,26 +170,10 @@ impl Stats for TypedApi {
         request: Request<DockerOverviewRequest>,
     ) -> Result<Response<DockerOverviewResponse>, Status> {
         let request = self.authorize(request)?;
-        let deadline = match request.section() {
-            DockerOverviewSection::Disk => Duration::from_secs(40),
-            _ => Duration::from_secs(10),
-        };
-        let path = overview_path(request).map_err(Status::invalid_argument)?;
-        let not_running = || Status::failed_precondition("Docker overview requires a running VM");
-        let supervisor = self.supervisor.as_ref().ok_or_else(not_running)?;
-        let json = timeout(deadline, async {
-            let stream = supervisor.connect_running_docker().await?;
-            docker_http::get(stream, &path, 2 * 1024 * 1024).await
-        })
-        .await
-        .map_err(|_| Status::deadline_exceeded("Docker overview timed out"))?
-        .map_err(|error| match error.kind() {
-            io::ErrorKind::NotConnected => not_running(),
-            _ => Status::unavailable("could not read Docker overview"),
-        })?;
-        Ok(Response::new(DockerOverviewResponse {
-            json: json.to_vec(),
-        }))
+        let prefer_cache = request.prefer_cache;
+        Ok(Response::new(
+            self.fetch_overview(request, prefer_cache).await?,
+        ))
     }
 }
 
@@ -125,6 +214,7 @@ mod tests {
         let make = |section: DockerOverviewSection, id: &str| DockerOverviewRequest {
             section: section.into(),
             container_id: id.into(),
+            prefer_cache: false,
         };
         assert_eq!(
             overview_path(make(DockerOverviewSection::Disk, "")).unwrap(),

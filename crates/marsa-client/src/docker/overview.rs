@@ -14,6 +14,8 @@ use super::{
 };
 
 const OVERVIEW_API_MINOR: u32 = 13;
+/// Host API minor that serves `prefer_cache` overview reads (D-034).
+const CACHE_API_MINOR: u32 = 14;
 const SAMPLE_LIMIT: usize = 48;
 const SAMPLE_CONCURRENCY: usize = 8;
 const SAMPLE_BUDGET: Duration = Duration::from_secs(8);
@@ -39,33 +41,55 @@ impl OverviewClient {
 
     /// Read the inventory and live container measurements.
     pub async fn sample(&self) -> OverviewSample {
+        self.sample_with_cache(false).await
+    }
+
+    /// Prefer the daemon inventory cache for a fast first frame (Marsa only).
+    pub async fn sample_cached(&self) -> OverviewSample {
+        self.sample_with_cache(true).await
+    }
+
+    async fn sample_with_cache(&self, prefer_cache: bool) -> OverviewSample {
         let containers = async {
-            let rows: Vec<ContainerSummary> = self.read(Section::Containers, None).await?;
+            let rows: Vec<ContainerSummary> =
+                self.read(Section::Containers, None, prefer_cache).await?;
             let stacks = rows
                 .iter()
                 .filter_map(ContainerSummary::compose_project)
                 .collect::<BTreeSet<_>>()
                 .len();
-            let utilization = self.utilization(&rows).await;
+            let utilization = if prefer_cache {
+                OverviewUtilization {
+                    running: rows.iter().filter(|row| row.state == "running").count(),
+                    usage: Vec::new(),
+                }
+            } else {
+                self.utilization(&rows).await
+            };
             Some((rows, stacks, utilization))
         };
-        let images = self.read::<Vec<ImageSummary>>(Section::Images, None);
-        let networks = self.read::<Vec<NetworkSummary>>(Section::Networks, None);
-        let volumes = self.read::<Volumes>(Section::Volumes, None);
-        let version = self.read::<EngineVersion>(Section::Version, None);
+        let images = self.read::<Vec<ImageSummary>>(Section::Images, None, prefer_cache);
+        let networks = self.read::<Vec<NetworkSummary>>(Section::Networks, None, prefer_cache);
+        let volumes = self.read::<Volumes>(Section::Volumes, None, prefer_cache);
+        let version = self.read::<EngineVersion>(Section::Version, None, prefer_cache);
         let (containers, images, volumes, networks, version) =
             tokio::join!(containers, images, volumes, networks, version);
         let (containers, stacks, utilization, outdated_images) = match containers {
             Some((rows, stacks, utilization)) => {
-                let (updates, outdated_images) = match images.as_ref() {
-                    Some(images) => {
-                        let remotes = self.remote_tag_digests(&rows).await;
-                        (
-                            outdated_updates(&rows, images, &remotes),
-                            outdated_image_refs(&rows, images, &remotes),
-                        )
+                let (updates, outdated_images) = if prefer_cache {
+                    // First paint skips registry probes; live refresh fills Updates.
+                    (0, BTreeSet::new())
+                } else {
+                    match images.as_ref() {
+                        Some(images) => {
+                            let remotes = self.remote_tag_digests(&rows).await;
+                            (
+                                outdated_updates(&rows, images, &remotes),
+                                outdated_image_refs(&rows, images, &remotes),
+                            )
+                        }
+                        None => (0, BTreeSet::new()),
                     }
-                    None => (0, BTreeSet::new()),
                 };
                 let mut counts = ContainerCounts::from_rows(&rows);
                 counts.updates = updates;
@@ -92,7 +116,15 @@ impl OverviewClient {
 
     /// Measure storage separately because the engine may need to scan its filesystem.
     pub async fn disk(&self) -> Option<DiskBreakdown> {
-        self.read::<EngineDiskUsage>(Section::Disk, None)
+        self.read::<EngineDiskUsage>(Section::Disk, None, false)
+            .await
+            .map(EngineDiskUsage::project)
+            .filter(DiskBreakdown::has_measurements)
+    }
+
+    /// Prefer a cached disk breakdown when the daemon has one (Marsa only).
+    pub async fn disk_cached(&self) -> Option<DiskBreakdown> {
+        self.read::<EngineDiskUsage>(Section::Disk, None, true)
             .await
             .map(EngineDiskUsage::project)
             .filter(DiskBreakdown::has_measurements)
@@ -210,7 +242,9 @@ impl OverviewClient {
             let name = display_value(name, 255);
             let client = self.clone();
             samples.spawn(async move {
-                let stats: StatsSample = client.read(Section::ContainerStats, Some(&id)).await?;
+                let stats: StatsSample = client
+                    .read(Section::ContainerStats, Some(&id), false)
+                    .await?;
                 let cpu_percent = stats.cpu_percent();
                 let memory_bytes = stats.memory_stats.used_without_cache();
                 let memory_limit = stats.memory_stats.limit.filter(|limit| *limit > 0);
@@ -247,6 +281,7 @@ impl OverviewClient {
         &self,
         section: Section,
         container: Option<&ContainerId>,
+        prefer_cache: bool,
     ) -> Option<T> {
         let deadline = if section == Section::Disk {
             DISK_TIMEOUT
@@ -255,11 +290,18 @@ impl OverviewClient {
         };
         match self {
             Self::Marsa(client) if client.api_minor() >= OVERVIEW_API_MINOR => {
+                let use_cache = prefer_cache && client.api_minor() >= CACHE_API_MINOR;
                 let mut request = tonic::Request::new(DockerOverviewRequest {
                     section: section.into(),
                     container_id: container.map_or_else(String::new, |id| id.as_str().to_owned()),
+                    prefer_cache: use_cache,
                 });
-                request.set_timeout(deadline);
+                // Cached hits should not wait on Docker round-trips.
+                request.set_timeout(if use_cache {
+                    Duration::from_secs(2)
+                } else {
+                    deadline
+                });
                 let response = client
                     .stats()
                     .docker_overview(request)

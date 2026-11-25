@@ -345,3 +345,17 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - Changing the mode while the VM is ready leaves its active attachment intact. An ordinary restart uses the saved explicit pin and automatic selection does not override it.
 
 - **Evidence:** The authenticated Unix tests verified validation, duplicate and conflicting request IDs, preservation of unrelated settings and serialization with full settings updates. The daemon process wrote an owner-only file in a disposable home and read its saved mode after relaunch without booting a VM. The fake packaged runtime kept NAT active during a Userspace edit, then selected the new pin only on an ordinary restart. A failed boot left active fields empty.
+
+### M4-26 Cache Docker inventory in the daemon
+
+- **Status:** done
+- **Depends on:** M3-08
+- **Docs:** [03 Responsibilities](../03-host-daemon.md#responsibilities), [08 Data flow](../08-gui.md#data-flow), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
+- **Do:** Persist last-known Docker overview sections (containers, images, volumes, networks, version, disk) under the daemon state directory. Refresh them in the background while the VM is ready. Extend `Stats.DockerOverview` with `prefer_cache` and `observed_at_unix_millis` (host API minor 14). Live section reads update the cache; container stats stay live-only. Use an owner-only JSON file until SQLite fits the dependency graph (D-034).
+- **Deliver:** `marsad` inventory cache module, proto and PROTOCOL notes, client support for cached reads, unit tests with a disposable state directory.
+- **Accept when:**
+  - A second `prefer_cache` read returns the stored JSON and timestamp without contacting Docker when the cache is warm.
+  - A live read refreshes the store; restarting against the same state directory still serves the last snapshot.
+  - Background refresh runs only while the engine is ready or idle and stops with the daemon.
+
+- **Evidence:** Unit tests round-trip the cache file across reopen. The typed-api overview fixture fills the cache with a live read, stops the guest Docker script, and still returns the same JSON and timestamp with `prefer_cache`.

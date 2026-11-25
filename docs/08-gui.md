@@ -109,7 +109,7 @@ sequenceDiagram
 Rules:
 
 - **One-way flow.** Views send commands; state changes arrive only through events. No view mutates shared state directly.
-- **No polling.** Everything is event-driven from the daemon and the engine's event stream.
+- **No polling.** Everything is event-driven from the daemon and the engine's event stream. The daemon may refresh its inventory cache in the background ([D-034](15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)); clients do not poll Docker themselves for Overview inventory.
 - **Batches, not single events.** Logs and stats arrive in batches at a capped rate, so the UI never processes one event per log line.
 - **Window close frees everything.** Streams are cancelled and the process exits; the tray item belongs to `marsad`.
 

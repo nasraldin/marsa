@@ -103,7 +103,11 @@ impl Desktop {
                     let disk = match &storage_target {
                         Target::Marsa => {
                             let mut request = storage_services.request(|client| async move {
-                                Ok(OverviewClient::Marsa(client).disk().await)
+                                let client = OverviewClient::Marsa(client);
+                                let cached = client.disk_cached().await;
+                                // Always follow with a live scan so reclaimable figures stay current.
+                                let live = client.disk().await;
+                                Ok(live.or(cached))
                             });
                             request.result().await.and_then(Result::ok).flatten()
                         }
@@ -144,7 +148,14 @@ impl Desktop {
                 let sample = match &target {
                     Target::Marsa => {
                         let mut request = services.request(|client| async move {
-                            Ok(OverviewClient::Marsa(client).sample().await)
+                            let client = OverviewClient::Marsa(client);
+                            // First frame from the daemon inventory cache (D-034 / M7-41).
+                            let cached = client.sample_cached().await;
+                            if observed(&cached) {
+                                Ok(cached)
+                            } else {
+                                Ok(client.sample().await)
+                            }
                         });
                         request.result().await.and_then(Result::ok)
                     }
@@ -178,6 +189,27 @@ impl Desktop {
                     != Some(true)
                 {
                     break;
+                }
+                // After a cache hit, immediately pull live utilization once.
+                if matches!(target, Target::Marsa) {
+                    let mut live = services.request(|client| async move {
+                        Ok(OverviewClient::Marsa(client).sample().await)
+                    });
+                    if let Some(Ok(sample)) = live.result().await
+                        && this
+                            .update(cx, |this, cx| {
+                                if this.overview.target.as_ref() != Some(&target) {
+                                    return false;
+                                }
+                                this.overview.sample = Some(sample);
+                                cx.notify();
+                                true
+                            })
+                            .ok()
+                            != Some(true)
+                    {
+                        break;
+                    }
                 }
                 executor.timer(SAMPLE_INTERVAL).await;
             }

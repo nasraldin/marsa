@@ -111,6 +111,11 @@ impl MarsaPaths {
         self.root.join("state")
     }
 
+    /// Durable Docker inventory cache for the daemon (decision D-034).
+    pub fn docker_inventory_cache(&self) -> PathBuf {
+        self.state_dir().join("docker-inventory.json")
+    }
+
     /// Stored agent permission grants.
     pub fn grants_file(&self) -> PathBuf {
         self.state_dir().join("grants.json")
