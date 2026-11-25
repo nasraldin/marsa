@@ -103,7 +103,7 @@ in both languages.
 
 ### M6-04 GUI translations and locale formatting
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M6-01, M6-12
 - **Docs:** [08 Internationalisation](../08-gui.md#internationalisation), V-10
 - **Do:** Integrate the Fluent catalogs with the component layer. Verify how gpui-component localises its own strings and how they coexist with Fluent (V-10). Implement locale-aware date, time and size formatting with Western digits and live language switching. Create `locales/GLOSSARY.md` for technical terms and arrange Arabic terminology review.
@@ -120,6 +120,23 @@ replacing Marsa's Fluent catalog.
 [Pinned GPUI Component setup](https://github.com/longbridge/gpui-kit/blob/f697c3133d55c64fa8a5b67926147fb3dadd276d/crates/component/src/lib.rs#L122-L160)
 · [Pinned upstream catalog](https://github.com/longbridge/gpui-kit/blob/f697c3133d55c64fa8a5b67926147fb3dadd276d/crates/component/locales/ui.yml)
 · [rust-i18n 4.2.4 release](https://crates.io/crates/rust-i18n/4.2.4).
+
+**Qualification.** The build checks Arabic against 122 pinned English
+messages and two literal component lookups. Removing a key and renaming an
+interpolation placeholder each failed the check. Native GPUI tests switched
+English to Arabic and back in one application, updating Fluent and component
+labels and reversing logical row order. Unit tests cover Gregorian date
+order, UTC conversion, both hour cycles and SI and IEC size boundaries.
+The four snapshots use native GPUI dialogs and the shared date and size
+formatters. Escape dismissed the dialog in each variant.
+
+[English light](../screenshots/m6-04/en-light.png) ·
+[English dark](../screenshots/m6-04/en-dark.png) ·
+[Arabic light](../screenshots/m6-04/ar-light.png) ·
+[Arabic dark](../screenshots/m6-04/ar-dark.png).
+
+The [technical glossary](../../locales/GLOSSARY.md) is ready for the
+owner's Arabic terminology review under M7-14, as required by D-035.
 
 ### M6-05 Core components
 
