@@ -95,12 +95,26 @@ impl StageDirectory {
         let parent = parent.try_clone()?;
         let name = format!(".marsa-volume-{}.part", crate::request_id()?);
         fs::mkdirat(&parent, name.as_str(), Mode::RWXU)?;
-        let directory = File::from(fs::openat(
-            &parent,
-            name.as_str(),
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?);
+        let identity = fs::statat(&parent, name.as_str(), AtFlags::SYMLINK_NOFOLLOW)?;
+        let directory = (|| -> io::Result<File> {
+            let directory = File::from(fs::openat(
+                &parent,
+                name.as_str(),
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )?);
+            if !same_inode(&identity, &fs::fstat(&directory)?) {
+                return Err(changed());
+            }
+            Ok(directory)
+        })();
+        let directory = match directory {
+            Ok(directory) => directory,
+            Err(error) => {
+                remove_directory(&parent, &name, &identity);
+                return Err(error);
+            }
+        };
         Ok(Self {
             parent,
             name,
@@ -111,10 +125,8 @@ impl StageDirectory {
 
 impl Drop for StageDirectory {
     fn drop(&mut self) {
-        if let Ok(identity) = fs::fstat(&self.directory)
-            && same_entry(&self.parent, self.name.as_ref(), &identity)
-        {
-            let _ = fs::unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR);
+        if let Ok(identity) = fs::fstat(&self.directory) {
+            remove_directory(&self.parent, &self.name, &identity);
         }
     }
 }
@@ -124,6 +136,12 @@ impl Drop for VolumeDestination {
         if let Ok(original) = fs::fstat(&self.original) {
             remove_entry(&self.temporary.directory, STAGED_FILE.as_ref(), &original);
         }
+    }
+}
+
+fn remove_directory(parent: &File, name: &str, identity: &Stat) {
+    if same_entry(parent, name.as_ref(), identity) {
+        let _ = fs::unlinkat(parent, name, AtFlags::REMOVEDIR);
     }
 }
 
@@ -160,8 +178,8 @@ fn publish(stage: &File, directory: &File, destination: &OsStr) -> io::Result<()
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn publish(stage: &File, directory: &File, destination: &OsStr) -> io::Result<()> {
     Ok(fs::linkat(
-        directory,
-        temporary,
+        stage,
+        STAGED_FILE,
         directory,
         destination,
         AtFlags::empty(),

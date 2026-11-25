@@ -148,15 +148,16 @@ place, and never sends a cleanup request to Docker.
 
 The owner-only download endpoint targets the running built-in VM on a
 dedicated host-CID-only connection. The guest validates that the selected
-volume is ordinary, local and option-free, confirms its Docker creation
+volume is ordinary, local and option-free. It confirms the Docker creation
 timestamp and fixed data path. The guest pins the volume before the owner
 reviews the path and then pins the requested object's descriptor.
 Linux `openat2` disallows symlinks and mount crossings below the managed data
 mount. Regular files must have one link. Directory traversal is bounded by
 entry count, depth, path size and total output. The guest rechecks the pinned
 identities and Docker metadata before reporting success. The Mac stages the
-bounded data stream and publishes to the owner's new destination only after
-success and stream termination.
+bounded data stream in a private directory held by descriptor. It checks the
+destination folder and staged inode and publishes without overwriting an
+existing name only after success and stream termination.
 [Docker local volume layout](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/volume/local/local.go) · [Linux path resolution](https://man7.org/linux/man-pages/man2/openat2.2.html)
 
 ## Registry credentials
