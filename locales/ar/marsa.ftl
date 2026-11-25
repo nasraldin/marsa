@@ -1046,6 +1046,7 @@ gui-git-ssh-host-key-invalid = أدخل مفتاح OpenSSH العام للمضي
 gui-git-ssh-key-invalid = اختر مفتاح SSH خاصًا لا يصل إليه سوى مالكه ويعمل دون مطالبة بعبارة مرور.
 gui-git-ssh-key-changed = تغيّر المفتاح الخاص. اختره مجددًا لمراجعة بصمته.
 gui-git-ssh-connection-failed = تعذّر على SSH التحقق من مفتاح المضيف المحفوظ أو المصادقة بالمفتاح الخاص المحدد.
+gui-git-ssh-destination-filesystem = اختر مجلدًا لجلب المستودع على نظام الملفات نفسه الذي توجد عليه بيانات مرسى.
 gui-git-credentials = بيانات اعتماد HTTPS
 gui-git-credential-help = يحفظ مرسى بيانات الاعتماد في سلسلة مفاتيح macOS.
 gui-git-credential-user = اسم المستخدم

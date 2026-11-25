@@ -1023,6 +1023,6 @@ Signed Settings rendered both saved switch states in every variant.
 - **Status:** todo
 - **Depends on:** M7-30, M7-53
 - **Docs:** [11 Git sources](../11-security.md#git-sources)
-- **Do:** Keep HTTPS checkout data in protected staging for the authenticated Git operation and publish the verified checkout after closing credential access. Define behavior for a destination on another filesystem.
+- **Do:** Keep HTTPS credential access and checkout staging outside writable shares. Publish the verified checkout after closing credential access and define behavior for a destination on another filesystem.
 - **Deliver:** HTTPS checkout staging isolated from destination-local configuration and an exact no-clobber publication test.
 - **Accept when:** Git never uses configuration from the chosen destination while its HTTPS credential is available. Interruption, an invalid checkout, and an existing destination preserve owner content.

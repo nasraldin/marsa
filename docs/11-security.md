@@ -244,6 +244,11 @@ The socket and public SSH configuration live in an owner-only directory
 under the protected state root. Only the public source URL is recorded
 as the checkout's Git origin. Private key bytes stay in memory during
 the operation and are never put in settings, Git arguments or Compose.
+Git checks out SSH sources in the protected state directory, releases the
+agent, and verifies that HEAD names the exact branch. It then moves the
+checked-out directory atomically into a fresh child of the pinned,
+owner-selected parent. The destination must be on the same filesystem as
+Marsa's state directory. Existing files and folders are preserved.
 [Pinned OpenSSH client configuration](https://github.com/openssh/openssh-portable/blob/V_10_5_P1/ssh_config.5) ·
 [Pinned Git SSH invocation](https://github.com/git/git/blob/v2.54.0/connect.c).
 

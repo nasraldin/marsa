@@ -1046,6 +1046,7 @@ gui-git-ssh-host-key-invalid = Enter the verified OpenSSH public host key.
 gui-git-ssh-key-invalid = Choose an owner-only private SSH key that works without a passphrase prompt.
 gui-git-ssh-key-changed = The private key changed. Choose it again to review its fingerprint.
 gui-git-ssh-connection-failed = SSH could not verify the saved host key or authenticate with the selected private key.
+gui-git-ssh-destination-filesystem = Choose a checkout folder on the same filesystem as Marsa’s data.
 gui-git-credentials = HTTPS credentials
 gui-git-credential-help = Marsa stores these credentials in the macOS Keychain.
 gui-git-credential-user = Username

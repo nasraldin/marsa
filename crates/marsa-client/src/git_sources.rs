@@ -14,7 +14,11 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tokio::{fs, process::Command, time::timeout};
 
-use crate::{docker_socket_path, platform, request_id};
+use crate::{
+    docker_socket_path,
+    platform::{self, git_checkout::GitCheckoutDestination},
+    request_id,
+};
 
 mod credential_cleanup;
 mod https_credentials;
@@ -123,6 +127,9 @@ pub enum GitSourceError {
     /// SSH could not verify the pinned host or authenticate with the selected identity.
     #[error("SSH could not verify the saved host key or authenticate with the selected key")]
     SshConnection,
+    /// SSH checkout cannot be published atomically across filesystems.
+    #[error("choose a checkout folder on the same filesystem as Marsa's state")]
+    SshDestinationFilesystem,
 }
 
 enum Remote {
@@ -218,21 +225,33 @@ impl GitRepositoryConfig {
         if !parent.is_absolute() {
             return Err(GitSourceError::Destination);
         }
-        let directory = fs::canonicalize(parent)
+        let (workspace, publish) = if self.ssh.is_some() {
+            let workspace = private_git_directory().await?;
+            let destination = GitCheckoutDestination::prepare(parent, workspace.path())
+                .await
+                .map_err(|error| match error.kind() {
+                    io::ErrorKind::CrossesDevices => GitSourceError::SshDestinationFilesystem,
+                    _ => GitSourceError::Destination,
+                })?;
+            (workspace, Some(destination))
+        } else {
+            let directory = fs::canonicalize(parent)
+                .await
+                .map_err(|_| GitSourceError::Destination)?;
+            platform::check_user_docker_directory(&directory)
+                .await
+                .map_err(|_| GitSourceError::Destination)?;
+            let workspace = tokio::task::spawn_blocking(move || {
+                tempfile::Builder::new()
+                    .prefix("Marsa checkout ")
+                    .permissions(Permissions::from_mode(0o700))
+                    .tempdir_in(directory)
+            })
             .await
+            .map_err(|_| GitSourceError::Destination)?
             .map_err(|_| GitSourceError::Destination)?;
-        platform::check_user_docker_directory(&directory)
-            .await
-            .map_err(|_| GitSourceError::Destination)?;
-        let workspace = tokio::task::spawn_blocking(move || {
-            tempfile::Builder::new()
-                .prefix("Marsa checkout ")
-                .permissions(Permissions::from_mode(0o700))
-                .tempdir_in(directory)
-        })
-        .await
-        .map_err(|_| GitSourceError::Destination)?
-        .map_err(|_| GitSourceError::Destination)?;
+            (workspace, None)
+        };
         let home = private_git_directory().await?;
         let mut command = git(workspace.path(), home.path()).await?;
         let remote = self.remote(&mut command, repository).await?;
@@ -257,7 +276,14 @@ impl GitRepositoryConfig {
         }
         drop(remote);
         refs::checked_out(workspace.path(), &self.branch).await?;
-        Ok(workspace.keep())
+        if let Some(destination) = publish {
+            destination
+                .publish(workspace)
+                .await
+                .map_err(|_| GitSourceError::Destination)
+        } else {
+            Ok(workspace.keep())
+        }
     }
 }
 

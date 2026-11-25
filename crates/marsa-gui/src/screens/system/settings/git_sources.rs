@@ -607,6 +607,7 @@ fn error_key(error: &GitSourceError) -> TextKey {
         GitSourceError::SshIdentity => gui::GUI_GIT_SSH_KEY_INVALID,
         GitSourceError::SshIdentityChanged => gui::GUI_GIT_SSH_KEY_CHANGED,
         GitSourceError::SshConnection => gui::GUI_GIT_SSH_CONNECTION_FAILED,
+        GitSourceError::SshDestinationFilesystem => gui::GUI_GIT_SSH_DESTINATION_FILESYSTEM,
         GitSourceError::NotFound | GitSourceError::Store(_) => gui::GUI_GIT_STORE_FAILED,
     }
 }
