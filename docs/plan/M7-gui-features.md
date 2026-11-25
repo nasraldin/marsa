@@ -412,16 +412,20 @@ the option, and Escape dismissed the editor in each variant.
 [Arabic light](../screenshots/m7-22/ar-light.png) ·
 [Arabic dark](../screenshots/m7-22/ar-dark.png).
 
-### M7-23 Configure scanning, jobs, and downloads
+### M7-23 Configure image scanning and retention
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-21
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
-- **Do:** Add image scanner settings and cache controls, system-job configuration, and volume file downloads.
-- **Deliver:** Persisted settings consumed by the corresponding workflows.
+- **Do:** Add scanner report retention and controls for the desktop scanner database caches. Preserve each environment's existing scanner opt-in and tool preference.
+- **Deliver:** Persisted scanner settings and report retention, explicit cache cleanup, and visible outcomes.
 - **Accept when:**
-  - Scanner settings affect a scan, maintenance schedules affect subsequent runs, and scan retention and cache cleanup report their outcomes.
-  - Volume file downloads use the saved download format when the selected environment supports secure read-only access.
+  - The selected engine's saved tool setting controls a scan.
+  - Report retention affects what can be reopened and reports its outcome.
+  - Confirmed scanner-cache cleanup reports its outcome and serializes with scanning.
+
+Scheduled maintenance review and volume downloads have independent owners and
+capability boundaries. See M7-50 and M7-51.
 
 ### M7-24 Compose template and new stack creation
 
@@ -784,3 +788,26 @@ requests. Native snapshots show the focused control and opened modal in
 [English dark](../spikes/M7-49-image-details-keyboard/en-dark.png),
 [Arabic light](../spikes/M7-49-image-details-keyboard/ar-light.png), and
 [Arabic dark](../spikes/M7-49-image-details-keyboard/ar-dark.png).
+
+
+### M7-50 Schedule environment maintenance reviews
+
+- **Status:** todo
+- **Depends on:** M7-21
+- **Docs:** [08 Screens](../08-gui.md#screens), [03 Host daemon](../03-host-daemon.md), [11 Security](../11-security.md)
+- **Do:** Let the owner configure when to refresh the existing read-only maintenance review for each environment. Define the schedule owner, restart behavior and supported transports so the interface can state when a configured review will run.
+- **Deliver:** Persisted per-environment schedules, read-only review execution and an observable outcome.
+- **Accept when:**
+  - A saved schedule changes subsequent runs and continues to address the engine it was configured for.
+  - Offline, skipped and failed reviews report their outcome. Review execution preserves the exact destructive preview and confirmation gate.
+
+### M7-51 Download files from a supported volume
+
+- **Status:** todo
+- **Depends on:** M7-31
+- **Docs:** [07 File sharing and storage](../07-file-sharing-and-storage.md), [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
+- **Do:** Define and implement a read-only provider that confines reads to the selected volume on the selected engine. The existing container archive API resolves paths against a container filesystem and provides no volume-scoped confinement guarantee.
+- **Deliver:** Capability-gated volume file downloads using the saved Logs & files download format.
+- **Accept when:**
+  - A supported environment uses the saved format for volume file downloads. An unsupported environment states that it cannot provide secure volume reads.
+  - Reads fail closed on volume identity changes or paths that escape the volume, and writes only publish to the new destination the owner selected.
