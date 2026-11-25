@@ -27,7 +27,10 @@ use marsa_ui::{
     tokens::{scale::Space, typography::Role},
 };
 
-use crate::screens::common::{ScreenContext, copy, label, resource_input};
+use crate::screens::{
+    common::{ScreenContext, copy, label, resource_input},
+    table::view_mode_rail,
+};
 
 use super::{
     ContainerTarget, ContainerView, StatusFilter, action_label, color, eligible, name, state_label,
@@ -44,6 +47,33 @@ pub(super) enum ViewMode {
     Cards,
     Tree,
 }
+
+const CONTAINER_VIEW_OPTIONS: [(ViewMode, &str, marsa_ui::TextKey, &str); 4] = [
+    (
+        ViewMode::Table,
+        "grouped-table",
+        gui::GUI_DESKTOP_GROUPED_TABLE,
+        "icons/table-2.svg",
+    ),
+    (
+        ViewMode::List,
+        "flat-list",
+        gui::GUI_DESKTOP_LIST,
+        "icons/list.svg",
+    ),
+    (
+        ViewMode::Cards,
+        "cards",
+        gui::GUI_DESKTOP_CARDS,
+        "icons/layout-grid.svg",
+    ),
+    (
+        ViewMode::Tree,
+        "project-tree",
+        gui::GUI_DESKTOP_PROJECT_TREE,
+        "icons/git-fork.svg",
+    ),
+];
 
 pub(super) type GroupKey = (Option<String>, Option<String>);
 
@@ -222,9 +252,20 @@ pub(super) fn render(
                         _ => None,
                     })
                     .collect();
+                let mode_view = entity.downgrade();
                 row(cx)
                     .gap_2()
-                    .child(view_mode_rail(mode, &screen, cx))
+                    .child(view_mode_rail(
+                        mode,
+                        &CONTAINER_VIEW_OPTIONS,
+                        &screen,
+                        move |target, cx| {
+                            let _ = mode_view.update(cx, |view, cx| {
+                                view.mode = target;
+                                cx.notify();
+                            });
+                        },
+                    ))
                     .children(
                         (!groups.is_empty())
                             .then(|| group_toggle(groups, &view.collapsed, locale, cx)),
@@ -1225,67 +1266,6 @@ fn group_toggle(
             }
             cx.notify();
         }))
-}
-
-fn view_mode_rail(mode: ViewMode, screen: &ScreenContext<'_>, cx: &Context<ContainerView>) -> Div {
-    row(cx)
-        .gap_1()
-        .px_1()
-        .items_center()
-        .rounded_md()
-        .h(px(36.))
-        .border_1()
-        .border_color(color(screen.palette, ColorToken::BorderSubtle))
-        .children(
-            [
-                (
-                    ViewMode::Table,
-                    "grouped-table",
-                    gui::GUI_DESKTOP_GROUPED_TABLE,
-                    "icons/table-2.svg",
-                ),
-                (
-                    ViewMode::List,
-                    "flat-list",
-                    gui::GUI_DESKTOP_LIST,
-                    "icons/list.svg",
-                ),
-                (
-                    ViewMode::Cards,
-                    "cards",
-                    gui::GUI_DESKTOP_CARDS,
-                    "icons/layout-grid.svg",
-                ),
-                (
-                    ViewMode::Tree,
-                    "project-tree",
-                    gui::GUI_DESKTOP_PROJECT_TREE,
-                    "icons/git-fork.svg",
-                ),
-            ]
-            .map(|(target, id, label_key, icon)| {
-                let title = message(screen.locale, label_key);
-                let control = Button::new(id)
-                    .size(px(30.))
-                    .p_0()
-                    .icon(Icon::default().path(icon))
-                    .toggled(mode == target)
-                    .accessibility_label(title.clone())
-                    .tooltip(title);
-                let control = if mode == target {
-                    control
-                        .ghost()
-                        .bg(color(screen.palette, ColorToken::AccentSubtle))
-                        .text_color(color(screen.palette, ColorToken::AccentDefault))
-                } else {
-                    control.ghost()
-                };
-                control.on_click(cx.listener(move |view, _, _, cx| {
-                    view.mode = target;
-                    cx.notify();
-                }))
-            }),
-        )
 }
 
 fn bulk_toolbar(

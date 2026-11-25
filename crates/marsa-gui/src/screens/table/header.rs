@@ -101,7 +101,12 @@ pub(crate) fn idle_toolbar(
                 ))
                 .child(sort_dropdown("image-sort", screen, sort, on_sort))
                 .child(columns_picker("image-columns", screen, columns, on_columns))
-                .child(view_mode_rail("image-view", view_mode, screen, on_view))
+                .child(view_mode_rail(
+                    view_mode,
+                    &TableViewMode::OPTIONS,
+                    screen,
+                    on_view,
+                ))
                 .child(
                     Button::new("reset-image-filters")
                         .outline()
