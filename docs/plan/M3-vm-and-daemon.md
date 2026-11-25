@@ -164,7 +164,7 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 
 ### M3-11 Power and network watcher
 
-- **Status:** blocked (manual system sleep and wake measurement pending)
+- **Status:** in progress
 - **Depends on:** M3-07, M3-16
 - **Docs:** [03 Sleep, wake and network changes](../03-host-daemon.md#sleep-wake-and-network-changes)
 - **Do:** Subscribe to host sleep, wake and network-change notifications. Pause on sleep, resume on wake, push the current time to the agent, and publish events. Network-change handling here only emits the event; M4 consumes it.
