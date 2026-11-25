@@ -87,7 +87,7 @@ async fn prefer_cache_returns_last_snapshot_without_docker() {
     assert!(first.observed_at_unix_millis > 0);
 
     // The ready observer may write another snapshot after our live fetch.
-    // Check that the cache remains available and stable once Docker stops.
+    // Require an offline cache hit and prove an uncached request would fail.
     fixture.supervisor.stop().await.unwrap();
     let request = DockerOverviewRequest {
         section: DockerOverviewSection::Containers.into(),
@@ -103,8 +103,15 @@ async fn prefer_cache_returns_last_snapshot_without_docker() {
     assert_eq!(cached.json, b"[]");
     assert!(cached.observed_at_unix_millis >= first.observed_at_unix_millis);
     assert_eq!(
-        stats.docker_overview(request).await.unwrap().into_inner(),
-        cached,
+        stats
+            .docker_overview(DockerOverviewRequest {
+                prefer_cache: false,
+                ..request
+            })
+            .await
+            .unwrap_err()
+            .code(),
+        Code::FailedPrecondition,
     );
 }
 
