@@ -11,6 +11,7 @@ mod images;
 pub use deploy_secrets::{DeploySecretError, DeploySecretStore};
 mod managed;
 mod registry;
+#[cfg(target_os = "macos")]
 pub(crate) use registry::helper as keychain;
 mod resources;
 pub mod scanning;
