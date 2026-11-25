@@ -439,7 +439,7 @@ impl SystemView {
                             .child(
                                 Button::new("git-editor-save")
                                     .primary()
-                                    .label(gui::GUI_ENVIRONMENT_SAVE.text(locale))
+                                    .label(gui::GUI_GIT_SAVE.text(locale))
                                     .disabled(busy)
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.git_submit(false, cx)),

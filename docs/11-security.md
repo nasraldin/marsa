@@ -188,12 +188,13 @@ existing name only after success and stream termination.
 ## Git sources
 
 Settings saves the repository name, HTTPS or SSH URL and branch in an
-owner-private file. The desktop runs the root-owned macOS `/usr/bin/git` in a fresh private
-directory with the environment cleared and system and global Git configuration
+owner-private file. The desktop runs the root-owned macOS `/usr/bin/git`
+with the environment cleared and system and global Git configuration
 disabled. A separate empty home keeps libcurl away from the login user's
 `.netrc`. Git's temporary home and branch-test directory are under the
-protected Marsa state root, which is excluded from guest shares. Git verifies HTTPS certificates and disables redirects, other
-protocols, ambient HTTP authentication, hooks, templates and submodule checkout.
+protected Marsa state root, which is excluded from guest shares. HTTPS
+verifies certificates and disables redirects and ambient HTTP authentication.
+Git permits the selected transport and skips hooks, templates and submodules.
 Tested with Apple
 Git 2.54.0. [Git environment options](https://git-scm.com/docs/git/2.54.0) ·
 [Git configuration](https://git-scm.com/docs/git-config/2.54.0).

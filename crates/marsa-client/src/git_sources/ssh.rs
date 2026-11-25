@@ -3,7 +3,7 @@
 use std::{
     io,
     net::Ipv6Addr,
-    os::unix::fs::MetadataExt as _,
+    os::unix::fs::{FileTypeExt as _, MetadataExt as _},
     path::{Component, Path, PathBuf},
     process::Stdio,
     time::Duration,
@@ -18,15 +18,26 @@ use sha2::{Digest as _, Sha256};
 use tokio::{
     fs,
     io::{AsyncReadExt as _, AsyncWriteExt as _},
-    process::Command,
-    time::timeout,
+    process::{Child, ChildStdin, Command},
+    time::{sleep, timeout},
 };
 
 use super::GitSourceError;
 use crate::platform;
 
 const SSH: &str = "/usr/bin/ssh";
-const KEYGEN: &str = "/usr/bin/ssh-keygen";
+const AGENT: &str = "/usr/bin/ssh-agent";
+const ADD: &str = "/usr/bin/ssh-add";
+const LIFETIME: &str = "150";
+const SOCKET: &str = "./agent";
+// EOF arrives on normal drop and on process death. The child SSH agent
+// stays in this directory and the supervisor only kills its own child.
+const AGENT_SUPERVISOR: &str = r#"
+    /usr/bin/ssh-agent -D -a ./agent -t "$1" >/dev/null 2>&1 &
+    agent=$!
+    trap 'kill "$agent" 2>/dev/null || :; wait "$agent" 2>/dev/null || :' EXIT
+    IFS= read -r lease || :
+"#;
 const HOST_ALIAS: &str = "marsa-pinned-git-source";
 const KEY_LIMIT: usize = 32 * 1024;
 const PUBLIC_KEY_LIMIT: usize = 8 * 1024;
@@ -183,13 +194,13 @@ pub(super) async fn attach(
             "    HostKeyAlias {alias}\n",
             "    HostKeyAlgorithms {algorithms}\n",
             "    UserKnownHostsFile ./known_hosts\n",
-            "    IdentityFile ./identity\n",
+            "    IdentityFile ./identity.pub\n",
             "    GlobalKnownHostsFile /dev/null\n",
             "    StrictHostKeyChecking yes\n",
             "    VerifyHostKeyDNS no\n",
             "    UpdateHostKeys no\n",
             "    IdentitiesOnly yes\n",
-            "    IdentityAgent none\n",
+            "    IdentityAgent ./agent\n",
             "    CertificateFile none\n",
             "    AddKeysToAgent no\n",
             "    IgnoreUnknown UseKeychain\n",
@@ -250,6 +261,8 @@ pub(super) async fn attach(
 }
 
 struct Identity {
+    _lease: ChildStdin,
+    _supervisor: Child,
     directory: tempfile::TempDir,
     fingerprint: String,
 }
@@ -259,50 +272,107 @@ impl Identity {
         if !valid_identity_path(path) {
             return Err(GitSourceError::SshIdentity);
         }
-        trusted_program(KEYGEN).await?;
+        trusted_program(AGENT).await?;
+        trusted_program(ADD).await?;
         let directory = super::private_git_directory()
             .await
             .map_err(|_| GitSourceError::SshIdentity)?;
-        let staged = directory.path().join("identity");
-        let mut bytes = platform::read_user_docker_file(path, KEY_LIMIT, true)
-            .await
+        let workspace = directory.path();
+        let mut supervisor = Command::new("/bin/sh")
+            .env_clear()
+            .current_dir(workspace)
+            .args(["-c", AGENT_SUPERVISOR, "marsa-ssh-agent", LIFETIME])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
             .map_err(|_| GitSourceError::SshIdentity)?;
-        let written = write_private(&staged, &bytes).await;
-        bytes.fill(0);
-        written.map_err(|_| GitSourceError::SshIdentity)?;
-        let fingerprint = timeout(Duration::from_secs(5), async {
-            let mut child = Command::new(KEYGEN)
-                .env_clear()
-                .args(["-y", "-P", "", "-f"])
-                .arg(&staged)
+        let lease = supervisor.stdin.take().ok_or(GitSourceError::SshIdentity)?;
+        let fingerprint = timeout(Duration::from_secs(10), async {
+            while !fs::symlink_metadata(workspace.join(SOCKET))
+                .await
+                .is_ok_and(|metadata| {
+                    metadata.file_type().is_socket()
+                        && metadata.uid() == nix::unistd::geteuid().as_raw()
+                        && metadata.mode() & 0o077 == 0
+                })
+            {
+                if supervisor.try_wait().ok()?.is_some() {
+                    return None;
+                }
+                sleep(Duration::from_millis(25)).await;
+            }
+
+            let mut bytes = platform::read_user_docker_file(path, KEY_LIMIT, true)
+                .await
+                .ok()?;
+            let loaded = load_identity(workspace, &bytes).await;
+            bytes.fill(0);
+            if !loaded? {
+                return None;
+            }
+
+            let mut inspect = agent_command(workspace)
+                .arg("-L")
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .kill_on_drop(true)
                 .spawn()
                 .ok()?;
             let mut public = String::new();
-            child
+            inspect
                 .stdout
                 .take()?
                 .take((PUBLIC_KEY_LIMIT + 1) as u64)
                 .read_to_string(&mut public)
                 .await
                 .ok()?;
-            if !child.wait().await.ok()?.success() {
+            if !inspect.wait().await.ok()?.success() {
                 return None;
             }
-            git_ssh_host_key_fingerprint(public.trim_end())
+            let key = PublicKey::parse(public.trim_end())?;
+            let public_key = format!("{} {}\n", key.kind, key.encoded);
+            write_private(&workspace.join("identity.pub"), public_key.as_bytes())
+                .await
+                .ok()?;
+            Some(key.fingerprint())
         })
         .await
         .ok()
         .flatten()
         .ok_or(GitSourceError::SshIdentity)?;
         Ok(Self {
+            _lease: lease,
+            _supervisor: supervisor,
             directory,
             fingerprint,
         })
     }
+}
+
+fn agent_command(workspace: &Path) -> Command {
+    let mut command = Command::new(ADD);
+    command
+        .current_dir(workspace)
+        .env_clear()
+        .env("SSH_AUTH_SOCK", SOCKET)
+        .env("SSH_ASKPASS_REQUIRE", "force")
+        .env("SSH_ASKPASS", "/usr/bin/false")
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    command
+}
+
+async fn load_identity(workspace: &Path, bytes: &[u8]) -> Option<bool> {
+    let mut child = agent_command(workspace)
+        .args(["-q", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut pipe = child.stdin.take()?;
+    pipe.write_all(bytes).await.ok()?;
+    drop(pipe);
+    Some(child.wait().await.ok()?.success())
 }
 
 fn valid_identity_path(path: &Path) -> bool {

@@ -1028,6 +1028,7 @@ gui-git-checkout = جلب الفرع
 gui-git-choose-folder = اختر المجلد الذي سيحتوي على النسخة المحلية
 gui-git-branch-available = الفرع المحدّد متاح في المستودع.
 gui-git-checkout-complete = اكتمل جلب الفرع. راجع ملف Compose قبل النشر.
+gui-git-save = حفظ المستودع
 gui-git-saved = حُفظ المستودع.
 gui-git-remove-title = إزالة المستودع المحفوظ؟
 gui-git-remove-help = ستبقى النسخ المحلية الموجودة على القرص.

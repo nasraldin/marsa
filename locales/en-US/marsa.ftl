@@ -1028,6 +1028,7 @@ gui-git-checkout = Check out
 gui-git-choose-folder = Choose a parent folder for this checkout
 gui-git-branch-available = The repository advertised the selected branch.
 gui-git-checkout-complete = Checkout complete. Review its Compose file before deploying.
+gui-git-save = Save repository
 gui-git-saved = Repository saved.
 gui-git-remove-title = Remove saved repository?
 gui-git-remove-help = Existing checkouts stay on disk.
