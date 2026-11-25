@@ -4,7 +4,11 @@ use std::{collections::BTreeSet, time::Duration};
 
 use marsa_proto::host::{
     DOCKER_INVENTORY_RESPONSE_LIMIT,
-    v1::{DockerOverviewRequest, DockerOverviewSection as Section},
+    docker_registry::{
+        DistributionInspect, REGISTRY_DIGEST_API_MINOR, REGISTRY_DIGEST_TIMEOUT,
+        valid_registry_digest,
+    },
+    v1::{DockerOverviewRequest, DockerOverviewSection as Section, DockerRegistryDigestRequest},
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use tokio::{task::JoinSet, time::sleep};
@@ -129,11 +133,10 @@ impl OverviewClient {
             Some((rows, stacks, utilization)) => {
                 let (updates, outdated_images) =
                     if let Some(images) = images.as_ref().filter(|_| check_image_updates) {
-                        let remotes = self.remote_tag_digests(&rows).await;
-                        (
-                            outdated_updates(&rows, images, &remotes),
-                            outdated_image_refs(&rows, images, &remotes),
-                        )
+                        match self {
+                            Self::External(_) => self.registry_image_updates(&rows, images).await,
+                            Self::Marsa(_) => local_image_updates(&rows, images),
+                        }
                     } else {
                         (0, BTreeSet::new())
                     };
@@ -184,6 +187,19 @@ impl OverviewClient {
             .filter(DiskBreakdown::has_measurements)
     }
 
+    /// Compare this exact inventory against the registry without reloading resource collections.
+    pub async fn registry_image_updates(
+        &self,
+        containers: &[ContainerSummary],
+        images: &[ImageSummary],
+    ) -> (usize, BTreeSet<String>) {
+        let remotes = self.remote_tag_digests(containers).await;
+        (
+            outdated_updates(containers, images, &remotes),
+            outdated_image_refs(containers, images, &remotes),
+        )
+    }
+
     /// Resolve registry digests for the distinct tagged references used by containers.
     async fn remote_tag_digests(
         &self,
@@ -203,6 +219,10 @@ impl OverviewClient {
                 .cmp(&registry_probe_priority(right))
                 .then_with(|| left.cmp(right))
         });
+        if matches!(self, Self::Marsa(_)) {
+            // Bound each opt-in cycle independently of the number of installed workloads.
+            pending.truncate(32);
+        }
         let mut pending = pending.into_iter();
         let mut digests = std::collections::BTreeMap::new();
         let mut jobs = JoinSet::new();
@@ -243,29 +263,31 @@ impl OverviewClient {
     }
 
     async fn distribution_digest(&self, reference: &str) -> Option<String> {
-        #[derive(Deserialize)]
-        struct DistributionInspect {
-            #[serde(rename = "Descriptor")]
-            descriptor: DistributionDescriptor,
+        match self {
+            Self::External(client) => {
+                let path = format!("/distribution/{reference}/json");
+                client
+                    .snapshot_with_timeout::<DistributionInspect>(&path, Duration::from_secs(5))
+                    .await
+                    .ok()?
+                    .into_digest()
+            }
+            Self::Marsa(client) if client.api_minor() >= REGISTRY_DIGEST_API_MINOR => {
+                let mut request = tonic::Request::new(DockerRegistryDigestRequest {
+                    reference: reference.to_owned(),
+                });
+                request.set_timeout(REGISTRY_DIGEST_TIMEOUT + Duration::from_secs(1));
+                let response = client
+                    .stats()
+                    .max_decoding_message_size(512)
+                    .docker_registry_digest(request)
+                    .await
+                    .ok()?
+                    .into_inner();
+                valid_registry_digest(&response.digest).then_some(response.digest)
+            }
+            Self::Marsa(_) => None,
         }
-        #[derive(Deserialize)]
-        struct DistributionDescriptor {
-            digest: String,
-        }
-        let path = format!("/distribution/{reference}/json");
-        let inspect: DistributionInspect = match self {
-            Self::External(client) => client
-                .snapshot_with_timeout(&path, Duration::from_secs(5))
-                .await
-                .ok()?,
-            // Guest overview RPC has no distribution section yet; local tag drift still counts.
-            Self::Marsa(_) => return None,
-        };
-        let digest = inspect.descriptor.digest;
-        digest.strip_prefix("sha256:").filter(|value| {
-            value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })?;
-        Some(digest)
     }
 
     /// Read live measurements for running containers from an already-observed listing.

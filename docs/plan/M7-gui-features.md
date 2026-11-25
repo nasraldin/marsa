@@ -933,7 +933,7 @@ requests. Native snapshots show the focused control and opened modal in
 
 ### M7-52 Check registry image digests for the built-in engine
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-48
 - **Docs:** [08 Screens](../08-gui.md#screens), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
 - **Do:** Define owner authorization for managed registry traffic. Add a typed, bounded lookup through the passive owner API for an already-running Docker engine and compare the results against the current normalized inventory on an independent schedule.
@@ -942,3 +942,23 @@ requests. Native snapshots show the focused control and opened modal in
   - Registry lookups require the agreed owner authorization. Existing settings with image checks enabled by default do not silently authorize managed registry traffic.
   - A registry check uses validated image references, starts no VM, makes no inventory collection requests, and applies neither stale results nor results from a different engine.
   - Tests cover an authorized distribution request and absent requests when authorization is off or the engine is stopped.
+
+
+**Qualification.** The owner RPC tests verified the exact distribution route,
+rejection without the saved opt-in, and rejection on a stopped engine without
+starting it. The desktop test discards results from another engine epoch or
+an outdated inventory. The opt-in survived a settings round trip, and the
+legacy local-image preference preserved its previous serialized shape.
+
+The [pinned Docker 29.10.0 router](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/distribution/distribution_routes.go)
+uses the distribution descriptor and accepts absent registry authentication.
+A real Lima engine returned the descriptor for the public Alpine tag. A
+signed Marsa guest reached Ready and exercised the new owner route, but its
+stock distribution request failed on existing guest egress in this
+environment. M4-08 retains the native DNS qualification separately.
+
+Signed Settings rendered both saved switch states in every variant.
+[English light](../screenshots/m7-52/en-light.png) ·
+[English dark](../screenshots/m7-52/en-dark.png) ·
+[Arabic light](../screenshots/m7-52/ar-light.png) ·
+[Arabic dark](../screenshots/m7-52/ar-dark.png).

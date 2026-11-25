@@ -6,8 +6,10 @@ use marsa_proto::{
     guest::v1::VmStats,
     host::{
         DOCKER_INVENTORY_LIMIT, docker_activity_query,
+        docker_registry::{DistributionInspect, REGISTRY_DIGEST_TIMEOUT, registry_digest_path},
         v1::{
-            DockerOverviewRequest, DockerOverviewResponse, DockerOverviewSection, VmStatsRequest,
+            DockerOverviewRequest, DockerOverviewResponse, DockerOverviewSection,
+            DockerRegistryDigestRequest, DockerRegistryDigestResponse, VmStatsRequest,
             VmStatsSample, stats_server::Stats,
         },
     },
@@ -186,6 +188,45 @@ impl Stats for TypedApi {
         Ok(Response::new(
             self.fetch_overview(request, prefer_cache).await?,
         ))
+    }
+
+    async fn docker_registry_digest(
+        &self,
+        request: Request<DockerRegistryDigestRequest>,
+    ) -> Result<Response<DockerRegistryDigestResponse>, Status> {
+        let request = self.authorize(request)?;
+        self.inner.factory_reset.read()?;
+        let path = registry_digest_path(&request.reference)
+            .ok_or_else(|| Status::invalid_argument("invalid tagged Docker image reference"))?;
+        let declined = || Status::permission_denied("built-in registry checks are disabled");
+        if !self.inner.events.permits_registry_observations() {
+            return Err(declined());
+        }
+        let _permit = self
+            .inner
+            .registry_observations
+            .try_acquire()
+            .map_err(|_| Status::resource_exhausted("too many pending built-in registry checks"))?;
+        let not_running = || Status::failed_precondition("registry checks require a running VM");
+        let supervisor = self.supervisor.as_ref().ok_or_else(not_running)?;
+        let json = timeout(REGISTRY_DIGEST_TIMEOUT, async {
+            let stream = supervisor.connect_running_docker().await?;
+            docker_http::get(stream, &format!("/v1.57{path}"), 64 * 1024).await
+        })
+        .await
+        .map_err(|_| Status::deadline_exceeded("built-in registry lookup timed out"))?
+        .map_err(|error| match error.kind() {
+            io::ErrorKind::NotConnected => not_running(),
+            _ => Status::unavailable("could not read registry image digest"),
+        })?;
+        if !self.inner.events.permits_registry_observations() {
+            return Err(declined());
+        }
+        let digest = serde_json::from_slice::<DistributionInspect>(&json)
+            .ok()
+            .and_then(DistributionInspect::into_digest)
+            .ok_or_else(|| Status::data_loss("invalid registry image digest"))?;
+        Ok(Response::new(DockerRegistryDigestResponse { digest }))
     }
 }
 

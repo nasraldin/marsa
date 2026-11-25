@@ -1,12 +1,13 @@
 //! Generated gRPC definitions used by the host daemon and its clients.
 
 pub mod docker_cleanup;
+pub mod docker_registry;
 
 /// The major version of the host API exposed by the generated bindings.
 pub const API_MAJOR: u32 = 1;
 
 /// The latest additive revision of the host API.
-pub const API_MINOR: u32 = 16;
+pub const API_MINOR: u32 = 17;
 
 /// Maximum lookback for a bounded Docker event history request.
 pub const DOCKER_ACTIVITY_WINDOW_SECONDS: i64 = 24 * 60 * 60;
