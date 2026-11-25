@@ -164,7 +164,7 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 
 ### M3-11 Power and network watcher
 
-- **Status:** blocked (manual system sleep and wake measurement pending)
+- **Status:** done
 - **Depends on:** M3-07, M3-16
 - **Docs:** [03 Sleep, wake and network changes](../03-host-daemon.md#sleep-wake-and-network-changes)
 - **Do:** Subscribe to host sleep, wake and network-change notifications. Pause on sleep, resume on wake, push the current time to the agent, and publish events. Network-change handling here only emits the event; M4 consumes it.
@@ -172,7 +172,7 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 - **Accept when:**
   - After a real sleep and wake, the guest clock is within one second of the host (Tier 2 or manual test recorded).
   - The sequence is covered by tests with injected events.
-- **Evidence:** Injected sleep and wake, startup races, manual pause ownership, and daemon event ordering passed. On Apple silicon, the entitled harness registered native notifications and measured 2.762 ms of preflight skew with the user-space attachment. After incorporating the bind-approval event, a second entitled preflight measured 32.791 ms. The two-minute manual measurement window opened at 03:43 and ended before the recorded 03:47 host sleep. A real sleep and wake measurement is still required.
+- **Evidence:** Injected sleep and wake, startup races, manual pause ownership, and daemon event ordering passed. On 2026-11-25, the entitled harness on an M1 Max running macOS 27.2.1 observed the owner put the Mac to sleep at 23:11:54 and wake it at 23:12:04 local time (UTC+04:00). The typed event stream delivered `WillSleep → Paused → Woke → Ready` in order. Docker reported a maximum bracketed guest clock skew of 2.867 ms before sleep and 2.009 ms after wake, within the one-second limit. The test used the packaged guest and user-space network helper.
 
 ### M3-12 Compose the packaged VM runtime
 
