@@ -90,15 +90,16 @@ sequenceDiagram
     participant V as Views
 
     Note over S,ST: Start-up
-    S->>D: Snapshot (engine status, containers, images)
-    D-->>S: Snapshot
-    S->>ST: Replace state
-    S->>D: Subscribe to events
+    S->>D: Subscribe to owner events
+    D-->>S: Daemon snapshot at the stream cursor
+    S->>ST: Replace daemon state
+    S->>D: Read cached then live inventory when the engine is ready
+    D-->>S: Docker inventory
+    S->>ST: Index resources
     loop While the window is open
-        D-->>S: Event (container started, stats tick, log batch)
-        S->>ST: Apply as a state change
+        D-->>S: Ordered daemon event or Docker inventory invalidation
+        S->>ST: Apply the event or refresh the affected inventory
         ST-->>V: Notify only affected views
-        V->>V: Re-render changed rows only
     end
     Note over V,D: User action
     V->>S: Command (stop container)
@@ -109,9 +110,9 @@ sequenceDiagram
 Rules:
 
 - **One-way flow.** Views send commands; state changes arrive only through events. No view mutates shared state directly.
-- **No polling.** Everything is event-driven from the daemon and the engine's event stream. The daemon may refresh its inventory cache in the background ([D-034](15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)); clients do not poll Docker themselves for Overview inventory.
+- **No polling for inventory.** The managed Docker resource store reads the owner API on readiness, reconnect, and coalesced Docker inventory invalidations. The daemon follows the running engine's [Docker Engine 1.57 event stream](https://docs.docker.com/reference/api/engine/version/v1.57/operations/SystemEvents/) without acquiring an activity lease. The pinned [Docker 29.10.0 handler](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L274-L386) sends newline-delimited JSON and can replay recent events before following live changes. The daemon may refresh its inventory cache in the background ([D-034](15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)).
 - **Batches, not single events.** Logs and stats arrive in batches at a capped rate, so the UI never processes one event per log line.
-- **Window close frees everything.** Streams are cancelled and the process exits; the tray item belongs to `marsad`.
+- **Window close cancels window streams.** The window releases its owner, Docker, log, stats and other stream workers even if a task retains a service handle. The app-owned notification observer remains available until Quit so notifications can reopen the authenticated review window. The tray item belongs to `marsad`.
 
 ## Design system (`marsa-ui`)
 

@@ -4,7 +4,13 @@
 pub const API_MAJOR: u32 = 1;
 
 /// The latest additive revision of the host API.
-pub const API_MINOR: u32 = 14;
+pub const API_MINOR: u32 = 15;
+
+/// Maximum JSON byte length for a live Docker resource collection.
+pub const DOCKER_INVENTORY_LIMIT: usize = 8 * 1024 * 1024;
+
+/// gRPC message limit for the Docker JSON and its protobuf envelope.
+pub const DOCKER_INVENTORY_RESPONSE_LIMIT: usize = DOCKER_INVENTORY_LIMIT + 128;
 
 /// Filename for delegated agent operations next to the owner daemon socket.
 pub use marsa_core::paths::AGENT_SOCKET_NAME;

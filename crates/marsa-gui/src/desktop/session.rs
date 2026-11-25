@@ -19,7 +19,7 @@ use crate::{
 };
 
 struct Session {
-    services: Option<Arc<Services>>,
+    _services: Option<Arc<Services>>,
     notifications: Notifications,
     _events: Option<Task<()>>,
 }
@@ -47,14 +47,14 @@ pub(super) fn attach(
 
     if !cx.has_global::<Session>() {
         bind_keys(cx);
-        let services = Services::start().ok().map(Arc::new);
+        let services = Services::start_notifications().ok().map(Arc::new);
         let mut notifications = Notifications::default();
         notifications.set_locale(locale);
         let events = services
             .as_ref()
             .map(|services| watch(Arc::clone(services), locale, cx));
         cx.set_global(Session {
-            services,
+            _services: services,
             notifications,
             _events: events,
         });
@@ -79,7 +79,15 @@ pub(super) fn attach(
             });
         });
     }
-    cx.global::<Session>().services.clone()
+    let services = Arc::new(Services::start().ok()?);
+    let window_services = Arc::downgrade(&services);
+    cx.on_release(move |_, _| {
+        if let Some(services) = window_services.upgrade() {
+            services.close();
+        }
+    })
+    .detach();
+    Some(services)
 }
 
 fn watch(services: Arc<Services>, system_locale: Locale, cx: &App) -> Task<()> {

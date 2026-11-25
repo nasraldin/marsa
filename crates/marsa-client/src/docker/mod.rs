@@ -69,8 +69,8 @@ pub use overview::{
 use resources::ComposeLabels;
 pub use resources::{
     ContainerDetails, ContainerMount, ContainerNetworkSettings, ContainerPort, ContainerRemoval,
-    ContainerRuntime, EnvironmentEntry, EnvironmentReveal, NetworkEndpoint, NetworkSummary,
-    PortBinding, RemovalMode, RevealedEnvironment, VolumeSummary, VolumeUsage,
+    ContainerRuntime, DockerInventory, EnvironmentEntry, EnvironmentReveal, NetworkEndpoint,
+    NetworkSummary, PortBinding, RemovalMode, RevealedEnvironment, VolumeSummary, VolumeUsage,
 };
 pub use stats::{
     BlockIoCounter, BlockIoStats, CpuStats, CpuUsage, MemoryStats, NetworkCounters, ProcessStats,

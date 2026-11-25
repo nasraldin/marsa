@@ -3,9 +3,14 @@
 use std::{collections::BTreeMap, fmt};
 
 use hyper::Method;
+use marsa_proto::host::v1::DockerOverviewSection as Section;
 use serde::{Deserialize, Serialize};
 
-use super::{ContainerId, DockerClient, DockerError, null_to_default};
+use crate::MarsaClient;
+
+use super::{
+    ContainerId, ContainerSummary, DockerClient, DockerError, ImageSummary, null_to_default,
+};
 
 impl DockerClient {
     /// Read typed details and verify their identity before showing them to a view.
@@ -101,6 +106,43 @@ impl DockerClient {
     /// List networks known to Docker.
     pub async fn networks(&self) -> Result<Vec<NetworkSummary>, DockerError> {
         self.snapshot("/networks").await
+    }
+}
+
+/// Lists that make up the managed engine's inventory.
+#[derive(Default)]
+pub struct DockerInventory {
+    /// Running and stopped containers.
+    pub containers: Vec<ContainerSummary>,
+    /// All images, including untagged images.
+    pub images: Vec<ImageSummary>,
+    /// Known Docker volumes.
+    pub volumes: Vec<VolumeSummary>,
+    /// Known Docker networks.
+    pub networks: Vec<NetworkSummary>,
+}
+
+impl MarsaClient {
+    /// Read the managed inventory through the owner API without activating the engine.
+    pub async fn docker_inventory(
+        &self,
+        prefer_cache: bool,
+    ) -> Result<DockerInventory, DockerError> {
+        Ok(DockerInventory {
+            containers: self
+                .read_docker_snapshot(Section::Containers, None, prefer_cache)
+                .await?,
+            images: self
+                .read_docker_snapshot(Section::Images, None, prefer_cache)
+                .await?,
+            volumes: self
+                .read_docker_snapshot::<Volumes>(Section::Volumes, None, prefer_cache)
+                .await?
+                .volumes,
+            networks: self
+                .read_docker_snapshot(Section::Networks, None, prefer_cache)
+                .await?,
+        })
     }
 }
 

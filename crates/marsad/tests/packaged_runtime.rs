@@ -17,11 +17,12 @@ use hyper_util::rt::TokioIo;
 use marsa_core::{paths::MarsaPaths, settings::Settings};
 use marsa_proto::host::v1::{
     CapabilitiesRequest, CollectDiagnosticsRequest, DaemonEvent, DiskUsageRequest,
-    EngineActionRequest, EngineHealthState, EngineState, EngineStatusRequest, GetSettingsRequest,
-    NetworkMode, NetworkStatus, SubscribeRequest, UpdateSettingsRequest, VmStatsRequest,
-    daemon_event::Body, diagnostics_client::DiagnosticsClient, disk_client::DiskClient,
-    engine_client::EngineClient, events_client::EventsClient, meta_client::MetaClient,
-    settings_client::SettingsClient, stats_client::StatsClient,
+    DockerOverviewRequest, DockerOverviewSection, EngineActionRequest, EngineHealthState,
+    EngineState, EngineStatusRequest, GetSettingsRequest, NetworkMode, NetworkStatus,
+    SubscribeRequest, UpdateSettingsRequest, VmStatsRequest, daemon_event::Body,
+    diagnostics_client::DiagnosticsClient, disk_client::DiskClient, engine_client::EngineClient,
+    events_client::EventsClient, meta_client::MetaClient, settings_client::SettingsClient,
+    stats_client::StatsClient,
 };
 use nix::{
     errno::Errno,
@@ -61,7 +62,7 @@ const WAIT: Duration = Duration::from_secs(20);
 const BOOT: Duration = Duration::from_secs(120);
 
 #[tokio::test]
-#[ignore = "requires Apple silicon virtualization and built guest and network helper artifacts"]
+#[ignore = "requires Apple silicon virtualization, built guest and network helper artifacts, and Docker CLI"]
 async fn packaged_daemon_boots_and_preserves_its_private_data_disk() {
     assert!(!nix::unistd::geteuid().is_root());
     let scratch = tempfile::tempdir_in("/tmp").unwrap();
@@ -167,6 +168,7 @@ async fn packaged_daemon_boots_and_preserves_its_private_data_disk() {
         NetworkMode::Nat | NetworkMode::Userspace
     ));
     eprintln!("Initial automatic network: {automatic_network:?}");
+    assert_inventory_invalidation(&mut events, &channel, &paths).await;
     let initial_memory = memory(&channel).await;
     assert!(initial_memory > 800 * MIB);
     let identity = disk_identity(&disk);
@@ -443,6 +445,55 @@ async fn packaged_docker_socket_preserves_cli_streams_and_bounded_memory() {
         .unwrap()
         .unwrap();
     assert_eq!(stopped.into_inner().state(), EngineState::Stopped);
+}
+
+async fn assert_inventory_invalidation(
+    events: &mut Streaming<DaemonEvent>,
+    channel: &Channel,
+    paths: &MarsaPaths,
+) {
+    async fn next_invalidation(events: &mut Streaming<DaemonEvent>) {
+        timeout(WAIT, async {
+            while let Some(event) = events.message().await.unwrap() {
+                if matches!(event.body, Some(Body::DockerInventoryChanged(_))) {
+                    return;
+                }
+            }
+            panic!("owner event stream closed before Docker inventory invalidation");
+        })
+        .await
+        .expect("Docker inventory invalidation was not delivered");
+    }
+
+    // The initial invalidation confirms the passive observer has attached.
+    next_invalidation(events).await;
+    recovery::docker(
+        &paths.docker_socket(),
+        &["volume", "create", "marsa-inventory-fixture"],
+    )
+    .await;
+    next_invalidation(events).await;
+
+    let mut stats = StatsClient::new(channel.clone());
+    let snapshot = stats
+        .docker_overview(DockerOverviewRequest {
+            section: DockerOverviewSection::Volumes.into(),
+            container_id: String::new(),
+            prefer_cache: false,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let volumes: serde_json::Value = serde_json::from_slice(&snapshot.json).unwrap();
+    assert!(
+        volumes["Volumes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|volume| volume["Name"] == "marsa-inventory-fixture"),
+        "{volumes:?}"
+    );
+    eprintln!("Docker volume create invalidated the owner inventory and its passive snapshot.");
 }
 
 fn has_backup_exclusion(path: &Path) -> bool {

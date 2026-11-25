@@ -671,3 +671,15 @@ English and Arabic copy cover the history card, disk card, resources label, and 
   - Counting rows and sorting collapsed groups retain the cleanup from PR #123 without altering the new Updates filter.
   - The inactive Overview uses an accessible icon-only power action for the built-in engine or the selected managed Lima VM.
   - Check English and Arabic in both appearances.
+
+### M7-48 Drive Overview inventory from Docker invalidations
+
+- **Status:** todo
+- **Depends on:** M6-07, M7-41
+- **Docs:** [08 Data flow](../08-gui.md#data-flow), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
+- **Do:** Bind the managed Overview resource counts to the normalized store. Keep live utilization, registry update checks, and disk measurements on their own schedules so the utilization timer does not repeatedly reload collection JSON.
+- **Deliver:** Managed Overview selectors and tests separating collection invalidation from live measurements.
+- **Accept when:**
+  - Docker changes update the managed Overview counts without a periodic Docker inventory query.
+  - Utilization history, disk measurements, and update indicators continue to refresh.
+  - The cached first frame and external engine behavior from M7-41 are preserved.

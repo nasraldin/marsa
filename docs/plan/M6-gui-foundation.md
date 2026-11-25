@@ -117,7 +117,7 @@ Arabic editing and VoiceOver integration.
 
 ### M6-07 App store and services
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M6-01, M5-01
 - **Docs:** [08 Data flow](../08-gui.md#data-flow)
 - **Do:** Implement the normalised app store with selectors, and the services layer: daemon client, Docker client, snapshot-then-events loading, batching and rate-capping of log and stats streams, command dispatch, and cancellation of all streams on window close.
@@ -127,12 +127,28 @@ Arabic editing and VoiceOver integration.
   - Views re-render only when their selected state changes (tested with counters).
   - Closing the window cancels every stream.
 
-The owner socket delivers ordered daemon snapshots and events. The desktop reads
-Docker collections on engine readiness and explicit refresh. A persistent
-subscription through the public Docker socket keeps its activity lease open
-and prevents idle shutdown. Live Docker collection invalidation needs a
-non-waking observer on the owner API before the event-driven acceptance is
-complete.
+The owner socket delivers an ordered daemon snapshot and events, including
+Docker inventory invalidations from a passive observer. The window refreshes
+the relevant store from the owner API and retains unchanged projections for
+selectors. A separate app-owned observer delivers approval and engine
+notifications when all windows are closed, as required by M7-12 and M7-13.
+
+- **Evidence:** Fake clients delivered 100,000 ordered lines under the
+  batch limits, coalesced stats, counted route-specific redraw decisions, and
+  dropped daemon, log, and stats streams when the window closed with live
+  handles. The fake guest observed Docker events while still reaching idle
+  shutdown. The signed Apple silicon packaged test on macOS 27.2.1 observed a
+  Docker volume creation on the owner stream and read the new volume through
+  the passive inventory API. The native desktop reached Containers with
+  Command-1 in both languages. Command-W released the window's owner
+  connection while the background notification connection stayed open.
+  Reopening restored the window connection. Reviewed Volumes captures:
+  [English light](../spikes/M6-07-app-store/en-light.png),
+  [English dark](../spikes/M6-07-app-store/en-dark.png),
+  [Arabic light](../spikes/M6-07-app-store/ar-light.png), and
+  [Arabic dark](../spikes/M6-07-app-store/ar-dark.png).
+- **Follow-up:** [M7-48](M7-gui-features.md#m7-48-drive-overview-inventory-from-docker-invalidations)
+  moves the Overview inventory projection off the live utilization timer.
 
 ### M6-08 Keyboard and accessibility foundation
 

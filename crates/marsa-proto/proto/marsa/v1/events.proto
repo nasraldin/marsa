@@ -31,6 +31,7 @@ message DaemonEvent {
     ListGrantsResponse grants = 12;
     BindApprovalList bind_approvals = 13;
     HostEvent host = 14;
+    DockerInventoryChanged docker_inventory_changed = 15;
   }
 }
 
@@ -61,3 +62,6 @@ enum HostEventKind {
   HOST_EVENT_KIND_WOKE = 2;
   HOST_EVENT_KIND_NETWORK_CHANGED = 3;
 }
+
+// The running Docker engine changed. Fetch its latest inventory over Stats.
+message DockerInventoryChanged {}

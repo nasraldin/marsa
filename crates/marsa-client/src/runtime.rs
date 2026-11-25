@@ -1,6 +1,6 @@
 //! Local client work and bounded delivery without exposing transport internals to the desktop.
 
-use std::{future::Future, io, time::Duration};
+use std::{future::Future, io, sync::Mutex, time::Duration};
 
 use tokio::{
     runtime,
@@ -10,27 +10,51 @@ use tokio::{
 };
 
 /// Runtime that owns client I/O until the desktop closes.
-pub struct Background(runtime::Runtime);
+pub struct Background {
+    runtime: Mutex<Option<runtime::Runtime>>,
+    spawner: Spawner,
+}
 
 impl Background {
     /// Start a worker thread outside the window's event loop.
     pub fn new() -> io::Result<Self> {
-        runtime::Builder::new_multi_thread()
+        let runtime = runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("marsa-client")
             .enable_all()
-            .build()
-            .map(Self)
+            .build()?;
+        Ok(Self {
+            spawner: Spawner(runtime.handle().clone()),
+            runtime: Mutex::new(Some(runtime)),
+        })
     }
 
     /// Get a non-owning handle for spawning additional work from a worker.
     pub fn spawner(&self) -> Spawner {
-        Spawner(self.0.handle().clone())
+        self.spawner.clone()
     }
 
     /// Run work until it completes or its scoped handle is dropped.
     pub fn spawn(&self, future: impl Future<Output = ()> + Send + 'static) -> Task {
         self.spawner().spawn(future)
+    }
+
+    /// Cancel all asynchronous work without waiting for the worker on the caller's thread.
+    pub fn close(&self) {
+        let runtime = self
+            .runtime
+            .lock()
+            .unwrap_or_else(|lock| lock.into_inner())
+            .take();
+        if let Some(runtime) = runtime {
+            runtime.shutdown_background();
+        }
+    }
+}
+
+impl Drop for Background {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 

@@ -1,21 +1,31 @@
 //! Keep daemon, Docker and selected resource streams scoped to the desktop window.
 
 use std::{
-    collections::BTreeMap, error::Error, fmt, future::Future, io, sync::Arc, time::Duration,
+    collections::BTreeMap,
+    error::Error,
+    fmt,
+    future::Future,
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
+#[cfg(target_os = "macos")]
+use marsa_client::docker::ContainerSummary;
 use marsa_client::{
     ClientError, DaemonEndpoint, EventSubscription,
     api::{DaemonEvent, EngineActionRequest, EngineState, daemon_event::Body},
     compose::{ComposeCommand, ComposeError, ComposeOutput, ComposeStream},
     docker::{
-        ContainerAction, ContainerDetails, ContainerId, ContainerRemoval, ContainerSummary,
-        DockerClient, DockerError, DockerLogs, DockerStats, EnvironmentReveal, ExecControl,
-        ExternalEndpoint, ImageDetails, ImageId, ImagePull, ImageReference, ImageSummary, LogLine,
-        MAX_TERMINAL_INPUT, NetworkSummary, PullProgress, RevealedEnvironment, StatsSample,
-        TerminalSize, VolumeSummary, VolumeUsage,
+        ContainerAction, ContainerDetails, ContainerId, ContainerRemoval, DockerClient,
+        DockerError, DockerLogs, DockerStats, EnvironmentReveal, ExecControl, ExternalEndpoint,
+        ImageDetails, ImageId, ImagePull, ImageReference, LogLine, MAX_TERMINAL_INPUT,
+        PullProgress, RevealedEnvironment, StatsSample, TerminalSize, VolumeUsage,
     },
-    runtime::{Background, Cancellation, Receiver, Sender, Spawner, Task, delay, queue},
+    runtime::{Background, Cancellation, Receiver, Sender, Task, delay, queue},
 };
 
 use crate::store::{ResourceSnapshot, Store};
@@ -118,13 +128,27 @@ pub struct Services {
 impl Services {
     /// Start subscribing through the standard per-user daemon and Docker endpoints.
     pub fn start() -> Result<Self, ServiceError> {
+        Self::start_with_inventory(true)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn start_notifications() -> Result<Self, ServiceError> {
+        Self::start_with_inventory(false)
+    }
+
+    fn start_with_inventory(inventory: bool) -> Result<Self, ServiceError> {
         let clients = LocalClients {
             daemon: DaemonEndpoint::discover()?,
             docker: DockerClient::discover()?,
         };
         Ok(Self {
-            session: Session::start(clients)?,
+            session: Session::start(clients, inventory)?,
         })
+    }
+
+    /// Cancel all window work even when a view still retains a service handle.
+    pub fn close(&self) {
+        self.session.close();
     }
 
     /// Read normalized state through the window's store.
@@ -229,13 +253,12 @@ impl Services {
         self.session.dispatch(command)
     }
 
-    /// Refresh the container and image lists from the local engine on demand.
+    /// Refresh inventory from the already-running engine on demand.
     pub fn refresh(&self) -> PendingCommand {
-        let backend = Arc::clone(&self.session.backend);
-        let store = self.session.store.clone();
+        let inventory = self.session.inventory.clone();
         let (reply, completion) = queue(1);
         let task = self.session.runtime.spawn(async move {
-            reply.send(snapshot(&*backend, &store).await).await;
+            inventory.send(Refresh::Requested(reply)).await;
         });
         Pending {
             completion,
@@ -513,25 +536,39 @@ struct Session<B> {
     backend: Arc<B>,
     store: Store,
     _daemon: Task,
+    inventory: Sender<Refresh>,
+    _inventory: Task,
     runtime: Background,
 }
 
 impl<B: Clients> Session<B> {
-    fn start(backend: B) -> Result<Self, ServiceError> {
+    fn start(backend: B, watch_inventory: bool) -> Result<Self, ServiceError> {
         let runtime = Background::new().map_err(ServiceError::Runtime)?;
         let backend = Arc::new(backend);
         let store = Store::default();
+        let (inventory, requests) = queue(8);
+        let refresh = runtime.spawn(refresh_inventory(
+            Arc::clone(&backend),
+            store.clone(),
+            requests,
+        ));
         let daemon = runtime.spawn(watch_daemon(
             Arc::clone(&backend),
             store.clone(),
-            runtime.spawner(),
+            watch_inventory.then(|| inventory.clone()),
         ));
         Ok(Self {
             backend,
             store,
             _daemon: daemon,
+            inventory,
+            _inventory: refresh,
             runtime,
         })
+    }
+
+    fn close(&self) {
+        self.runtime.close();
     }
 
     fn dispatch(&self, command: Command) -> PendingCommand {
@@ -672,58 +709,86 @@ where
     }
 }
 
-async fn watch_daemon<B: Clients>(backend: Arc<B>, store: Store, spawner: Spawner) {
+enum Refresh {
+    Automatic {
+        prefer_cache: bool,
+        queued: Arc<AtomicBool>,
+    },
+    Requested(Sender<Result<(), ServiceError>>),
+}
+
+async fn watch_daemon<B: Clients>(
+    backend: Arc<B>,
+    store: Store,
+    inventory: Option<Sender<Refresh>>,
+) {
+    let queued = Arc::new(AtomicBool::new(false));
     loop {
         if let Ok(mut feed) = backend.daemon().await {
-            let mut docker = None;
-            let mut generation = String::new();
             let mut ready = false;
+            let mut generation = String::new();
             while let Ok(Some(event)) = feed.pull().await {
-                if generation != event.stream_id {
-                    docker = None;
+                let new_daemon = generation != event.stream_id;
+                if new_daemon {
                     ready = false;
                     generation.clone_from(&event.stream_id);
-                    store.replace_docker(ResourceSnapshot::default());
                 }
+                let snapshot = matches!(event.body, Some(Body::Snapshot(_)));
+                let changed = matches!(event.body, Some(Body::DockerInventoryChanged(_)));
                 let engine = match &event.body {
                     Some(Body::Snapshot(snapshot)) => snapshot.engine.as_ref(),
                     Some(Body::Engine(engine)) => Some(engine),
                     _ => None,
                 };
-                if let Some(engine) = engine {
-                    let online = matches!(engine.state(), EngineState::Ready | EngineState::Idle);
-                    if online && !ready {
-                        let backend = Arc::clone(&backend);
-                        let store = store.clone();
-                        // Docker's public socket holds an activity lease. Take
-                        // a bounded snapshot here without keeping it open.
-                        docker = Some(spawner.spawn(async move {
-                            let _ = snapshot(&*backend, &store).await;
-                        }));
-                    } else if !online && ready {
-                        docker = None;
-                        store.replace_docker(ResourceSnapshot::default());
-                    }
-                    ready = online;
+                let online = engine.map_or(ready && !snapshot, |engine| {
+                    matches!(engine.state(), EngineState::Ready | EngineState::Idle)
+                });
+                store.apply(event, new_daemon || (ready && !online));
+                let prefer_cache = !ready || snapshot;
+                if let Some(inventory) = &inventory
+                    && online
+                    && (prefer_cache || changed)
+                    // One queued refresh absorbs any burst while a read is in flight.
+                    && !queued.swap(true, Ordering::Relaxed)
+                    && !inventory.try_send(Refresh::Automatic {
+                        prefer_cache,
+                        queued: Arc::clone(&queued),
+                    })
+                {
+                    queued.store(false, Ordering::Relaxed);
                 }
-                store.apply(event);
+                ready = online;
             }
-            drop(docker);
             store.reset();
         }
         delay(RETRY).await;
     }
 }
 
-async fn snapshot<B: Clients>(backend: &B, store: &Store) -> Result<(), ServiceError> {
-    let snapshot = ResourceSnapshot {
-        containers: backend.containers().await?,
-        images: backend.images().await?,
-        volumes: backend.volumes().await?,
-        networks: backend.networks().await?,
-    };
-    store.replace_docker(snapshot);
-    Ok(())
+async fn refresh_inventory<B: Clients>(
+    backend: Arc<B>,
+    store: Store,
+    mut requests: Receiver<Refresh>,
+) {
+    while let Some(request) = requests.next().await {
+        let revision = store.docker_revision();
+        if let Refresh::Automatic {
+            prefer_cache,
+            queued,
+        } = &request
+        {
+            queued.store(false, Ordering::Relaxed);
+            if *prefer_cache && let Ok(cached) = backend.inventory(true).await {
+                store.replace_docker(cached, revision);
+            }
+        }
+        let result = backend.inventory(false).await.map(|snapshot| {
+            store.replace_docker(snapshot, revision);
+        });
+        if let Refresh::Requested(reply) = request {
+            reply.send(result).await;
+        }
+    }
 }
 
 trait Feed<T>: Send + 'static {
@@ -736,12 +801,10 @@ trait Clients: Send + Sync + 'static {
     type Stats: Feed<StatsSample>;
 
     fn daemon(&self) -> impl Future<Output = Result<Self::Daemon, ServiceError>> + Send;
-    fn containers(
+    fn inventory(
         &self,
-    ) -> impl Future<Output = Result<Vec<ContainerSummary>, ServiceError>> + Send;
-    fn images(&self) -> impl Future<Output = Result<Vec<ImageSummary>, ServiceError>> + Send;
-    fn volumes(&self) -> impl Future<Output = Result<Vec<VolumeSummary>, ServiceError>> + Send;
-    fn networks(&self) -> impl Future<Output = Result<Vec<NetworkSummary>, ServiceError>> + Send;
+        prefer_cache: bool,
+    ) -> impl Future<Output = Result<ResourceSnapshot, ServiceError>> + Send;
     fn inspect(
         &self,
         id: &ContainerId,
@@ -797,20 +860,18 @@ impl Clients for LocalClients {
         Ok(self.daemon.connect().await?.subscribe_events())
     }
 
-    async fn containers(&self) -> Result<Vec<ContainerSummary>, ServiceError> {
-        Ok(self.docker.containers().await?)
-    }
-
-    async fn images(&self) -> Result<Vec<ImageSummary>, ServiceError> {
-        Ok(self.docker.images().await?)
-    }
-
-    async fn volumes(&self) -> Result<Vec<VolumeSummary>, ServiceError> {
-        Ok(self.docker.volumes().await?)
-    }
-
-    async fn networks(&self) -> Result<Vec<NetworkSummary>, ServiceError> {
-        Ok(self.docker.networks().await?)
+    async fn inventory(&self, prefer_cache: bool) -> Result<ResourceSnapshot, ServiceError> {
+        let daemon = self.daemon.connect().await?;
+        // Older daemons lack the event contract and the full inventory response bounds.
+        if !prefer_cache && daemon.api_minor() < 15 {
+            return Ok(ResourceSnapshot {
+                containers: self.docker.containers().await?,
+                images: self.docker.images().await?,
+                volumes: self.docker.volumes().await?,
+                networks: self.docker.networks().await?,
+            });
+        }
+        Ok(daemon.docker_inventory(prefer_cache).await?)
     }
 
     async fn inspect(&self, id: &ContainerId) -> Result<ContainerDetails, ServiceError> {
@@ -843,3 +904,6 @@ impl Clients for LocalClients {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

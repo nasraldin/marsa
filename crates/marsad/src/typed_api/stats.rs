@@ -4,9 +4,12 @@ use std::{io, time::Duration};
 
 use marsa_proto::{
     guest::v1::VmStats,
-    host::v1::{
-        DockerOverviewRequest, DockerOverviewResponse, DockerOverviewSection, VmStatsRequest,
-        VmStatsSample, stats_server::Stats,
+    host::{
+        DOCKER_INVENTORY_LIMIT,
+        v1::{
+            DockerOverviewRequest, DockerOverviewResponse, DockerOverviewSection, VmStatsRequest,
+            VmStatsSample, stats_server::Stats,
+        },
     },
 };
 use tokio::time::{interval, timeout};
@@ -102,12 +105,19 @@ impl TypedApi {
             DockerOverviewSection::Disk => Duration::from_secs(40),
             _ => Duration::from_secs(10),
         };
+        let maximum = match section {
+            DockerOverviewSection::Containers
+            | DockerOverviewSection::Images
+            | DockerOverviewSection::Volumes
+            | DockerOverviewSection::Networks => DOCKER_INVENTORY_LIMIT,
+            _ => inventory_cache::CACHE_SECTION_LIMIT,
+        };
         let path = overview_path(request).map_err(Status::invalid_argument)?;
         let not_running = || Status::failed_precondition("Docker overview requires a running VM");
         let supervisor = self.supervisor.as_ref().ok_or_else(not_running)?;
         let json = timeout(deadline, async {
             let stream = supervisor.connect_running_docker().await?;
-            docker_http::get(stream, &path, 2 * 1024 * 1024).await
+            docker_http::get(stream, &path, maximum).await
         })
         .await
         .map_err(|_| Status::deadline_exceeded("Docker overview timed out"))?
@@ -117,6 +127,7 @@ impl TypedApi {
         })?;
         let observed_at_unix_millis = inventory_cache::now_millis();
         if InventoryCache::is_cacheable(section)
+            && json.len() <= inventory_cache::CACHE_SECTION_LIMIT
             && let Err(error) = self
                 .inner
                 .inventory
