@@ -309,12 +309,19 @@ impl<M: InputModeKind> Element for EditorScrollbar<M> {
         let Some(snapshot) = state.editor_scrollbar_snapshot.get() else {
             return (Vec::new(), None);
         };
-        // Marks follow the track the theme gives the scrollbar.
+        let renderer = state.scrollbar_renderer.clone();
+        // The built-in code gutter and text stay LTR inside a mirrored form.
+        // Keep their scrollbar and ruler off the leading characters.
+        let direction = if renderer.is_none() && state.is_code_editor() {
+            LayoutDirection::Ltr
+        } else {
+            LayoutDirection::global(cx)
+        };
         let ruler = layout_overview_ruler(
             state,
             &snapshot,
             Scrollbar::themed_track_width(cx),
-            LayoutDirection::global(cx),
+            direction,
         );
         let scroll_handle = state.scroll_handle.clone();
 
@@ -322,7 +329,6 @@ impl<M: InputModeKind> Element for EditorScrollbar<M> {
             scroll_handle.set_offset(snapshot.cursor_scroll_offset);
         }
 
-        let renderer = state.scrollbar_renderer.clone();
         let mut scrollbar = if let Some(renderer) = renderer {
             let presentation = super::EditorScrollbarContext {
                 handle: scroll_handle,
@@ -342,6 +348,7 @@ impl<M: InputModeKind> Element for EditorScrollbar<M> {
             } else {
                 Scrollbar::vertical(&scroll_handle)
             }
+            .layout_direction(direction)
             .viewport_bounds(snapshot.layout.bounds)
             .scroll_viewport_size(snapshot.layout.scroll_viewport_size)
             .scroll_size(snapshot.layout.scroll_size)
