@@ -39,8 +39,9 @@ pub use {
 pub mod preferences {
     pub use marsa_core::settings::{
         AccentColor, ActivityRetention, DisplaySettings, DownloadFormat, EnvironmentAppearance,
-        EnvironmentIcon, EnvironmentMonitoring, Language, LogBufferSize, LogSettings, NetworkMode,
-        NotificationSettings, OperateApproval, Settings, TerminalFont, Theme, TimeFormat, UiFont,
-        UiFontSize, UpdateChannel, VmBackend, valid_compose_template,
+        EnvironmentIcon, EnvironmentMonitoring, Language, LogBufferSize, LogSettings,
+        MaintenanceReview, NetworkMode, NotificationSettings, OperateApproval, ReviewCadence,
+        ReviewTarget, Settings, TerminalFont, Theme, TimeFormat, UiFont, UiFontSize, UpdateChannel,
+        VmBackend, valid_compose_template,
     };
 }

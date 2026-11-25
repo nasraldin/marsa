@@ -2,10 +2,12 @@
 
 mod environment_appearance;
 mod environment_monitoring;
+mod maintenance_reviews;
 mod network;
 
 pub use environment_appearance::{EnvironmentAppearance, EnvironmentIcon};
 pub use environment_monitoring::{ActivityRetention, EnvironmentMonitoring};
+pub use maintenance_reviews::{MaintenanceReview, ReviewCadence, ReviewTarget};
 mod preferences;
 mod vm;
 
@@ -150,6 +152,18 @@ impl Settings {
                 "use valid, bounded environment identifiers",
             ));
         }
+        if self.ui.maintenance_reviews.len() > 128
+            || self
+                .ui
+                .maintenance_reviews
+                .iter()
+                .any(|(key, review)| !review.valid_for(key))
+        {
+            return Err(SettingsError::invalid(
+                "ui.maintenance_reviews",
+                "use a supported, bounded engine binding and schedule",
+            ));
+        }
         if self
             .ui
             .compose_template
@@ -257,6 +271,46 @@ mod tests {
         );
         assert!(Settings::from_toml(&format!("{data}{}", data.replace("Web", "web"))).is_err());
         assert!(Settings::from_toml(&data.replace("8080", "0")).is_err());
+    }
+
+    #[test]
+    fn maintenance_schedules_round_trip_and_validate_the_engine_binding() {
+        let document = r#"
+            [ui.maintenance_reviews.marsa]
+            cadence = "daily"
+            target = { kind = "builtin" }
+
+            [ui.maintenance_reviews."managed:ec12316b-2ae3-4a50-a253-f04962f76a8c"]
+            cadence = "hourly"
+            target = { kind = "managed_unix", socket = "/private/docker.sock", engine_id = "fixture-engine" }
+        "#;
+        let settings = Settings::from_toml(document).expect("supported schedules");
+        assert_eq!(settings.ui.maintenance_reviews.len(), 2);
+        assert_eq!(
+            Settings::from_toml(&settings.to_toml().unwrap()).unwrap(),
+            settings
+        );
+        assert!(
+            !Settings::default()
+                .to_toml()
+                .unwrap()
+                .contains("maintenance_reviews")
+        );
+        for (original, replacement) in [
+            ("daily", "sometimes"),
+            (
+                "[ui.maintenance_reviews.marsa]",
+                "[ui.maintenance_reviews.other]",
+            ),
+            (
+                "managed:ec12316b-2ae3-4a50-a253-f04962f76a8c",
+                "discovered:test",
+            ),
+            ("/private/docker.sock", "relative.sock"),
+            ("fixture-engine", ""),
+        ] {
+            assert!(Settings::from_toml(&document.replace(original, replacement)).is_err());
+        }
     }
 
     #[test]

@@ -139,6 +139,11 @@ impl DaemonEndpoint {
         .await
     }
 
+    /// Open the same owner socket without starting a new daemon.
+    pub(crate) async fn connect_running(&self) -> Result<MarsaClient, ClientError> {
+        Self::at(self.socket.clone()).connect().await
+    }
+
     pub(super) async fn connect_with<L, O>(
         &self,
         launch: impl FnOnce() -> L,
