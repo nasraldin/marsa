@@ -753,7 +753,7 @@ English and Arabic copy cover the history card, disk card, resources label, and 
 
 ### M7-48 Drive Overview inventory from Docker invalidations
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M6-07, M7-41
 - **Docs:** [08 Data flow](../08-gui.md#data-flow), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
 - **Do:** Bind the managed Overview resource counts to the normalized store. Keep live utilization, registry update checks, and disk measurements on their own schedules so the utilization timer does not repeatedly reload collection JSON.
@@ -762,6 +762,21 @@ English and Arabic copy cover the history card, disk card, resources label, and 
   - Docker changes update the managed Overview counts without a periodic Docker inventory query.
   - Utilization history, disk measurements, and update indicators continue to refresh.
   - The cached first frame and external engine behavior from M7-41 are preserved.
+
+**Qualification.** The service fixture held the initial live request open
+until the cache had reached the store. An inventory invalidation triggered
+one new read. A socket fixture verified that two subsequent utilization
+samples requested only per-container stats. The managed projection retained
+live measurements when the inventory counts changed, and the same socket
+fixture covered the external dashboard's direct inventory and disk paths.
+
+Native GPUI snapshots show a cached volume count of 1 and its update to 2
+after replacing the normalized store snapshot. The fixture uses synthetic
+inventory and keeps the engine disconnected.
+[English light](../screenshots/m7-48/en-light.png) ·
+[English dark](../screenshots/m7-48/en-dark.png) ·
+[Arabic light](../screenshots/m7-48/ar-light.png) ·
+[Arabic dark](../screenshots/m7-48/ar-dark.png).
 
 ### M7-49 Open Images details with the keyboard
 
