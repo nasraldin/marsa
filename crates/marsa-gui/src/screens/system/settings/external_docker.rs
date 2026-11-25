@@ -46,6 +46,14 @@ pub(in crate::screens::system) struct EnvironmentSettings {
     table_scroll: ScrollHandle,
 }
 
+impl EnvironmentSettings {
+    pub(super) fn registration_missing(&self, id: &str) -> bool {
+        self.saved
+            .as_ref()
+            .is_some_and(|saved| saved.iter().all(|entry| entry.id != id))
+    }
+}
+
 enum Feedback {
     Verified(VerifiedEngine),
     Connected,

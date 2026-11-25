@@ -20,7 +20,7 @@ use marsa_ui::{
 
 use super::{SystemView, setting_row, settings_text};
 use crate::screens::{
-    common::{ScreenContext, row},
+    common::{ScreenContext, row, technical},
     system::{
         disk::{ordered_candidates, show_cleanup_review},
         maintenance::{ReviewJob, ReviewOutcome},
@@ -111,6 +111,60 @@ impl SystemView {
                 div().flex_shrink_0().child(picker),
             ))
             .children(job.map(|job| self.maintenance_result(screen, job, key, changed, cx)))
+            .children(self.unregistered_maintenance_schedules(screen, cx))
+    }
+
+    fn unregistered_maintenance_schedules(
+        &self,
+        screen: &ScreenContext<'_>,
+        cx: &Context<Self>,
+    ) -> impl Iterator<Item = Div> {
+        let locale = screen.locale;
+        let view = cx.weak_entity();
+        self.maintenance.jobs.iter().filter_map(move |(key, job)| {
+            let ReviewTarget::ManagedUnix { socket, .. } = &job.schedule.target else {
+                return None;
+            };
+            if !self.environment_settings.registration_missing(key)
+                || self.active_environment.settings_key() == *key
+            {
+                return None;
+            }
+            let key = key.clone();
+            let view = view.clone();
+            let button_id =
+                marsa_ui::gpui::SharedString::from(format!("turn-off-unregistered-review-{key}"));
+            let button = Button::new(button_id)
+                .outline()
+                .label(gui::GUI_MAINTENANCE_SCHEDULE_TURN_OFF.text(locale))
+                .disabled(self.busy())
+                .on_click(move |_, _, cx| {
+                    let _ = view.update(cx, |this, cx| {
+                        if this.environment_settings.registration_missing(&key) {
+                            this.save_settings(
+                                |settings| {
+                                    settings.ui.maintenance_reviews.remove(&key);
+                                },
+                                cx,
+                            );
+                        }
+                    });
+                });
+            Some(
+                setting_row(
+                    screen,
+                    gui::GUI_MAINTENANCE_SCHEDULE_UNREGISTERED.text(locale),
+                    gui::GUI_MAINTENANCE_SCHEDULE_UNREGISTERED_HELP.text(locale),
+                    div().flex_shrink_0().child(button),
+                )
+                .child(settings_text(
+                    screen,
+                    Role::Small,
+                    technical(&socket.to_string_lossy()),
+                    ColorToken::TextMuted,
+                )),
+            )
+        })
     }
 
     fn maintenance_result(
