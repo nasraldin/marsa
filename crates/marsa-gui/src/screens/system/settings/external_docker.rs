@@ -152,7 +152,6 @@ impl SystemView {
                         panel.checks.clear();
                         panel.feedback = Some(feedback);
                         this.clear_lima_machine_target();
-                        this.clear_lima_machine_target();
                         this.external_inventory_task = None;
                         this.refresh_external_inventory(cx);
                     }
