@@ -68,7 +68,15 @@ jobs:
           python3 .github/scripts/audit-path-dependencies.py metadata > "$audit_metadata"
           cargo deny --locked --metadata-path "$audit_metadata" --config deny.toml check -D warnings advisories
       - name: Workspace tests
+        id: workspace-tests
         run: cargo xtask test
+      - name: Upload UI snapshot differences
+        if: runner.os == 'macOS' && failure() && steps.workspace-tests.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-snapshot-diffs
+          path: target/ui-snapshot-diffs
+          if-no-files-found: ignore
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         if: runner.os == 'macOS'
         with:

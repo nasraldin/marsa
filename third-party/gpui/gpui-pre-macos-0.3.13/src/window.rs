@@ -16,7 +16,7 @@ use gpui::{
     SharedString, Size, SystemWindowTab, WindowAppearance, WindowBackgroundAppearance,
     WindowBounds, WindowControlArea, WindowKind, WindowParams, WindowVisibility, point, px, size,
 };
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test, feature = "test-support", feature = "snapshot-support"))]
 use image::RgbaImage;
 
 use core_foundation::base::{CFRelease, CFTypeRef};
@@ -2529,6 +2529,15 @@ impl PlatformWindow for MacWindow {
     fn render_to_image(&self, scene: &gpui::Scene) -> Result<RgbaImage> {
         let mut this = self.0.lock();
         this.renderer.render_to_image(scene)
+    }
+
+    #[cfg(feature = "snapshot-support")]
+    fn render_snapshot(
+        &self,
+        scene: &gpui::Scene,
+        size: Size<gpui::DevicePixels>,
+    ) -> Result<RgbaImage> {
+        self.0.lock().renderer.render_scene_to_image(scene, size)
     }
 
     fn a11y_init(&self, callbacks: gpui::A11yCallbacks) {

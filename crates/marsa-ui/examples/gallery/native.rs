@@ -3,7 +3,7 @@
 #[path = "data.rs"]
 mod data;
 
-use std::process::ExitCode;
+use std::{cell::Cell, process::ExitCode, rc::Rc};
 
 use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
@@ -28,8 +28,8 @@ use marsa_ui::{
     direction::{align_to_start, position_window_controls, row_for, set_locale},
     gpui::{
         AppContext as _, ClipboardItem, Context, Div, Entity, FontWeight, Hsla,
-        InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle,
-        StatefulInteractiveElement as _, Styled as _, Window, div, px,
+        InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, ScrollHandle,
+        StatefulInteractiveElement as _, Styled as _, Window, canvas, div, px,
     },
     gpui_component::{
         Disableable as _, IconName, IndexPath, Theme, WindowExt as _,
@@ -78,7 +78,7 @@ pub(super) fn run() -> ExitCode {
     })
 }
 
-struct Gallery {
+pub(super) struct Gallery {
     locale: Locale,
     palette: Palette,
     text: Entity<InputState>,
@@ -94,10 +94,16 @@ struct Gallery {
     tab: usize,
     progress: f32,
     help: bool,
+    snapshot: Option<(TextKey, Rc<Cell<[Pixels; 2]>>)>,
 }
 
 impl Gallery {
-    fn new(locale: Locale, palette: Palette, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(super) fn new(
+        locale: Locale,
+        palette: Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let text = cx.new(|cx| {
             InputState::new(window, cx).placeholder(gui::GUI_GALLERY_TYPE_NAME.text(locale))
         });
@@ -149,7 +155,18 @@ impl Gallery {
             tab: 0,
             progress: 40.,
             help: false,
+            snapshot: None,
         }
+    }
+
+    #[allow(dead_code, reason = "only the native snapshot target selects a card")]
+    pub(super) fn for_snapshot(
+        mut self,
+        card: TextKey,
+        split_centers: Rc<Cell<[Pixels; 2]>>,
+    ) -> Self {
+        self.snapshot = Some((card, split_centers));
+        self
     }
 
     fn label(&self, key: TextKey) -> &'static str {
@@ -157,6 +174,13 @@ impl Gallery {
     }
 
     fn card(&self, title: TextKey, content: impl IntoElement) -> Div {
+        if self
+            .snapshot
+            .as_ref()
+            .is_some_and(|(card, _)| *card != title)
+        {
+            return div().hidden();
+        }
         align_to_start(div(), self.locale)
             .w_full()
             .flex()
@@ -266,11 +290,28 @@ impl Gallery {
                     locale,
                     palette,
                     label(gui::GUI_GALLERY_RESIZE),
-                    [gui::GUI_GALLERY_SUMMARY, gui::GUI_GALLERY_DETAILS].map(|key| {
-                        align_to_start(div().w_full(), locale)
+                    std::array::from_fn(|index| {
+                        let mut pane = align_to_start(div().w_full(), locale)
                             .p(px(Space::S8.pixels()))
-                            .child(label(key))
-                            .into_any_element()
+                            .child(label(
+                                [gui::GUI_GALLERY_SUMMARY, gui::GUI_GALLERY_DETAILS][index],
+                            ));
+                        if let Some((_, centers)) = &self.snapshot {
+                            let centers = Rc::clone(centers);
+                            pane = pane.relative().child(
+                                canvas(
+                                    move |bounds, _, _| {
+                                        let mut positions = centers.get();
+                                        positions[index] = bounds.center().x;
+                                        centers.set(positions);
+                                    },
+                                    |_, _, _, _| {},
+                                )
+                                .absolute()
+                                .inset_0(),
+                            );
+                        }
+                        pane.into_any_element()
                     }),
                 )),
             ))
@@ -461,6 +502,22 @@ impl Render for Gallery {
         let data = self.data();
         let feedback = self.feedback(cx);
         let scroll = self.scroll.clone();
+        if self.snapshot.is_some() {
+            return Role::Body
+                .with_ui_font(locale == Locale::Arabic, DisplaySettings::default().ui_font)
+                .apply(
+                    div()
+                        .size_full()
+                        .flex()
+                        .flex_col()
+                        .p(px(Space::S24.pixels()))
+                        .bg(Hsla::from(palette.color(ColorToken::BgCanvas)))
+                        .text_color(palette.color(ColorToken::TextPrimary))
+                        .child(controls.flex_none())
+                        .child(data.flex_none())
+                        .child(feedback.flex_none()),
+                );
+        }
         Role::Body
             .with_ui_font(locale == Locale::Arabic, DisplaySettings::default().ui_font)
             .apply(

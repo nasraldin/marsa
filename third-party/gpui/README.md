@@ -15,3 +15,9 @@ integrations have separate optional features for future platform work.
 Marsa places vertical scrollbar tracks and editor overview rulers at the inline
 end in both interface directions. The scrollbar tests cover mirrored hit
 geometry, thumb dragging, and the corner where two tracks meet.
+
+The native snapshot target opts into the local `snapshot-support` feature.
+It exposes the existing offscreen Metal readback at an explicit viewport and
+test scale, using the window's own glyph atlas. Ordinary builds keep the
+feature disabled. The gate adds no GPUI dependency and keeps GPUI's full test
+and benchmark dependency sets outside the Marsa workspace.
