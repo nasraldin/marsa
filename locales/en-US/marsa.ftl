@@ -1123,6 +1123,7 @@ gui-environment-monitoring-notify = Notify about unhealthy containers
 gui-environment-monitoring-notify-help = Show a local notification for new health failures while a Marsa window monitors this engine.
 gui-environment-monitoring-image-updates = Check for image updates
 gui-environment-monitoring-image-updates-help = Compare image tags used by this engine with their registry digests.
+gui-environment-monitoring-local-image-updates-help = Compare the image IDs used by containers with the images their installed tags now point to.
 gui-environment-monitoring-volumes = Show unused volumes in cleanup
 gui-environment-monitoring-volumes-help = Include unused volume candidates in storage review. General cleanup reviews still exclude volumes.
 gui-environment-monitoring-retention = Activity history

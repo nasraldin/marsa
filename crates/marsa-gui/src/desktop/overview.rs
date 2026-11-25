@@ -338,13 +338,16 @@ impl Desktop {
         cx: &mut Context<Self>,
     ) {
         self.overview.image_task = Some(cx.spawn(async move |this, cx| {
-            let mut selection = services.store().select(|state| {
+            let inventory = |state: &AppState| {
                 state
                     .has_docker_inventory()
-                    .then(|| (state.containers(), state.images()))
-            });
+                    .then(|| (state.docker_epoch(), state.containers(), state.images()))
+            };
+            let mut selection = services.store().select(inventory);
             loop {
-                if let Some((containers, images)) = selection.current().clone() {
+                if let Some((epoch, containers, images)) = selection.current() {
+                    let (epoch, old_containers, old_images) = (*epoch, containers, images);
+                    let (containers, images) = (Arc::clone(containers), Arc::clone(images));
                     let mut request = services.pending(async move {
                         let containers = containers.values().cloned().collect::<Vec<_>>();
                         let images = images.values().cloned().collect::<Vec<_>>();
@@ -358,6 +361,18 @@ impl Desktop {
                                     || !overview.check_image_updates
                                 {
                                     return false;
+                                }
+                                // The service can publish a newer snapshot while this
+                                // background comparison is still in flight.
+                                let current = services.store().select(inventory);
+                                if !current.current().as_ref().is_some_and(
+                                    |(current_epoch, containers, images)| {
+                                        *current_epoch == epoch
+                                            && containers == old_containers
+                                            && images == old_images
+                                    },
+                                ) {
+                                    return true;
                                 }
                                 overview.managed_updates = count;
                                 let sample = overview.sample.get_or_insert_default();

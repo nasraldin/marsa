@@ -756,7 +756,7 @@ English and Arabic copy cover the history card, disk card, resources label, and 
 - **Status:** done
 - **Depends on:** M6-07, M7-41
 - **Docs:** [08 Data flow](../08-gui.md#data-flow), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
-- **Do:** Bind the managed Overview resource counts to the normalized store. Keep live utilization, registry update checks, and disk measurements on their own schedules so the utilization timer does not repeatedly reload collection JSON.
+- **Do:** Bind the managed Overview resource counts to the normalized store. Keep live utilization and disk measurements independent of inventory refresh. Recompute built-in image indicators after container or image changes and preserve external registry checks.
 - **Deliver:** Managed Overview selectors and tests separating collection invalidation from live measurements.
 - **Accept when:**
   - Docker changes update the managed Overview counts without a periodic Docker inventory query.
@@ -769,6 +769,9 @@ one new read. A socket fixture verified that two subsequent utilization
 samples requested only per-container stats. The managed projection retained
 live measurements when the inventory counts changed, and the same socket
 fixture covered the external dashboard's direct inventory and disk paths.
+The existing built-in owner API supports local tag comparisons. The external
+API path also compares registry digests through Docker's distribution route.
+M7-52 tracks passive registry lookups for the built-in engine.
 
 Native GPUI snapshots show a cached volume count of 1 and its update to 2
 after replacing the normalized store snapshot. The fixture uses synthetic
@@ -799,3 +802,15 @@ requests. Native snapshots show the focused control and opened modal in
 [English dark](../spikes/M7-49-image-details-keyboard/en-dark.png),
 [Arabic light](../spikes/M7-49-image-details-keyboard/ar-light.png), and
 [Arabic dark](../spikes/M7-49-image-details-keyboard/ar-dark.png).
+
+### M7-52 Check registry image digests for the built-in engine
+
+- **Status:** todo
+- **Depends on:** M7-48
+- **Docs:** [08 Screens](../08-gui.md#screens), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
+- **Do:** Define owner authorization for managed registry traffic. Add a typed, bounded lookup through the passive owner API for an already-running Docker engine and compare the results against the current normalized inventory on an independent schedule.
+- **Deliver:** Managed registry digest checks, localized Settings text reflecting their authorization, and a request-path regression test.
+- **Accept when:**
+  - Registry lookups require the agreed owner authorization. Existing settings with image checks enabled by default do not silently authorize managed registry traffic.
+  - A registry check uses validated image references, starts no VM, makes no inventory collection requests, and applies neither stale results nor results from a different engine.
+  - Tests cover an authorized distribution request and absent requests when authorization is off or the engine is stopped.
