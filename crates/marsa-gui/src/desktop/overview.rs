@@ -1703,6 +1703,8 @@ mod tests {
 
     #[test]
     fn registry_results_keep_their_engine_epoch_and_image_inventory() {
+        use marsa_client::docker::DockerInventory;
+
         let state = AppState::index_resources(DockerInventory::default());
         let original = observed_images(&state).unwrap();
         let expected = Target::Marsa(state.docker_epoch());
@@ -1718,15 +1720,16 @@ mod tests {
             &original,
         ));
 
-        let mut changed = state;
-        changed.replace_containers(
-            serde_json::from_value(serde_json::json!([{
-                "Id": "a".repeat(64),
-                "Image": "alpine:latest",
-                "State": "running"
-            }]))
-            .unwrap(),
-        );
+        let changed = AppState::index_resources(DockerInventory {
+            images: vec![ImageSummary {
+                id: "sha256:".to_owned() + &"a".repeat(64),
+                repo_tags: vec!["alpine:latest".to_owned()],
+                repo_digests: Vec::new(),
+                created: 0,
+                size: 0,
+            }],
+            ..DockerInventory::default()
+        });
         assert!(!current_image_observations(&expected, &changed, &original));
     }
 
