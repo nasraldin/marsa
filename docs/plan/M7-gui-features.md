@@ -597,14 +597,16 @@ set. Confirmation removed it, and the fixture cleaned up only its named
 container, volume and bind directory. Local mounts still go through the
 existing host allowlist.
 
-### M7-30 Authenticate Git sources
+### M7-30 Authenticate HTTPS Git sources
 
 - **Status:** in progress
 - **Depends on:** M7-28
-- **Docs:** [11 Security](../11-security.md)
-- **Do:** Add HTTPS username and password or token credentials in macOS Keychain and SSH using verified host keys and an explicit private key reference.
-- **Deliver:** A Git credentials view and authenticated branch test and checkout.
-- **Accept when:** Tests and checkout use only the credential associated with the selected repository. No secret is written to settings or sent to Compose.
+- **Docs:** [11 Git sources](../11-security.md#git-sources)
+- **Do:** Save an optional HTTPS username and password or token in the macOS Keychain. Give the trusted system Git client the credential for the selected saved HTTPS source.
+- **Deliver:** Localized Git credentials controls and authenticated branch tests and checkouts.
+- **Accept when:** Tests and checkout use only the credential associated with the selected repository. Git uses the existing pinned HTTPS and redirect rules. Secrets stay out of settings and Compose. Removing or changing a saved source revokes its former credential association.
+
+Authenticated SSH uses a different host-key and identity policy and is tracked in M7-53.
 
 ### M7-31 Download container files
 
@@ -925,3 +927,14 @@ requests. Native snapshots show the focused control and opened modal in
   - Registry lookups require the agreed owner authorization. Existing settings with image checks enabled by default do not silently authorize managed registry traffic.
   - A registry check uses validated image references, starts no VM, makes no inventory collection requests, and applies neither stale results nor results from a different engine.
   - Tests cover an authorized distribution request and absent requests when authorization is off or the engine is stopped.
+
+### M7-53 Authenticate Git sources over SSH
+
+- **Status:** todo
+- **Depends on:** M7-30
+- **Docs:** [11 Git sources](../11-security.md#git-sources), [11 SSH agent access](../11-security.md#ssh-agent-access)
+- **Do:** Add explicitly configured SSH sources with a verified host key and a selected private key reference. Pin the connection to the configured host, port, user and key policy for branch testing and checkout.
+- **Deliver:** Localized SSH repository controls and signed qualification against a verified SSH fixture.
+- **Accept when:**
+  - Test and checkout authenticate only to the saved host and use only its selected key. Unknown or changed host keys fail before Git sends repository data.
+  - Ambient SSH configuration or agents cannot change the destination or selected identity. The private key contents stay out of settings and Compose.
