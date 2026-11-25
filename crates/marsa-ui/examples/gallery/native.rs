@@ -265,7 +265,7 @@ impl Gallery {
                     palette,
                     label(gui::GUI_GALLERY_RESIZE),
                     [gui::GUI_GALLERY_SUMMARY, gui::GUI_GALLERY_DETAILS].map(|key| {
-                        align_to_start(div(), locale)
+                        align_to_start(div().w_full(), locale)
                             .p(px(Space::S8.pixels()))
                             .child(label(key))
                             .into_any_element()

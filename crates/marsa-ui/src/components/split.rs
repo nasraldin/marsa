@@ -21,7 +21,7 @@ impl SplitView {
     /// Create equal panes and a focus stop for the divider.
     pub fn new(cx: &mut App) -> Self {
         Self {
-            focus: cx.focus_handle(),
+            focus: cx.focus_handle().tab_stop(true),
             widths: std::array::from_fn(|_| cx.new(|_| ResizableState::default())),
         }
     }
@@ -44,7 +44,6 @@ impl SplitView {
         div()
             .id(id)
             .track_focus(&self.focus)
-            .tab_stop(true)
             .role(Role::Splitter)
             .aria_label(label)
             .aria_keyshortcuts("Left Right")

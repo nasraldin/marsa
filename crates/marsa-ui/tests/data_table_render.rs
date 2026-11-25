@@ -1,4 +1,4 @@
-//! Render two keyboard-operable tables in one native window.
+//! Check table identity and keyboard resizing in a native window.
 
 #[cfg(not(target_os = "macos"))]
 fn main() {}
@@ -10,17 +10,20 @@ fn main() {
 
 #[cfg(target_os = "macos")]
 mod native {
-    use std::rc::Rc;
+    use std::{cell::Cell, rc::Rc};
 
     use marsa_ui::{
         Locale, Palette,
-        components::table::{Column, DataTable, TableDelegate, TableState},
+        components::{
+            split::SplitView,
+            table::{Column, DataTable, TableDelegate, TableState},
+        },
         direction::{self, row_for},
         gpui::{
             App, AppContext as _, Application, Bounds, Context, Element as _, ElementId, Entity,
-            Focusable as _, IntoElement, Keystroke, ParentElement as _, Render, RenderOnce as _,
-            SharedString, Styled as _, Window, WindowBounds, WindowOptions, WindowingRequest, div,
-            px, size,
+            Focusable as _, IntoElement, Keystroke, ParentElement as _, Pixels, Render,
+            RenderOnce as _, SharedString, Styled as _, Window, WindowBounds, WindowOptions,
+            WindowingRequest, canvas, div, px, size,
         },
         gpui_component,
         preferences::DisplaySettings,
@@ -85,14 +88,15 @@ mod native {
                 ] {
                     direction::set_locale(locale, cx);
                     palette.apply_to_components(locale, DisplaySettings::default(), cx);
-                    verify(locale, cx);
+                    verify_tables(locale, cx);
+                    verify_split(locale, palette, cx);
                 }
                 std::process::exit(0);
             });
     }
 
-    fn verify(locale: Locale, cx: &mut App) {
-        let options = WindowOptions {
+    fn window_options(cx: &mut App) -> WindowOptions {
+        WindowOptions {
             focus: false,
             show: false,
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -101,7 +105,11 @@ mod native {
                 cx,
             ))),
             ..WindowOptions::default()
-        };
+        }
+    }
+
+    fn verify_tables(locale: Locale, cx: &mut App) {
+        let options = window_options(cx);
         let handle = cx
             .open_window(options, |window, cx| {
                 cx.new(|cx| SiblingTables {
@@ -137,6 +145,66 @@ mod native {
             window.remove_window();
         })
         .expect("render and operate sibling tables");
+    }
+
+    struct MeasuredSplit {
+        split: SplitView,
+        locale: Locale,
+        palette: Palette,
+        pane_widths: [Rc<Cell<Pixels>>; 2],
+    }
+
+    impl Render for MeasuredSplit {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            self.split.render(
+                "keyboard-split",
+                self.locale,
+                self.palette,
+                "Resize panels",
+                self.pane_widths.clone().map(|width| {
+                    canvas(
+                        move |bounds, _, _| width.set(bounds.size.width),
+                        |_, _, _, _| {},
+                    )
+                    .size_full()
+                    .into_any_element()
+                }),
+            )
+        }
+    }
+
+    fn verify_split(locale: Locale, palette: Palette, cx: &mut App) {
+        let options = window_options(cx);
+        let pane_widths = std::array::from_fn(|_| Rc::new(Cell::new(px(0.))));
+        let handle = cx
+            .open_window(options, |_, cx| {
+                cx.new(|cx| MeasuredSplit {
+                    split: SplitView::new(cx),
+                    locale,
+                    palette,
+                    pane_widths: pane_widths.clone(),
+                })
+            })
+            .expect("open hidden split window");
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.draw(cx).clear(cx);
+            let initial = pane_widths.each_ref().map(|width| width.get());
+            assert!(initial.iter().all(|width| *width > px(100.)));
+            window.focus_next(cx);
+            assert!(window.focused(cx).is_some(), "Tab reaches the divider");
+            window.draw(cx).clear(cx);
+            window.dispatch_keystroke(Keystroke::parse("right").unwrap(), cx);
+            window.draw(cx).clear(cx);
+            let expected = if locale == Locale::Arabic {
+                px(-16.)
+            } else {
+                px(16.)
+            };
+            assert_eq!(pane_widths[0].get(), initial[0] + expected);
+            assert_eq!(pane_widths[1].get(), initial[1] - expected);
+            window.remove_window();
+        })
+        .expect("resize both panes by keyboard");
     }
 
     fn table_ids(
