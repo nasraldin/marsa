@@ -242,15 +242,23 @@ fn guest_error(code: i32) -> VolumeDownloadError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hyper_util::rt::TokioIo;
     use marsa_proto::host::v1::{
         volume_files_client::VolumeFilesClient,
         volume_files_server::{VolumeFiles, VolumeFilesServer},
     };
-    use tokio::net::TcpListener;
-    use tokio_stream::wrappers::TcpListenerStream;
-    use tonic::{Request, Response, transport::Server};
+    use tokio::net::{UnixListener, UnixStream};
+    use tokio_stream::wrappers::UnixListenerStream;
+    use tonic::{
+        Request, Response,
+        transport::{Endpoint, Server},
+    };
+    use tower::service_fn;
 
-    struct Fixture(Vec<Reply>);
+    struct Fixture {
+        replies: Vec<Reply>,
+        wait_for_drop: bool,
+    }
 
     #[tonic::async_trait]
     impl VolumeFiles for Fixture {
@@ -262,7 +270,8 @@ mod tests {
         ) -> Result<Response<Self::ReadStream>, Status> {
             let mut requests = request.into_inner();
             let (sender, output) = mpsc::channel(1);
-            let replies = self.0.clone();
+            let replies = self.replies.clone();
+            let wait_for_drop = self.wait_for_drop;
             tokio::spawn(async move {
                 assert_eq!(
                     requests.message().await.unwrap().unwrap().body,
@@ -277,27 +286,41 @@ mod tests {
                         break;
                     }
                 }
+                if wait_for_drop {
+                    sender.closed().await;
+                }
             });
             Ok(Response::new(ReceiverStream::new(output)))
         }
     }
 
-    async fn prepared(replies: Vec<Reply>) -> (VolumeDownload, tokio::task::JoinHandle<()>) {
-        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let address = listener.local_addr().unwrap();
+    async fn prepared(
+        replies: Vec<Reply>,
+        wait_for_drop: bool,
+    ) -> (VolumeDownload, tokio::task::JoinHandle<()>) {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let socket = directory.path().join("volume.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
         let server = tokio::spawn(async move {
+            let _socket_directory = directory;
             Server::builder()
-                .add_service(VolumeFilesServer::new(Fixture(replies)))
-                .serve_with_incoming(TcpListenerStream::new(listener))
+                .add_service(VolumeFilesServer::new(Fixture {
+                    replies,
+                    wait_for_drop,
+                }))
+                .serve_with_incoming(UnixListenerStream::new(listener))
                 .await
                 .unwrap();
         });
         let (outbound, incoming) = mpsc::channel(1);
-        let inbound = VolumeFilesClient::connect(format!("http://{address}"))
+        let channel = Endpoint::from_static("http://localhost")
+            .connect_with_connector(service_fn(move |_| {
+                let socket = socket.clone();
+                async move { UnixStream::connect(socket).await.map(TokioIo::new) }
+            }))
             .await
-            .unwrap()
+            .unwrap();
+        let inbound = VolumeFilesClient::new(channel)
             .read(ReceiverStream::new(incoming))
             .await
             .unwrap()
@@ -326,21 +349,21 @@ mod tests {
             ],
             vec![data.clone(), Reply::Complete(true), data.clone()],
         ] {
-            let (download, server) = prepared(replies).await;
+            let (download, server) = prepared(replies, false).await;
             assert!(download.save(&destination).await.is_err());
             assert_eq!(directory.path().read_dir().unwrap().count(), 0);
             server.abort();
         }
 
-        let (download, server) = prepared(vec![data.clone(), Reply::Complete(true)]).await;
+        let (download, server) = prepared(vec![data.clone(), Reply::Complete(true)], false).await;
         download.save(&destination).await.unwrap();
         assert_eq!(std::fs::read(&destination).unwrap(), b"approved bytes");
         server.abort();
 
-        let (download, server) = prepared(vec![
-            Reply::Data(b"replacement".to_vec()),
-            Reply::Complete(true),
-        ])
+        let (download, server) = prepared(
+            vec![Reply::Data(b"replacement".to_vec()), Reply::Complete(true)],
+            false,
+        )
         .await;
         assert!(matches!(
             download.save(&destination).await,
@@ -348,6 +371,35 @@ mod tests {
         ));
         assert_eq!(std::fs::read(&destination).unwrap(), b"approved bytes");
         assert_eq!(directory.path().read_dir().unwrap().count(), 1);
+        server.abort();
+    }
+    #[tokio::test]
+    async fn cancelling_an_active_volume_transfer_removes_the_staged_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("selected.txt");
+        let contents = b"unconfirmed bytes";
+        let (download, server) = prepared(vec![Reply::Data(contents.to_vec())], true).await;
+        let transfer = tokio::spawn({
+            let destination = destination.clone();
+            async move { download.save(&destination).await }
+        });
+        let staged = timeout(Duration::from_secs(5), async {
+            loop {
+                for file in directory.path().read_dir().unwrap() {
+                    let file = file.unwrap().path();
+                    if std::fs::read(&file).is_ok_and(|bytes| bytes == contents) {
+                        return file;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the stream writes only to a temporary file before completion");
+        assert_ne!(staged, destination);
+        transfer.abort();
+        assert!(transfer.await.unwrap_err().is_cancelled());
+        assert_eq!(directory.path().read_dir().unwrap().count(), 0);
         server.abort();
     }
 }

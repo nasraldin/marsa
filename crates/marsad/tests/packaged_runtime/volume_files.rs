@@ -73,8 +73,9 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
     let image = format!("marsa-m751{suffix}:local");
     let container = format!("marsa-m751{suffix}-seed");
     let root = scratch.path().join("image");
-    fs::create_dir_all(root.join("seed")).unwrap();
+    fs::create_dir_all(root.join("seed/sub")).unwrap();
     fs::write(root.join("seed/file.txt"), b"scoped fixture").unwrap();
+    fs::write(root.join("seed/sub/clean.txt"), b"nested fixture").unwrap();
     std::os::unix::fs::symlink("/etc/passwd", root.join("seed/escape")).unwrap();
     let archive = scratch.path().join("seed.tar");
     checked(
@@ -134,6 +135,17 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
         .into_iter()
         .find(|entry| entry.name == volume)
         .unwrap();
+    let abandoned = client
+        .prepare_volume_download(&selected, "/file.txt".into(), true)
+        .await
+        .unwrap();
+    drop(abandoned);
+    // A cancelled picker releases the guest session without even starting transfer.
+    timeout(WAIT, client.check_volume_provider())
+        .await
+        .unwrap()
+        .unwrap();
+
     for (single_file, expected, filename) in [
         (true, ContainerFileFormat::SingleFile, "scoped.txt"),
         (false, ContainerFileFormat::Tar, "scoped.tar"),
@@ -158,6 +170,56 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
             assert!(entries.next().is_none());
         }
     }
+    let clean_directory = client
+        .prepare_volume_download(&selected, "/sub".into(), true)
+        .await
+        .unwrap();
+    assert!(clean_directory.format() == ContainerFileFormat::Tar);
+    let directory_output = scratch.path().join("directory.tar");
+    clean_directory.save(&directory_output).await.unwrap();
+    let mut archive = tar::Archive::new(fs::File::open(directory_output).unwrap());
+    let mut entries = archive.entries().unwrap();
+    assert!(
+        entries
+            .next()
+            .unwrap()
+            .unwrap()
+            .header()
+            .entry_type()
+            .is_dir()
+    );
+    let mut file = entries.next().unwrap().unwrap();
+    assert_eq!(file.path().unwrap(), Path::new("sub/clean.txt"));
+    let mut output = Vec::new();
+    file.read_to_end(&mut output).unwrap();
+    assert_eq!(output, b"nested fixture");
+    assert!(entries.next().is_none());
+
+    let option_volume = format!("{volume}-options");
+    docker(&[
+        "volume",
+        "create",
+        "--opt",
+        "type=tmpfs",
+        "--opt",
+        "device=tmpfs",
+        &option_volume,
+    ]);
+    let unsupported = inventory
+        .volumes()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.name == option_volume)
+        .unwrap();
+    assert!(matches!(
+        client
+            .prepare_volume_download(&unsupported, "/".into(), true)
+            .await,
+        Err(VolumeDownloadError::Unsupported)
+    ));
+    docker(&["volume", "rm", &option_volume]);
+
     assert!(matches!(
         client
             .prepare_volume_download(&selected, "/escape".into(), true)

@@ -125,7 +125,21 @@ async fn relay(
                 }
                 forward(out, reply).await?;
             }
-            Some(Reply::Complete(true) | Reply::Failure(_)) => return forward(out, reply).await,
+            Some(Reply::Complete(true)) => {
+                let mut extra = [0];
+                let end = tokio::select! {
+                    () = out.closed() => return Ok(()),
+                    end = timeout(IDLE, guest.read(&mut extra)) => {
+                        end.map_err(|_| timed_out())?.map_err(|_| malformed())?
+                    }
+                };
+                return if end == 0 {
+                    forward(out, reply).await
+                } else {
+                    Err(malformed())
+                };
+            }
+            Some(Reply::Failure(_)) => return forward(out, reply).await,
             _ => return Err(malformed()),
         }
     }
