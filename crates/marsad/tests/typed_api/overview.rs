@@ -86,22 +86,25 @@ async fn prefer_cache_returns_last_snapshot_without_docker() {
     assert_eq!(first.json, b"[]");
     assert!(first.observed_at_unix_millis > 0);
 
-    // Stop Docker script replies: a cache hit must not contact the guest again.
+    // The ready observer may write another snapshot after our live fetch.
+    // Check that the cache remains available and stable once Docker stops.
     fixture.supervisor.stop().await.unwrap();
+    let request = DockerOverviewRequest {
+        section: DockerOverviewSection::Containers.into(),
+        container_id: String::new(),
+        prefer_cache: true,
+        activity_hours: None,
+    };
     let cached = stats
-        .docker_overview(DockerOverviewRequest {
-            section: DockerOverviewSection::Containers.into(),
-            container_id: String::new(),
-            prefer_cache: true,
-            activity_hours: None,
-        })
+        .docker_overview(request.clone())
         .await
         .unwrap()
         .into_inner();
     assert_eq!(cached.json, b"[]");
+    assert!(cached.observed_at_unix_millis >= first.observed_at_unix_millis);
     assert_eq!(
-        cached.observed_at_unix_millis,
-        first.observed_at_unix_millis
+        stats.docker_overview(request).await.unwrap().into_inner(),
+        cached,
     );
 }
 
