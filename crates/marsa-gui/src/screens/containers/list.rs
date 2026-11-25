@@ -104,19 +104,6 @@ pub(super) fn render(
         ));
     }
     let grouped = matches!(mode, ViewMode::Table | ViewMode::Tree);
-    let external_count = rows
-        .iter()
-        .map(|row| match row {
-            TableRow::Group {
-                key: (Some(_), _),
-                count,
-                ..
-            } => *count,
-            TableRow::External(..) if !grouped => 1,
-            _ => 0,
-        })
-        .sum::<usize>();
-
     let visible_ids = rows
         .iter()
         .filter_map(|entry| match entry {
@@ -124,7 +111,7 @@ pub(super) fn render(
             TableRow::Group { .. } | TableRow::External(..) => None,
         })
         .collect::<Vec<_>>();
-    let status = if external_count != 0 || !rows.is_empty() {
+    let status = if !rows.is_empty() {
         states::TableState::Rows
     } else if !filter.includes_marsa()
         && !view
@@ -153,11 +140,8 @@ pub(super) fn render(
             })
             .sum::<usize>()
     } else {
-        visible_ids.len() + external_count
+        rows.len()
     };
-    let selected = view.selected.clone();
-    let busy = view.command_pending;
-    let collapsed = view.collapsed.clone();
     let entity = cx.entity();
     let item_count = if mode == ViewMode::Cards {
         rows.len().div_ceil(card_columns)
@@ -165,7 +149,6 @@ pub(super) fn render(
         rows.len()
     };
     let rows = Arc::new(rows);
-    let summary = container_count(total, locale);
 
     let loaded = status == states::TableState::Rows;
     let mut toolbar = row(cx)
@@ -228,43 +211,93 @@ pub(super) fn render(
                 let weak = entity.downgrade();
                 Button::new("container-group-actions")
                     .outline()
-                    .size(px(Space::S36.pixels()))
-                    .icon(IconName::Ellipsis)
-                    .accessibility_label(message(locale, gui::GUI_DESKTOP_GROUPS))
+                    .h(px(Space::S36.pixels()))
+                    .child(
+                        row(cx)
+                            .gap_2()
+                            .child(filter_label(locale, current))
+                            .child(Icon::new(IconName::ChevronDown).size(px(14.))),
+                    )
+                    .accessibility_label(filter_label(locale, current))
                     .dropdown_menu(move |menu, _, _| {
-                        [true, false].into_iter().fold(menu, |menu, expand| {
-                            let weak = weak.clone();
-                            let groups = groups.clone();
-                            let key = if expand {
-                                gui::GUI_DESKTOP_EXPAND_ALL_GROUPS
-                            } else {
-                                gui::GUI_DESKTOP_COLLAPSE_ALL_GROUPS
-                            };
-                            menu.item(PopupMenuItem::new(message(locale, key)).on_click(
-                                move |_, _, cx| {
-                                    let _ = weak.update(cx, |view, cx| {
-                                        if expand {
-                                            for group in &groups {
-                                                view.collapsed.remove(group);
-                                            }
-                                        } else {
-                                            view.collapsed.extend(groups.iter().cloned());
-                                        }
-                                        cx.notify();
-                                    });
-                                },
-                            ))
+                        [
+                            StatusFilter::All,
+                            StatusFilter::Running,
+                            StatusFilter::Paused,
+                            StatusFilter::Stopped,
+                            StatusFilter::Healthy,
+                            StatusFilter::Unhealthy,
+                        ]
+                        .into_iter()
+                        .fold(menu, |menu, filter| {
+                            let weak = filter_view.clone();
+                            menu.item(
+                                PopupMenuItem::new(filter_label(locale, filter))
+                                    .checked(filter == current)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = weak.update(cx, |view, cx| {
+                                            view.filter = filter;
+                                            cx.notify();
+                                        });
+                                    }),
+                            )
                         })
                     })
-            }))
-            .child(div().flex_1())
+            })
             .child(
-                div()
-                    .text_size(ui_size(12.))
+                screen
+                    .typography(Role::Small)
+                    .apply(div())
                     .text_color(color(palette, ColorToken::TextMuted))
-                    .child(summary),
+                    .child(container_count(total, locale)),
             );
-    }
+        let groups: Vec<GroupKey> = rows
+            .iter()
+            .filter_map(|entry| match entry {
+                TableRow::Group { key, .. } => Some(key.clone()),
+                _ => None,
+            })
+            .collect();
+        let actions = row(cx)
+            .items_center()
+            .flex_wrap()
+            .gap_2()
+            .children((status != states::TableState::Empty).then(|| {
+                row(cx)
+                    .gap_2()
+                    .child(view_mode_rail(mode, &screen, cx))
+                    .children(
+                        (!groups.is_empty())
+                            .then(|| group_toggle(groups, &view.collapsed, locale, cx)),
+                    )
+            }))
+            .child(
+                Button::new("new-container")
+                    .primary()
+                    .h(px(Space::S36.pixels()))
+                    .icon(IconName::Plus)
+                    .label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
+                    .disabled(
+                        view.services.is_none()
+                            || !(local_status.is_some_and(states::TableState::can_create)
+                                || !filter.includes_marsa()
+                                    && view.external_inventory.iter().any(|workspace| {
+                                        workspace.reachable && filter.includes_external(workspace)
+                                    })),
+                    )
+                    .on_click(
+                        cx.listener(|view, _, window, cx| super::create::open(view, window, cx)),
+                    ),
+            );
+        row(cx)
+            .w_full()
+            .justify_between()
+            .items_center()
+            .flex_wrap()
+            .gap_3()
+            .child(filters)
+            .child(actions)
+    });
 
     let header = row(cx)
         .w_full()
@@ -294,29 +327,13 @@ pub(super) fn render(
                 .ghost()
                 .size(px(36.))
                 .p_0()
-                .bg(color(palette, ColorToken::BgSubtle))
+                .bg(color(palette, ColorToken::GlassControl))
                 .icon(IconName::Search)
                 .accessibility_label(gui::GUI_DESKTOP_SEARCH_COMMANDS.text(locale))
                 .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(locale))
                 .on_click(|_, window, cx| {
                     window.dispatch_action(Box::new(crate::desktop::OpenCommandPalette), cx);
                 }),
-        )
-        .child(
-            Button::new("new-container")
-                .primary()
-                .h(px(36.))
-                .icon(IconName::Plus)
-                .label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
-                .disabled(
-                    view.services.is_none()
-                        || !(local_status.is_some_and(states::TableState::can_create)
-                            || !filter.includes_marsa()
-                                && view.external_inventory.iter().any(|workspace| {
-                                    workspace.reachable && filter.includes_external(workspace)
-                                })),
-                )
-                .on_click(cx.listener(|view, _, window, cx| super::create::open(view, window, cx))),
         );
 
     let body = div()
@@ -347,6 +364,7 @@ pub(super) fn render(
             .into_any_element();
     }
 
+    let selected = view.selected.clone();
     let all_selected =
         !visible_ids.is_empty() && visible_ids.iter().all(|id| selected.contains(id));
     let columns = cell_row(palette, cx)
@@ -416,6 +434,8 @@ pub(super) fn render(
         compact,
         view: entity,
     };
+    let busy = view.command_pending;
+    let collapsed = view.collapsed.clone();
     let items = uniform_list("containers-table", item_count, move |range, _, cx| {
         if mode == ViewMode::Cards {
             return range
@@ -511,39 +531,37 @@ fn collect_rows(
     }
     // Named Compose projects precede the standalone group.
     let standalone = projects.remove(&None);
+    let grouped = matches!(view.mode, ViewMode::Table | ViewMode::Tree);
     projects
         .into_iter()
         .chain(standalone.map(|entries| (None, entries)))
         .flat_map(|(project, mut items)| {
-            items.sort_unstable_by(|a, b| {
-                let order = name(a).cmp(name(b)).then_with(|| a.id.cmp(&b.id));
-                if view.descending {
-                    order.reverse()
-                } else {
-                    order
-                }
-            });
-            let key = (
-                engine.as_ref().map(|source| source.key.clone()),
-                project.map(str::to_owned),
-            );
-            let grouped = matches!(view.mode, ViewMode::Table | ViewMode::Tree);
-            let collapsed = grouped && view.collapsed.contains(&key);
-            let heading = grouped.then_some(TableRow::Group {
-                key,
+            let heading = grouped.then(|| TableRow::Group {
+                key: (
+                    engine.as_ref().map(|source| source.key.clone()),
+                    project.map(str::to_owned),
+                ),
                 count: items.len(),
                 source: engine.clone(),
             });
-            let engine = engine.clone();
-            let entries = (!collapsed)
-                .then_some(items)
-                .into_iter()
-                .flatten()
-                .cloned()
-                .map(move |item| match &engine {
-                    Some(engine) => TableRow::External(Box::new(item), engine.clone()),
-                    None => TableRow::Container(Box::new(item)),
+            if matches!(&heading, Some(TableRow::Group { key, .. }) if view.collapsed.contains(key))
+            {
+                items.clear();
+            } else {
+                items.sort_unstable_by(|a, b| {
+                    let order = name(a).cmp(name(b)).then_with(|| a.id.cmp(&b.id));
+                    if view.descending {
+                        order.reverse()
+                    } else {
+                        order
+                    }
                 });
+            }
+            let engine = engine.clone();
+            let entries = items.into_iter().cloned().map(move |item| match &engine {
+                Some(engine) => TableRow::External(Box::new(item), engine.clone()),
+                None => TableRow::Container(Box::new(item)),
+            });
             heading.into_iter().chain(entries)
         })
         .collect()
@@ -666,7 +684,9 @@ fn group_row(
                 .ghost()
                 .small()
                 .compact()
-                .icon(if collapsed {
+                .icon(if collapsed && locale == Locale::Arabic {
+                    IconName::ChevronLeft
+                } else if collapsed {
                     IconName::ChevronRight
                 } else {
                     IconName::ChevronDown
@@ -1222,6 +1242,7 @@ fn view_mode_rail(mode: ViewMode, screen: &ScreenContext<'_>, cx: &Context<Conta
                     .size(px(30.))
                     .p_0()
                     .icon(Icon::default().path(icon))
+                    .toggled(mode == target)
                     .accessibility_label(title.clone())
                     .tooltip(title);
                 let control = if mode == target {
