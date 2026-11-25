@@ -55,7 +55,10 @@ impl TestDaemon {
         };
         let serving = tokio::spawn(async move {
             Server::builder()
-                .add_service(meta_server::MetaServer::new(MetaVersion(major)))
+                .add_service(meta_server::MetaServer::new(MetaVersion {
+                    major,
+                    minor: API_MINOR,
+                }))
                 .add_service(events_server::EventsServer::new(fixture))
                 .add_service(docker_discovery_server::DockerDiscoveryServer::new(
                     FixtureDocker,
@@ -94,7 +97,10 @@ impl Drop for TestDaemon {
     }
 }
 
-struct MetaVersion(u32);
+struct MetaVersion {
+    major: u32,
+    minor: u32,
+}
 
 #[tonic::async_trait]
 impl meta_server::Meta for MetaVersion {
@@ -103,8 +109,8 @@ impl meta_server::Meta for MetaVersion {
         _: Request<VersionRequest>,
     ) -> Result<Response<VersionResponse>, Status> {
         Ok(Response::new(VersionResponse {
-            api_major: self.0,
-            api_minor: API_MINOR,
+            api_major: self.major,
+            api_minor: self.minor,
             daemon_version: "fixture".into(),
             ..Default::default()
         }))
@@ -116,6 +122,50 @@ impl meta_server::Meta for MetaVersion {
     ) -> Result<Response<CapabilitiesResponse>, Status> {
         Ok(Response::new(CapabilitiesResponse::default()))
     }
+}
+
+#[tokio::test]
+async fn volume_probe_never_calls_a_daemon_advertising_registry_only() {
+    use marsa_proto::{
+        guest::v1::{VolumeReadReply, VolumeReadRequest},
+        host::{docker_registry::REGISTRY_DIGEST_API_MINOR, v1::volume_files_server},
+    };
+
+    struct UnexpectedProbe;
+
+    #[tonic::async_trait]
+    impl volume_files_server::VolumeFiles for UnexpectedProbe {
+        type ReadStream = ReceiverStream<Result<VolumeReadReply, Status>>;
+
+        async fn read(
+            &self,
+            _: Request<tonic::Streaming<VolumeReadRequest>>,
+        ) -> Result<Response<Self::ReadStream>, Status> {
+            Err(Status::internal("the client attempted an unsupported RPC"))
+        }
+    }
+
+    let directory = private_directory();
+    let socket = directory.path().join("daemon.sock");
+    let listener = bind_private_socket(&socket);
+    let daemon = tokio::spawn(async move {
+        Server::builder()
+            .add_service(meta_server::MetaServer::new(MetaVersion {
+                major: API_MAJOR,
+                minor: REGISTRY_DIGEST_API_MINOR,
+            }))
+            .add_service(volume_files_server::VolumeFilesServer::new(UnexpectedProbe))
+            .serve_with_incoming(UnixListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+    let client = DaemonEndpoint::at(socket).connect().await.unwrap();
+    assert_eq!(client.api_minor(), REGISTRY_DIGEST_API_MINOR);
+    assert!(matches!(
+        client.check_volume_provider().await,
+        Err(crate::docker::VolumeDownloadError::Unsupported)
+    ));
+    daemon.abort();
 }
 
 struct FixtureDocker;

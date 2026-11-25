@@ -10,6 +10,7 @@ use marsa_proto::guest::{
     },
     validate_volume_read,
 };
+use marsa_proto::host::VOLUME_FILES_API_MINOR;
 use thiserror::Error;
 use tokio::{fs::File, io::AsyncWriteExt as _, sync::mpsc, time::timeout};
 use tokio_stream::wrappers::ReceiverStream;
@@ -112,7 +113,7 @@ impl MarsaClient {
         body: Input,
     ) -> Result<(mpsc::Sender<VolumeReadRequest>, Streaming<VolumeReadReply>), VolumeDownloadError>
     {
-        if self.api_minor() < 17 {
+        if self.api_minor() < VOLUME_FILES_API_MINOR {
             return Err(VolumeDownloadError::Unsupported);
         }
         let (send, receive) = mpsc::channel(1);

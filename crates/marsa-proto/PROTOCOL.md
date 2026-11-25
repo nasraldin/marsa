@@ -81,7 +81,7 @@ defaults to 24 hours. The daemon contacts only an already-running guest
 and bounds the newline-delimited Engine response. It does not persist
 activity in the inventory cache.
 
-Host API minor 17 adds the owner-only `VolumeFiles.Read` stream. A client
+Host API minor 18 adds the owner-only `VolumeFiles.Read` stream. A client
 can probe the running built-in guest or prepare a named volume with its
 Docker creation timestamp and a canonical volume-relative path. The guest
 reports the output format before the client sends `start` after destination
