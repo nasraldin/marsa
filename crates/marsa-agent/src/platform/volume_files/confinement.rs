@@ -9,8 +9,8 @@ use std::{
 
 use marsa_proto::guest::{
     VOLUME_READ_LIMIT,
-    v1::{PrepareVolumeRead, VolumeReadFormat},
-    validate_volume_read,
+    v1::{PrepareVolumeRead, SelectVolumeRead, VolumeReadFormat},
+    validate_volume_path, validate_volume_selection,
 };
 use rustix::{
     fs::{self, AtFlags, CWD, Dir, Mode, OFlags, ResolveFlags},
@@ -23,11 +23,15 @@ const MAX_DEPTH: usize = 64;
 const MAX_ENTRIES: usize = 100_000;
 const MAX_PATH: usize = 4096;
 
-pub(super) struct Selection {
+pub(super) struct SelectedVolume {
     docker: File,
     volumes: File,
     volume: Volume,
     name: String,
+}
+
+pub(super) struct Selection {
+    volume: SelectedVolume,
     path: PathBuf,
     selected: File,
     format: VolumeReadFormat,
@@ -51,8 +55,8 @@ impl Volume {
     }
 }
 
-impl Selection {
-    pub(super) fn open(request: &PrepareVolumeRead) -> io::Result<Self> {
+impl SelectedVolume {
+    pub(super) fn open(request: &SelectVolumeRead) -> io::Result<Self> {
         // This fixed boot path crosses the intended data-disk mount. Everything
         // below it uses the mount- and symlink-rejecting resolver.
         let docker = File::from(fs::openat2(
@@ -65,10 +69,21 @@ impl Selection {
         Self::open_at(&docker, request)
     }
 
-    fn open_at(docker: &File, request: &PrepareVolumeRead) -> io::Result<Self> {
-        validate_volume_read(request).map_err(io::Error::other)?;
+    fn open_at(docker: &File, request: &SelectVolumeRead) -> io::Result<Self> {
+        validate_volume_selection(request).map_err(io::Error::other)?;
         let volumes = directory_beneath(docker, Path::new("volumes"))?;
         let volume = Volume::open(&volumes, &request.name)?;
+        Ok(Self {
+            docker: docker.try_clone()?,
+            volumes,
+            volume,
+            name: request.name.clone(),
+        })
+    }
+
+    pub(super) fn prepare(self, request: &PrepareVolumeRead) -> io::Result<Selection> {
+        validate_volume_path(&request.path).map_err(io::Error::other)?;
+        self.revalidate()?;
         let path = PathBuf::from(
             request
                 .path
@@ -76,7 +91,13 @@ impl Selection {
                 .filter(|path| !path.is_empty())
                 .unwrap_or("."),
         );
-        let selected = readable_beneath(&volume.data, &path)?;
+        let selected = readable_beneath(&self.volume.data, &path).map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                io::ErrorKind::InvalidInput.into()
+            } else {
+                error
+            }
+        })?;
         let format = if request.prefer_single_file && selected.metadata()?.is_file() {
             VolumeReadFormat::SingleFile
         } else {
@@ -85,29 +106,36 @@ impl Selection {
         if selected.metadata()?.len() > VOLUME_READ_LIMIT {
             return Err(io::ErrorKind::FileTooLarge.into());
         }
-        Ok(Self {
-            docker: docker.try_clone()?,
-            volumes,
-            volume,
-            name: request.name.clone(),
+        Ok(Selection {
+            volume: self,
             path,
             selected,
             format,
         })
     }
 
+    fn revalidate(&self) -> io::Result<()> {
+        let volumes = directory_beneath(&self.docker, Path::new("volumes"))
+            .map_err(|_| selection_changed())?;
+        same_file(&volumes, &self.volumes)?;
+        let current = Volume::open(&volumes, &self.name).map_err(|_| selection_changed())?;
+        same_file(&current.directory, &self.volume.directory)?;
+        same_file(&current.data, &self.volume.data)
+    }
+
+    fn data(&self) -> &File {
+        &self.volume.data
+    }
+}
+
+impl Selection {
     pub(super) fn format(&self) -> VolumeReadFormat {
         self.format
     }
 
     /// Verify the name and selected path still resolve to the pinned objects.
     pub(super) fn revalidate(&self) -> io::Result<()> {
-        let volumes = directory_beneath(&self.docker, Path::new("volumes"))
-            .map_err(|_| selection_changed())?;
-        same_file(&volumes, &self.volumes)?;
-        let current = Volume::open(&volumes, &self.name).map_err(|_| selection_changed())?;
-        same_file(&current.directory, &self.volume.directory)?;
-        same_file(&current.data, &self.volume.data)?;
+        self.volume.revalidate()?;
         self.revalidate_path(&self.path, &self.selected)
     }
 
@@ -125,7 +153,7 @@ impl Selection {
                     .file_name()
                     .filter(|_| self.path != Path::new("."))
                     .map(Path::new)
-                    .unwrap_or_else(|| Path::new(&self.name));
+                    .unwrap_or_else(|| Path::new(&self.volume.name));
                 let mut archive = Builder::new(output);
                 let mut entries = 0;
                 self.append(
@@ -178,7 +206,7 @@ impl Selection {
                 let nested = path.join(name);
                 // Always resolve the complete path from the volume root.
                 // A previously opened directory might have been moved away.
-                let member = readable_beneath(&self.volume.data, &nested)?;
+                let member = readable_beneath(self.volume.data(), &nested)?;
                 self.append(
                     archive,
                     &nested,
@@ -200,7 +228,7 @@ impl Selection {
     }
 
     fn revalidate_path(&self, path: &Path, file: &File) -> io::Result<()> {
-        let current = inspect_beneath(&self.volume.data, path).map_err(|_| selection_changed())?;
+        let current = inspect_beneath(self.volume.data(), path).map_err(|_| selection_changed())?;
         same_file(&current, file)
     }
 }
@@ -283,6 +311,8 @@ mod tests {
     use super::*;
     use std::{fs, os::unix::fs::symlink};
 
+    const FIXTURE_NAME: &str = "fixture-data";
+
     fn fixture() -> (tempfile::TempDir, File, PathBuf, PrepareVolumeRead) {
         let root = tempfile::tempdir().unwrap();
         let data = root.path().join("volumes/fixture-data/_data");
@@ -291,25 +321,37 @@ mod tests {
         fs::write(root.path().join("outside"), b"outside").unwrap();
         let root_fd = File::open(root.path()).unwrap();
         let request = PrepareVolumeRead {
-            name: "fixture-data".into(),
-            created_at: "2026-11-26T00:00:00Z".into(),
             path: "/nested/test.bin".into(),
             prefer_single_file: true,
         };
         (root, root_fd, data, request)
     }
 
+    fn select(fd: &File) -> io::Result<SelectedVolume> {
+        SelectedVolume::open_at(
+            fd,
+            &SelectVolumeRead {
+                name: FIXTURE_NAME.into(),
+                created_at: "2026-11-26T00:00:00Z".into(),
+            },
+        )
+    }
+
+    fn prepare(fd: &File, request: &PrepareVolumeRead) -> io::Result<Selection> {
+        select(fd)?.prepare(request)
+    }
+
     #[test]
     fn returns_bytes_or_a_scoped_tar() {
         let (_root, fd, _, mut request) = fixture();
         let mut output = Vec::new();
-        let selected = Selection::open_at(&fd, &request).unwrap();
+        let selected = prepare(&fd, &request).unwrap();
         assert_eq!(selected.format(), VolumeReadFormat::SingleFile);
         selected.write(&mut output).unwrap();
         assert_eq!(output, [0, 7, 255]);
 
         request.path = "/".into();
-        let selected = Selection::open_at(&fd, &request).unwrap();
+        let selected = prepare(&fd, &request).unwrap();
         assert_eq!(selected.format(), VolumeReadFormat::Tar);
         output.clear();
         selected.write(&mut output).unwrap();
@@ -343,10 +385,10 @@ mod tests {
         nix::unistd::mkfifo(&data.join("fifo"), nix::sys::stat::Mode::S_IRUSR).unwrap();
         for path in ["/symlink", "/hardlink", "/fifo", "/../outside"] {
             request.path = path.into();
-            assert!(Selection::open_at(&fd, &request).is_err(), "{path}");
+            assert!(prepare(&fd, &request).is_err(), "{path}");
         }
         request.path = "/".into();
-        let selected = Selection::open_at(&fd, &request).unwrap();
+        let selected = prepare(&fd, &request).unwrap();
         assert!(selected.write(&mut Vec::new()).is_err());
         let root_fd = File::open("/").unwrap();
         assert!(directory_beneath(&root_fd, Path::new("proc")).is_err());
@@ -355,7 +397,8 @@ mod tests {
     #[test]
     fn rejects_option_backed_and_replaced_volumes() {
         let (root, fd, data, request) = fixture();
-        let selected = Selection::open_at(&fd, &request).unwrap();
+        let approved = select(&fd).unwrap();
+        let selected = prepare(&fd, &request).unwrap();
         let volume = data.parent().unwrap();
         fs::rename(volume, root.path().join("original")).unwrap();
         fs::create_dir_all(data.join("nested")).unwrap();
@@ -363,10 +406,13 @@ mod tests {
         let mut output = Vec::new();
         assert!(selected.write(&mut output).is_err());
         assert!(output.is_empty());
+        assert!(
+            matches!(approved.prepare(&request), Err(error) if error.kind() == io::ErrorKind::StaleNetworkFileHandle)
+        );
 
         fs::write(volume.join("opts.json"), b"{}").unwrap();
         assert!(
-            matches!(Selection::open_at(&fd, &request), Err(error) if error.kind() == io::ErrorKind::Unsupported)
+            matches!(prepare(&fd, &request), Err(error) if error.kind() == io::ErrorKind::Unsupported)
         );
     }
 }

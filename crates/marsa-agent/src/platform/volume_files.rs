@@ -10,7 +10,7 @@ use hyper_util::rt::TokioIo;
 use marsa_proto::guest::{
     VOLUME_READ_CHUNK, VOLUME_READ_LIMIT, decode_volume_request, encode_volume_reply,
     v1::{
-        PrepareVolumeRead, VolumeReadFailure as Failure, VolumeReadReply,
+        SelectVolumeRead, VolumeReadFailure as Failure, VolumeReadReply,
         volume_read_reply::Body as Reply, volume_read_request::Body as RequestBody,
     },
     volume_frame_length,
@@ -27,10 +27,10 @@ use tokio::{
 use crate::authorization::socket::GUEST_ENGINE_SOCKET;
 
 use super::vsock::{Listener, Stream};
-use confinement::Selection;
+use confinement::SelectedVolume;
 
 const FRAME_TIMEOUT: Duration = Duration::from_secs(60);
-const DESTINATION_TIMEOUT: Duration = Duration::from_secs(180);
+const OWNER_INPUT_TIMEOUT: Duration = Duration::from_secs(180);
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const INSPECT_TIMEOUT: Duration = Duration::from_secs(5);
 const INSPECT_LIMIT: usize = 64 * 1024;
@@ -47,22 +47,35 @@ pub(super) async fn serve(listener: Listener) {
 async fn session(stream: &mut Stream) -> Result<(), Failure> {
     let request = match receive(stream, FRAME_TIMEOUT).await? {
         RequestBody::Probe(true) => return send(stream, Reply::Capable(true)).await,
-        RequestBody::Prepare(request) => request,
+        RequestBody::Select(request) => request,
         _ => return Err(Failure::InvalidPath),
     };
-
     let info = inspect(&request).await?;
-    let selection = spawn_blocking({
+    let volume = spawn_blocking({
         let request = request.clone();
-        move || Selection::open(&request)
+        move || SelectedVolume::open(&request)
     })
     .await
     .map_err(|_| Failure::Io)?
     .map_err(failure)?;
+    if inspect(&request).await? != info {
+        return Err(Failure::Changed);
+    }
+    send(stream, Reply::Selected(true)).await?;
+    let RequestBody::Prepare(path) = receive(stream, OWNER_INPUT_TIMEOUT).await? else {
+        return Err(Failure::InvalidPath);
+    };
+    if inspect(&request).await? != info {
+        return Err(Failure::Changed);
+    }
+    let selection = spawn_blocking(move || volume.prepare(&path))
+        .await
+        .map_err(|_| Failure::Io)?
+        .map_err(failure)?;
     send(stream, Reply::Format(selection.format() as i32)).await?;
 
     if !matches!(
-        receive(stream, DESTINATION_TIMEOUT).await?,
+        receive(stream, OWNER_INPUT_TIMEOUT).await?,
         RequestBody::Start(true)
     ) {
         return Err(Failure::InvalidPath);
@@ -133,7 +146,7 @@ struct VolumeInfo {
     options: Option<std::collections::BTreeMap<String, String>>,
 }
 
-async fn inspect(request: &PrepareVolumeRead) -> Result<VolumeInfo, Failure> {
+async fn inspect(request: &SelectVolumeRead) -> Result<VolumeInfo, Failure> {
     timeout(INSPECT_TIMEOUT, async {
         let socket = UnixStream::connect(GUEST_ENGINE_SOCKET)
             .await
@@ -170,7 +183,7 @@ async fn inspect(request: &PrepareVolumeRead) -> Result<VolumeInfo, Failure> {
 }
 
 impl VolumeInfo {
-    fn check(&self, request: &PrepareVolumeRead) -> Result<(), Failure> {
+    fn check(&self, request: &SelectVolumeRead) -> Result<(), Failure> {
         if self.name != request.name || self.created_at.as_ref() != Some(&request.created_at) {
             return Err(Failure::Changed);
         }
@@ -237,11 +250,9 @@ mod tests {
 
     #[test]
     fn requires_the_exact_option_free_local_volume() {
-        let request = PrepareVolumeRead {
+        let request = SelectVolumeRead {
             name: "data".into(),
             created_at: "2026-11-26T00:00:00Z".into(),
-            path: "/file".into(),
-            prefer_single_file: true,
         };
         let mut info = VolumeInfo {
             name: request.name.clone(),

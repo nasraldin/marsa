@@ -149,7 +149,8 @@ place, and never sends a cleanup request to Docker.
 The owner-only download endpoint targets the running built-in VM on a
 dedicated host-CID-only connection. The guest validates that the selected
 volume is ordinary, local and option-free, confirms its Docker creation
-timestamp and fixed data path, and pins its directory and target descriptors.
+timestamp and fixed data path. The guest pins the volume before the owner
+reviews the path and then pins the requested object's descriptor.
 Linux `openat2` disallows symlinks and mount crossings below the managed data
 mount. Regular files must have one link. Directory traversal is bounded by
 entry count, depth, path size and total output. The guest rechecks the pinned

@@ -82,10 +82,11 @@ and bounds the newline-delimited Engine response. It does not persist
 activity in the inventory cache.
 
 Host API minor 18 adds the owner-only `VolumeFiles.Read` stream. A client
-can probe the running built-in guest or prepare a named volume with its
-Docker creation timestamp and a canonical volume-relative path. The guest
-reports the output format before the client sends `start` after destination
-selection. The client requires successful completion and stream termination
+can probe the running built-in guest or send `select` with a volume name
+and Docker creation timestamp. The guest establishes the pinned volume and
+confirms it before the client accepts a path. The client submits the path
+and format preference in `prepare`, then sends `start` after choosing the
+destination. The client requires successful completion and stream termination
 before publishing its staged destination.
 
 `Disk.Reclaim` requests discard of unused blocks from the current ready

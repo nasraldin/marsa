@@ -26,7 +26,7 @@ use crate::supervisor::DockerStream;
 use super::TypedApi;
 
 const IDLE: Duration = Duration::from_secs(60);
-const DESTINATION: Duration = Duration::from_secs(180);
+const REVIEW_INPUT: Duration = Duration::from_secs(180);
 const TRANSFER: Duration = Duration::from_secs(30 * 60);
 
 type Output = mpsc::Sender<Result<VolumeReadReply, Status>>;
@@ -43,7 +43,7 @@ impl VolumeFiles for TypedApi {
         let first = next(&mut inbound, IDLE).await?;
         let probe = match &first.body {
             Some(Input::Probe(true)) => true,
-            Some(Input::Prepare(_)) => false,
+            Some(Input::Select(_)) => false,
             _ => return Err(Status::invalid_argument("volume selection required")),
         };
         let header = encode_volume_request(&first)
@@ -87,27 +87,45 @@ async fn relay(
     out: &Output,
     probe: bool,
 ) -> Result<(), Status> {
-    let first = read_guest(guest).await?;
+    let first = tokio::select! {
+        () = out.closed() => return Ok(()),
+        first = read_guest(guest) => first?,
+    };
     match first.body {
         Some(Reply::Failure(_)) => return forward(out, first).await,
         Some(Reply::Capable(true)) if probe => return forward(out, first).await,
-        Some(Reply::Format(_)) if !probe => forward(out, first).await?,
+        Some(Reply::Selected(true)) if !probe => forward(out, first).await?,
         _ => return Err(malformed()),
     }
+
+    let prepared = tokio::select! {
+        () = out.closed() => return Ok(()),
+        prepared = next(inbound, REVIEW_INPUT) => prepared?,
+    };
+    if !matches!(prepared.body, Some(Input::Prepare(_))) {
+        return Err(Status::invalid_argument("volume path required"));
+    }
+    write_guest(guest, &prepared).await?;
+    let format = tokio::select! {
+        () = out.closed() => return Ok(()),
+        format = read_guest(guest) => format?,
+    };
+    match format.body {
+        Some(Reply::Failure(_)) => return forward(out, format).await,
+        Some(Reply::Format(_)) => forward(out, format).await?,
+        _ => return Err(malformed()),
+    }
+
     let start = tokio::select! {
         () = out.closed() => return Ok(()),
-        start = next(inbound, DESTINATION) => start?,
+        start = next(inbound, REVIEW_INPUT) => start?,
     };
     if start.body != Some(Input::Start(true)) {
         return Err(Status::invalid_argument(
             "volume destination confirmation required",
         ));
     }
-    let frame = encode_volume_request(&start).map_err(|_| malformed())?;
-    timeout(IDLE, guest.write_all(&frame))
-        .await
-        .map_err(|_| timed_out())?
-        .map_err(|_| malformed())?;
+    write_guest(guest, &start).await?;
 
     let mut received = 0;
     loop {
@@ -143,6 +161,15 @@ async fn relay(
             _ => return Err(malformed()),
         }
     }
+}
+
+async fn write_guest(guest: &mut DockerStream, request: &VolumeReadRequest) -> Result<(), Status> {
+    let frame = encode_volume_request(request)
+        .map_err(|_| Status::invalid_argument("invalid volume request"))?;
+    timeout(IDLE, guest.write_all(&frame))
+        .await
+        .map_err(|_| timed_out())?
+        .map_err(|_| malformed())
 }
 
 async fn next(

@@ -3,7 +3,7 @@
 use super::*;
 use marsa_client::{
     DaemonEndpoint,
-    docker::{ContainerFileFormat, DockerClient, VolumeDownloadError},
+    docker::{ContainerFileFormat, DockerClient, VolumeDownloadError, VolumeSummary},
 };
 
 #[tokio::test]
@@ -128,17 +128,8 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
     ]);
 
     let inventory = DockerClient::at(paths.docker_socket());
-    let selected = inventory
-        .volumes()
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|entry| entry.name == volume)
-        .unwrap();
-    let abandoned = client
-        .prepare_volume_download(&selected, "/file.txt".into(), true)
-        .await
-        .unwrap();
+    let selected = find_volume(&inventory, &volume).await;
+    let abandoned = client.select_volume_download(&selected).await.unwrap();
     drop(abandoned);
     // A cancelled picker releases the guest session without even starting transfer.
     timeout(WAIT, client.check_volume_provider())
@@ -150,8 +141,7 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
         (true, ContainerFileFormat::SingleFile, "scoped.txt"),
         (false, ContainerFileFormat::Tar, "scoped.tar"),
     ] {
-        let prepared = client
-            .prepare_volume_download(&selected, "/file.txt".into(), single_file)
+        let prepared = prepare(&client, &selected, "/file.txt", single_file)
             .await
             .unwrap();
         assert!(prepared.format() == expected);
@@ -170,10 +160,7 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
             assert!(entries.next().is_none());
         }
     }
-    let clean_directory = client
-        .prepare_volume_download(&selected, "/sub".into(), true)
-        .await
-        .unwrap();
+    let clean_directory = prepare(&client, &selected, "/sub", true).await.unwrap();
     assert!(clean_directory.format() == ContainerFileFormat::Tar);
     let directory_output = scratch.path().join("directory.tar");
     clean_directory.save(&directory_output).await.unwrap();
@@ -205,38 +192,28 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
         "device=tmpfs",
         &option_volume,
     ]);
-    let unsupported = inventory
-        .volumes()
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|entry| entry.name == option_volume)
-        .unwrap();
+    let unsupported = find_volume(&inventory, &option_volume).await;
     assert!(matches!(
-        client
-            .prepare_volume_download(&unsupported, "/".into(), true)
-            .await,
+        client.select_volume_download(&unsupported).await,
         Err(VolumeDownloadError::Unsupported)
     ));
     docker(&["volume", "rm", &option_volume]);
 
     assert!(matches!(
-        client
-            .prepare_volume_download(&selected, "/escape".into(), true)
-            .await,
+        prepare(&client, &selected, "/escape", true).await,
         Err(VolumeDownloadError::InvalidPath)
     ));
-    let directory = client
-        .prepare_volume_download(&selected, "/".into(), true)
-        .await
-        .unwrap();
+    let directory = prepare(&client, &selected, "/", true).await.unwrap();
     assert!(directory.format() == ContainerFileFormat::Tar);
     let destination = scratch.path().join("blocked.tar");
     assert!(directory.save(&destination).await.is_err());
     assert!(!destination.exists());
 
-    let replacement = client
-        .prepare_volume_download(&selected, "/file.txt".into(), true)
+    assert!(matches!(
+        prepare(&client, &selected, "/missing", true).await,
+        Err(VolumeDownloadError::InvalidPath)
+    ));
+    let replacement = prepare(&client, &selected, "/file.txt", true)
         .await
         .unwrap();
     docker(&["rm", &container]);
@@ -248,10 +225,41 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
         Err(VolumeDownloadError::Changed)
     ));
     assert!(!destination.exists());
+    let fresh = find_volume(&inventory, &volume).await;
+    let reviewed = client.select_volume_download(&fresh).await.unwrap();
+    docker(&["volume", "rm", &volume]);
+    docker(&["volume", "create", &volume]);
+    assert!(matches!(
+        reviewed.prepare("/".into(), false).await,
+        Err(VolumeDownloadError::Changed)
+    ));
     docker(&["volume", "rm", &volume]);
     docker(&["image", "rm", &image]);
     assert_eq!(
         engine.stop(action(2)).await.unwrap().into_inner().state(),
         EngineState::Stopped
     );
+}
+
+async fn find_volume(engine: &DockerClient, name: &str) -> VolumeSummary {
+    engine
+        .volumes()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|volume| volume.name == name)
+        .unwrap()
+}
+
+async fn prepare(
+    client: &marsa_client::MarsaClient,
+    volume: &VolumeSummary,
+    path: &str,
+    prefer_single_file: bool,
+) -> Result<marsa_client::docker::VolumeDownload, VolumeDownloadError> {
+    client
+        .select_volume_download(volume)
+        .await?
+        .prepare(path.into(), prefer_single_file)
+        .await
 }

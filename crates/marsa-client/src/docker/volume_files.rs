@@ -1,14 +1,22 @@
 //! Stage a prepared volume download until the guest confirms the pinned selection.
 
-use std::{io, path::Path, time::Duration};
+use std::{
+    io,
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use marsa_proto::guest::{
     VOLUME_READ_CHUNK, VOLUME_READ_LIMIT,
     v1::{
-        PrepareVolumeRead, VolumeReadFailure, VolumeReadFormat, VolumeReadReply, VolumeReadRequest,
-        volume_read_reply::Body as Reply, volume_read_request::Body as Input,
+        PrepareVolumeRead, SelectVolumeRead, VolumeReadFailure, VolumeReadFormat, VolumeReadReply,
+        VolumeReadRequest, volume_read_reply::Body as Reply, volume_read_request::Body as Input,
     },
-    validate_volume_read,
+    validate_volume_path, validate_volume_selection,
 };
 use marsa_proto::host::VOLUME_FILES_API_MINOR;
 use thiserror::Error;
@@ -16,7 +24,7 @@ use tokio::{fs::File, io::AsyncWriteExt as _, sync::mpsc, time::timeout};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Code, Status, Streaming};
 
-use crate::MarsaClient;
+use crate::{MarsaClient, platform::volume_destination::VolumeDestination};
 
 use super::{ContainerFileFormat, VolumeSummary, container_files::validate_tar};
 
@@ -49,6 +57,12 @@ pub enum VolumeDownloadError {
     Destination(#[source] io::Error),
 }
 
+/// A volume physically pinned by the guest before the owner chooses a path.
+pub struct SelectedVolumeDownload {
+    outbound: mpsc::Sender<VolumeReadRequest>,
+    inbound: Streaming<VolumeReadReply>,
+}
+
 /// A file or archive selected by the guest while its volume identity stays pinned.
 pub struct VolumeDownload {
     outbound: mpsc::Sender<VolumeReadRequest>,
@@ -67,45 +81,29 @@ impl MarsaClient {
         }
     }
 
-    /// Prepare a path inside the named volume belonging to this owner connection.
-    ///
-    /// Drop the returned value to cancel the read before choosing a destination.
-    pub async fn prepare_volume_download(
+    /// Pin the volume through its confined owner provider before reviewing its path.
+    /// Drop the returned selection to cancel before a destination is chosen.
+    pub async fn select_volume_download(
         &self,
         volume: &VolumeSummary,
-        path: String,
-        prefer_single_file: bool,
-    ) -> Result<VolumeDownload, VolumeDownloadError> {
+    ) -> Result<SelectedVolumeDownload, VolumeDownloadError> {
         if volume.driver != "local" || volume.scope != "local" {
             return Err(VolumeDownloadError::Unsupported);
         }
-        let selection = PrepareVolumeRead {
+        let selection = SelectVolumeRead {
             name: volume.name.clone(),
             created_at: volume
                 .created_at
                 .clone()
                 .ok_or(VolumeDownloadError::Unsupported)?,
-            path,
-            prefer_single_file,
         };
-        validate_volume_read(&selection).map_err(|_| VolumeDownloadError::InvalidPath)?;
-        let (outbound, mut inbound) = self.volume_stream(Input::Prepare(selection)).await?;
-        let format = match next(&mut inbound).await? {
-            Reply::Format(format) => match VolumeReadFormat::try_from(format) {
-                Ok(VolumeReadFormat::Tar) => ContainerFileFormat::Tar,
-                Ok(VolumeReadFormat::SingleFile) if prefer_single_file => {
-                    ContainerFileFormat::SingleFile
-                }
-                _ => return Err(VolumeDownloadError::Transfer),
-            },
-            Reply::Failure(error) => return Err(guest_error(error)),
-            _ => return Err(VolumeDownloadError::Transfer),
-        };
-        Ok(VolumeDownload {
-            outbound,
-            inbound,
-            format,
-        })
+        validate_volume_selection(&selection).map_err(|_| VolumeDownloadError::Unsupported)?;
+        let (outbound, mut inbound) = self.volume_stream(Input::Select(selection)).await?;
+        match next(&mut inbound).await? {
+            Reply::Selected(true) => Ok(SelectedVolumeDownload { outbound, inbound }),
+            Reply::Failure(error) => Err(guest_error(error)),
+            _ => Err(VolumeDownloadError::Transfer),
+        }
     }
 
     async fn volume_stream(
@@ -133,6 +131,47 @@ impl MarsaClient {
     }
 }
 
+impl SelectedVolumeDownload {
+    /// Resolve a reviewed path inside this pinned volume and report its download format.
+    pub async fn prepare(
+        self,
+        path: String,
+        prefer_single_file: bool,
+    ) -> Result<VolumeDownload, VolumeDownloadError> {
+        validate_volume_path(&path).map_err(|_| VolumeDownloadError::InvalidPath)?;
+        let Self {
+            outbound,
+            mut inbound,
+        } = self;
+        let request = PrepareVolumeRead {
+            path,
+            prefer_single_file,
+        };
+        outbound
+            .send(VolumeReadRequest {
+                body: Some(Input::Prepare(request)),
+            })
+            .await
+            .map_err(|_| VolumeDownloadError::Transfer)?;
+        let format = match next(&mut inbound).await? {
+            Reply::Format(format) => match VolumeReadFormat::try_from(format) {
+                Ok(VolumeReadFormat::Tar) => ContainerFileFormat::Tar,
+                Ok(VolumeReadFormat::SingleFile) if prefer_single_file => {
+                    ContainerFileFormat::SingleFile
+                }
+                _ => return Err(VolumeDownloadError::Transfer),
+            },
+            Reply::Failure(error) => return Err(guest_error(error)),
+            _ => return Err(VolumeDownloadError::Transfer),
+        };
+        Ok(VolumeDownload {
+            outbound,
+            inbound,
+            format,
+        })
+    }
+}
+
 impl VolumeDownload {
     /// The format selected by the guest from the saved preference and entry type.
     pub fn format(&self) -> ContainerFileFormat {
@@ -147,16 +186,11 @@ impl VolumeDownload {
             format,
         } = self;
         let destination = destination.to_owned();
-        let parent = destination
-            .parent()
-            .filter(|_| destination.is_absolute() && destination.file_name().is_some())
-            .ok_or_else(|| VolumeDownloadError::Destination(io::ErrorKind::InvalidInput.into()))?
-            .to_owned();
-        let staging = tokio::task::spawn_blocking(move || tempfile::NamedTempFile::new_in(parent))
-            .await
-            .map_err(|_| VolumeDownloadError::Transfer)?
-            .map_err(VolumeDownloadError::Destination)?;
-        let (file, path) = staging.into_parts();
+        let (staging, file) =
+            tokio::task::spawn_blocking(move || VolumeDestination::stage(&destination))
+                .await
+                .map_err(|_| VolumeDownloadError::Transfer)?
+                .map_err(VolumeDownloadError::Destination)?;
         let mut file = File::from_std(file);
         outbound
             .send(VolumeReadRequest {
@@ -197,16 +231,28 @@ impl VolumeDownload {
         })
         .await
         .map_err(|_| VolumeDownloadError::Transfer)??;
-        let mut file = file.into_std().await;
-        tokio::task::spawn_blocking(move || {
-            if format == ContainerFileFormat::Tar {
-                validate_tar(&mut file, length).map_err(|_| VolumeDownloadError::Transfer)?;
-            }
-            path.persist_noclobber(destination)
-                .map_err(|error| VolumeDownloadError::Destination(error.error))
-        })
-        .await
-        .map_err(|_| VolumeDownloadError::Transfer)?
+        if format == ContainerFileFormat::Tar {
+            let mut file = file.into_std().await;
+            tokio::task::spawn_blocking(move || validate_tar(&mut file, length))
+                .await
+                .map_err(|_| VolumeDownloadError::Transfer)?
+                .map_err(|_| VolumeDownloadError::Transfer)?;
+        }
+
+        let cancel = CancelPublish(Arc::new(AtomicBool::new(false)));
+        let pending = Arc::clone(&cancel.0);
+        tokio::task::spawn_blocking(move || staging.publish(&pending))
+            .await
+            .map_err(|_| VolumeDownloadError::Transfer)?
+            .map_err(VolumeDownloadError::Destination)
+    }
+}
+
+struct CancelPublish(Arc<AtomicBool>);
+
+impl Drop for CancelPublish {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
     }
 }
 
@@ -386,9 +432,10 @@ mod tests {
         let staged = timeout(Duration::from_secs(5), async {
             loop {
                 for file in directory.path().read_dir().unwrap() {
-                    let file = file.unwrap().path();
-                    if std::fs::read(&file).is_ok_and(|bytes| bytes == contents) {
-                        return file;
+                    let directory = file.unwrap().path();
+                    if std::fs::read(directory.join("content")).is_ok_and(|bytes| bytes == contents)
+                    {
+                        return directory;
                     }
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;

@@ -6,16 +6,20 @@ package marsa.guest.v1;
 message VolumeReadRequest {
   oneof body {
     bool probe = 1;
-    PrepareVolumeRead prepare = 2;
-    bool start = 3;
+    SelectVolumeRead select = 2;
+    PrepareVolumeRead prepare = 3;
+    bool start = 4;
   }
 }
 
-message PrepareVolumeRead {
+message SelectVolumeRead {
   string name = 1;
   string created_at = 2;
-  string path = 3;
-  bool prefer_single_file = 4;
+}
+
+message PrepareVolumeRead {
+  string path = 1;
+  bool prefer_single_file = 2;
 }
 
 enum VolumeReadFormat {
@@ -40,5 +44,6 @@ message VolumeReadReply {
     bytes data = 3;
     bool complete = 4;
     VolumeReadFailure failure = 5;
+    bool selected = 6;
   }
 }

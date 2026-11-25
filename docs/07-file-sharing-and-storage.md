@@ -119,8 +119,10 @@ data disk. External engines, plugin volumes and bind-backed or remote
 files with a single link and directories on the volume's own mount. A selection
 containing symlinks, mount crossings or special files is rejected. Reads use
 the live contents and abort if an observed identity or stability check fails.
-Marsa stages the download in the destination directory and publishes it only
-after successful completion, without replacing an existing destination.
+Marsa pins the volume before asking for a path. It stages the download in
+a private directory inside the chosen destination folder. Publication requires
+successful completion and the same destination folder and staged file. Existing
+destination files are preserved.
 
 ## Data disk
 

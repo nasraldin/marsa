@@ -5,7 +5,7 @@ use prost::Message as _;
 use super::{
     ProtocolError, frame,
     v1::{
-        PrepareVolumeRead, VolumeReadFailure, VolumeReadFormat, VolumeReadReply, VolumeReadRequest,
+        SelectVolumeRead, VolumeReadFailure, VolumeReadFormat, VolumeReadReply, VolumeReadRequest,
         volume_read_reply::Body as Reply, volume_read_request::Body as Request,
     },
 };
@@ -27,8 +27,8 @@ pub fn volume_frame_length(header: [u8; 4]) -> Result<usize, ProtocolError> {
     Ok(length)
 }
 
-/// Check that the selection contains a Docker volume name and a canonical path.
-pub fn validate_volume_read(request: &PrepareVolumeRead) -> Result<(), ProtocolError> {
+/// Validate the Docker volume name and creation time before querying the engine.
+pub fn validate_volume_selection(request: &SelectVolumeRead) -> Result<(), ProtocolError> {
     let name = request.name.as_bytes();
     if name.len() > 255
         || !name.first().is_some_and(u8::is_ascii_alphanumeric)
@@ -47,7 +47,11 @@ pub fn validate_volume_read(request: &PrepareVolumeRead) -> Result<(), ProtocolE
     {
         return Err(ProtocolError::InvalidField("volume creation time"));
     }
-    let path = request.path.as_str();
+    Ok(())
+}
+
+/// Validate an absolute path in the pinned volume.
+pub fn validate_volume_path(path: &str) -> Result<(), ProtocolError> {
     if path.len() > PATH_LIMIT
         || path.chars().any(char::is_control)
         || !path.starts_with('/')
@@ -64,14 +68,15 @@ pub fn validate_volume_read(request: &PrepareVolumeRead) -> Result<(), ProtocolE
 fn validate_request(request: &VolumeReadRequest) -> Result<(), ProtocolError> {
     match &request.body {
         Some(Request::Probe(true) | Request::Start(true)) => Ok(()),
-        Some(Request::Prepare(request)) => validate_volume_read(request),
+        Some(Request::Select(request)) => validate_volume_selection(request),
+        Some(Request::Prepare(request)) => validate_volume_path(&request.path),
         _ => Err(ProtocolError::InvalidField("volume request")),
     }
 }
 
 fn validate_reply(reply: &VolumeReadReply) -> Result<(), ProtocolError> {
     match &reply.body {
-        Some(Reply::Capable(true) | Reply::Complete(true)) => Ok(()),
+        Some(Reply::Capable(true) | Reply::Selected(true) | Reply::Complete(true)) => Ok(()),
         Some(Reply::Format(value))
             if matches!(
                 VolumeReadFormat::try_from(*value),
@@ -125,14 +130,12 @@ mod tests {
 
     #[test]
     fn validates_both_relays_and_rejects_ambiguous_paths() {
-        let mut selection = PrepareVolumeRead {
+        let selection = SelectVolumeRead {
             name: "fixture-data".into(),
             created_at: "2026-11-26T00:00:00Z".into(),
-            path: "/data/file".into(),
-            prefer_single_file: true,
         };
         let request = VolumeReadRequest {
-            body: Some(Request::Prepare(selection.clone())),
+            body: Some(Request::Select(selection)),
         };
         let encoded = encode_volume_request(&request).unwrap();
         assert_eq!(decode_volume_request(&encoded[4..]).unwrap(), request);
@@ -144,8 +147,7 @@ mod tests {
             "/data/./file",
             "/\0",
         ] {
-            selection.path = path.into();
-            assert!(validate_volume_read(&selection).is_err(), "{path}");
+            assert!(validate_volume_path(path).is_err(), "{path}");
         }
         let reply = VolumeReadReply {
             body: Some(Reply::Data(vec![0; VOLUME_READ_CHUNK + 1])),

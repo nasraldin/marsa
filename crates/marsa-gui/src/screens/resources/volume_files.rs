@@ -1,9 +1,9 @@
 //! The Volumes route offers reads only through the owner-bound guest provider.
 
-use std::{path::Path, rc::Rc, sync::Arc};
+use std::{cell::RefCell, path::Path, rc::Rc, sync::Arc};
 
 use marsa_client::docker::{
-    ContainerFileFormat, ContainerPath, VolumeDownloadError, VolumeSummary,
+    ContainerFileFormat, ContainerPath, SelectedVolumeDownload, VolumeDownloadError, VolumeSummary,
 };
 use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
@@ -29,7 +29,7 @@ use crate::{
     services::Services,
 };
 
-use super::{ResourceRow, ResourcesView};
+use super::{ResourceKind, ResourceRow, ResourcesView};
 
 #[derive(Default)]
 pub(super) struct DownloadState {
@@ -37,7 +37,7 @@ pub(super) struct DownloadState {
     result: Option<(VolumeIdentity, Result<(), VolumeDownloadError>)>,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct VolumeIdentity {
     name: String,
     created_at: Option<String>,
@@ -120,41 +120,92 @@ pub(super) fn render(
 
 impl ResourcesView {
     fn open_volume_download(
-        &self,
+        &mut self,
         volume: VolumeSummary,
         services: Arc<Services>,
-        (locale, palette): (Locale, Palette),
+        appearance: (Locale, Palette),
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.volume_download.task.is_some() || window.has_active_dialog(cx) {
             return;
         }
+        let identity = VolumeIdentity::from(&volume);
+        let mut request = services
+            .request(move |client| async move { Ok(client.select_volume_download(&volume).await) });
+        self.volume_download.result = None;
+        self.volume_download.task = Some(cx.spawn_in(window, async move |owner, cx| {
+            let result = request
+                .result()
+                .await
+                .and_then(Result::ok)
+                .unwrap_or(Err(VolumeDownloadError::Transfer));
+            let _ = cx.update(|window, cx| {
+                let _ = owner.update(cx, |view, cx| {
+                    view.volume_download.task = None;
+                    let still_selected = view.selected_endpoint.is_none()
+                        && view.selection.as_ref().is_some_and(|(kind, key)| {
+                            *kind == ResourceKind::Volumes && *key == identity.name
+                        });
+                    if still_selected && !window.has_active_dialog(cx) {
+                        match result {
+                            Ok(pinned) => view.review_volume_path(
+                                identity, pinned, services, appearance, window, cx,
+                            ),
+                            Err(error) => {
+                                view.volume_download.result = Some((identity, Err(error)))
+                            }
+                        }
+                    }
+                    cx.notify();
+                });
+            });
+        }));
+        cx.notify();
+    }
+
+    fn review_volume_path(
+        &self,
+        identity: VolumeIdentity,
+        pinned: SelectedVolumeDownload,
+        services: Arc<Services>,
+        (locale, palette): (Locale, Palette),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let prefer_raw = self.log_settings.download_format == DownloadFormat::SingleFile;
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("/"));
         cx.subscribe(&input, |_, _, _: &InputEvent, cx| cx.refresh_windows())
             .detach();
         let owner = cx.weak_entity();
+        let pinned = Rc::new(RefCell::new(Some(pinned)));
         window.open_dialog(cx, move |dialog, _, cx| {
             let path = input.read(cx).value().to_string();
             let valid = ContainerPath::parse(path.clone()).is_ok();
-            let volume = volume.clone();
-            let selected = technical(&volume.name);
+            let identity = identity.clone();
+            let selected = technical(&identity.name);
+            let pinned = Rc::clone(&pinned);
             let owner = owner.clone();
             let services = Arc::clone(&services);
             let submit = Rc::new(move |cx: &mut App| {
-                valid
-                    && owner
-                        .update(cx, |view, cx| {
-                            view.download_volume(
-                                volume.clone(),
-                                path.clone(),
-                                prefer_raw,
-                                Arc::clone(&services),
-                                cx,
-                            );
-                        })
-                        .is_ok()
+                if !valid {
+                    return false;
+                }
+                let Some(pinned) = pinned.borrow_mut().take() else {
+                    return false;
+                };
+                owner
+                    .update(cx, |view, cx| {
+                        view.download_volume(
+                            identity.clone(),
+                            pinned,
+                            path.clone(),
+                            prefer_raw,
+                            Arc::clone(&services),
+                            cx,
+                        );
+                    })
+                    .is_ok()
             });
             let enter = Rc::clone(&submit);
             dialog_frame(dialog, 512.)
@@ -203,7 +254,8 @@ impl ResourcesView {
 
     fn download_volume(
         &mut self,
-        volume: VolumeSummary,
+        identity: VolumeIdentity,
+        pinned: SelectedVolumeDownload,
         path: String,
         prefer_raw: bool,
         services: Arc<Services>,
@@ -213,17 +265,13 @@ impl ResourcesView {
             return;
         }
         self.volume_download.result = None;
-        let identity = VolumeIdentity::from(&volume);
         let filename = path
             .rsplit('/')
             .find(|name| !name.is_empty())
-            .unwrap_or(&volume.name)
+            .unwrap_or(&identity.name)
             .to_owned();
-        let mut request = services.request(move |client| async move {
-            Ok(client
-                .prepare_volume_download(&volume, path, prefer_raw)
-                .await)
-        });
+        let mut request =
+            services.pending(async move { Ok(pinned.prepare(path, prefer_raw).await) });
         self.volume_download.task = Some(cx.spawn(async move |view, cx| {
             let result = match request.result().await {
                 Some(Ok(Ok(download))) => {
