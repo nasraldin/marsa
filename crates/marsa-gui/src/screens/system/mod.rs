@@ -4,6 +4,7 @@ mod activity;
 mod approvals;
 mod disk;
 mod machine;
+mod maintenance;
 mod notifications;
 mod settings;
 pub(crate) use settings::{SettingsTab, environment_icon_path};
@@ -70,6 +71,7 @@ pub(crate) struct SystemView {
     machine_vm: Option<VmEditor>,
     machine_lima_target: Option<marsa_client::docker::LimaInstance>,
     environment_observations: settings::Observations,
+    maintenance: maintenance::ReviewScheduler,
     git_sources: GitSources,
     registry_settings: RegistrySettings,
     deploy_secrets: DeploySecrets,
@@ -148,6 +150,7 @@ impl SystemView {
             machine_vm: None,
             machine_lima_target: None,
             environment_observations: settings::Observations::default(),
+            maintenance: maintenance::ReviewScheduler::default(),
             git_sources: GitSources::default(),
             registry_settings: RegistrySettings::default(),
             deploy_secrets: DeploySecrets::default(),
@@ -382,18 +385,19 @@ impl SystemView {
             let result = pending.result().await;
             let _ = this.update(cx, |this, cx| {
                 if let Some(Ok(snapshot)) = result {
-                    this.accept_settings(snapshot);
+                    this.accept_settings(snapshot, cx);
                 }
                 cx.notify();
             });
         }));
     }
 
-    fn accept_settings(&mut self, snapshot: SettingsSnapshot) {
+    fn accept_settings(&mut self, snapshot: SettingsSnapshot, cx: &mut Context<Self>) {
         match Settings::from_toml(&snapshot.settings_toml) {
             Ok(settings) => {
                 self.settings = Some((settings, snapshot.revision));
                 self.restart_required = snapshot.restart_required;
+                self.reconcile_maintenance_reviews(cx);
             }
             Err(_) => self.notice = Some(Notice::InvalidSettings),
         }

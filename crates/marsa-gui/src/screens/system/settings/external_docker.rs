@@ -338,7 +338,7 @@ impl SystemView {
                     .into_inner())
             },
             move |this, snapshot, cx| {
-                this.accept_settings(snapshot);
+                this.accept_settings(snapshot, cx);
                 this.environment_settings.editor = None;
                 this.environment_settings.feedback = Some(Feedback::Saved);
                 let _ = window.update(cx, |_, window, cx| window.close_dialog(cx));

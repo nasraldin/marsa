@@ -11,6 +11,7 @@ mod external_docker;
 mod git_sources;
 mod integrations;
 mod login;
+mod maintenance;
 mod proxy;
 mod registries;
 mod resources;
@@ -478,9 +479,9 @@ impl SystemView {
                     .await?
                     .into_inner())
             },
-            |this, snapshot, _| {
+            |this, snapshot, cx| {
                 let requires_restart = snapshot.restart_required;
-                this.accept_settings(snapshot);
+                this.accept_settings(snapshot, cx);
                 if this.notice.is_none() {
                     this.notice = Some(if requires_restart {
                         Notice::AppliedNextStart
