@@ -4,6 +4,7 @@ use crate::screens::common::message;
 use marsa_client::api::{
     EnableRegistryKeychainRequest, EnsureDockerContextRequest, GetDockerEndpointRequest,
 };
+use marsa_client::docker_socket_link::{LinkAction, LinkOutcome};
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken, Locale,
@@ -94,6 +95,122 @@ impl SystemView {
                             })),
                     ),
             )
+    }
+
+    pub(super) fn docker_socket_integration(
+        &self,
+        screen: &ScreenContext<'_>,
+        cx: &Context<Self>,
+    ) -> Div {
+        let locale = screen.locale;
+        let disabled = self.services.is_none() || self.docker_socket_link_task.is_some();
+        settings_card(screen)
+            .child(settings_heading(
+                screen,
+                gui::GUI_DOCKER_SOCKET_TITLE.text(locale),
+                gui::GUI_DOCKER_SOCKET_DESCRIPTION.text(locale),
+            ))
+            .child(settings_text(
+                screen,
+                Role::Mono,
+                technical("/var/run/docker.sock"),
+                ColorToken::TextPrimary,
+            ))
+            .child(
+                row(locale)
+                    .gap_2()
+                    .flex_wrap()
+                    .child(
+                        Button::new("install-docker-socket-link")
+                            .outline()
+                            .label(gui::GUI_DOCKER_SOCKET_INSTALL.text(locale))
+                            .disabled(disabled)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.confirm_docker_socket_link(
+                                    LinkAction::Install,
+                                    locale,
+                                    window,
+                                    cx,
+                                );
+                            })),
+                    )
+                    .child(
+                        Button::new("remove-docker-socket-link")
+                            .outline()
+                            .label(gui::GUI_DOCKER_SOCKET_REMOVE.text(locale))
+                            .disabled(disabled)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.confirm_docker_socket_link(
+                                    LinkAction::Remove,
+                                    locale,
+                                    window,
+                                    cx,
+                                );
+                            })),
+                    ),
+            )
+    }
+
+    fn confirm_docker_socket_link(
+        &mut self,
+        action: LinkAction,
+        locale: Locale,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(services) = self.services.as_ref().map(std::sync::Arc::clone) else {
+            return;
+        };
+        if self.docker_socket_link_task.is_some() {
+            return;
+        }
+        let (title, detail) = match action {
+            LinkAction::Install => (
+                gui::GUI_DOCKER_SOCKET_INSTALL,
+                gui::GUI_DOCKER_SOCKET_INSTALL_CONFIRM,
+            ),
+            LinkAction::Remove => (
+                gui::GUI_DOCKER_SOCKET_REMOVE,
+                gui::GUI_DOCKER_SOCKET_REMOVE_CONFIRM,
+            ),
+        };
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            title.text(locale),
+            Some(detail.text(locale)),
+            &[
+                PromptButton::Ok(title.text(locale).into()),
+                PromptButton::Cancel(gui::GUI_DESKTOP_CANCEL.text(locale).into()),
+            ],
+            cx,
+        );
+        self.docker_socket_link_task = Some(cx.spawn(async move |this, cx| {
+            let notice = if answer.await == Ok(0) {
+                let mut pending = services.configure_docker_socket_link(action);
+                match pending.result().await {
+                    Some(Ok(LinkOutcome::Completed)) => Some(match action {
+                        LinkAction::Install => Notice::DockerSocketInstalled,
+                        LinkAction::Remove => Notice::DockerSocketRemoved,
+                    }),
+                    Some(Ok(LinkOutcome::Cancelled)) => None,
+                    Some(Ok(LinkOutcome::Occupied)) => Some(Notice::DockerSocketOccupied),
+                    Some(Ok(LinkOutcome::TargetUnavailable)) => {
+                        Some(Notice::DockerSocketTargetUnavailable)
+                    }
+                    Some(Err(_)) | None => Some(Notice::DockerSocketFailed),
+                }
+            } else {
+                None
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.docker_socket_link_task = None;
+                if let Some(notice) = notice {
+                    this.notice = Some(notice);
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
     }
 
     pub(super) fn registry_keychain(
