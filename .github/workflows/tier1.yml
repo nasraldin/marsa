@@ -15,15 +15,41 @@ permissions:
   contents: read
 
 jobs:
-  verify:
-    name: Verify (${{ matrix.runner }})
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-26.04, xcode-27]
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+  changes:
+    name: Classify changed paths
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python3 .github/scripts/ci-docs-only_test.py
+      - id: classify
+        shell: bash
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            # The merge commit's first parent is the base used for this run.
+            base="${GITHUB_SHA}^1"
+          else
+            base="$PUSH_BEFORE"
+          fi
+          docs_only="$(bash .github/scripts/ci-docs-only.sh "$base" "$GITHUB_SHA")"
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+
+  verify_linux:
+    name: Verify (ubuntu-26.04)
+    needs: changes
+    if: &run_builds >-
+      ${{ !cancelled() &&
+          (needs.changes.result != 'success' || needs.changes.outputs.docs_only != 'true') }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps: &verify_steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -44,19 +70,29 @@ jobs:
       - name: Workspace tests
         run: cargo xtask test
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        if: matrix.runner == 'xcode-27'
+        if: runner.os == 'macOS'
         with:
           go-version: '1.27.4'
           cache: false
       - name: Qualify the user-space network helper
-        if: matrix.runner == 'xcode-27'
+        if: runner.os == 'macOS'
         run: |
           MARSA_NETWORK_HELPER_TEST=1 bash network-helper/build.sh target/network-helper/marsa-net-helper
           python3 network-helper/check.py target/network-helper/marsa-net-helper
           cargo clippy --locked -p marsa-vm-vz --all-targets --all-features -- -D warnings
 
+  verify_macos:
+    name: Verify (xcode-27)
+    needs: changes
+    if: *run_builds
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps: *verify_steps
+
   guest:
     name: Build arm64 guest
+    needs: changes
+    if: *run_builds
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 40
     steps:

@@ -394,7 +394,7 @@ flowchart TB
     sign2 --> pubr["Publish + signed manifest"]
 ```
 
-- Tier 1 runs once per pull request and on pushes to `main`, on hosted Linux and Apple silicon macOS 27 runners. GitHub-hosted Apple silicon runners lack nested virtualization. [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#limitations-for-arm64-macos-runners).
+- Tier 1 checks documentation on every pull request and push to `main`. It skips Rust verification and the guest build when the diff contains only Markdown under `docs/` or the root README and governance documents. Mixed changes, an empty diff or an unavailable comparison run the build jobs. Those jobs use hosted Linux and Apple silicon macOS 27 runners. GitHub-hosted Apple silicon runners lack nested virtualization. [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#limitations-for-arm64-macos-runners).
 - Apple signing and notarization credentials are scoped to the protected release workflow. TUF root and targets keys stay offline. CI publishes signed metadata and uses scoped signing services for the online TUF roles.
 
 ### Tier 2 runner setup
