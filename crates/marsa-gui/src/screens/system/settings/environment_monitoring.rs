@@ -101,7 +101,11 @@ impl SystemView {
             ),
             (
                 gui::GUI_ENVIRONMENT_MONITORING_IMAGE_UPDATES,
-                gui::GUI_ENVIRONMENT_MONITORING_IMAGE_UPDATES_HELP,
+                if self.active_environment.includes_marsa() {
+                    gui::GUI_ENVIRONMENT_MONITORING_LOCAL_IMAGE_UPDATES_HELP
+                } else {
+                    gui::GUI_ENVIRONMENT_MONITORING_IMAGE_UPDATES_HELP
+                },
                 preferences.check_image_updates,
                 disabled,
                 |entry, value| entry.check_image_updates = value,

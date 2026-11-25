@@ -1137,6 +1137,7 @@ gui-environment-monitoring-notify = الإشعار عند تدهور سلامة 
 gui-environment-monitoring-notify-help = اعرض إشعارًا محليًا عند اكتشاف مشكلة سلامة جديدة أثناء مراقبة نافذة مرسى لهذا المحرّك.
 gui-environment-monitoring-image-updates = التحقق من تحديثات الصور
 gui-environment-monitoring-image-updates-help = قارن وسوم الصور التي يستخدمها هذا المحرّك ببصماتها في السجل.
+gui-environment-monitoring-local-image-updates-help = قارن معرّفات الصور التي تستخدمها الحاويات بمعرّفات الصور التي تشير إليها الوسوم المثبّتة حاليًا.
 gui-environment-monitoring-volumes = عرض وحدات التخزين غير المستخدمة في التنظيف
 gui-environment-monitoring-volumes-help = اعرض وحدات التخزين غير المستخدمة عند مراجعة التخزين. تظلّ وحدات التخزين مستبعدة من مراجعات التنظيف العامة.
 gui-environment-monitoring-retention = سجل النشاط
