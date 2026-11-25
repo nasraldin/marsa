@@ -341,13 +341,22 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 
 ### M7-22 Configure deploy-time secret providers
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Manage supported deploy-time secret providers.
 - **Deliver:** Settings connected to Compose deployment.
 - **Accept when:**
   - Deployment resolves secrets without exposing stored credentials in logs or inspection output.
+
+**Upstream behavior.** Compose 5.8.0 loads environment variables before it
+interpolates a project. It reads an environment-backed runtime secret from
+the finished project's environment and copies its bytes through the Docker
+archive API into the container. A file-backed secret uses a bind mount.
+The ordinary Compose invocation cannot receive a saved credential as a
+regular interpolation variable.
+[Pinned secret implementation](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/secrets.go)
+· [Pinned Compose loader](https://github.com/docker/compose/blob/v5.8.0/cmd/compose/compose.go).
 
 ### M7-23 Configure scanning, jobs, and downloads
 
