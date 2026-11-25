@@ -236,14 +236,9 @@ impl SystemView {
         }
     }
 
-    pub(crate) fn overview_lima_power(
-        &self,
-        locale: Locale,
-        icon_only: bool,
-        cx: &Context<Self>,
-    ) -> Option<Button> {
+    pub(crate) fn overview_lima_power(&self, locale: Locale, cx: &Context<Self>) -> Option<Button> {
         let vm = self.lima_vm(VmScope::Machine)?;
-        self.lima_power_button(vm, VmScope::Machine, locale, icon_only, cx)
+        self.lima_power_button(vm, VmScope::Machine, locale, true, cx)
     }
 
     pub(crate) fn refresh_lima_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {

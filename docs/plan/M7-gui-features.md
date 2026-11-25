@@ -609,3 +609,16 @@ English and Arabic copy cover the history card, disk card, resources label, and 
   - Selected language and appearance rows show a green circle-check.
   - Sharing offers a dashed drop/browse zone and lists chosen folders as removable cards.
   - Verify English/Arabic and light/dark.
+
+
+### M7-47 Preserve desktop refinements after integration
+
+- **Status:** in progress
+- **Depends on:** M7-35, M7-37, M7-40
+- **Docs:** [08 Screens](../08-gui.md#screens), [08 Direction layer](../08-gui.md#direction-layer)
+- **Do:** Reconcile the final Containers toolbar and inactive Overview power control with the newer desktop changes on main.
+- **Accept when:**
+  - The view switches remain available when a filter has no results and expose the selected view to accessibility clients. The single group toggle and mirrored scrollbar stay functional.
+  - Counting rows and sorting collapsed groups retain the cleanup from PR #123 without altering the new Updates filter.
+  - The inactive Overview uses an accessible icon-only power action for the built-in engine or the selected managed Lima VM.
+  - Check English and Arabic in both appearances.

@@ -292,16 +292,18 @@ impl Desktop {
                 matches!(engine, Some(EngineState::Stopped | EngineState::Failed)).then(|| {
                     Button::new("overview-engine-start")
                         .primary()
-                        .icon(Icon::default().path("icons/play.svg"))
-                        .label(gui::GUI_DESKTOP_START_MACHINE.text(locale))
+                        .size(px(36.))
+                        .p_0()
+                        .child(IconName::Play)
+                        .accessibility_label(gui::GUI_DESKTOP_START_MACHINE.text(locale))
+                        .tooltip(gui::GUI_DESKTOP_START_MACHINE.text(locale))
                         .on_click(cx.listener(|desktop, _, window, cx| {
                             desktop.request_engine(EngineAction::Start, window, cx);
                         }))
                 })
             } else {
-                self.system.update(cx, |system, cx| {
-                    system.overview_lima_power(locale, false, cx)
-                })
+                self.system
+                    .update(cx, |system, cx| system.overview_lima_power(locale, cx))
             };
             return div()
                 .flex_1()
@@ -405,9 +407,8 @@ impl Desktop {
         let lifecycle = if local {
             lifecycle
         } else {
-            self.system.update(cx, |system, cx| {
-                system.overview_lima_power(locale, true, cx)
-            })
+            self.system
+                .update(cx, |system, cx| system.overview_lima_power(locale, cx))
         };
         let refresh = Button::new("overview-refresh")
             .ghost()
