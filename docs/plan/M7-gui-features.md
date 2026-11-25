@@ -519,7 +519,7 @@ A disposable Lima container verified options including environment, labels, rest
 
 ### M7-31 Download container files
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** in progress
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Download an explicitly named path from a container to an owner-selected destination. Offer a persistent TAR or single-file download preference.
