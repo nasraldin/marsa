@@ -87,6 +87,7 @@ pub(crate) struct Desktop {
     environment: Entity<Environment>,
     _context_subscription: Subscription,
     _context_picker_subscription: Subscription,
+    _appearance_subscription: Subscription,
     services: Option<Arc<Services>>,
     history: VecDeque<EngineState>,
     containers: Entity<ContainerView>,
@@ -119,6 +120,13 @@ impl Desktop {
         window.on_next_frame(move |window, cx| initial_focus.focus(window, cx));
         let services = session::attach(window, locale, cx);
         let palette = palette_for(window, Theme::System);
+        let _appearance_subscription = cx.observe_window_appearance(window, |this, window, cx| {
+            if this.appearance_preference == Theme::System {
+                this.sync_appearance(window, cx);
+                window.refresh();
+                cx.notify();
+            }
+        });
         let environment = cx.new(|_| Environment::load());
         let _context_subscription = cx.observe(&environment, |this, environment, cx| {
             environment.read(cx).save();
@@ -179,15 +187,7 @@ impl Desktop {
             if this.onboarding.is_none()
                 && let Some((language, theme)) = preferences
             {
-                if this.appearance_preference != theme {
-                    this.appearance_preference = theme;
-                    use marsa_ui::gpui_component::{Theme as ComponentTheme, ThemeMode};
-                    match theme {
-                        Theme::System => ComponentTheme::sync_system_appearance(None, cx),
-                        Theme::Light => ComponentTheme::change(ThemeMode::Light, None, cx),
-                        Theme::Dark => ComponentTheme::change(ThemeMode::Dark, None, cx),
-                    }
-                }
+                this.appearance_preference = theme;
                 let locale = match language {
                     Language::System => this.system_locale,
                     Language::English => Locale::EnglishUs,
@@ -264,6 +264,7 @@ impl Desktop {
             environment,
             _context_subscription,
             _context_picker_subscription,
+            _appearance_subscription,
             services,
             history: VecDeque::new(),
             containers,
@@ -453,6 +454,23 @@ impl Desktop {
         });
         cx.notify();
     }
+
+    fn sync_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let palette = palette_for(window, self.appearance_preference).with_accent(self.accent);
+        if self.themed_palette != Some((palette, self.locale, self.display)) {
+            self.themed_palette = Some((palette, self.locale, self.display));
+            self.resources
+                .update(cx, |view, cx| view.set_locale(self.locale, window, cx));
+            palette.apply_to_components(self.locale, self.display, cx);
+        }
+        if palette != self.palette || self.container_locale != self.locale {
+            self.palette = palette;
+            self.container_locale = self.locale;
+            self.containers.update(cx, |view, cx| {
+                view.set_appearance(self.locale, palette, window, cx)
+            });
+        }
+    }
 }
 
 impl Render for Desktop {
@@ -462,21 +480,9 @@ impl Render for Desktop {
             self.controls_layout = Some(controls_layout);
             marsa_ui::direction::position_window_controls(window, self.locale, self.collapsed);
         }
-        let palette = palette_for(window, self.appearance_preference).with_accent(self.accent);
-        if self.themed_palette != Some((palette, self.locale, self.display)) {
-            self.themed_palette = Some((palette, self.locale, self.display));
-            self.resources
-                .update(cx, |view, cx| view.set_locale(self.locale, window, cx));
-            palette.apply_to_components(self.locale, self.display, cx);
-        }
         window.set_rem_size(px(rem_size(self.display.ui_font_size)));
-        if palette != self.palette || self.container_locale != self.locale {
-            self.palette = palette;
-            self.container_locale = self.locale;
-            self.containers.update(cx, |view, cx| {
-                view.set_appearance(self.locale, palette, window, cx)
-            });
-        }
+        self.sync_appearance(window, cx);
+        let palette = self.palette;
         self.prepare_auto_start(cx);
         self.prepare_overview(cx);
         let screen = ScreenContext {

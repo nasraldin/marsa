@@ -5,7 +5,8 @@ use std::ops::Range;
 use marsa_ui::{
     ColorToken, Palette,
     direction::isolate_technical_text,
-    gpui::{FontStyle, FontWeight, HighlightStyle, Hsla, StyledText, rgb},
+    gpui::{FontStyle, FontWeight, HighlightStyle, Hsla, StyledText},
+    tokens::Rgb,
 };
 
 use super::color;
@@ -179,5 +180,5 @@ fn terminal_color(value: &TerminalColor, palette: Palette) -> Hsla {
             (level, level, level)
         }
     };
-    rgb(u32::from_be_bytes([0, red, green, blue])).into()
+    Rgb::from_channels(red, green, blue).into()
 }

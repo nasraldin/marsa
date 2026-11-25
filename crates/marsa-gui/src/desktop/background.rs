@@ -49,13 +49,18 @@ pub(super) fn render(palette: Palette, accent: AccentColor) -> Img {
         .opacity(0.42)
 }
 
-fn tinted_svg(dark: bool, [red, green, blue]: [u8; 3]) -> String {
-    let (design, original) = if dark {
-        (DARK, "#7cc4ff")
+fn tinted_svg(dark: bool, color: [u8; 3]) -> String {
+    let (design, palette) = if dark {
+        (DARK, Palette::Dark)
     } else {
-        (LIGHT, "#0a66ba")
+        (LIGHT, Palette::Light)
     };
-    design.replace(original, &format!("#{red:02x}{green:02x}{blue:02x}"))
+    let original = palette.color(ColorToken::AccentDefault).srgb();
+    design.replace(&svg_color(original), &svg_color(color))
+}
+
+fn svg_color([red, green, blue]: [u8; 3]) -> String {
+    format!("#{red:02x}{green:02x}{blue:02x}")
 }
 
 #[cfg(test)]
@@ -64,10 +69,18 @@ mod tests {
 
     #[test]
     fn changing_accent_recolors_both_glows_in_each_appearance() {
-        for dark in [false, true] {
-            let svg = tinted_svg(dark, [0x90, 0x32, 0x46]);
-            assert_eq!(svg.matches("stop-color=\"#903246\"").count(), 4);
-            assert!(svg.contains(if dark { "#101827" } else { "#f4f7fc" }));
+        for palette in [Palette::Light, Palette::Dark] {
+            let accent = palette
+                .with_accent(AccentColor::Coral)
+                .color(ColorToken::AccentDefault)
+                .srgb();
+            let svg = tinted_svg(palette.is_dark(), accent);
+            assert_eq!(
+                svg.matches(&format!("stop-color=\"{}\"", svg_color(accent)))
+                    .count(),
+                4
+            );
+            assert!(svg.contains(&svg_color(palette.color(ColorToken::BgSurface).srgb())));
         }
     }
 }

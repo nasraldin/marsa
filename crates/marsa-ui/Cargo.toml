@@ -9,6 +9,9 @@ license.workspace = true
 [dependencies]
 marsa-core = { path = "../marsa-core" }
 
+[dev-dependencies]
+proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
+
 [lints]
 workspace = true
 

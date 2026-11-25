@@ -145,6 +145,7 @@ flowchart LR
 
 - The theme switches live, without a restart, and follows the system when set to `system`.
 - Contrast for text and status colours meets WCAG AA in both themes; this is tested, not assumed.
+- The workspace observes native window appearance updates and refreshes the active semantic palette and component theme in System mode. The token tests check text and status pairs at 4.5:1 across both appearances and all accent settings, and the disk chart categories at 3:1 against the card surface. [WCAG text contrast](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html) · [WCAG non-text contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html).
 
 ### Direction layer
 

@@ -14,14 +14,17 @@ use marsa_ui::{
         ElementInputHandler, FocusHandle, FontWeight, Hsla, InteractiveElement as _, IntoElement,
         KeyDownEvent, ParentElement as _, Pixels, Render, ScrollEvent,
         StatefulInteractiveElement as _, Styled as _, Subscription, Task, TitlebarOptions,
-        WeakEntity, Window, WindowBounds, WindowHandle, WindowOptions, canvas, div, point, px, rgb,
+        WeakEntity, Window, WindowBounds, WindowHandle, WindowOptions, canvas, div, point, px,
         size,
     },
     gpui_component::{
         Disableable as _, Icon, IconName, Sizable as _,
         button::{Button, ButtonVariants as _},
     },
-    tokens::typography::{Family, Role, rem_size, ui_size},
+    tokens::{
+        Rgb,
+        typography::{Family, Role, rem_size, ui_size},
+    },
     vt100::{Color, Parser, Screen},
 };
 
@@ -689,7 +692,7 @@ fn screen_lines(
 fn ansi_color(color_value: Color, palette: Palette, fallback: ColorToken) -> Hsla {
     match color_value {
         Color::Default => color(palette, fallback),
-        Color::Rgb(red, green, blue) => rgb(u32::from_be_bytes([0, red, green, blue])).into(),
+        Color::Rgb(red, green, blue) => Rgb::from_channels(red, green, blue).into(),
         Color::Idx(index @ 0..=15) => {
             let token = match index % 8 {
                 0 => ColorToken::TextMuted,
@@ -706,17 +709,11 @@ fn ansi_color(color_value: Color, palette: Palette, fallback: ColorToken) -> Hsl
         Color::Idx(index @ 16..=231) => {
             let index = index - 16;
             let level = |channel| if channel == 0 { 0 } else { 55 + channel * 40 };
-            rgb(u32::from_be_bytes([
-                0,
-                level(index / 36),
-                level(index / 6 % 6),
-                level(index % 6),
-            ]))
-            .into()
+            Rgb::from_channels(level(index / 36), level(index / 6 % 6), level(index % 6)).into()
         }
         Color::Idx(index) => {
             let level = 8 + (index - 232) * 10;
-            rgb(u32::from_be_bytes([0, level, level, level])).into()
+            Rgb::from_channels(level, level, level).into()
         }
     }
 }

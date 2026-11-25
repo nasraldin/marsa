@@ -16,7 +16,7 @@ use marsa_ui::{
     direction::align_column_to_end,
     gpui::{
         App, Context, Div, Hsla, IntoElement, ParentElement as _, PathBuilder, Styled as _, Task,
-        Window, canvas, div, point, px, relative, rgb, svg,
+        Window, canvas, div, point, px, relative, svg,
     },
     gpui_component::{
         Disableable, IconName,
@@ -576,27 +576,26 @@ impl Desktop {
     fn disk_card(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
         let locale = screen.locale;
         let disk = self.overview.disk.as_ref();
-        // Reference palette from the Disk usage screenshot.
         let categories = [
             (
                 Route::Images.name(locale),
                 disk.and_then(|disk| disk.images),
-                disk_images(),
+                color(screen.palette, ColorToken::DiskImages),
             ),
             (
                 Route::Containers.name(locale),
                 disk.and_then(|disk| disk.containers),
-                disk_containers(),
+                color(screen.palette, ColorToken::DiskContainers),
             ),
             (
                 Route::Volumes.name(locale),
                 disk.and_then(|disk| disk.volumes),
-                disk_volumes(),
+                color(screen.palette, ColorToken::DiskVolumes),
             ),
             (
                 gui::GUI_DESKTOP_BUILD_CACHE.text(locale),
                 disk.and_then(|disk| disk.build_cache),
-                disk_build_cache(),
+                color(screen.palette, ColorToken::DiskBuildCache),
             ),
         ];
         let total = categories
@@ -709,20 +708,6 @@ impl Desktop {
                     )
             }))
     }
-}
-
-/// Disk usage screenshot colors (images, containers, volumes, build cache).
-fn disk_images() -> Hsla {
-    rgb(0x3da9fc).into()
-}
-fn disk_containers() -> Hsla {
-    rgb(0x2ecc71).into()
-}
-fn disk_volumes() -> Hsla {
-    rgb(0xf5a623).into()
-}
-fn disk_build_cache() -> Hsla {
-    rgb(0x9b67ff).into()
 }
 
 fn overview_power_action(
