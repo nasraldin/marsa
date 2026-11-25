@@ -138,7 +138,10 @@ and default gateway from its configured upstream interface over a host-only
 vsock. The strict native qualification test compares those facts with the
 guest kernel and runs the IPv4-only registry HTTPS probe through native NAT.
 It runs independently of the device tests and the user-space registry pull.
-[Entitled test commands](../crates/marsa-vm-vz/README.md).
+The strict test passed on two consecutive cold boots of the packaged guest
+on macOS 27.2.1 on 2026-11-25.
+[M3-04 qualification results](plan/M3-vm-and-daemon.md#m3-04-qualify-strict-native-ipv4-nat)
+· [Entitled test commands](../crates/marsa-vm-vz/README.md).
 
 Apple's published XNU source initializes host-wide IPv4 forwarding to zero.
 A live zero is consistent with the default and does not identify the process or
