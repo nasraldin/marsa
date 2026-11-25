@@ -43,7 +43,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-04 Optional Docker socket symlink
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M4-01
 - **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), Q-08
 - **Do:** Implement the opt-in `/var/run/docker.sock` symlink as a single, auditable administrator action with a matching removal.
