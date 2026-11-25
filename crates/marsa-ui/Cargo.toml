@@ -37,3 +37,7 @@ harness = false
 [[test]]
 name = "typography_native"
 harness = false
+
+[[test]]
+name = "data_table_render"
+harness = false

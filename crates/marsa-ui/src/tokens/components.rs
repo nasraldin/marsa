@@ -75,6 +75,16 @@ impl Palette {
             colors.list_head = c(BgSubtle);
             colors.list_hover = c(BgHover);
             colors.list_highlight_foreground = c(AccentDefault);
+            colors.table = c(BgElevated);
+            colors.table_active = c(AccentSubtle);
+            colors.table_active_border = c(AccentFocus);
+            colors.table_even = c(BgSurface);
+            colors.table_head = c(BgSubtle);
+            colors.table_head_foreground = c(TextMuted);
+            colors.table_foot = c(BgSubtle);
+            colors.table_foot_foreground = c(TextMuted);
+            colors.table_hover = c(BgHover);
+            colors.table_row_border = c(BorderSubtle);
             colors.sidebar = c(GlassRail);
             colors.sidebar_border = c(GlassEdge);
             colors.sidebar_foreground = c(TextMuted);

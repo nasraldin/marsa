@@ -1,7 +1,10 @@
 //! Text controls shared by desktop forms.
 
 use gpui::{App, AppContext as _, Entity, SharedString, Styled, Window, px};
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::{
+    IconName,
+    input::{Input, InputEvent, InputState},
+};
 
 use crate::tokens::scale::Space;
 
@@ -53,17 +56,12 @@ pub fn resource_input(state: &Entity<InputState>) -> Input {
     Styled::h(Input::new(state), px(Space::S36.pixels()))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::confirmation_matches;
-
-    #[test]
-    fn accepts_only_a_nonempty_exact_match() {
-        assert!(confirmation_matches("volume-ألف", "volume-ألف"));
-        assert!(!confirmation_matches("volume-ألف", "volume-ألف "));
-        assert!(!confirmation_matches("Volume-ألف", "volume-ألف"));
-        assert!(!confirmation_matches("", ""));
-    }
+/// Build a labeled search input with a search icon and a clear action.
+pub fn search_input(state: &Entity<InputState>, label: impl Into<SharedString>) -> Input {
+    resource_input(state)
+        .cleanable(true)
+        .prefix(IconName::Search)
+        .aria_label(label)
 }
 
 /// Keep a retained input placeholder synchronized after a locale change.
@@ -75,5 +73,18 @@ pub fn update_input_placeholder(
 ) {
     if state.read(cx).presentation().placeholder() != value {
         state.update(cx, |state, cx| state.set_placeholder(value, window, cx));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::confirmation_matches;
+
+    #[test]
+    fn accepts_only_a_nonempty_exact_match() {
+        assert!(confirmation_matches("volume-ألف", "volume-ألف"));
+        assert!(!confirmation_matches("volume-ألف", "volume-ألف "));
+        assert!(!confirmation_matches("Volume-ألف", "volume-ألف"));
+        assert!(!confirmation_matches("", ""));
     }
 }

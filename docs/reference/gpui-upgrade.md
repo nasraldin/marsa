@@ -52,3 +52,7 @@ date formats and calendar behavior. Jiff's civil date range is ±9,999 years
 and some custom format directives differ from Chrono. The LSP URI adapter
 preserves the original spelling of valid references. The HTML renderer uses
 the maintained html5ever parser with a private tree adapter.
+
+DataTable scopes its accessibility root to the table state entity. Keep this
+identity stable across redraws and focus changes while allowing multiple tables
+in one window. The native `data_table_render` test verifies both properties.
