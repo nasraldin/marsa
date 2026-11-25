@@ -599,7 +599,7 @@ existing host allowlist.
 
 ### M7-30 Authenticate Git sources
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-28
 - **Docs:** [11 Security](../11-security.md)
 - **Do:** Add HTTPS username and password or token credentials in macOS Keychain and SSH using verified host keys and an explicit private key reference.
