@@ -613,7 +613,7 @@ English and Arabic copy cover the history card, disk card, resources label, and 
 
 ### M7-47 Preserve desktop refinements after integration
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-35, M7-37, M7-40
 - **Docs:** [08 Screens](../08-gui.md#screens), [08 Direction layer](../08-gui.md#direction-layer)
 - **Do:** Reconcile the final Containers toolbar and inactive Overview power control with the newer desktop changes on main.
