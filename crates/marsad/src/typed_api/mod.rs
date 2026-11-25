@@ -27,6 +27,7 @@ mod settings;
 mod settings_feedback;
 mod shares;
 mod stats;
+mod volume_files;
 
 use std::{future::Future, io, sync::Arc, time::Duration};
 
@@ -34,6 +35,7 @@ use marsa_core::{
     paths::MarsaPaths,
     settings::{NetworkMode, Settings},
 };
+use marsa_proto::host::v1::volume_files_server::VolumeFilesServer;
 use marsa_proto::host::v1::{
     CollectDiagnosticsResponse, ComponentVersion, EnsureDockerContextResponse,
     agent_ops_server::AgentOpsServer, agents_server::AgentsServer,
@@ -371,6 +373,11 @@ impl TypedApi {
                     .max_encoding_message_size(marsa_proto::host::DOCKER_INVENTORY_RESPONSE_LIMIT),
             )
             .add_service(NetworkServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
+            .add_service(
+                VolumeFilesServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT)
+                    .max_encoding_message_size(marsa_proto::guest::VOLUME_READ_CHUNK + 16),
+            )
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 stop.await;
                 self.inner.closing.send_replace(true);

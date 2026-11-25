@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &[
             "proto/marsa/guest/v1/control.proto",
             "proto/marsa/guest/v1/bind_authorization.proto",
+            "proto/marsa/guest/v1/volume_files.proto",
         ],
         &["proto"],
     )?;
@@ -56,15 +57,18 @@ fn verify_protoc(protoc: &Path) -> io::Result<()> {
 fn generate_host(protoc: &Path) -> io::Result<()> {
     let mut host = prost_build::Config::new();
     host.protoc_executable(protoc);
-    tonic_prost_build::configure().compile_with_config(
-        host,
-        &[
-            "proto/marsa/v1/agents.proto",
-            "proto/marsa/v1/configuration.proto",
-            "proto/marsa/v1/engine.proto",
-            "proto/marsa/v1/events.proto",
-            "proto/marsa/v1/maintenance.proto",
-        ],
-        &["proto"],
-    )
+    tonic_prost_build::configure()
+        .extern_path(".marsa.guest.v1", "crate::guest::v1")
+        .compile_with_config(
+            host,
+            &[
+                "proto/marsa/v1/agents.proto",
+                "proto/marsa/v1/configuration.proto",
+                "proto/marsa/v1/engine.proto",
+                "proto/marsa/v1/events.proto",
+                "proto/marsa/v1/maintenance.proto",
+                "proto/marsa/v1/volume_files.proto",
+            ],
+            &["proto"],
+        )
 }

@@ -955,7 +955,7 @@ requests. Native snapshots show the focused control and opened modal in
 
 ### M7-51 Download files from a supported volume
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-31
 - **Docs:** [07 File sharing and storage](../07-file-sharing-and-storage.md), [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Define and implement a read-only provider that confines reads to the selected volume on the selected engine. The existing container archive API resolves paths against a container filesystem and provides no volume-scoped confinement guarantee.
@@ -963,6 +963,18 @@ requests. Native snapshots show the focused control and opened modal in
 - **Accept when:**
   - A supported environment uses the saved format for volume file downloads. An unsupported environment states that it cannot provide secure volume reads.
   - Reads fail closed on volume identity changes or paths that escape the volume, and writes only publish to the new destination the owner selected.
+- **Qualification:** A disposable signed Apple silicon guest served byte-exact
+  regular files in both formats and a scoped directory as TAR. It refused an
+  option-backed volume before path entry and rejected missing paths, symlinks
+  and replacements both before path selection and before download. Host tests
+  covered cancellation, replacement of the parent or staged file, no
+  overwriting and the minor-17 capability gate. The native desktop read the
+  saved format and real inventory in each variant. Enter opened the pinned
+  volume dialog and Escape cancelled it.
+  [English light](../screenshots/m7-51/en-light.png) ·
+  [English dark](../screenshots/m7-51/en-dark.png) ·
+  [Arabic light](../screenshots/m7-51/ar-light.png) ·
+  [Arabic dark](../screenshots/m7-51/ar-dark.png)
 
 ### M7-52 Check registry image digests for the built-in engine
 

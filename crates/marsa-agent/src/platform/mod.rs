@@ -5,12 +5,13 @@ mod bridge;
 mod network;
 mod network_facts;
 mod operations;
+mod volume_files;
 mod vsock;
 
 use std::io;
 
 use marsa_proto::guest::{
-    BIND_AUTHORIZATION_PORT, CONTROL_PORT, DOCKER_API_PORT,
+    BIND_AUTHORIZATION_PORT, CONTROL_PORT, DOCKER_API_PORT, VOLUME_FILES_PORT,
     v1::{
         ConfigureNetwork, EgressResult, InstallCertificates, PortEvent, ProbeEgress, SetTime,
         VmStats, guest_envelope, host_envelope,
@@ -116,6 +117,10 @@ pub(crate) fn run() -> io::Result<()> {
             let bridge = vsock::Listener::bind(DOCKER_API_PORT)?;
             let facts = vsock::Listener::bind(marsa_proto::guest::NETWORK_FACTS_PORT)?;
             let bind_listener = vsock::Listener::bind(BIND_AUTHORIZATION_PORT)?;
+            // The optional provider must not take the Docker engine or control channel down.
+            if let Ok(volumes) = vsock::Listener::bind(VOLUME_FILES_PORT) {
+                tokio::spawn(volume_files::serve(volumes));
+            }
             let plugin = authorization::bind_plugin()?;
             let policy = crate::authorization::Policy::default();
             tokio::spawn(authorization::serve_host(bind_listener, policy.clone()));

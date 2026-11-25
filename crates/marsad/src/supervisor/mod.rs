@@ -420,9 +420,26 @@ impl Supervisor {
     }
 
     pub(crate) async fn connect_running_docker(&self) -> io::Result<marsa_vm::VsockStream> {
+        self.connect_running_service(marsa_proto::guest::DOCKER_API_PORT)
+            .await
+    }
+
+    // A transfer holds the existing idle lease but never activates the VM.
+    pub(crate) async fn connect_running_volume_files(&self) -> io::Result<DockerStream> {
+        let activity = docker::Activity::acquire(&self.docker_clients);
+        let stream = self
+            .connect_running_service(marsa_proto::guest::VOLUME_FILES_PORT)
+            .await?;
+        Ok(DockerStream {
+            stream,
+            _activity: activity,
+        })
+    }
+
+    async fn connect_running_service(&self, port: u32) -> io::Result<marsa_vm::VsockStream> {
         let (reply, result) = oneshot::channel();
         self.commands
-            .send(actor::Command::ConnectDocker(reply))
+            .send(actor::Command::ConnectService(port, reply))
             .await
             .map_err(|_| io::ErrorKind::NotConnected)?;
         result.await.map_err(|_| io::ErrorKind::NotConnected)?

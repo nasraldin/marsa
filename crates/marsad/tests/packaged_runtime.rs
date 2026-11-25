@@ -51,6 +51,8 @@ mod network_mode;
 mod recovery;
 #[path = "packaged_runtime/support.rs"]
 mod support;
+#[path = "packaged_runtime/volume_files.rs"]
+mod volume_files;
 use support::{
     Daemon, action, active_network, assert_sparse_image_equal, checked, connect, disk_identity,
     memory, replace_settings, stage_bundle,

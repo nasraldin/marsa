@@ -13,6 +13,7 @@ mod docker_transport;
 mod lima;
 pub(crate) use lima::{check_lima_target, lima_lifecycle_command, trusted_lima_binary};
 pub(crate) mod registry_https;
+pub(crate) mod volume_destination;
 pub(crate) use docker_transport::{
     check_user_docker_directory, docker_ssh_config, lock_docker_state, open_docker_ssh,
     read_user_docker_file, replace_docker_state,

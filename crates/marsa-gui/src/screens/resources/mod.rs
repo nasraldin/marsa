@@ -11,6 +11,7 @@ mod operations;
 mod pull;
 mod rows;
 mod run;
+mod volume_files;
 
 use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
@@ -122,6 +123,7 @@ pub(crate) struct ResourcesView {
     volume_scan: Option<Task<()>>,
     volume_scanning: bool,
     volume_scan_failed: bool,
+    volume_download: volume_files::DownloadState,
     images: images::ImagesTableState,
     image_detail: Option<image_detail::ImageDetailState>,
 }
@@ -177,6 +179,7 @@ impl ResourcesView {
             volume_scan: None,
             volume_scanning: false,
             volume_scan_failed: false,
+            volume_download: Default::default(),
             images: images::ImagesTableState::default(),
             image_detail: None,
         }
@@ -900,6 +903,9 @@ fn details(
                     )
                 }),
             );
+    }
+    if kind == ResourceKind::Volumes {
+        detail = detail.child(volume_files::render(screen, row, view, data));
     }
     detail
 }

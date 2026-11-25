@@ -3,7 +3,7 @@
 use std::{
     error::Error as StdError,
     io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -32,7 +32,7 @@ use crate::{
         docker_discovery_client::DockerDiscoveryClient, engine_client::EngineClient,
         events_client::EventsClient, meta_client::MetaClient, network_client::NetworkClient,
         settings_client::SettingsClient, shares_client::SharesClient, stats_client::StatsClient,
-        updates_client::UpdatesClient,
+        updates_client::UpdatesClient, volume_files_client::VolumeFilesClient,
     },
     events::EventSubscription,
     platform,
@@ -290,6 +290,10 @@ impl MarsaClient {
         API_MINOR.min(self.version.api_minor)
     }
 
+    pub(crate) fn owner_socket(&self) -> &Path {
+        &self.daemon.socket
+    }
+
     service_clients! {
         meta: MetaClient => "Access daemon version and capability queries.",
         engine: EngineClient => "Access engine lifecycle and status RPCs.",
@@ -299,6 +303,7 @@ impl MarsaClient {
         network: NetworkClient => "Access networking and forwarded port RPCs.",
         events: EventsClient => "Access the raw daemon event stream.",
         stats: StatsClient => "Access VM statistics.",
+        volume_files: VolumeFilesClient => "Read confined files from the built-in VM.",
         disk: DiskClient => "Access disk accounting and maintenance.",
         updates: UpdatesClient => "Access application update RPCs.",
         diagnostics: DiagnosticsClient => "Access logs and diagnostic bundles.",

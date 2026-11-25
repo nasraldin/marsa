@@ -193,7 +193,10 @@ async fn old_docker_stream_closes_on_owner_stop_and_new_admission_waits_for_rele
     let (reply, result) = tokio::sync::oneshot::channel();
     supervisor
         .commands
-        .send(super::super::actor::Command::ConnectDocker(reply))
+        .send(super::super::actor::Command::ConnectService(
+            marsa_proto::guest::DOCKER_API_PORT,
+            reply,
+        ))
         .await
         .unwrap();
     assert_eq!(

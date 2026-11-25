@@ -2,7 +2,6 @@
 
 use std::{io, sync::Arc, time::Duration};
 
-use marsa_proto::guest::DOCKER_API_PORT;
 use marsa_vm::{Vm, VsockStream};
 use tokio::{
     sync::oneshot,
@@ -55,8 +54,8 @@ impl Actor {
                 self.ensure_ready(reply);
                 return;
             }
-            Command::ConnectDocker(reply) => {
-                self.connect_docker(reply).await;
+            Command::ConnectService(port, reply) => {
+                self.connect_service(port, reply).await;
                 return;
             }
             Command::Network(desired, reply) => {
@@ -114,7 +113,11 @@ impl Actor {
         let _ = reply.send(result);
     }
 
-    async fn connect_docker(&mut self, mut reply: oneshot::Sender<io::Result<VsockStream>>) {
+    async fn connect_service(
+        &mut self,
+        port: u32,
+        mut reply: oneshot::Sender<io::Result<VsockStream>>,
+    ) {
         if self.maintenance.is_some() {
             let _ = reply.send(Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -128,7 +131,7 @@ impl Actor {
                     biased;
                     () = reply.closed() => return,
                     // Keep an unresponsive backend from holding up lifecycle commands.
-                    result = timeout(Duration::from_secs(2), vm.connect_vsock(DOCKER_API_PORT)) => {
+                    result = timeout(Duration::from_secs(2), vm.connect_vsock(port)) => {
                         result.map_err(io::Error::from).and_then(|stream| stream.map_err(io::Error::other))
                     }
                 }

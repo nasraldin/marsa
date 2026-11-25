@@ -106,6 +106,25 @@ Compose Watch copies files from the Mac into the selected container. This workfl
 - Keep dependency directories (for example `node_modules`) in a named volume when speed matters most.
 - The GUI shows a hint when a container does very heavy I/O on a shared folder.
 
+## Volume file downloads
+
+In Volumes, select a volume belonging to the running Marsa engine and enter a
+path relative to its root, beginning with `/`. A regular file can be saved
+directly when the owner selects that format under **Logs & files**. Directories
+and downloads using the archive preference are saved as TAR.
+
+The guest supports ordinary, option-free Docker `local` volumes on the managed
+data disk. External engines, plugin volumes and bind-backed or remote
+`local` volumes cannot provide confined downloads. Readable entries are regular
+files with a single link and directories on the volume's own mount. A selection
+containing symlinks, mount crossings or special files is rejected. Reads use
+the live contents and abort if an observed identity or stability check fails.
+Marsa pins the volume before asking for a path. It stages the download in
+the protected owner runtime directory, which is excluded from guest shares.
+Choose a destination on the same host filesystem as Marsa's data. Publication
+requires successful completion and the same destination folder and staged
+file. Existing destination files are preserved.
+
 ## Data disk
 
 ### Layout

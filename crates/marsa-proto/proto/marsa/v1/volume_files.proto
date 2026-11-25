@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package marsa.v1;
+
+import "marsa/guest/v1/volume_files.proto";
+
+// Owner-only, passive access to ordinary local volumes in the built-in VM.
+service VolumeFiles {
+  rpc Read(stream marsa.guest.v1.VolumeReadRequest) returns (stream marsa.guest.v1.VolumeReadReply);
+}
