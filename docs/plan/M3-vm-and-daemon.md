@@ -278,7 +278,7 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 
 - **Status:** todo
 - **Depends on:** M3-12
-- **Docs:** [03 Engine lifecycle](../03-host-daemon.md#engine-lifecycle), [07 Data disk lifecycle](../07-file-sharing-and-storage.md#data-disk-lifecycle)
+- **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [07 Data disk](../07-file-sharing-and-storage.md#data-disk)
 - **Do:** Diagnose and eliminate timing failures when the packaged VM starts with a new default 64 GiB data disk, including after cancellation of a first start. Record preparation, agent connection and Docker readiness separately. Preserve the complete blank-device verification for disks of unknown provenance.
 - **Deliver:** Any required production boot or disk-preparation changes and signed native qualification.
 - **Accept when:**
