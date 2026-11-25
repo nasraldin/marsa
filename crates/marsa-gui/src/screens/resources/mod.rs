@@ -3,6 +3,7 @@
 mod compose;
 mod forms;
 mod image_detail;
+mod image_details_trigger;
 mod images;
 mod layers;
 mod logs;

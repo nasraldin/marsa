@@ -728,7 +728,7 @@ English and Arabic copy cover the history card, disk card, resources label, and 
 
 ### M7-49 Open Images details with the keyboard
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-46
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Give the Images table and list a focusable control that opens the existing image details modal. The current row opens details from a pointer click.

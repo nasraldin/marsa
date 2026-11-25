@@ -2745,6 +2745,7 @@ dependencies = [
 name = "marsa-gui"
 version = "0.1.0"
 dependencies = [
+ "gpui-pre-macos",
  "marsa-client",
  "marsa-ui",
  "proc-macro2",

@@ -5,8 +5,8 @@ use std::{collections::BTreeSet, sync::Arc};
 use marsa_ui::{
     ColorToken, Locale,
     gpui::{
-        Context, Div, Entity, IntoElement, ParentElement as _, SharedString, Styled as _, Window,
-        div, px,
+        App, Context, Div, Entity, IntoElement, ParentElement as _, SharedString, Styled as _,
+        Window, div, px,
     },
     gpui_component::{
         Disableable, Icon, IconName, Placement,
@@ -30,7 +30,8 @@ use crate::{
 };
 
 use super::{
-    ResourceKind, ResourceSource, ResourcesView, forms::FormKind, rows::ResourceRow, text, tone,
+    ResourceKind, ResourceSource, ResourcesView, forms::FormKind,
+    image_details_trigger::ImageDetailsTrigger, rows::ResourceRow, text, tone,
 };
 
 /// Session-only Images table controls.
@@ -557,16 +558,21 @@ fn image_table_row(
             && entry.endpoint() == data.selected_endpoint.as_ref()
     });
     let toggle_view = view.downgrade();
-    let open_view = view.downgrade();
-    let open_entry = entry.clone();
-    let open_service = screen.services.cloned();
-    let appearance = (screen.locale, screen.palette, screen.display);
+    let open_detail = details_opener(screen, view, entry);
     let cells = columns
         .iter()
         .map(|&column| {
             cell(
                 default_flex(column),
-                image_cell(screen, view, entry, column, show_sources, data),
+                image_cell(
+                    screen,
+                    view,
+                    entry,
+                    column,
+                    show_sources,
+                    data,
+                    open_detail.clone(),
+                ),
             )
         })
         .collect::<Vec<_>>();
@@ -581,14 +587,7 @@ fn image_table_row(
                 view.toggle_image_selection(key.clone(), checked, cx);
             });
         },
-        move |window, cx| {
-            let Some(service) = open_service.clone() else {
-                return;
-            };
-            let _ = open_view.update(cx, |view, cx| {
-                view.open_image_detail(&open_entry, appearance, service, window, cx);
-            });
-        },
+        open_detail,
         cells,
     )
 }
@@ -610,6 +609,7 @@ fn image_list_row(
         .collect::<Vec<_>>();
     let subtitle = meta_bits.join(" · ");
     let show_actions = columns.contains(&ColumnId::Actions);
+    let open_detail = details_opener(screen, view, entry);
     let body = row(screen.locale)
         .w_full()
         .items_center()
@@ -621,7 +621,12 @@ fn image_list_row(
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(image_identity(screen, entry, show_sources))
+                .child(image_identity(
+                    screen,
+                    entry,
+                    show_sources,
+                    open_detail.clone(),
+                ))
                 .child(
                     text(screen, Role::Small, subtitle)
                         .text_color(tone(screen, ColorToken::TextMuted))
@@ -637,10 +642,6 @@ fn image_list_row(
             && entry.endpoint() == data.selected_endpoint.as_ref()
     });
     let toggle_view = view.downgrade();
-    let open_view = view.downgrade();
-    let open_entry = entry.clone();
-    let open_service = screen.services.cloned();
-    let appearance = (screen.locale, screen.palette, screen.display);
     table_row(
         screen,
         key.clone(),
@@ -652,14 +653,7 @@ fn image_list_row(
                 view.toggle_image_selection(key.clone(), checked, cx);
             });
         },
-        move |window, cx| {
-            let Some(service) = open_service.clone() else {
-                return;
-            };
-            let _ = open_view.update(cx, |view, cx| {
-                view.open_image_detail(&open_entry, appearance, service, window, cx);
-            });
-        },
+        open_detail,
         [div().flex_1().min_w_0().child(body)],
     )
 }
@@ -682,9 +676,10 @@ fn image_cell(
     column: ColumnId,
     show_sources: bool,
     data: &ResourcesView,
+    open_detail: impl Fn(&mut Window, &mut App) + 'static,
 ) -> Div {
     match column {
-        ColumnId::Image => image_identity(screen, entry, show_sources),
+        ColumnId::Image => image_identity(screen, entry, show_sources, open_detail),
         ColumnId::Tags => tags_cell(screen, entry),
         ColumnId::Size => muted_text(screen, entry.cells.get(2).cloned().unwrap_or_default()),
         ColumnId::Age => age_cell(screen, entry),
@@ -734,11 +729,46 @@ fn age_cell(screen: &ScreenContext<'_>, entry: &ResourceRow) -> Div {
     )
 }
 
-fn image_identity(screen: &ScreenContext<'_>, entry: &ResourceRow, show_sources: bool) -> Div {
+fn details_opener(
+    screen: &ScreenContext<'_>,
+    view: &Entity<ResourcesView>,
+    entry: &ResourceRow,
+) -> impl Fn(&mut Window, &mut App) + Clone + 'static {
+    let view = view.downgrade();
+    let entry = Arc::new(entry.clone());
+    let service = screen.services.cloned();
+    let appearance = (screen.locale, screen.palette, screen.display);
+    move |window, cx| {
+        if let Some(service) = &service {
+            let _ = view.update(cx, |view, cx| {
+                view.open_image_detail(&entry, appearance, Arc::clone(service), window, cx);
+            });
+        }
+    }
+}
+
+fn image_identity(
+    screen: &ScreenContext<'_>,
+    entry: &ResourceRow,
+    show_sources: bool,
+    open_detail: impl Fn(&mut Window, &mut App) + 'static,
+) -> Div {
+    let details = gui::GUI_DESKTOP_IMAGE_DETAILS.text(screen.locale);
+    let accessible_name = format!(
+        "{details} · {}",
+        marsa_ui::direction::isolate_technical_text(entry.display_name())
+    );
     row(screen.locale)
         .gap_2()
         .items_center()
         .min_w_0()
+        .child(ImageDetailsTrigger::new(
+            entry.key(),
+            details,
+            accessible_name.into(),
+            screen.services.is_some(),
+            open_detail,
+        ))
         .child(
             text(screen, Role::Small, entry.display_name().to_owned())
                 .font_family("IBM Plex Mono")
