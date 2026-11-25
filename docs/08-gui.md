@@ -350,6 +350,17 @@ test checks access and the checkout action creates a local copy in a selected
 folder. To deploy the checkout, review it and explicitly select its Compose
 file from the Compose page.
 
+### Deploy secrets
+
+Under Settings → Compose Template, save or remove a Keychain secret for a
+selected local Compose file, project name, and secret name. Declare that
+secret with `environment: MARSA_KEYCHAIN` in the top-level `secrets` map and
+grant it to each intended service. In Compose → Deploy Stack, select the
+target engine and enable **Use saved Keychain secrets**. The required images
+must already be on that engine. Services receiving Keychain secrets cannot
+declare mounts or use images that declare volumes. The project cannot inherit
+container volumes.
+
 ## Feature priorities
 
 From the planning whiteboard.
