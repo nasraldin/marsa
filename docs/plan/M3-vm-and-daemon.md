@@ -276,7 +276,7 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 
 ### M3-19 Qualify default-capacity cold boot
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M3-12
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [07 Data disk](../07-file-sharing-and-storage.md#data-disk)
 - **Do:** Diagnose and eliminate timing failures when the packaged VM starts with a new default 64 GiB data disk, including after cancellation of a first start. Record preparation, agent connection and Docker readiness separately. Preserve the complete blank-device verification for disks of unknown provenance.
@@ -295,5 +295,7 @@ working packaged control path.
 A controlled signed test with matching 64 GiB userspace settings reached
 Ready in 34.949 s from a fresh disk and 36.843 s from the same sparse inode
 after interruption. Guest disk preparation took 30.153 s and 32.735 s.
-Both stopped cleanly. The earlier Auto-network timeout still needs a
-matched comparison.
+Both stopped cleanly. A matched Auto-network repeat reached Ready in
+61.812 s from a fresh disk and 48.306 s after interruption. Initial disk
+preparation took 40.965 s and 28.601 s respectively, and both stopped cleanly.
+The Auto cases also switched network backends during acquisition.
