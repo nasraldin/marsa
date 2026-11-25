@@ -548,7 +548,7 @@ source evidence and allowed connection paths.
 
 ### M7-28 Save and check out HTTPS Git repositories
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** done
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md#git-sources)
 - **Do:** Manage named HTTPS Git repository and branch references, test branch access, and create a checkout in a chosen folder for explicit selection by the Compose workflow.
@@ -558,7 +558,14 @@ source evidence and allowed connection paths.
   - Test verifies the branch exists. Checkout uses the selected reference and does not overwrite existing files.
   - Git ignores ambient configuration. The desktop keeps checkout and engine-pinned Compose deployment as distinct owner actions.
 
-The client tested a real HTTPS branch, rejected a missing ref, and completed separate checkouts into explicitly chosen folders. Authenticated HTTPS and SSH are tracked in M7-30. The Mac locked before the final four-variant desktop checks.
+An ad hoc signed native desktop fixture used a real daemon and the operating system's Apple Git 2.54.0 (Apple Git-157). In all four variants, the fixture saved and edited a repository, recovered the same entry after relaunch, and verified both cancellation and confirmed removal across restarts. It accepted the public Docker Compose examples repository's `master` branch over HTTPS and rejected a missing branch. A direct Git control failed under the supplied ambient URL rewrite and transport settings. Marsa used trusted Git and completed the checkout with those same overrides present, bypassing the Git executable injected into `PATH`.
+
+The fixture supplied the chosen folder and removal response at the native callbacks. The resulting checkout matched the tested branch and revision, preserved existing sentinel files, and had owner-only permissions even under a more broadly readable parent. The repository store was owner-only. A distinct action opened the Deploy Stack dialog for the selected Lima engine. The fixture skipped Finder reveal and stopped before submitting a deployment. Authenticated HTTPS and SSH are tracked in M7-30.
+
+[English light](../screenshots/m7-28/en-light.png) ·
+[English dark](../screenshots/m7-28/en-dark.png) ·
+[Arabic light](../screenshots/m7-28/ar-light.png) ·
+[Arabic dark](../screenshots/m7-28/ar-dark.png).
 
 ### M7-29 Reusable container configuration sets
 

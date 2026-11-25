@@ -2,7 +2,9 @@
 
 use std::{
     collections::HashSet,
+    fs::Permissions,
     io,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
@@ -83,10 +85,14 @@ impl GitRepositoryConfig {
     /// Ask the validated remote whether it advertises the exact selected branch.
     pub async fn test(&self) -> Result<(), GitSourceError> {
         self.validate()?;
-        let workspace = tokio::task::spawn_blocking(tempfile::tempdir)
-            .await
-            .map_err(|_| GitSourceError::Git)?
-            .map_err(|_| GitSourceError::Git)?;
+        let workspace = tokio::task::spawn_blocking(|| {
+            tempfile::Builder::new()
+                .permissions(Permissions::from_mode(0o700))
+                .tempdir()
+        })
+        .await
+        .map_err(|_| GitSourceError::Git)?
+        .map_err(|_| GitSourceError::Git)?;
         let mut command = git(workspace.path()).await?;
         command
             .args(["ls-remote", "--exit-code", "--refs", "--", &self.url])
@@ -116,6 +122,7 @@ impl GitRepositoryConfig {
         let workspace = tokio::task::spawn_blocking(move || {
             tempfile::Builder::new()
                 .prefix("Marsa checkout ")
+                .permissions(Permissions::from_mode(0o700))
                 .tempdir_in(directory)
         })
         .await
