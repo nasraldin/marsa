@@ -392,7 +392,10 @@ fn resource_route(method: &Method, path: &str, has_body: bool) -> bool {
                     | super::overview::VERSION_PATH
             ) || path
                 .strip_prefix("/images/sha256:")
-                .and_then(|digest| digest.strip_suffix("/json"))
+                .and_then(|rest| {
+                    rest.strip_suffix("/json")
+                        .or_else(|| rest.strip_suffix("/history"))
+                })
                 .is_some_and(valid_id)
         }
         Method::DELETE if !has_body => {
@@ -936,6 +939,11 @@ mod tests {
         for (method, path, has_body) in [
             (Method::GET, format!("/images/sha256:{digest}/json"), false),
             (
+                Method::GET,
+                format!("/images/sha256:{digest}/history"),
+                false,
+            ),
+            (
                 Method::POST,
                 format!("/images/sha256:{digest}/tag?repo=registry%3A5000%2Ftest&tag=dev"),
                 false,
@@ -959,6 +967,12 @@ mod tests {
             );
             assert!(!external_route(&method, &path, false, has_body));
         }
+        assert!(!external_route(
+            &Method::GET,
+            &format!("/images/sha256:{digest}/history/extra"),
+            true,
+            false
+        ));
         for path in [
             "/volumes/database?force=true",
             "/volumes/database%2Fother?force=false",
