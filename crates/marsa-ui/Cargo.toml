@@ -30,6 +30,10 @@ gpui.workspace = true
 gpui-macos.workspace = true
 vt100 = "=0.18.1"
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+gpui-macos = { workspace = true, features = ["snapshot-support"] }
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+
 [[test]]
 name = "direction_render"
 harness = false
@@ -40,4 +44,8 @@ harness = false
 
 [[test]]
 name = "component_render"
+harness = false
+
+[[test]]
+name = "component_snapshots"
 harness = false

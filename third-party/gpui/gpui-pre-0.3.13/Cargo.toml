@@ -76,6 +76,7 @@ leak-detection = []
 profiler = ["dep:hdrhistogram"]
 screen-capture = ["scap"]
 stacker = ["dep:stacksafe"]
+snapshot-support = []
 test-support = [
     "bench_metrics?/test-support",
     "collections/test-support",

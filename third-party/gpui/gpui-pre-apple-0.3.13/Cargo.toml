@@ -42,6 +42,7 @@ font-kit = [
 ]
 runtime_shaders = []
 test-support = ["gpui/test-support"]
+snapshot-support = []
 
 [lib]
 name = "gpui_apple"

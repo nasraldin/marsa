@@ -2819,6 +2819,7 @@ dependencies = [
  "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-macos",
+ "image",
  "marsa-core",
  "marsa-l10n",
  "proc-macro2",
