@@ -44,7 +44,7 @@ pub(super) fn prepare(verify_existing: impl FnOnce() -> io::Result<()>) -> io::R
         Some(2) => {
             let scan_started = Instant::now();
             eprintln!("marsa-init: data disk blank scan started bytes={bytes}");
-            let blank = is_blank(&device, bytes)?;
+            let blank = is_blank(bytes, |buffer, offset| device.read_exact_at(buffer, offset))?;
             eprintln!(
                 "marsa-init: data disk blank scan completed duration_ms={} blank={blank}",
                 scan_started.elapsed().as_millis()
@@ -171,7 +171,10 @@ fn unrecognized_disk(status: ExitStatus) -> io::Error {
     )
 }
 
-fn is_blank(device: &File, bytes: u64) -> io::Result<bool> {
+fn is_blank(
+    bytes: u64,
+    read: impl Fn(&mut [u8], u64) -> io::Result<()> + Sync,
+) -> io::Result<bool> {
     // Keep only a fixed number of outstanding reads. Each worker owns a
     // contiguous range and the last one includes the final sector.
     let stride = bytes / BLANK_SCAN_WORKERS as u64 / SECTOR_BYTES * SECTOR_BYTES;
@@ -186,11 +189,11 @@ fn is_blank(device: &File, bytes: u64) -> io::Result<bool> {
                 start + stride
             };
             let nonblank = &nonblank;
-            scans.push(thread::Builder::new().spawn_scoped(scope, move || {
-                scan_range(start, end, nonblank, |buffer, offset| {
-                    device.read_exact_at(buffer, offset)
-                })
-            })?);
+            let read = &read;
+            scans.push(
+                thread::Builder::new()
+                    .spawn_scoped(scope, move || scan_range(start, end, nonblank, read))?,
+            );
         }
         for scan in scans {
             scan.join()
@@ -204,7 +207,7 @@ fn scan_range(
     mut offset: u64,
     end: u64,
     nonblank: &AtomicBool,
-    mut read: impl FnMut(&mut [u8], u64) -> io::Result<()>,
+    read: impl Fn(&mut [u8], u64) -> io::Result<()>,
 ) -> io::Result<()> {
     // A probe without a recognized signature can still contain user data.
     let mut buffer = vec![0; BLANK_SCAN_CHUNK];
@@ -268,11 +271,9 @@ mod tests {
     use std::io::Read;
 
     fn scan_bytes(disk: &[u8], capacity: u64) -> io::Result<bool> {
-        let nonblank = AtomicBool::new(false);
-        scan_range(0, capacity, &nonblank, |buffer, offset| {
+        is_blank(capacity, |buffer, offset| {
             disk[offset as usize..].read_exact(buffer)
-        })?;
-        Ok(!nonblank.load(Ordering::Relaxed))
+        })
     }
 
     #[test]
@@ -285,7 +286,7 @@ mod tests {
 
     #[test]
     fn rejects_unrecognized_data_at_the_end_of_a_partial_scan_chunk() {
-        let mut disk = vec![0; BLANK_SCAN_CHUNK + 513];
+        let mut disk = vec![0; BLANK_SCAN_CHUNK * BLANK_SCAN_WORKERS + 512];
         let last_byte = disk.len() - 1;
         assert!(scan_bytes(&disk, disk.len() as u64).unwrap());
         disk[last_byte] = 1;
