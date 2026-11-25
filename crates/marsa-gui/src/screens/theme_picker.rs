@@ -2,6 +2,7 @@
 
 use marsa_ui::{
     ColorToken, Locale, Palette,
+    direction::align_column_to_start,
     gpui::{
         AnyElement, Context, Div, ElementId, IntoElement as _, ParentElement as _, Styled as _,
         div, px, relative, svg,
@@ -126,10 +127,7 @@ pub(crate) fn choice_button(id: impl Into<ElementId>, selected: bool, palette: P
 
 fn theme_thumbnail(locale: Locale, palette: Palette) -> Div {
     let content = div().flex_1().min_w_0().h_full().flex().flex_col();
-    let content = match locale {
-        Locale::EnglishUs => content.items_start(),
-        Locale::Arabic => content.items_end(),
-    };
+    let content = align_column_to_start(content, locale);
     row(locale)
         .h(px(92.))
         .w_full()

@@ -2747,6 +2747,7 @@ version = "0.1.0"
 dependencies = [
  "marsa-client",
  "marsa-ui",
+ "proc-macro2",
 ]
 
 [[package]]

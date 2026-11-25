@@ -3,8 +3,8 @@
 use std::fmt::Write as _;
 
 use gpui::{
-    AbsoluteLength, App, DefiniteLength, Div, Length, SharedString, Styled, TextAlign, Window, div,
-    point, px,
+    AbsoluteLength, Anchor, App, DefiniteLength, Div, Length, SharedString, Styled, TextAlign,
+    Window, div, point, px,
 };
 use gpui_base::{LayoutDirection, LogicalStyledExt};
 use marsa_l10n::Locale;
@@ -41,6 +41,35 @@ pub fn row_for(locale: Locale) -> Div {
     match locale {
         Locale::EnglishUs => row.flex_row(),
         Locale::Arabic => row.flex_row_reverse(),
+    }
+}
+
+/// Create a fixed left-to-right row for ordered technical data such as a chart axis.
+pub fn technical_row() -> Div {
+    div().flex().flex_row()
+}
+
+/// Align the children of a column to its logical start.
+pub fn align_column_to_start(element: Div, locale: Locale) -> Div {
+    match locale {
+        Locale::EnglishUs => element.items_start(),
+        Locale::Arabic => element.items_end(),
+    }
+}
+
+/// Anchor a popover at the top of the trigger's logical start edge.
+pub fn top_start_anchor(locale: Locale) -> Anchor {
+    match locale {
+        Locale::EnglishUs => Anchor::TopLeft,
+        Locale::Arabic => Anchor::TopRight,
+    }
+}
+
+/// Anchor a popover at the bottom of the trigger's logical start edge.
+pub fn bottom_start_anchor(locale: Locale) -> Anchor {
+    match locale {
+        Locale::EnglishUs => Anchor::BottomLeft,
+        Locale::Arabic => Anchor::BottomRight,
     }
 }
 
@@ -83,14 +112,13 @@ pub fn position_window_controls(window: &Window, locale: Locale, compact: bool) 
     window.set_traffic_light_position(point(inset, px(TRAFFIC_LIGHT_Y)));
 }
 
-/// Return the sidebar toggle glyph for the current reading direction and state.
-pub fn sidebar_toggle(locale: Locale, compact: bool) -> gpui_component::IconName {
+/// Return the sidebar toggle glyph for the component resolver to mirror.
+pub fn sidebar_toggle(compact: bool) -> gpui_component::IconName {
     use gpui_component::IconName;
-    match (locale, compact) {
-        (Locale::EnglishUs, true) => IconName::PanelLeftOpen,
-        (Locale::EnglishUs, false) => IconName::PanelLeftClose,
-        (Locale::Arabic, true) => IconName::PanelRightOpen,
-        (Locale::Arabic, false) => IconName::PanelRightClose,
+    if compact {
+        IconName::PanelLeftOpen
+    } else {
+        IconName::PanelLeftClose
     }
 }
 
@@ -244,4 +272,28 @@ pub fn isolate_technical_text(value: &str) -> SharedString {
         display.push(PDI);
     }
     display.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::isolate_technical_text;
+
+    #[test]
+    fn starts_a_fresh_isolate_after_a_paragraph_break() {
+        let value = "/work/app\r\n\u{2029}repo:3";
+        assert_eq!(
+            isolate_technical_text(value).as_ref(),
+            "\u{2066}/work/app\u{2069}\r\n\u{2029}\u{2066}repo:3\u{2069}",
+        );
+        assert_eq!(isolate_technical_text("").as_ref(), "");
+    }
+
+    #[test]
+    fn escapes_direction_controls_inside_a_value() {
+        let value = "--name=\u{2069}\u{202e}abc\u{061c}";
+        assert_eq!(
+            isolate_technical_text(value).as_ref(),
+            "\u{2066}--name=\\u{2069}\\u{202e}abc\\u{61c}\u{2069}",
+        );
+    }
 }

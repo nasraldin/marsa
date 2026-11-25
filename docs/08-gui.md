@@ -169,6 +169,15 @@ Rules, enforced by lint and review:
 - **Western digits (0 to 9) everywhere,** so ports, sizes and IDs match the CLI output.
 - **Keyboard shortcuts do not change with language,** but arrow-key navigation follows the visual direction.
 
+Screen code uses `marsa_ui::direction` for asymmetric inline edges,
+row alignment and popover anchors. The `marsa-gui` build checks Rust
+tokens under `src` for physical layout calls on macOS and headless
+targets. Marsa supplies directional component
+icons in their English orientation, and the resolver mirrors the asset
+once in Arabic. A chart's samples and hover targets
+use the same fixed-direction technical row so every point matches its
+time interval in both languages.
+
 ### Internationalisation
 
 | Topic | Design | Status |

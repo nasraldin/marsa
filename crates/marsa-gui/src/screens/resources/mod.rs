@@ -491,10 +491,7 @@ pub(crate) fn render(
                     Button::new("back-to-resource-list")
                         .ghost()
                         .label(message(screen.locale, kind.title()))
-                        .icon(match screen.locale {
-                            Locale::Arabic => IconName::ChevronRight,
-                            Locale::EnglishUs => IconName::ChevronLeft,
-                        })
+                        .icon(IconName::ChevronLeft)
                         .on_click(move |_, _, cx| {
                             back.update(cx, |view, cx| {
                                 view.close_details();

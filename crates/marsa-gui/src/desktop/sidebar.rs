@@ -2,9 +2,10 @@
 
 use marsa_ui::{
     ColorToken, brand_mark_for_source,
+    direction::{LogicalStyle as _, bottom_start_anchor},
     gpui::{
-        Anchor, AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement,
-        ParentElement, Styled, div, img, prelude::FluentBuilder, px, svg,
+        AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement, ParentElement,
+        Styled, div, img, prelude::FluentBuilder, px, svg,
     },
     gpui_component::{
         Icon, IconName, Selectable,
@@ -46,10 +47,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         .bg(color(palette, ColorToken::GlassControl))
         .accessibility_label(collapse_label)
         .tooltip(collapse_label)
-        .child(marsa_ui::direction::sidebar_toggle(
-            locale,
-            desktop.collapsed,
-        ))
+        .child(marsa_ui::direction::sidebar_toggle(desktop.collapsed))
         .on_click(cx.listener(|desktop, _, _, cx| {
             desktop.collapsed = !desktop.collapsed;
             cx.notify();
@@ -177,7 +175,7 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 .flex_col()
                 .gap_2()
                 .pt(px(4.))
-                .child(row(locale).h(px(36.)).justify_end().child(collapse))
+                .child(row(locale).h(px(36.)).justify_row_end().child(collapse))
                 .child(row(locale).px_2().pb_3().child(brand))
         })
         // Collapsed rail still scrolls if needed; square icon buttons keep equal side padding.
@@ -284,10 +282,7 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
                 ),
         )
     };
-    let anchor = match locale {
-        marsa_ui::Locale::Arabic => Anchor::BottomRight,
-        marsa_ui::Locale::EnglishUs => Anchor::BottomLeft,
-    };
+    let anchor = bottom_start_anchor(locale);
     button.dropdown_menu_with_anchor(anchor, move |menu, _, _| {
         let menu = choices.iter().fold(menu, |menu, (choice, name, icon)| {
             let picked = choice.clone();

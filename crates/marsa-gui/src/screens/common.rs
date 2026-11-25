@@ -5,6 +5,7 @@ use std::sync::Arc;
 use marsa_client::docker::LogTimestamp;
 use marsa_ui::{
     ColorToken, DialogClose, Locale, Palette,
+    direction::LogicalStyle as _,
     gpui::{
         App, Div, Entity, FontWeight, Hsla, InteractiveElement, ParentElement, SharedString,
         Styled, Window, div, px, svg,
@@ -141,7 +142,7 @@ pub(crate) fn dialog_heading(
 pub(crate) fn dialog_actions(locale: Locale, palette: Palette) -> Div {
     row(locale)
         .flex_wrap()
-        .justify_end()
+        .justify_row_end()
         .gap_2()
         .pt_3()
         .border_t_1()

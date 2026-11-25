@@ -12,10 +12,10 @@ use marsa_client::docker::{
 };
 use marsa_ui::{
     ColorToken, Locale,
-    direction::{LogicalStyle as _, isolate_technical_text, row},
+    direction::{LogicalStyle as _, isolate_technical_text, row, top_start_anchor},
     gpui::{
-        Anchor, App, Context, Div, FontWeight, IntoElement, ParentElement as _, PromptButton,
-        PromptLevel, SharedString, Styled as _, WeakEntity, Window, div, px,
+        App, Context, Div, FontWeight, IntoElement, ParentElement as _, PromptButton, PromptLevel,
+        SharedString, Styled as _, WeakEntity, Window, div, px,
     },
     gpui_component::{
         Disableable as _, IconName, WindowExt as _,
@@ -296,10 +296,7 @@ pub(super) fn open(view: &ContainerView, window: &mut Window, cx: &mut Context<C
             let choices = entries.clone();
             let selection = selected.clone();
             let selected_id = selected.borrow().as_ref().map(|(id, _)| id.clone());
-            let anchor = match locale {
-                Locale::Arabic => Anchor::TopRight,
-                Locale::EnglishUs => Anchor::TopLeft,
-            };
+            let anchor = top_start_anchor(locale);
             let image_label = gui::GUI_DESKTOP_IMAGE.text(locale);
             let label = selected
                 .borrow()

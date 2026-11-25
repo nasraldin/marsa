@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, VecDeque};
 use marsa_client::docker::{ContainerId, OverviewUtilization};
 use marsa_ui::{
     ColorToken,
+    direction::{LogicalStyle as _, technical_row},
     gpui::{
         App, Div, InteractiveElement as _, IntoElement, ParentElement as _, PathBuilder,
         StatefulInteractiveElement as _, Styled as _, canvas, div, point, px,
@@ -12,7 +13,7 @@ use marsa_ui::{
     gpui_component::tooltip::Tooltip,
 };
 
-use crate::screens::common::{ScreenContext, color, disk_bytes, row};
+use crate::screens::common::{ScreenContext, color, disk_bytes};
 
 const SAMPLE_COUNT: usize = 24;
 
@@ -217,7 +218,7 @@ impl UsageHistory {
                 .size_full(),
             )
             .child(
-                row(screen.locale)
+                technical_row()
                     .absolute()
                     .inset_0()
                     .children(tips.into_iter().map(|(index, tip)| {
@@ -245,9 +246,9 @@ fn sparkline(
     let samples: Vec<_> = values.collect();
     let maximum = samples.iter().copied().flatten().fold(0., f64::max).max(1.);
     let height_px = f64::from(height);
-    row(screen.locale)
+    technical_row()
         .items_end()
-        .justify_end()
+        .justify_row_end()
         .gap(px(2.))
         .w(width)
         .h(height)

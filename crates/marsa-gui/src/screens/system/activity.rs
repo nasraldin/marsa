@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use marsa_client::api::{AgentAuditRecord, AuditDecision, EngineState, ListAgentAuditRequest};
 use marsa_ui::{
     ColorToken, Locale,
+    direction::LogicalStyle as _,
     gpui::{Context, Div, ParentElement, SharedString, Styled, div, px},
     gpui_component::{Disableable, Selectable, button::Button},
     preferences::TimeFormat,
@@ -293,7 +294,7 @@ impl SystemView {
                             .as_ref()
                             .and_then(|audit| audit.next_cursor.clone())
                             .map(|cursor| {
-                                row(locale).justify_end().child(
+                                row(locale).justify_row_end().child(
                                     Button::new("older-audit-entries")
                                         .outline()
                                         .label(gui::GUI_DESKTOP_OLDER_ENTRIES.text(locale))
