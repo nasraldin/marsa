@@ -69,6 +69,27 @@ flowchart TB
 
 A feature is not complete until its four-variant snapshots are reviewed and committed.
 
+On macOS, run `cargo test --locked -p marsa-ui --test component_snapshots`.
+It renders production gallery controls in a hidden native window at a fixed
+viewport and scale using bundled fonts and Metal readback. Each fixture has
+one reference for each locale and appearance under
+[`crates/marsa-ui/tests/snapshots/`](../crates/marsa-ui/tests/snapshots/).
+The suite also checks which edge starts the split view. The
+`direction_render` target checks logical alignment, mirrored icons and
+left-to-right technical spans.
+
+The comparison allows a channel delta of eight and up to 32 additional
+changed pixels per image for rasterization variance. A higher count or image
+size mismatch fails the test and writes `expected.png`, `actual.png` and a
+magenta-highlighted `diff.png` under `target/ui-snapshot-diffs`. Tier 1 macOS
+uploads that directory when workspace tests fail.
+
+To refresh references after an intentional change, run
+`MARSA_UPDATE_SNAPSHOTS=1 cargo test --locked -p marsa-ui --test component_snapshots`
+locally, then review the four variants before committing the images. New
+screen fixtures can use the same capture and comparison helpers with their
+own native render root.
+
 ## Security tests
 
 | Test | Expectation |

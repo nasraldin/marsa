@@ -3214,6 +3214,13 @@ impl Window {
             .render_to_image(&self.rendered_frame.scene)
     }
 
+    /// Captures the last frame at the window's logical viewport and backing scale.
+    #[cfg(feature = "snapshot-support")]
+    pub fn render_snapshot(&self) -> anyhow::Result<image::RgbaImage> {
+        let size = self.viewport_size().to_device_pixels(self.scale_factor);
+        self.platform_window.render_snapshot(&self.rendered_frame.scene, size)
+    }
+
     /// Borrows the most recently rendered frame's scene, so benchmarks can validate their
     /// output and report batch counts without cloning it.
     #[cfg(feature = "bench-support")]
@@ -3452,7 +3459,7 @@ impl Window {
     }
 
     /// Overrides the display scale factor for tests.
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(any(test, feature = "test-support", feature = "snapshot-support"))]
     pub fn set_scale_factor(&mut self, scale_factor: f32) {
         self.scale_factor = scale_factor;
         self.refresh();

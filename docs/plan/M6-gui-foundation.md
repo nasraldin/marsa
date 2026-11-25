@@ -168,7 +168,7 @@ toast dismissal.
 
 ### M6-06 Four-variant snapshot harness
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-05
 - **Docs:** [13 GUI tests](../13-testing-and-benchmarks.md#gui-tests)
 - **Do:** Build the snapshot test harness that renders any component or screen in English light, English dark, Arabic light and Arabic dark, compares against committed references, and produces a visual diff. Add layout assertions for right-to-left.

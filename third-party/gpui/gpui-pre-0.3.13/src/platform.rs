@@ -51,7 +51,7 @@ use anyhow::{Context as _, Result};
 use async_task::Runnable;
 use collections::FxHashMap;
 use futures::channel::oneshot;
-#[cfg(any(test, feature = "test-support", feature = "bench-support"))]
+#[cfg(any(test, feature = "test-support", feature = "bench-support", feature = "snapshot-support"))]
 use image::RgbaImage;
 use image::codecs::{gif::GifDecoder, webp::WebPDecoder};
 use image::{DynamicImage, Frame, Rgba};
@@ -1500,6 +1500,12 @@ pub trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     #[cfg(any(test, feature = "test-support"))]
     fn render_to_image(&self, _scene: &Scene) -> Result<RgbaImage> {
         anyhow::bail!("render_to_image not implemented for this platform")
+    }
+
+    /// Reads back a scene rendered to an offscreen texture of the requested size.
+    #[cfg(feature = "snapshot-support")]
+    fn render_snapshot(&self, _scene: &Scene, _size: Size<DevicePixels>) -> Result<RgbaImage> {
+        anyhow::bail!("snapshot capture not implemented for this platform")
     }
 }
 
