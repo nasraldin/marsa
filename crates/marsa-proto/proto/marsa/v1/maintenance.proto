@@ -7,6 +7,8 @@ service Stats {
   rpc VmStats(VmStatsRequest) returns (stream VmStatsSample);
   // Read a bounded snapshot from a guest which is already running.
   rpc DockerOverview(DockerOverviewRequest) returns (DockerOverviewResponse);
+  // Resolve one tagged image anonymously when the owner has enabled registry checks.
+  rpc DockerRegistryDigest(DockerRegistryDigestRequest) returns (DockerRegistryDigestResponse);
 }
 
 service Disk {
@@ -70,6 +72,14 @@ message DockerOverviewResponse {
   bytes json = 1;
   // When the payload came from the daemon inventory cache (host API minor 14+).
   int64 observed_at_unix_millis = 2;
+}
+
+message DockerRegistryDigestRequest {
+  string reference = 1;
+}
+
+message DockerRegistryDigestResponse {
+  string digest = 1;
 }
 
 message DiskUsageRequest {}

@@ -355,7 +355,12 @@ the selected environment. The Images cleanup action opens this review. Each engi
 settings control whether unused volumes appear in the candidate list. The
 Overview image update setting enables local image-tag comparisons on the
 built-in engine and local tag and registry digest comparisons on external
-engines. M7-52 tracks the passive registry lookup path for the built-in engine.
+engines. The built-in engine has a separate registry switch, off by
+default. While Overview is open, it sends tagged image references to the
+configured registries and mirrors in anonymous requests. The daemon
+accepts the passive lookup only when the owner enabled it and the guest is
+already running. The desktop batches at most 32 references on its own
+five-minute schedule and compares replies against the current inventory.
 Verified Marsa release updates use the app-wide updater described in
 [D-029](15-decisions.md#d-029-verify-updates-with-tuf). Cleanup remains a preview until the engine can guarantee deletion of
 the reviewed identity. Host allocation and reclaim apply to the built-in

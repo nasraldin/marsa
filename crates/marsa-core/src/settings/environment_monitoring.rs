@@ -36,6 +36,9 @@ pub struct EnvironmentMonitoring {
     pub activity_retention: ActivityRetention,
     /// Check for changed local image tags and compare registry digests on external engines.
     pub check_image_updates: bool,
+    /// Allow anonymous registry lookups from the built-in engine.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub check_managed_registry_updates: bool,
     /// List unused volumes as candidates when reviewing storage.
     pub show_volume_candidates: bool,
     /// Show a local notification after a container becomes unhealthy.
@@ -48,6 +51,7 @@ impl Default for EnvironmentMonitoring {
             collect_activity: true,
             activity_retention: ActivityRetention::default(),
             check_image_updates: true,
+            check_managed_registry_updates: false,
             show_volume_candidates: true,
             notify_unhealthy: false,
         }

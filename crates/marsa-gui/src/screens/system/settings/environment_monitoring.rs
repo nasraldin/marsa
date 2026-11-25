@@ -32,13 +32,14 @@ impl SystemView {
     ) -> Div {
         let locale = screen.locale;
         let key = self.active_environment.settings_key();
+        let managed = self.active_environment.includes_marsa();
         let target = self
             .external_inventory
             .iter()
             .find(|workspace| self.active_environment.includes_external(workspace))
             .map(|workspace| self.environment_presentation(Some(workspace)).0)
             .unwrap_or_else(|| {
-                if self.active_environment.includes_marsa() {
+                if managed {
                     self.environment_presentation(None).0
                 } else {
                     self.active_environment.name().to_owned()
@@ -84,7 +85,7 @@ impl SystemView {
                     });
                 }
             });
-        let switches: [MonitoringSwitch; 4] = [
+        let mut switches: Vec<MonitoringSwitch> = vec![
             (
                 gui::GUI_ENVIRONMENT_MONITORING_COLLECT,
                 gui::GUI_ENVIRONMENT_MONITORING_COLLECT_HELP,
@@ -101,7 +102,7 @@ impl SystemView {
             ),
             (
                 gui::GUI_ENVIRONMENT_MONITORING_IMAGE_UPDATES,
-                if self.active_environment.includes_marsa() {
+                if managed {
                     gui::GUI_ENVIRONMENT_MONITORING_LOCAL_IMAGE_UPDATES_HELP
                 } else {
                     gui::GUI_ENVIRONMENT_MONITORING_IMAGE_UPDATES_HELP
@@ -118,6 +119,18 @@ impl SystemView {
                 |entry, value| entry.show_volume_candidates = value,
             ),
         ];
+        if managed {
+            switches.insert(
+                3,
+                (
+                    gui::GUI_ENVIRONMENT_MONITORING_MANAGED_REGISTRY_UPDATES,
+                    gui::GUI_ENVIRONMENT_MONITORING_MANAGED_REGISTRY_UPDATES_HELP,
+                    preferences.check_managed_registry_updates,
+                    disabled || !preferences.check_image_updates,
+                    |entry, value| entry.check_managed_registry_updates = value,
+                ),
+            );
+        }
         settings_card(screen)
             .child(settings_heading(
                 screen,

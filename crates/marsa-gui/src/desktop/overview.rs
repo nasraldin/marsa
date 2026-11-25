@@ -2,13 +2,18 @@
 
 mod usage_history;
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use marsa_client::{
     api::EngineState,
     docker::{
-        ContainerCounts, ContainerId, ContainerUtilization, DiskBreakdown, ExternalEndpoint,
-        OverviewClient, OverviewSample, OverviewUtilization, local_image_updates,
+        ContainerCounts, ContainerId, ContainerSummary, ContainerUtilization, DiskBreakdown,
+        ExternalEndpoint, ImageSummary, OverviewClient, OverviewSample, OverviewUtilization,
+        local_image_updates,
     },
 };
 use marsa_ui::{
@@ -45,6 +50,28 @@ const SAMPLE_INTERVAL: Duration = Duration::from_secs(2);
 const DISK_INTERVAL: Duration = Duration::from_secs(60);
 const DISK_RETRY: Duration = Duration::from_secs(15);
 
+const REGISTRY_INTERVAL: Duration = Duration::from_secs(300);
+
+type ImageObservations = (
+    Arc<BTreeMap<ContainerId, ContainerSummary>>,
+    Arc<BTreeMap<String, ImageSummary>>,
+);
+
+fn observed_images(state: &AppState) -> Option<ImageObservations> {
+    state
+        .has_docker_inventory()
+        .then(|| (state.containers(), state.images()))
+}
+
+fn current_image_observations(
+    target: &Target,
+    state: &AppState,
+    captured: &ImageObservations,
+) -> bool {
+    *target == Target::Marsa(state.docker_epoch())
+        && observed_images(state).as_ref() == Some(captured)
+}
+
 #[derive(Clone, PartialEq, Eq)]
 enum Target {
     Marsa(u64),
@@ -60,6 +87,9 @@ pub(super) struct Overview {
     disk_task: Option<Task<()>>,
     version_task: Option<Task<()>>,
     image_task: Option<Task<()>>,
+    registry_task: Option<Task<()>>,
+    check_registry_updates: bool,
+    registry_inventory: Option<ImageObservations>,
     managed_updates: usize,
     sample: Option<OverviewSample>,
     usage_history: UsageHistory,
@@ -94,6 +124,17 @@ impl Overview {
         self.disk_task = None;
         self.version_task = None;
         self.image_task = None;
+        self.registry_task = None;
+    }
+
+    fn publish_updates(&mut self, count: usize, outdated: BTreeSet<String>) {
+        self.managed_updates = count;
+        let sample = self.sample.get_or_insert_default();
+        if let Some(counts) = &mut sample.containers {
+            counts.updates = count;
+        }
+        sample.updates_checked = true;
+        sample.outdated_images = outdated;
     }
 }
 
@@ -116,19 +157,27 @@ impl Desktop {
                 |workspace| Target::External(Box::new(workspace.endpoint.clone())),
             ))
         };
-        let check_image_updates = self.system.read(cx).monitoring().check_image_updates;
-        let checks_changed = self.overview.check_image_updates != check_image_updates;
+        let monitoring = self.system.read(cx).monitoring();
+        let check_image_updates = monitoring.check_image_updates;
         let managed = matches!(target, Some(Target::Marsa(_)));
+        let check_registry_updates =
+            managed && check_image_updates && monitoring.check_managed_registry_updates;
+        let checks_changed = self.overview.check_image_updates != check_image_updates
+            || self.overview.check_registry_updates != check_registry_updates;
         if self.overview.target != target || (!managed && checks_changed) {
             self.overview = Overview {
                 disk_pending: matches!(target, Some(Target::Marsa(_) | Target::External(_))),
                 target: target.clone(),
                 check_image_updates,
+                check_registry_updates,
                 ..Overview::default()
             };
         } else if checks_changed {
             self.overview.check_image_updates = check_image_updates;
+            self.overview.check_registry_updates = check_registry_updates;
             self.overview.image_task = None;
+            self.overview.registry_task = None;
+            self.overview.registry_inventory = None;
             self.overview.managed_updates = 0;
             if let Some(sample) = &mut self.overview.sample {
                 sample.updates_checked = false;
@@ -337,17 +386,14 @@ impl Desktop {
         services: Arc<Services>,
         cx: &mut Context<Self>,
     ) {
+        if self.overview.check_registry_updates {
+            self.observe_managed_registry_updates(target.clone(), Arc::clone(&services), cx);
+        }
         self.overview.image_task = Some(cx.spawn(async move |this, cx| {
-            let inventory = |state: &AppState| {
-                state
-                    .has_docker_inventory()
-                    .then(|| (state.docker_epoch(), state.containers(), state.images()))
-            };
-            let mut selection = services.store().select(inventory);
+            let mut selection = services.store().select(observed_images);
             loop {
-                if let Some((epoch, containers, images)) = selection.current() {
-                    let (epoch, old_containers, old_images) = (*epoch, containers, images);
-                    let (containers, images) = (Arc::clone(containers), Arc::clone(images));
+                if let Some(inputs) = selection.current().clone() {
+                    let (containers, images) = inputs.clone();
                     let mut request = services.pending(async move {
                         let containers = containers.values().cloned().collect::<Vec<_>>();
                         let images = images.values().cloned().collect::<Vec<_>>();
@@ -362,26 +408,12 @@ impl Desktop {
                                 {
                                     return false;
                                 }
-                                // The service can publish a newer snapshot while this
-                                // background comparison is still in flight.
-                                let current = services.store().select(inventory);
-                                if !current.current().as_ref().is_some_and(
-                                    |(current_epoch, containers, images)| {
-                                        *current_epoch == epoch
-                                            && containers == old_containers
-                                            && images == old_images
-                                    },
-                                ) {
-                                    return true;
+                                if current_image_observations(&target, &desktop.state, &inputs)
+                                    && overview.registry_inventory.as_ref() != Some(&inputs)
+                                {
+                                    overview.publish_updates(count, outdated);
+                                    cx.notify();
                                 }
-                                overview.managed_updates = count;
-                                let sample = overview.sample.get_or_insert_default();
-                                if let Some(counts) = &mut sample.containers {
-                                    counts.updates = count;
-                                }
-                                sample.updates_checked = true;
-                                sample.outdated_images = outdated;
-                                cx.notify();
                                 true
                             })
                             .ok()
@@ -393,6 +425,60 @@ impl Desktop {
                 if selection.changed().await.is_none() {
                     return;
                 }
+            }
+        }));
+    }
+
+    fn observe_managed_registry_updates(
+        &mut self,
+        target: Target,
+        services: Arc<Services>,
+        cx: &mut Context<Self>,
+    ) {
+        let executor = cx.background_executor().clone();
+        self.overview.registry_task = Some(cx.spawn(async move |this, cx| {
+            let mut selection = services.store().select(observed_images);
+            loop {
+                let inputs = loop {
+                    if let Some(inputs) = selection.current().clone() {
+                        break inputs;
+                    }
+                    if selection.changed().await.is_none() {
+                        return;
+                    }
+                };
+                let (containers, images) = inputs.clone();
+                let mut request = services.request(move |client| async move {
+                    let containers = containers.values().cloned().collect::<Vec<_>>();
+                    let images = images.values().cloned().collect::<Vec<_>>();
+                    Ok(OverviewClient::Marsa(client)
+                        .registry_image_updates(&containers, &images)
+                        .await)
+                });
+                if let Some(Ok((count, outdated))) = request.result().await
+                    && this
+                        .update(cx, |desktop, cx| {
+                            let overview = &mut desktop.overview;
+                            if overview.target.as_ref() != Some(&target)
+                                || !overview.check_registry_updates
+                            {
+                                return false;
+                            }
+                            if current_image_observations(&target, &desktop.state, &inputs) {
+                                overview.registry_inventory = Some(inputs);
+                                overview.publish_updates(count, outdated);
+                                cx.notify();
+                            }
+                            true
+                        })
+                        .ok()
+                        != Some(true)
+                {
+                    return;
+                }
+                executor.timer(REGISTRY_INTERVAL).await;
+                // The store selector's cursor advances only when changed() is awaited.
+                selection = services.store().select(observed_images);
             }
         }));
     }
@@ -1614,6 +1700,35 @@ fn number(count: Option<usize>) -> marsa_ui::gpui::SharedString {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registry_results_keep_their_engine_epoch_and_image_inventory() {
+        let state = AppState::index_resources(DockerInventory::default());
+        let original = observed_images(&state).unwrap();
+        let expected = Target::Marsa(state.docker_epoch());
+        assert!(current_image_observations(&expected, &state, &original));
+        assert!(!current_image_observations(
+            &Target::Marsa(state.docker_epoch() + 1),
+            &state,
+            &original,
+        ));
+        assert!(!current_image_observations(
+            &expected,
+            &AppState::default(),
+            &original,
+        ));
+
+        let mut changed = state;
+        changed.replace_containers(
+            serde_json::from_value(serde_json::json!([{
+                "Id": "a".repeat(64),
+                "Image": "alpine:latest",
+                "State": "running"
+            }]))
+            .unwrap(),
+        );
+        assert!(!current_image_observations(&expected, &changed, &original));
+    }
 
     #[test]
     fn inactive_overview_can_start_a_stopped_engine_or_stop_a_paused_engine() {

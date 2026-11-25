@@ -233,3 +233,20 @@ fn display_preferences_are_optional_and_round_trip() {
         expanded
     );
 }
+
+#[test]
+fn managed_registry_lookups_require_separate_persisted_consent() {
+    let legacy =
+        Settings::from_toml("[ui.environment_monitoring.marsa]\ncheck_image_updates = true\n")
+            .unwrap();
+    let legacy_toml = legacy.to_toml().unwrap();
+    assert!(!legacy_toml.contains("check_managed_registry_updates = true"));
+
+    let opted_in = Settings::from_toml(
+        "[ui.environment_monitoring.marsa]\ncheck_image_updates = true\ncheck_managed_registry_updates = true\n",
+    )
+    .unwrap();
+    let persisted = opted_in.to_toml().unwrap();
+    assert!(persisted.contains("check_managed_registry_updates = true"));
+    assert_eq!(Settings::from_toml(&persisted).unwrap(), opted_in);
+}

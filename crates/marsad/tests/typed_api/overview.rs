@@ -236,3 +236,126 @@ async fn recent_docker_activity_requires_an_already_running_vm() {
         "activity is never served from the inventory cache"
     );
 }
+
+#[tokio::test]
+async fn registry_digest_requires_owner_consent_and_only_uses_a_running_engine() {
+    use marsa_core::settings::EnvironmentMonitoring;
+    use marsa_proto::host::v1::DockerRegistryDigestRequest;
+
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let body = format!(r#"{{"Descriptor":{{"digest":"{digest}"}},"Platforms":[]}}"#);
+    let reply = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len(),
+    );
+    let fixture = Fixture::with_docker(
+        vec![AgentStep::Send(b"HR".to_vec())],
+        vec![
+            AgentStep::Expect(
+                b"GET /v1.57/distribution/docker.io/library/alpine:latest/json HTTP/1.1\r\n"
+                    .to_vec(),
+            ),
+            AgentStep::Send(reply.into_bytes()),
+        ],
+    )
+    .await;
+    let request = DockerRegistryDigestRequest {
+        reference: "docker.io/library/alpine:latest".to_owned(),
+    };
+    assert_eq!(
+        fixture
+            .api
+            .docker_registry_digest(Request::new(request.clone()))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied,
+    );
+
+    let mut stats = StatsClient::new(fixture.channel.clone());
+    let mut settings = SettingsClient::new(fixture.channel.clone());
+    let snapshot = settings
+        .get(GetSettingsRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    let mut config = Settings::from_toml(&snapshot.settings_toml).unwrap();
+
+    // Existing default image update checks authorize only local comparisons.
+    assert_eq!(
+        stats
+            .docker_registry_digest(request.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied,
+    );
+    config.ui.environment_monitoring.insert(
+        "marsa".to_owned(),
+        EnvironmentMonitoring {
+            check_managed_registry_updates: true,
+            ..EnvironmentMonitoring::default()
+        },
+    );
+    let opted_in = settings
+        .update(UpdateSettingsRequest {
+            expected_revision: snapshot.revision,
+            settings_toml: config.to_toml().unwrap(),
+            request_id: "01000000-0000-4000-8000-000000000052".to_owned(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        stats
+            .docker_registry_digest(request.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        Code::FailedPrecondition,
+    );
+    assert_eq!(
+        fixture.supervisor.snapshot().state,
+        marsad::supervisor::State::Stopped,
+    );
+
+    fixture.supervisor.ensure_ready().await.unwrap();
+    assert_eq!(
+        stats
+            .docker_registry_digest(DockerRegistryDigestRequest {
+                reference: "example.test/../alpine:latest".to_owned(),
+            })
+            .await
+            .unwrap_err()
+            .code(),
+        Code::InvalidArgument,
+    );
+    assert_eq!(
+        stats
+            .docker_registry_digest(request.clone())
+            .await
+            .unwrap()
+            .into_inner()
+            .digest,
+        digest,
+    );
+
+    config.ui.environment_monitoring.clear();
+    settings
+        .update(UpdateSettingsRequest {
+            expected_revision: opted_in.revision,
+            settings_toml: config.to_toml().unwrap(),
+            request_id: "02000000-0000-4000-8000-000000000052".to_owned(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        stats
+            .docker_registry_digest(request)
+            .await
+            .unwrap_err()
+            .code(),
+        Code::PermissionDenied,
+    );
+    fixture.supervisor.stop().await.unwrap();
+}
