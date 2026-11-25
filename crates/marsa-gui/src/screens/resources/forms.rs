@@ -1,7 +1,7 @@
 //! Safe confirmations and inputs for resource actions.
 
 use crate::screens::{
-    common::{ScreenContext, dialog_actions, message},
+    common::{ScreenContext, dialog_actions, message, row},
     external_inventory::dialog_scope,
 };
 use marsa_client::compose::valid_project_name;
@@ -580,17 +580,19 @@ impl Form {
             let view = view.clone();
             form = form
                 .child(
-                    Checkbox::new("compose-keychain")
-                        .label(gui::GUI_DEPLOY_SECRETS_USE.text(screen.locale))
-                        .checked(self.keychain)
-                        .on_click(move |checked, _, cx| {
-                            view.update(cx, |view, cx| {
-                                if let Some(form) = &mut view.form {
-                                    form.keychain = *checked;
-                                    cx.refresh_windows();
-                                }
-                            });
-                        }),
+                    row(screen.locale).child(
+                        Checkbox::new("compose-keychain")
+                            .label(gui::GUI_DEPLOY_SECRETS_USE.text(screen.locale))
+                            .checked(self.keychain)
+                            .on_click(move |checked, _, cx| {
+                                view.update(cx, |view, cx| {
+                                    if let Some(form) = &mut view.form {
+                                        form.keychain = *checked;
+                                        cx.refresh_windows();
+                                    }
+                                });
+                            }),
+                    ),
                 )
                 .children(self.keychain.then(|| {
                     text(
