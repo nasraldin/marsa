@@ -14,7 +14,7 @@ use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::mpsc,
     task::JoinSet,
-    time::{Duration, MissedTickBehavior, interval, timeout},
+    time::{Duration, Instant, MissedTickBehavior, interval, timeout},
 };
 
 use crate::health::{self, Health};
@@ -66,6 +66,7 @@ where
     let advertised = hello
         .protocol
         .ok_or_else(|| invalid("missing guest protocol version"))?;
+    let started = Instant::now();
     let (mut reader, mut writer) = tokio::io::split(stream);
     write(&mut writer, 0, guest_envelope::Body::Hello(hello)).await?;
     let envelope = timeout(HANDSHAKE_TIMEOUT, read(&mut reader)).await??;
@@ -81,6 +82,10 @@ where
     {
         return Err(invalid("host selected an unsupported protocol version"));
     }
+    eprintln!(
+        "marsa-agent: control handshake completed duration_ms={}",
+        started.elapsed().as_millis()
+    );
 
     let (sender, mut inbox) = mpsc::channel(1);
     let receiver = tokio::spawn(async move {
