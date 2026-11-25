@@ -44,7 +44,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-04 Qualify strict native IPv4 NAT
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-03, M3-16
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [06 Network modes](../06-networking.md#network-modes)
 - **Do:** Qualify the native VZ attachment with the strict IPv4 guest test on Apple silicon.
@@ -61,6 +61,15 @@ static address, the guest reached the NAT gateway and the backend reported
 the same address and gateway as the guest kernel. A stock Ubuntu 26.04 VM
 under Lima 2.3.0 obtained a DHCP lease and also timed out on HTTPS bound to
 its Apple `vzNAT` interface.
+
+On 2026-11-25, the production VZ backend passed the strict native-only
+test on a physical M1 Max running macOS 27.2.1 (26B131). A previously
+packaged guest passed once. An image assembled from the current
+`marsa-init` and `marsa-agent` at `fa621d8`, with the same pinned Linux
+7.3.5 kernel and Alpine 3.24.4 base, passed on two consecutive cold boots
+(6.76 s and 6.61 s). Each boot acquired an IPv4 DHCP lease, the backend's
+address and default gateway matched the guest kernel, and the guest
+reached the Docker registry over IPv4 with certificate verification.
 
 The native qualification is independent of the VZ device and runtime work.
 Run the strict test on Apple silicon with
