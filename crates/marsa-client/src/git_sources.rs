@@ -137,7 +137,7 @@ enum Remote {
         _broker: Option<https_credentials::Broker>,
     },
     Ssh {
-        _session: ssh::Session,
+        _session: Box<ssh::Session>,
     },
 }
 
@@ -169,7 +169,9 @@ impl GitRepositoryConfig {
     ) -> Result<Remote, GitSourceError> {
         if let Some(authentication) = &self.ssh {
             let session = ssh::attach(command, &self.url, authentication).await?;
-            Ok(Remote::Ssh { _session: session })
+            Ok(Remote::Ssh {
+                _session: Box::new(session),
+            })
         } else {
             let credential = https_credentials::attach(command, repository).await?;
             Ok(Remote::Https {
