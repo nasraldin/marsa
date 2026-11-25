@@ -28,7 +28,11 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
     let locale = desktop.locale;
     let palette = desktop.palette;
     let foreground = color(palette, ColorToken::TextMuted);
-    let width = if desktop.collapsed { 72. } else { 216. };
+    let width = if desktop.collapsed {
+        marsa_ui::direction::COLLAPSED_SIDEBAR_WIDTH
+    } else {
+        216.
+    };
     let collapse_label = if desktop.collapsed {
         gui::GUI_DESKTOP_EXPAND_SIDEBAR.text(locale)
     } else {
@@ -58,13 +62,16 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(gui::GUI_DESKTOP_MARSA.text(locale))
         }));
+    let collapsed = desktop.collapsed;
+    let nav_icon = px(36.);
     let mut navigation = div()
         .id("sidebar-navigation")
         .flex_1()
         .min_h_0()
         .flex()
         .flex_col()
-        .gap_2();
+        .gap_3()
+        .when(collapsed, |nav| nav.items_center());
     for (title, routes) in [
         (
             gui::GUI_DESKTOP_WORKSPACE.text(locale),
@@ -79,8 +86,9 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(1.))
-                .children((!desktop.collapsed).then(|| {
+                .when(collapsed, |group| group.items_center().gap_2())
+                .when(!collapsed, |group| group.gap_1())
+                .children((!collapsed).then(|| {
                     align(
                         div().text_size(ui_size(11.)).text_color(foreground).px_2(),
                         locale,
@@ -106,9 +114,13 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                         .toggled(selected)
                         .accessibility_label(label)
                         .tooltip(label)
-                        .w_full()
-                        .h(px(32.))
-                        .rounded(px(if desktop.collapsed { 10. } else { 8. }));
+                        .rounded(px(10.))
+                        .p_0();
+                    let item = if collapsed {
+                        item.size(nav_icon)
+                    } else {
+                        item.w_full().h(nav_icon).px_2()
+                    };
                     let item = if selected {
                         item.bg(color(palette, ColorToken::AccentSubtle))
                     } else {
@@ -116,19 +128,18 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                     };
                     item.child(
                         row(locale)
-                            .w_full()
-                            .when(desktop.collapsed, |row| row.justify_center())
-                            .gap_2()
+                            .when(collapsed, |row| row.size(nav_icon).justify_center())
+                            .when(!collapsed, |row| row.w_full().gap_2())
                             .items_center()
                             .text_size(ui_size(13.))
                             .text_color(label_color)
                             .child(
                                 svg()
                                     .path(route.icon())
-                                    .size(px(17.))
+                                    .size(px(18.))
                                     .text_color(icon_color),
                             )
-                            .children((!desktop.collapsed).then_some(label)),
+                            .children((!collapsed).then_some(label)),
                     )
                     .on_click(cx.listener(move |desktop, _, _, cx| desktop.navigate(route, cx)))
                 })),
@@ -147,13 +158,15 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
         .border_1()
         .border_color(color(palette, ColorToken::BorderSubtle))
         .bg(color(palette, ColorToken::BgSidebar))
-        .child(if desktop.collapsed {
+        .child(if collapsed {
+            // Clear the traffic lights (y≈18, ~14px tall) before the toggle and brand.
             div()
                 .flex()
                 .flex_col()
                 .items_center()
-                .pt(px(36.))
-                .gap_2()
+                .w_full()
+                .pt(px(40.))
+                .gap_3()
                 .pb_2()
                 .child(collapse)
                 .child(brand)
@@ -162,9 +175,11 @@ pub(super) fn render(desktop: &Desktop, cx: &mut Context<Desktop>) -> Div {
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(row(locale).h(px(40.)).justify_end().child(collapse))
+                .pt(px(4.))
+                .child(row(locale).h(px(36.)).justify_end().child(collapse))
                 .child(row(locale).px_2().pb_3().child(brand))
         })
+        // Collapsed rail still scrolls if needed; square icon buttons keep equal side padding.
         .child(navigation.overflow_y_scrollbar())
         .child(footer)
 }
@@ -306,7 +321,7 @@ fn context_icon(system: &SystemView, workspace: &ExternalWorkspace) -> &'static 
     if workspace.endpoint.managed_id().is_none() {
         let source = workspace.source.to_ascii_lowercase();
         if source.contains("podman") {
-            return "icons/box.svg";
+            return "marsa/podman.svg";
         }
         if source == "docker desktop" || source == "desktop-linux" {
             return "marsa/docker-engine.svg";

@@ -117,7 +117,8 @@ fn launch_window<T: Render>(
         titlebar: Some(TitlebarOptions {
             title: Some(keys::GUI_WINDOW_TITLE.text(locale).into()),
             appears_transparent: true,
-            traffic_light_position: Some(point(px(24.), px(30.))),
+            // Matches compact centering: shell inset 8 + (88 − 54) / 2.
+            traffic_light_position: Some(point(px(25.), px(22.))),
         }),
         ..WindowOptions::default()
     };

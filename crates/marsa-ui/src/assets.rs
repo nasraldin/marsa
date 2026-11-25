@@ -11,6 +11,14 @@ const MARSA_ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../../../assets/ui/docker-engine.svg"),
     ),
     (
+        "marsa/docker-stack.svg",
+        include_bytes!("../../../assets/ui/docker-stack.svg"),
+    ),
+    (
+        "marsa/podman.svg",
+        include_bytes!("../../../assets/ui/podman.svg"),
+    ),
+    (
         "marsa/harbor.png",
         include_bytes!("../../../assets/ui/harbor.png"),
     ),

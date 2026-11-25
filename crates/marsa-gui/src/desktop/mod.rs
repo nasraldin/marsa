@@ -634,6 +634,7 @@ impl Render for Desktop {
         } else {
             content.overflow_y_scrollbar().into_any_element()
         };
+        // Match the traffic-light band so page titles clear the titlebar controls.
         let main = div()
             .flex_1()
             .min_w_0()
@@ -641,7 +642,9 @@ impl Render for Desktop {
             .flex()
             .flex_col()
             .gap_3()
-            .p_4()
+            .pt(px(20.))
+            .px_4()
+            .pb_4()
             .children((route != Route::Containers || failed).then_some(header))
             .child(content);
         screen
