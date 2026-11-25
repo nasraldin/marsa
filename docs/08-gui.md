@@ -250,6 +250,10 @@ below their back control. The shared vertical scrollbar sits at the inline
 end, including on the left in Arabic. Select the current sidebar route to
 return to its list.
 
+In both Images views, Tab reaches the Image details button in each row. Press
+Return or Space to open the focused image. Closing the dialog returns focus to
+that button.
+
 Settings → General shares the System, Light, and Dark theme cards with
 first-run setup and offers the interface language in a dropdown. It groups
 the interface and terminal font menus with six

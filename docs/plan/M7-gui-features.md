@@ -728,7 +728,7 @@ English and Arabic copy cover the history card, disk card, resources label, and 
 
 ### M7-49 Open Images details with the keyboard
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-46
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Give the Images table and list a focusable control that opens the existing image details modal. The current row opens details from a pointer click.
@@ -737,3 +737,13 @@ English and Arabic copy cover the history card, disk card, resources label, and 
   - Tab reaches a localized details control in both views. Return and Space open the focused image's details.
   - Closing the modal restores focus to its trigger. Row selection, pointer opening, and Run, Push, and Remove remain independently operable.
   - Verify English and Arabic in light and dark mode.
+
+Hidden macOS windows verified Tab, Return, Space and focus restoration after
+Escape in the Images table and list. The fixture verified pointer opening from
+the row and the details button, independent selection and Run, Push and Remove
+dialogs, and access with Actions hidden. The fixture recorded only read
+requests. Native snapshots show the focused control and opened modal in
+[English light](../spikes/M7-49-image-details-keyboard/en-light.png),
+[English dark](../spikes/M7-49-image-details-keyboard/en-dark.png),
+[Arabic light](../spikes/M7-49-image-details-keyboard/ar-light.png), and
+[Arabic dark](../spikes/M7-49-image-details-keyboard/ar-dark.png).
