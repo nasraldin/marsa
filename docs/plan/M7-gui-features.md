@@ -533,7 +533,7 @@ The client tested a real HTTPS branch, rejected a missing ref, and completed sep
 
 ### M7-29 Reusable container configuration sets
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** done
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings), [11 Security](../11-security.md)
 - **Do:** Save named sets of container network, restart, environment, label, port and mount options. Let users apply and edit a copy before creating a container.
@@ -543,7 +543,23 @@ The client tested a real HTTPS branch, rejected a missing ref, and completed sep
   - The create form shows the saved values and accepts overrides without changing the set. Docker receives the reviewed options for the selected engine.
   - Local binds remain subject to Marsa's existing allowlist. An external bind requires confirmation of the destination engine, source path and access mode.
 
-A disposable Lima container verified options including environment, labels, restart policy, TCP and UDP ports, and read-only mounts. The same fixture verified the requirement for explicit external bind review. The Mac locked before the final four-variant desktop checks.
+A native fixture launched an ad hoc-signed desktop with an isolated owner
+profile in all four language and appearance combinations. It added and
+edited a configuration set, relaunched, and applied the saved values in the
+create form. The saved defaults included bridge networking and TCP and UDP
+ports. The submitted copy used an environment override, no ports and an
+isolated network. Docker inspection verified those values, the label and
+restart policy, and the read-only host and volume mounts. The owner profile
+retained the original settings until a separate confirmed delete.
+
+The localized external-bind review showed the pinned Lima engine and
+address, the exact source and destination, and read-only access. Cancelling
+created no container. After changing the selected environment, confirming
+the open draft created the container on the original engine. The decoy
+engine received no write requests. Cancelling set removal preserved the
+set. Confirmation removed it, and the fixture cleaned up only its named
+container, volume and bind directory. Local mounts still go through the
+existing host allowlist.
 
 ### M7-30 Authenticate Git sources
 
