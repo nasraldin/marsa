@@ -12,10 +12,13 @@ pub const API_MINOR: u32 = 16;
 pub const DOCKER_ACTIVITY_WINDOW_SECONDS: i64 = 24 * 60 * 60;
 
 /// Build a finite read-only query that includes the current engine second.
-pub fn docker_activity_query(now: i64) -> String {
+pub fn docker_activity_query(now: i64, hours: u32) -> Option<String> {
+    if !matches!(hours, 1 | 6 | 24) {
+        return None;
+    }
     let until = now.saturating_add(1);
-    let since = until.saturating_sub(DOCKER_ACTIVITY_WINDOW_SECONDS);
-    format!("/events?since={since}&until={until}")
+    let since = until.saturating_sub(i64::from(hours) * 60 * 60);
+    Some(format!("/events?since={since}&until={until}"))
 }
 
 /// Maximum JSON byte length for a live Docker resource collection.

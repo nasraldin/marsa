@@ -517,6 +517,7 @@ async fn packaged_cleanup_preview_lists_disposable_storage_without_removal() {
     let activity = StatsClient::new(channel.clone())
         .docker_overview(DockerOverviewRequest {
             section: DockerOverviewSection::Activity.into(),
+            activity_hours: Some(1),
             ..Default::default()
         })
         .await

@@ -160,6 +160,16 @@ impl Environment {
             if address.starts_with("managed:") && address == other)
     }
 
+    pub(crate) fn settings_key(&self) -> String {
+        match self {
+            Self::Marsa => "marsa".to_owned(),
+            Self::External { address, .. } if address.starts_with("managed:") => address.clone(),
+            Self::External { name, address } => {
+                format!("discovered:{}:{name}:{address}", name.len())
+            }
+        }
+    }
+
     /// The unformatted environment name for renderer-owned text isolation.
     pub(crate) fn name(&self) -> &str {
         match self {
@@ -228,6 +238,13 @@ mod tests {
         let replaced = Environment::decode("Lima\nmanaged:two");
         assert!(before.same_identity(&renamed));
         assert!(!before.same_identity(&replaced));
+        assert_eq!(before.settings_key(), renamed.settings_key());
+        assert_ne!(before.settings_key(), replaced.settings_key());
+        assert_ne!(before.settings_key(), Environment::Marsa.settings_key());
+        assert_ne!(
+            Environment::decode("Lima\n/tmp/one.sock").settings_key(),
+            Environment::decode("Lima\n/tmp/two.sock").settings_key()
+        );
         assert!(
             !Environment::decode("Lima\n/tmp/docker.sock")
                 .same_identity(&Environment::decode("Development\n/tmp/docker.sock"))

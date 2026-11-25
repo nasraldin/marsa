@@ -54,6 +54,7 @@ enum Target {
 #[derive(Default)]
 pub(super) struct Overview {
     target: Option<Target>,
+    check_image_updates: bool,
     task: Option<Task<()>>,
     disk_task: Option<Task<()>>,
     sample: Option<OverviewSample>,
@@ -81,10 +82,14 @@ impl Desktop {
                 |workspace| Target::External(Box::new(workspace.endpoint.clone())),
             ))
         };
-        if self.overview.target != target {
+        let check_image_updates = self.system.read(cx).monitoring().check_image_updates;
+        if self.overview.target != target
+            || self.overview.check_image_updates != check_image_updates
+        {
             self.overview = Overview {
                 disk_pending: matches!(target, Some(Target::Marsa | Target::External(_))),
                 target: target.clone(),
+                check_image_updates,
                 ..Overview::default()
             };
         } else if self.overview.task.is_some() {
@@ -174,15 +179,18 @@ impl Desktop {
             loop {
                 let sample = match &target {
                     Target::Marsa => {
-                        let mut request = services.request(|client| async move {
-                            Ok(OverviewClient::Marsa(client).sample().await)
+                        let mut request = services.request(move |client| async move {
+                            Ok(OverviewClient::Marsa(client)
+                                .sample_with_image_checks(check_image_updates)
+                                .await)
                         });
                         request.result().await.and_then(Result::ok)
                     }
                     Target::External(endpoint) => {
                         let client = OverviewClient::external(endpoint);
-                        let mut request =
-                            services.pending(async move { Ok(client.sample().await) });
+                        let mut request = services.pending(async move {
+                            Ok(client.sample_with_image_checks(check_image_updates).await)
+                        });
                         request.result().await.and_then(Result::ok)
                     }
                     Target::Checking(_) => None,
@@ -811,7 +819,9 @@ fn context_status_body(
         ),
         (
             StatusFilter::Updates,
-            count.map(|count| count.updates),
+            count
+                .filter(|_| data.is_some_and(|data| data.updates_checked))
+                .map(|count| count.updates),
             "icons/arrow-up-from-line.svg",
             ColorToken::TextMuted,
         ),

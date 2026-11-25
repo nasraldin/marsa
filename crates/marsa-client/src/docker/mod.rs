@@ -252,6 +252,9 @@ pub enum ContainerAction {
 /// Errors returned by the Docker socket and typed response decoders.
 #[derive(Debug, Error)]
 pub enum DockerError {
+    /// The requested Docker event history length is unsupported.
+    #[error("invalid Docker event history length")]
+    InvalidActivityHours,
     /// A route must be addressed by the complete container ID.
     #[error("expected a complete Docker container ID")]
     InvalidId,

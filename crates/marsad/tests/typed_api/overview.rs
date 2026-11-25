@@ -20,6 +20,7 @@ async fn overview_is_owner_only_and_stays_passive_across_engine_lifecycle() {
         section: DockerOverviewSection::Containers.into(),
         container_id: String::new(),
         prefer_cache: false,
+        activity_hours: None,
     };
     assert_eq!(
         fixture
@@ -79,6 +80,7 @@ async fn prefer_cache_returns_last_snapshot_without_docker() {
         section: DockerOverviewSection::Containers.into(),
         container_id: String::new(),
         prefer_cache: false,
+        activity_hours: None,
     };
     let first = stats.docker_overview(live).await.unwrap().into_inner();
     assert_eq!(first.json, b"[]");
@@ -91,6 +93,7 @@ async fn prefer_cache_returns_last_snapshot_without_docker() {
             section: DockerOverviewSection::Containers.into(),
             container_id: String::new(),
             prefer_cache: true,
+            activity_hours: None,
         })
         .await
         .unwrap()
@@ -191,6 +194,7 @@ async fn recent_docker_activity_requires_an_already_running_vm() {
     let request = DockerOverviewRequest {
         section: DockerOverviewSection::Activity.into(),
         prefer_cache: true,
+        activity_hours: None,
         ..Default::default()
     };
     assert_eq!(

@@ -80,6 +80,7 @@ impl TypedApi {
             section: section.into(),
             container_id: String::new(),
             prefer_cache: false,
+            activity_hours: None,
         };
         let _ = self.fetch_overview(request, false).await?;
         Ok(())
@@ -91,6 +92,7 @@ impl TypedApi {
         prefer_cache: bool,
     ) -> Result<DockerOverviewResponse, Status> {
         let section = request.section();
+        let path = overview_path(request).map_err(Status::invalid_argument)?;
         if prefer_cache
             && InventoryCache::is_cacheable(section)
             && let Ok(Some(cached)) = self.inner.inventory.get(section)
@@ -112,7 +114,6 @@ impl TypedApi {
             | DockerOverviewSection::Networks => DOCKER_INVENTORY_LIMIT,
             _ => inventory_cache::CACHE_SECTION_LIMIT,
         };
-        let path = overview_path(request).map_err(Status::invalid_argument)?;
         let not_running = || Status::failed_precondition("Docker overview requires a running VM");
         let supervisor = self.supervisor.as_ref().ok_or_else(not_running)?;
         let json = timeout(deadline, async {
@@ -190,6 +191,9 @@ impl Stats for TypedApi {
 
 fn overview_path(request: DockerOverviewRequest) -> Result<String, &'static str> {
     let section = request.section();
+    if request.activity_hours.is_some() && section != DockerOverviewSection::Activity {
+        return Err("Docker activity hours require the activity section");
+    }
     let id = &request.container_id;
     if section == DockerOverviewSection::ContainerStats {
         if id.len() != 64
@@ -205,10 +209,12 @@ fn overview_path(request: DockerOverviewRequest) -> Result<String, &'static str>
         return Err("unexpected Docker container identifier");
     }
     if section == DockerOverviewSection::Activity {
-        return Ok(format!(
-            "/v1.57{}",
-            docker_activity_query(inventory_cache::now_millis() / 1000)
-        ));
+        let path = docker_activity_query(
+            inventory_cache::now_millis() / 1000,
+            request.activity_hours.unwrap_or(24),
+        )
+        .ok_or("invalid Docker activity hours")?;
+        return Ok(format!("/v1.57{path}"));
     }
     Ok(match section {
         DockerOverviewSection::Containers => "/v1.57/containers/json?all=true",
@@ -232,6 +238,7 @@ mod tests {
             section: section.into(),
             container_id: id.into(),
             prefer_cache: false,
+            activity_hours: None,
         };
         assert_eq!(
             overview_path(make(DockerOverviewSection::Disk, "")).unwrap(),
@@ -245,5 +252,22 @@ mod tests {
         assert!(overview_path(make(DockerOverviewSection::ContainerStats, "../json")).is_err());
         assert!(overview_path(make(DockerOverviewSection::Containers, &id)).is_err());
         assert!(overview_path(make(DockerOverviewSection::Unspecified, "")).is_err());
+        let mut history = make(DockerOverviewSection::Activity, "");
+        history.activity_hours = Some(6);
+        let route = overview_path(history.clone()).unwrap();
+        let (since, until) = route
+            .strip_prefix("/v1.57/events?since=")
+            .unwrap()
+            .split_once("&until=")
+            .unwrap();
+        assert_eq!(
+            until.parse::<i64>().unwrap() - since.parse::<i64>().unwrap(),
+            21_600
+        );
+        history.activity_hours = Some(0);
+        assert!(overview_path(history.clone()).is_err());
+        history.section = DockerOverviewSection::Containers.into();
+        history.activity_hours = Some(24);
+        assert!(overview_path(history).is_err());
     }
 }

@@ -11,7 +11,9 @@ use tokio::time::timeout;
 
 use crate::{ClientError, MarsaClient};
 
-use super::{ContainerSummary, DockerClient, DockerError, REQUEST_TIMEOUT, SNAPSHOT_LIMIT};
+use super::{
+    ContainerId, ContainerSummary, DockerClient, DockerError, REQUEST_TIMEOUT, SNAPSHOT_LIMIT,
+};
 
 const ACTIVITY_LIMIT: usize = 256;
 const EVENT_QUERY: &str = "/events?since=";
@@ -27,6 +29,25 @@ pub struct DockerActivity {
     pub subject: String,
     /// Event time in Unix seconds.
     pub timestamp: i64,
+    time_nano: i64,
+    unhealthy: bool,
+}
+
+impl DockerActivity {
+    /// Whether this record is a Docker container transition to unhealthy.
+    pub fn is_unhealthy(&self) -> bool {
+        self.unhealthy
+    }
+
+    /// A high resolution timestamp, falling back to the event second when absent.
+    pub fn timestamp_nanos(&self) -> i64 {
+        const NANOS_PER_SECOND: i64 = 1_000_000_000;
+        if self.time_nano.div_euclid(NANOS_PER_SECOND) == self.timestamp {
+            self.time_nano
+        } else {
+            self.timestamp.saturating_mul(NANOS_PER_SECOND)
+        }
+    }
 }
 
 /// A shareable projection of the currently available Docker inventory.
@@ -88,7 +109,16 @@ impl EnvironmentReport {
 impl DockerClient {
     /// Read up to 256 events that the engine retained from the last 24 hours, newest first.
     pub async fn recent_activity(&self) -> Result<Vec<DockerActivity>, DockerError> {
-        let path = docker_activity_query(time::OffsetDateTime::now_utc().unix_timestamp());
+        self.recent_activity_with_hours(24).await
+    }
+
+    /// Read retained events using a supported lookback of 1, 6 or 24 hours.
+    pub async fn recent_activity_with_hours(
+        &self,
+        hours: u32,
+    ) -> Result<Vec<DockerActivity>, DockerError> {
+        let path = docker_activity_query(time::OffsetDateTime::now_utc().unix_timestamp(), hours)
+            .ok_or(DockerError::InvalidActivityHours)?;
         let bytes = timeout(REQUEST_TIMEOUT, async {
             let (_, response) = self.request(Method::GET, &path).await?;
             Limited::new(response.body, SNAPSHOT_LIMIT)
@@ -106,9 +136,13 @@ impl DockerClient {
 
 impl MarsaClient {
     /// Read recent activity through the owner API without waking the managed engine.
-    pub async fn recent_docker_activity(&self) -> Result<Vec<DockerActivity>, DockerError> {
+    pub async fn recent_docker_activity(
+        &self,
+        hours: u32,
+    ) -> Result<Vec<DockerActivity>, DockerError> {
         let mut request = tonic::Request::new(DockerOverviewRequest {
             section: DockerOverviewSection::Activity.into(),
+            activity_hours: Some(hours),
             ..Default::default()
         });
         request.set_timeout(REQUEST_TIMEOUT);
@@ -179,6 +213,10 @@ impl EngineEvent {
             action: display_value(action, 128),
             subject: display_value(subject.as_deref().unwrap_or(&self.actor.id), 512),
             timestamp: self.time,
+            time_nano: self.time_nano,
+            unhealthy: self.kind == "container"
+                && self.action == "health_status: unhealthy"
+                && ContainerId::parse(self.actor.id).is_ok(),
         }
     }
 }
@@ -283,7 +321,7 @@ mod tests {
             let (since, until) = query.split_once("&until=").unwrap();
             let until = until.parse::<i64>().unwrap();
             assert!(until >= clock);
-            assert_eq!(until - since.parse::<i64>().unwrap(), 86_400);
+            assert_eq!(until - since.parse::<i64>().unwrap(), 3_600);
             let history = concat!(
                 r#"{"Type":"container","Action":"start","Actor":{"ID":"9638f123","Attributes":{"name":"api","image":"nginx","label":"private"}},"scope":"local","time":1826918998,"timeNano":1826918998000000000}"#,
                 "\n",
@@ -300,7 +338,7 @@ mod tests {
         });
         let records = endpoint
             .management_client()
-            .recent_activity()
+            .recent_activity_with_hours(1)
             .await
             .unwrap();
         assert_eq!(records.len(), 3);
@@ -312,6 +350,19 @@ mod tests {
         assert_eq!(records[1].timestamp, 1826918999);
         assert_eq!(records[2].subject, "api");
         server.await.unwrap();
+    }
+
+    #[test]
+    fn only_the_exact_unhealthy_container_action_can_trigger_an_alert() {
+        let records = super::activity_records(br#"{"Type":"container","Action":"health_status: unhealthy","Actor":{"ID":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","Attributes":{"name":"public"}},"time":1826918999,"timeNano":1826918999000000001}
+{"Type":"container","Action":"health_status: private unhealthy output","Actor":{"ID":"second","Attributes":null},"time":1826918998}
+{"Type":"network","Action":"health_status: unhealthy","Actor":{"ID":"third","Attributes":null},"time":1826918997}
+{"Type":"container","Action":"health_status: unhealthy","Actor":{"ID":"not-a-container-id","Attributes":null},"time":1826918996}"#).unwrap();
+        assert!(records[0].is_unhealthy());
+        assert_eq!(records[0].action, "health_status");
+        assert!(!records[1].is_unhealthy());
+        assert!(!records[2].is_unhealthy());
+        assert!(!records[3].is_unhealthy());
     }
 
     #[test]

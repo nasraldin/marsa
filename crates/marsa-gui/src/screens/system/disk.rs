@@ -110,7 +110,7 @@ impl SystemView {
         cx: &mut Context<Self>,
     ) {
         let Some(preview) = &self.preview else { return };
-        let candidate_rows = ordered_candidates(preview)
+        let candidate_rows = ordered_candidates(preview, self.monitoring().show_volume_candidates)
             .filter(|candidate| self.cleanup_selection.contains(&candidate_key(candidate)))
             .cloned()
             .collect::<Vec<_>>();
@@ -160,9 +160,12 @@ impl SystemView {
                 || disk.map_or(&[][..], |disk| disk.categories.as_slice()),
                 |preview| preview.observed_usage.as_slice(),
             );
-        let selected = inventory
+        let show_volume_candidates = self.monitoring().show_volume_candidates;
+        let candidates = inventory
             .into_iter()
-            .flat_map(ordered_candidates)
+            .flat_map(|preview| ordered_candidates(preview, show_volume_candidates));
+        let selected = candidates
+            .clone()
             .filter(|candidate| self.cleanup_selection.contains(&candidate_key(candidate)));
         let selected_count = selected.clone().count();
         let selected_bytes = sum_estimates(selected);
@@ -263,7 +266,10 @@ impl SystemView {
                     }))
                     .children(
                         inventory
-                            .is_some_and(|preview| preview.candidates.is_empty())
+                            .is_some_and(|preview| {
+                                preview.unavailable_categories.is_empty()
+                                    && candidates.clone().next().is_none()
+                            })
                             .then(|| {
                                 muted(
                                     palette,
@@ -271,45 +277,38 @@ impl SystemView {
                                 )
                             }),
                     )
-                    .children(
-                        inventory
-                            .into_iter()
-                            .flat_map(ordered_candidates)
-                            .map(|candidate| {
-                                let key = candidate_key(candidate);
-                                let checked = ready && self.cleanup_selection.contains(&key);
-                                let id = format!("cleanup-candidate-{}-{}", key.0, key.1);
-                                row(locale)
-                                    .gap_3()
-                                    .border_t_1()
-                                    .border_color(color(palette, ColorToken::BorderSubtle))
-                                    .min_h(px(52.))
-                                    .py_2()
-                                    .child(
-                                        Checkbox::new(id)
-                                            .accessibility_label(crate::screens::common::technical(
-                                                if candidate.name.is_empty() {
-                                                    &candidate.id
-                                                } else {
-                                                    &candidate.name
-                                                },
-                                            ))
-                                            .checked(checked)
-                                            .disabled(self.busy() || !ready)
-                                            .on_click(cx.listener(
-                                                move |view, checked: &bool, _, cx| {
-                                                    if *checked {
-                                                        view.cleanup_selection.insert(key.clone());
-                                                    } else {
-                                                        view.cleanup_selection.remove(&key);
-                                                    }
-                                                    cx.notify();
-                                                },
-                                            )),
-                                    )
-                                    .child(cleanup_contents(locale, palette, candidate, false))
-                            }),
-                    )
+                    .children(candidates.clone().map(|candidate| {
+                        let key = candidate_key(candidate);
+                        let checked = ready && self.cleanup_selection.contains(&key);
+                        let id = format!("cleanup-candidate-{}-{}", key.0, key.1);
+                        row(locale)
+                            .gap_3()
+                            .border_t_1()
+                            .border_color(color(palette, ColorToken::BorderSubtle))
+                            .min_h(px(52.))
+                            .py_2()
+                            .child(
+                                Checkbox::new(id)
+                                    .accessibility_label(crate::screens::common::technical(
+                                        if candidate.name.is_empty() {
+                                            &candidate.id
+                                        } else {
+                                            &candidate.name
+                                        },
+                                    ))
+                                    .checked(checked)
+                                    .disabled(self.busy() || !ready)
+                                    .on_click(cx.listener(move |view, checked: &bool, _, cx| {
+                                        if *checked {
+                                            view.cleanup_selection.insert(key.clone());
+                                        } else {
+                                            view.cleanup_selection.remove(&key);
+                                        }
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(cleanup_contents(locale, palette, candidate, false))
+                    }))
                     .children(
                         inventory
                             .filter(|preview| !preview.unavailable_categories.is_empty())
@@ -334,34 +333,30 @@ impl SystemView {
                                     )
                             }),
                     )
-                    .children(
-                        inventory
-                            .is_some_and(|preview| !preview.candidates.is_empty())
-                            .then(|| {
-                                row(locale)
-                                    .justify_between()
-                                    .gap_3()
-                                    .flex_wrap()
-                                    .pt_3()
-                                    .border_t_1()
-                                    .border_color(color(palette, ColorToken::BorderSubtle))
-                                    .child(cleanup_summary(
-                                        locale,
-                                        palette,
-                                        selected_count,
-                                        selected_bytes,
-                                    ))
-                                    .child(
-                                        Button::new("preview-cleanup")
-                                            .primary()
-                                            .disabled(self.busy() || !ready || selected_count == 0)
-                                            .label(gui::GUI_DESKTOP_PREVIEW_CLEANUP.text(locale))
-                                            .on_click(cx.listener(move |view, _, window, cx| {
-                                                view.review_cleanup(locale, palette, window, cx)
-                                            })),
-                                    )
-                            }),
-                    ),
+                    .children(candidates.clone().next().is_some().then(|| {
+                        row(locale)
+                            .justify_between()
+                            .gap_3()
+                            .flex_wrap()
+                            .pt_3()
+                            .border_t_1()
+                            .border_color(color(palette, ColorToken::BorderSubtle))
+                            .child(cleanup_summary(
+                                locale,
+                                palette,
+                                selected_count,
+                                selected_bytes,
+                            ))
+                            .child(
+                                Button::new("preview-cleanup")
+                                    .primary()
+                                    .disabled(self.busy() || !ready || selected_count == 0)
+                                    .label(gui::GUI_DESKTOP_PREVIEW_CLEANUP.text(locale))
+                                    .on_click(cx.listener(move |view, _, window, cx| {
+                                        view.review_cleanup(locale, palette, window, cx)
+                                    })),
+                            )
+                    })),
             )
             .child(
                 disk_panel(screen)
@@ -408,13 +403,12 @@ pub(super) fn external_cleanup(
     screen: &ScreenContext<'_>,
     environment: (String, String),
     preview: &PrunePreviewResponse,
+    show_volume_candidates: bool,
 ) -> Div {
     let locale = screen.locale;
     let palette = screen.palette;
-    let reviewed: Vec<_> = ordered_candidates(preview)
-        .filter(|candidate| candidate.category() != DiskCategory::Volumes)
-        .cloned()
-        .collect();
+    let candidates = ordered_candidates(preview, show_volume_candidates);
+    let reviewed: Vec<_> = ordered_candidates(preview, false).cloned().collect();
     let capability = preview.apply_capability();
     disk_panel(screen)
         .gap_4()
@@ -441,20 +435,18 @@ pub(super) fn external_cleanup(
         }))
         .child(title_text(gui::GUI_DESKTOP_CLEANUP_CANDIDATES.text(locale)))
         .children(
-            preview
-                .candidates
-                .iter()
+            candidates
+                .clone()
                 .map(|candidate| cleanup_row(locale, palette, candidate, false)),
         )
         .children(
-            (preview.candidates.is_empty() && preview.unavailable_categories.is_empty()).then(
-                || {
+            (candidates.clone().next().is_none() && preview.unavailable_categories.is_empty())
+                .then(|| {
                     muted(
                         palette,
                         gui::GUI_DESKTOP_NO_UNUSED_RESOURCES_FOUND.text(locale),
                     )
-                },
-            ),
+                }),
         )
         .child(muted(
             palette,
@@ -648,13 +640,17 @@ fn disk_chart(locale: Locale, palette: Palette, categories: &[DiskCategoryUsage]
 
 fn ordered_candidates(
     preview: &PrunePreviewResponse,
+    show_volume_candidates: bool,
 ) -> impl Iterator<Item = &PruneCandidate> + Clone {
-    CLEANUP.into_iter().flat_map(move |category| {
-        preview
-            .candidates
-            .iter()
-            .filter(move |candidate| candidate.category() == category)
-    })
+    CLEANUP
+        .into_iter()
+        .filter(move |category| show_volume_candidates || *category != DiskCategory::Volumes)
+        .flat_map(move |category| {
+            preview
+                .candidates
+                .iter()
+                .filter(move |candidate| candidate.category() == category)
+        })
 }
 
 fn candidate_key(candidate: &PruneCandidate) -> (i32, String) {

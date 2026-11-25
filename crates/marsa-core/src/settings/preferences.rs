@@ -235,6 +235,9 @@ pub struct UiSettings {
     /// Owner-selected names and icons for detected environments.
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub environment_appearance: std::collections::BTreeMap<String, super::EnvironmentAppearance>,
+    /// Owner-selected observation and maintenance options for each environment.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub environment_monitoring: std::collections::BTreeMap<String, super::EnvironmentMonitoring>,
     /// Reusable options for the desktop's container creation dialog.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub container_config_sets: Vec<crate::container_config::ContainerConfigSet>,

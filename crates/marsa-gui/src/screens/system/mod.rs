@@ -28,7 +28,7 @@ use marsa_client::{
 use marsa_ui::{
     Locale,
     gpui::{AnyElement, Context, Div, EventEmitter, ParentElement as _, Task, Window, div},
-    preferences::{AccentColor, DisplaySettings, Language, Settings, Theme},
+    preferences::{AccentColor, DisplaySettings, EnvironmentMonitoring, Language, Settings, Theme},
 };
 
 use crate::{
@@ -36,7 +36,10 @@ use crate::{
         Route,
         toast::{self, Tone},
     },
-    screens::common::{ScreenContext, align},
+    screens::{
+        common::{ScreenContext, align},
+        external_inventory::Environment,
+    },
     services::{Pending, Services},
 };
 
@@ -56,7 +59,7 @@ impl EventEmitter<OpenRoute> for SystemView {}
 pub(crate) struct SystemView {
     services: Option<Arc<Services>>,
     route: Route,
-    local_environment: bool,
+    active_environment: Environment,
     settings: Option<(Settings, u64)>,
     restart_required: bool,
     settings_tab: SettingsTab,
@@ -121,14 +124,14 @@ impl SystemView {
 
     pub(crate) fn new(
         services: Option<Arc<Services>>,
-        local_environment: bool,
+        active_environment: Environment,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
             services,
             route: Route::Overview,
-            local_environment,
+            active_environment,
             settings: None,
             restart_required: false,
             settings_tab: SettingsTab::General,
@@ -182,6 +185,15 @@ impl SystemView {
         self.settings
             .as_ref()
             .map(|(settings, _)| (settings.ui.language, settings.ui.theme))
+    }
+
+    pub(crate) fn monitoring(&self) -> EnvironmentMonitoring {
+        let key = self.active_environment.settings_key();
+        self.settings
+            .as_ref()
+            .and_then(|(settings, _)| settings.ui.environment_monitoring.get(&key))
+            .copied()
+            .unwrap_or_default()
     }
 
     pub(crate) fn log_settings(&self) -> marsa_ui::preferences::LogSettings {
@@ -259,7 +271,7 @@ impl SystemView {
             self.cleanup_selection.clear();
             self.vm_stats = None;
             self.vm_stats_task = None;
-        } else if self.local_environment && self.route == Route::Machine {
+        } else if self.active_environment.includes_marsa() && self.route == Route::Machine {
             self.watch_vm(cx);
         }
         if revision != self.revision {
@@ -269,13 +281,16 @@ impl SystemView {
                 self.fetch_settings(cx);
                 self.enter(self.route, cx);
             }
-        } else if self.local_environment && disk_became_ready && self.route == Route::Disk {
+        } else if self.active_environment.includes_marsa()
+            && disk_became_ready
+            && self.route == Route::Disk
+        {
             self.load_disk(cx);
         }
     }
 
-    pub(crate) fn change_environment(&mut self, local: bool, cx: &mut Context<Self>) {
-        self.local_environment = local;
+    pub(crate) fn change_environment(&mut self, environment: Environment, cx: &mut Context<Self>) {
+        self.active_environment = environment;
         self.environment_observations.clear();
         self.clear_lima_machine_target();
         self.route_load = None;
@@ -296,11 +311,11 @@ impl SystemView {
             self.vm_stats = None;
         }
         match route {
-            Route::Machine if self.local_environment => {
+            Route::Machine if self.active_environment.includes_marsa() => {
                 self.load_disk(cx);
                 self.watch_vm(cx);
             }
-            Route::Disk if self.local_environment => self.load_disk(cx),
+            Route::Disk if self.active_environment.includes_marsa() => self.load_disk(cx),
             Route::Settings if self.settings_tab == SettingsTab::Updates => {
                 self.load_update_status(cx)
             }
@@ -312,7 +327,7 @@ impl SystemView {
                 self.load_registries(cx)
             }
             Route::Settings if self.settings_tab == SettingsTab::General => self.load_login(cx),
-            Route::Activity if self.local_environment => self.load_audit(cx),
+            Route::Activity if self.active_environment.includes_marsa() => self.load_audit(cx),
             _ => {}
         }
     }

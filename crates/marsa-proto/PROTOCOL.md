@@ -76,9 +76,10 @@ payload. Fetch fresh container, image, volume or network sections using
 up to 8 MiB of JSON. Cached sections retain their 2 MiB limit.
 
 Host API minor 16 adds a finite recent Docker activity scope to
-`Stats.DockerOverview`. The daemon selects the last 24 hours, contacts
-only an already-running guest and bounds the newline-delimited Engine
-response. It does not persist activity in the inventory cache.
+`Stats.DockerOverview`. Activity accepts a 1, 6 or 24 hour lookback and
+defaults to 24 hours. The daemon contacts only an already-running guest
+and bounds the newline-delimited Engine response. It does not persist
+activity in the inventory cache.
 
 `Disk.Reclaim` requests discard of unused blocks from the current ready
 guest's data disk. It returns the guest's submitted discard bytes and the

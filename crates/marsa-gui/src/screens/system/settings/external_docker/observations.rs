@@ -46,7 +46,7 @@ enum Target {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
-    Activity,
+    Activity(u32),
     Report,
     Disk,
 }
@@ -112,7 +112,15 @@ impl SystemView {
                 )
             };
         }
-        let page = if report { Page::Report } else { Page::Activity };
+        let page = if report {
+            Page::Report
+        } else {
+            let preferences = self.monitoring();
+            if !preferences.collect_activity {
+                return self.activity_disabled(screen);
+            }
+            Page::Activity(preferences.activity_retention.hours())
+        };
         self.environment_observations.select(
             target
                 .clone()
@@ -163,6 +171,7 @@ impl SystemView {
                 screen,
                 (name.to_owned(), target.address()),
                 preview,
+                self.monitoring().show_volume_candidates,
             ));
         }
         body.children(status(
@@ -178,12 +187,18 @@ impl SystemView {
         screen: &ScreenContext<'_>,
         cx: &mut Context<Self>,
     ) -> Div {
+        let preferences = self.monitoring();
+        if !preferences.collect_activity {
+            return self.activity_disabled(screen);
+        }
         let ready = screen
             .state
             .engine()
             .is_some_and(|engine| matches!(engine.state(), EngineState::Ready | EngineState::Idle));
-        self.environment_observations
-            .select(ready.then_some(Target::Marsa), Some(Page::Activity));
+        self.environment_observations.select(
+            ready.then_some(Target::Marsa),
+            Some(Page::Activity(preferences.activity_retention.hours())),
+        );
         if !ready {
             return settings_text(
                 screen,
@@ -197,6 +212,16 @@ impl SystemView {
             self.load_environment_observations(cx);
         }
         self.environment_activity(screen, cx)
+    }
+
+    fn activity_disabled(&mut self, screen: &ScreenContext<'_>) -> Div {
+        self.environment_observations.clear();
+        settings_text(
+            screen,
+            Role::Small,
+            gui::GUI_ENVIRONMENT_MONITORING_ACTIVITY_DISABLED.text(screen.locale),
+            ColorToken::TextMuted,
+        )
     }
 
     fn offline_observations(&self, screen: &ScreenContext<'_>, cx: &Context<Self>) -> Div {
@@ -237,54 +262,64 @@ impl SystemView {
         let timer = cx.background_executor().clone();
         observations.task = Some(cx.spawn(async move |this, cx| {
             loop {
-                let result = match &target {
-                    Target::Marsa => services
-                        .managed_activity()
-                        .result()
-                        .await
-                        .and_then(Result::ok)
-                        .map(ResultPage::Activity),
-                    Target::External(endpoint) => {
-                        let docker = services.resource_docker(Some(endpoint.as_ref().clone()));
-                        let mut pending = services.pending(async move {
-                            Ok(match page {
-                                Page::Report => {
-                                    let containers = docker.containers().await?;
-                                    let images = docker.images().await?;
-                                    let volumes =
-                                        docker.volumes().await.ok().map(|items| items.len());
-                                    let networks =
-                                        docker.networks().await.ok().map(|items| items.len());
-                                    ResultPage::Report(EnvironmentReport::from_inventory(
-                                        &containers,
-                                        images.len(),
-                                        volumes,
-                                        networks,
-                                    ))
-                                }
-                                Page::Activity => {
-                                    ResultPage::Activity(docker.recent_activity().await?)
-                                }
-                                Page::Disk => ResultPage::Disk(
-                                    docker
-                                        .cleanup_preview(PrunePreviewRequest {
-                                            categories: [
-                                                DiskCategory::Containers,
-                                                DiskCategory::Images,
-                                                DiskCategory::Volumes,
-                                                DiskCategory::BuildCache,
-                                            ]
-                                            .into_iter()
-                                            .map(i32::from)
-                                            .collect(),
-                                            volume_names: Vec::new(),
-                                        })
-                                        .await?,
-                                ),
-                            })
-                        });
-                        pending.result().await.and_then(Result::ok)
+                let result = match (page, &target) {
+                    (Page::Activity(hours), target) => {
+                        let endpoint = match target {
+                            Target::Marsa => None,
+                            Target::External(endpoint) => Some(endpoint.as_ref().clone()),
+                        };
+                        services
+                            .engine_activity(endpoint, hours)
+                            .result()
+                            .await
+                            .and_then(Result::ok)
+                            .map(ResultPage::Activity)
                     }
+                    (Page::Report, Target::External(endpoint)) => {
+                        let docker = endpoint.management_client();
+                        services
+                            .pending(async move {
+                                let containers = docker.containers().await?;
+                                let images = docker.images().await?;
+                                let volumes = docker.volumes().await.ok().map(|items| items.len());
+                                let networks =
+                                    docker.networks().await.ok().map(|items| items.len());
+                                Ok(ResultPage::Report(EnvironmentReport::from_inventory(
+                                    &containers,
+                                    images.len(),
+                                    volumes,
+                                    networks,
+                                )))
+                            })
+                            .result()
+                            .await
+                            .and_then(Result::ok)
+                    }
+                    (Page::Disk, Target::External(endpoint)) => {
+                        let docker = endpoint.management_client();
+                        services
+                            .pending(async move {
+                                let preview = docker
+                                    .cleanup_preview(PrunePreviewRequest {
+                                        categories: [
+                                            DiskCategory::Containers,
+                                            DiskCategory::Images,
+                                            DiskCategory::Volumes,
+                                            DiskCategory::BuildCache,
+                                        ]
+                                        .into_iter()
+                                        .map(i32::from)
+                                        .collect(),
+                                        volume_names: Vec::new(),
+                                    })
+                                    .await?;
+                                Ok(ResultPage::Disk(preview))
+                            })
+                            .result()
+                            .await
+                            .and_then(Result::ok)
+                    }
+                    (_, Target::Marsa) => return,
                 };
                 let retry = result.is_none();
                 if this
@@ -319,12 +354,12 @@ impl SystemView {
         cx: &Context<Self>,
     ) -> Div {
         let page = &self.environment_observations.reading;
-        let mut body = self.observation_header(
-            screen,
-            gui::GUI_ENVIRONMENT_ACTIVITY_PERIOD,
-            matches!(page, Load::Loading),
-            cx,
-        );
+        let period = match self.environment_observations.page {
+            Some(Page::Activity(1)) => gui::GUI_ENVIRONMENT_MONITORING_PERIOD_ONE_HOUR,
+            Some(Page::Activity(6)) => gui::GUI_ENVIRONMENT_MONITORING_PERIOD_SIX_HOURS,
+            _ => gui::GUI_ENVIRONMENT_ACTIVITY_PERIOD,
+        };
+        let mut body = self.observation_header(screen, period, matches!(page, Load::Loading), cx);
         if let Load::Ready(ResultPage::Activity(events)) = page
             && !events.is_empty()
         {
@@ -597,10 +632,10 @@ mod tests {
     #[test]
     fn leaving_and_returning_rejects_an_earlier_read_of_the_same_page() {
         let mut observations = Observations::default();
-        observations.select(None, Some(Page::Activity));
+        observations.select(None, Some(Page::Activity(24)));
         let first = observations.generation;
         observations.select(None, Some(Page::Disk));
-        observations.select(None, Some(Page::Activity));
+        observations.select(None, Some(Page::Activity(24)));
         assert!(!observations.current(first));
         assert!(observations.current(observations.generation));
     }

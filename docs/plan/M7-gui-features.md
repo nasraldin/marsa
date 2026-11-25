@@ -335,7 +335,7 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Status:** in progress
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [13 Testing](../13-testing-and-benchmarks.md)
-- **Do:** Surface container health, engine metrics, disk accounting, and events for the selected environment. Provide per-environment update and cleanup settings, collection and retention, and notifications and reports.
+- **Do:** Surface container health, engine metrics, disk accounting, and events for the selected environment. Provide per-environment image update checks, cleanup review preferences, activity collection and retained-history lookback, health notifications, and inventory reports.
 - **Deliver:** Environment dashboard metrics, activity, and maintenance controls.
 - **Accept when:**
   - The dashboard and activity views are fed by the selected engine. They identify unavailable measurements and can recover from a disconnect.
@@ -359,9 +359,11 @@ the review with Escape. The review was checked in
 [Arabic light](../spikes/M7-21-environment-observation/ar-light.png), and
 [Arabic dark](../spikes/M7-21-environment-observation/ar-dark.png).
 
-Cleanup remains subject to the M5-12 exact-deletion gate. Per-environment
-settings for collection, retention and notifications remain open. Verified
-Marsa release updates remain app-wide.
+Per-environment settings control Activity, retained history, registry checks,
+unused volume visibility, and opt-in local health alerts for the selected
+engine while the window is open. Docker keeps the in-memory event history.
+Cleanup remains subject to the M5-12 and M7-11 exact-deletion gate. Verified
+Marsa release updates use the app-wide updater.
 
 ### M7-22 Configure deploy-time secret providers
 

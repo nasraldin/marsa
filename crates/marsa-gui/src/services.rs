@@ -337,9 +337,24 @@ impl Services {
     }
 
     #[cfg(target_os = "macos")]
-    pub(crate) fn managed_activity(&self) -> Pending<Vec<marsa_client::docker::DockerActivity>> {
+    pub(crate) fn engine_activity(
+        &self,
+        endpoint: Option<ExternalEndpoint>,
+        hours: u32,
+    ) -> Pending<Vec<marsa_client::docker::DockerActivity>> {
+        if let Some(endpoint) = endpoint {
+            let docker = endpoint.management_client();
+            return self
+                .pending(async move { Ok(docker.recent_activity_with_hours(hours).await?) });
+        }
         let daemon = self.session.backend.daemon.clone();
-        self.pending(async move { Ok(daemon.connect().await?.recent_docker_activity().await?) })
+        self.pending(async move {
+            Ok(daemon
+                .connect()
+                .await?
+                .recent_docker_activity(hours)
+                .await?)
+        })
     }
 
     pub(crate) fn resource_docker(&self, endpoint: Option<ExternalEndpoint>) -> DockerClient {
