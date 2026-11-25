@@ -190,8 +190,10 @@ never enters the Marsa engine's mutation or selection paths.
   - After cleanup and explicit reclaim, report the observed host allocation change. M9-14 connects automatic reclaim.
 
 The desktop route exposes storage usage, candidate identities, the engine's
-apply capability and explicit reclaim. Resume apply when M5-12 can bind
-eligibility and identity to the deletion itself.
+apply capability and explicit reclaim. M7-21 routes the Images cleanup
+shortcut to that review and previews external environments without a
+destructive apply. Resume apply when M5-12 can bind eligibility and identity
+to the deletion itself.
 
 ---
 
@@ -330,14 +332,49 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 
 ### M7-21 Observe and maintain each environment
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [13 Testing](../13-testing-and-benchmarks.md)
-- **Do:** Surface container health, engine metrics, disk accounting, and events for the selected environment. Provide per-environment update and cleanup settings, collection and retention, and notifications and reports.
+- **Do:** Surface container health, engine metrics, disk accounting, and events for the selected environment. Provide per-environment image update checks, cleanup review preferences, activity collection and retained-history lookback, health notifications, and inventory reports.
 - **Deliver:** Environment dashboard metrics, activity, and maintenance controls.
 - **Accept when:**
   - The dashboard and activity views are fed by the selected engine. They identify unavailable measurements and can recover from a disconnect.
   - A maintenance request targets the confirmed engine, previews destructive effects, and reports its outcome.
+
+Managed activity uses the passive owner API, and external observations
+stay pinned to the selected connection while they load or retry. Overview
+loads live measurements after its cached first frame. The external disk
+review shows available usage, candidate identities and the selected
+endpoint. The [Moby 29.10.0 Engine API schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml)
+documents the finite Activity query and verbose disk usage categories.
+The signed Apple silicon test observed a real Docker container event,
+previewed exact disposable storage identities and verified the resources
+remained. Two isolated external engines verified Activity switching,
+unavailable measurements and automatic recovery. Images opens the
+selected engine's cleanup review, and the fixture logged zero mutation
+requests. The native keyboard check opened Disk with Command–6 and closed
+the review with Escape. The review was checked in
+[English light](../spikes/M7-21-environment-observation/en-light.png),
+[English dark](../spikes/M7-21-environment-observation/en-dark.png),
+[Arabic light](../spikes/M7-21-environment-observation/ar-light.png), and
+[Arabic dark](../spikes/M7-21-environment-observation/ar-dark.png).
+
+Per-environment settings control Activity, retained history, registry checks,
+unused volume visibility, and opt-in local health alerts for the selected
+engine while the window is open. Docker keeps the in-memory event history.
+Two external fixtures kept distinct settings after restart. Alpha requested
+one hour of history and hid unused volume candidates while retaining volume
+accounting. Beta issued no event requests after activity collection was
+disabled. Tests cover alert event validation and deduplication. The settings
+were verified in
+[English light](../spikes/M7-21-environment-observation/settings-en-light.png),
+[English dark](../spikes/M7-21-environment-observation/settings-en-dark.png),
+[Arabic light](../spikes/M7-21-environment-observation/settings-ar-light.png), and
+[Arabic dark](../spikes/M7-21-environment-observation/settings-ar-dark.png).
+
+Cleanup apply reports that exact deletion is unsupported. M5-12 and M7-11
+own the conditional deletion requirement. Verified Marsa release updates
+use the app-wide updater.
 
 ### M7-22 Configure deploy-time secret providers
 

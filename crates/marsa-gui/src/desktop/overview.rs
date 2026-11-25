@@ -54,6 +54,7 @@ enum Target {
 #[derive(Default)]
 pub(super) struct Overview {
     target: Option<Target>,
+    check_image_updates: bool,
     task: Option<Task<()>>,
     disk_task: Option<Task<()>>,
     sample: Option<OverviewSample>,
@@ -81,10 +82,14 @@ impl Desktop {
                 |workspace| Target::External(Box::new(workspace.endpoint.clone())),
             ))
         };
-        if self.overview.target != target {
+        let check_image_updates = self.system.read(cx).monitoring().check_image_updates;
+        if self.overview.target != target
+            || self.overview.check_image_updates != check_image_updates
+        {
             self.overview = Overview {
                 disk_pending: matches!(target, Some(Target::Marsa | Target::External(_))),
                 target: target.clone(),
+                check_image_updates,
                 ..Overview::default()
             };
         } else if self.overview.task.is_some() {
@@ -100,15 +105,26 @@ impl Desktop {
             let storage_services = services.clone();
             let storage_executor = executor.clone();
             self.overview.disk_task = Some(cx.spawn(async move |this, cx| {
+                if matches!(&storage_target, Target::Marsa) {
+                    let mut request = storage_services.request(|client| async move {
+                        Ok(OverviewClient::Marsa(client).disk_cached().await)
+                    });
+                    if let Some(Ok(Some(cached))) = request.result().await
+                        && this
+                            .update(cx, |this, cx| {
+                                this.publish_overview_disk(&storage_target, Some(cached), cx)
+                            })
+                            .ok()
+                            != Some(true)
+                    {
+                        return;
+                    }
+                }
                 loop {
                     let disk = match &storage_target {
                         Target::Marsa => {
                             let mut request = storage_services.request(|client| async move {
-                                let client = OverviewClient::Marsa(client);
-                                let cached = client.disk_cached().await;
-                                // Always follow with a live scan so reclaimable figures stay current.
-                                let live = client.disk().await;
-                                Ok(live.or(cached))
+                                Ok(OverviewClient::Marsa(client).disk().await)
                             });
                             request.result().await.and_then(Result::ok).flatten()
                         }
@@ -118,7 +134,7 @@ impl Desktop {
                                 storage_services.pending(async move { Ok(client.disk().await) });
                             request.result().await.and_then(Result::ok).flatten()
                         }
-                        Target::Checking(_) => break,
+                        Target::Checking(_) => return,
                     };
                     let interval = if disk.is_some() {
                         DISK_INTERVAL
@@ -127,43 +143,54 @@ impl Desktop {
                     };
                     if this
                         .update(cx, |this, cx| {
-                            if this.overview.target.as_ref() != Some(&storage_target) {
-                                return false;
-                            }
-                            this.overview.disk = disk;
-                            this.overview.disk_pending = false;
-                            cx.notify();
-                            true
+                            this.publish_overview_disk(&storage_target, disk, cx)
                         })
                         .ok()
                         != Some(true)
                     {
-                        break;
+                        return;
                     }
                     storage_executor.timer(interval).await;
                 }
             }));
         }
         self.overview.task = Some(cx.spawn(async move |this, cx| {
+            if matches!(&target, Target::Marsa) {
+                let mut request = services.request(|client| async move {
+                    Ok(OverviewClient::Marsa(client).sample_cached().await)
+                });
+                if let Some(Ok(cached)) = request.result().await
+                    && observed(&cached)
+                    && this
+                        .update(cx, |this, cx| {
+                            if this.overview.target.as_ref() != Some(&target) {
+                                return false;
+                            }
+                            this.overview.sample = Some(cached);
+                            cx.notify();
+                            true
+                        })
+                        .ok()
+                        != Some(true)
+                {
+                    return;
+                }
+            }
             loop {
                 let sample = match &target {
                     Target::Marsa => {
-                        let mut request = services.request(|client| async move {
-                            let client = OverviewClient::Marsa(client);
-                            // First frame from the daemon inventory cache (D-034 / M7-41).
-                            let cached = client.sample_cached().await;
-                            if observed(&cached) {
-                                Ok(cached)
-                            } else {
-                                Ok(client.sample().await)
-                            }
+                        let mut request = services.request(move |client| async move {
+                            Ok(OverviewClient::Marsa(client)
+                                .sample_with_image_checks(check_image_updates)
+                                .await)
                         });
                         request.result().await.and_then(Result::ok)
                     }
                     Target::External(endpoint) => {
                         let client = OverviewClient::external(endpoint);
-                        let mut request =
-                            services.pending(async move { Ok(client.sample().await) });
+                        let mut request = services.pending(async move {
+                            Ok(client.sample_with_image_checks(check_image_updates).await)
+                        });
                         request.result().await.and_then(Result::ok)
                     }
                     Target::Checking(_) => None,
@@ -174,8 +201,7 @@ impl Desktop {
                             return false;
                         }
                         let sample = sample.unwrap_or_default();
-                        let connected = observed(&sample);
-                        if !connected && !matches!(target, Target::Marsa) {
+                        if !observed(&sample) && !matches!(target, Target::Marsa) {
                             this.system
                                 .update(cx, |system, cx| system.refresh_external_inventory(cx));
                         }
@@ -189,32 +215,26 @@ impl Desktop {
                     .ok()
                     != Some(true)
                 {
-                    break;
-                }
-                // After a cache hit, immediately pull live utilization once.
-                if matches!(target, Target::Marsa) {
-                    let mut live = services.request(|client| async move {
-                        Ok(OverviewClient::Marsa(client).sample().await)
-                    });
-                    if let Some(Ok(sample)) = live.result().await
-                        && this
-                            .update(cx, |this, cx| {
-                                if this.overview.target.as_ref() != Some(&target) {
-                                    return false;
-                                }
-                                this.overview.sample = Some(sample);
-                                cx.notify();
-                                true
-                            })
-                            .ok()
-                            != Some(true)
-                    {
-                        break;
-                    }
+                    return;
                 }
                 executor.timer(SAMPLE_INTERVAL).await;
             }
         }));
+    }
+
+    fn publish_overview_disk(
+        &mut self,
+        target: &Target,
+        disk: Option<DiskBreakdown>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.overview.target.as_ref() != Some(target) {
+            return false;
+        }
+        self.overview.disk = disk;
+        self.overview.disk_pending = false;
+        cx.notify();
+        true
     }
 
     pub(super) fn overview_screen(
@@ -799,7 +819,9 @@ fn context_status_body(
         ),
         (
             StatusFilter::Updates,
-            count.map(|count| count.updates),
+            count
+                .filter(|_| data.is_some_and(|data| data.updates_checked))
+                .map(|count| count.updates),
             "icons/arrow-up-from-line.svg",
             ColorToken::TextMuted,
         ),

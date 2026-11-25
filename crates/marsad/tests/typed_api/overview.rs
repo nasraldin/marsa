@@ -20,6 +20,7 @@ async fn overview_is_owner_only_and_stays_passive_across_engine_lifecycle() {
         section: DockerOverviewSection::Containers.into(),
         container_id: String::new(),
         prefer_cache: false,
+        activity_hours: None,
     };
     assert_eq!(
         fixture
@@ -79,26 +80,38 @@ async fn prefer_cache_returns_last_snapshot_without_docker() {
         section: DockerOverviewSection::Containers.into(),
         container_id: String::new(),
         prefer_cache: false,
+        activity_hours: None,
     };
     let first = stats.docker_overview(live).await.unwrap().into_inner();
     assert_eq!(first.json, b"[]");
     assert!(first.observed_at_unix_millis > 0);
 
-    // Stop Docker script replies: a cache hit must not contact the guest again.
+    // The ready observer may write another snapshot after our live fetch.
+    // Require an offline cache hit and prove an uncached request would fail.
     fixture.supervisor.stop().await.unwrap();
+    let request = DockerOverviewRequest {
+        section: DockerOverviewSection::Containers.into(),
+        container_id: String::new(),
+        prefer_cache: true,
+        activity_hours: None,
+    };
     let cached = stats
-        .docker_overview(DockerOverviewRequest {
-            section: DockerOverviewSection::Containers.into(),
-            container_id: String::new(),
-            prefer_cache: true,
-        })
+        .docker_overview(request.clone())
         .await
         .unwrap()
         .into_inner();
     assert_eq!(cached.json, b"[]");
+    assert!(cached.observed_at_unix_millis >= first.observed_at_unix_millis);
     assert_eq!(
-        cached.observed_at_unix_millis,
-        first.observed_at_unix_millis
+        stats
+            .docker_overview(DockerOverviewRequest {
+                prefer_cache: false,
+                ..request
+            })
+            .await
+            .unwrap_err()
+            .code(),
+        Code::FailedPrecondition,
     );
 }
 
@@ -167,4 +180,59 @@ async fn docker_inventory_events_are_observed_without_preventing_idle_stop() {
     let idle = next_state(&mut events, changed, EngineState::Idle).await;
     let stopping = next_state(&mut events, idle, EngineState::Stopping).await;
     next_state(&mut events, stopping, EngineState::Stopped).await;
+}
+
+#[tokio::test]
+async fn recent_docker_activity_requires_an_already_running_vm() {
+    let body =
+        br#"{"Type":"container","Action":"start","Actor":{"ID":"fixture"},"time":1826918998}"#;
+    let mut response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    response.extend_from_slice(body);
+    let fixture = Fixture::with_docker(
+        vec![AgentStep::Send(b"HR".to_vec())],
+        vec![
+            AgentStep::Expect(b"GET /v1.57/events?since=".to_vec()),
+            AgentStep::Send(response),
+        ],
+    )
+    .await;
+    let mut stats = StatsClient::new(fixture.channel.clone());
+    let request = DockerOverviewRequest {
+        section: DockerOverviewSection::Activity.into(),
+        prefer_cache: true,
+        activity_hours: None,
+        ..Default::default()
+    };
+    assert_eq!(
+        stats
+            .docker_overview(request.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        Code::FailedPrecondition
+    );
+    assert_eq!(
+        fixture.supervisor.snapshot().state,
+        marsad::supervisor::State::Stopped
+    );
+    fixture.supervisor.ensure_ready().await.unwrap();
+    assert_eq!(
+        stats
+            .docker_overview(request.clone())
+            .await
+            .unwrap()
+            .into_inner()
+            .json,
+        body
+    );
+    fixture.supervisor.stop().await.unwrap();
+    assert_eq!(
+        stats.docker_overview(request).await.unwrap_err().code(),
+        Code::FailedPrecondition,
+        "activity is never served from the inventory cache"
+    );
 }

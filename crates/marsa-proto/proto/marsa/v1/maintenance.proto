@@ -51,6 +51,7 @@ enum DockerOverviewSection {
   DOCKER_OVERVIEW_SECTION_CONTAINER_STATS = 5;
   DOCKER_OVERVIEW_SECTION_DISK = 6;
   DOCKER_OVERVIEW_SECTION_VERSION = 7;
+  DOCKER_OVERVIEW_SECTION_ACTIVITY = 8;
 }
 
 message DockerOverviewRequest {
@@ -60,6 +61,8 @@ message DockerOverviewRequest {
   // When true (host API minor 14+), return the daemon's last cached snapshot
   // for this section if one exists. Container stats are never cached.
   bool prefer_cache = 3;
+  // Activity only. Allowed lookbacks are 1, 6 and 24 hours. Default is 24.
+  optional uint32 activity_hours = 4;
 }
 
 message DockerOverviewResponse {

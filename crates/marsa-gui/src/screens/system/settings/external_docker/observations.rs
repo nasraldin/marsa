@@ -1,12 +1,14 @@
 //! Read current events and inventory for the active environment.
 
 use marsa_client::{
-    api::EngineState,
+    api::{DiskCategory, EngineState, PrunePreviewRequest, PrunePreviewResponse},
     docker::{DockerActivity, EnvironmentReport, ExternalEndpoint},
 };
 use marsa_ui::{
     ColorToken, TextKey,
-    gpui::{ClipboardItem, Context, Div, ParentElement as _, SharedString, Styled as _, div, px},
+    gpui::{
+        ClipboardItem, Context, Div, ParentElement as _, SharedString, Styled as _, Task, div, px,
+    },
     gpui_component::{Disableable as _, IconName, button::Button},
     gui_keys as gui,
     tokens::typography::Role,
@@ -20,9 +22,11 @@ use crate::screens::{
 
 #[derive(Default)]
 pub(in crate::screens::system) struct Observations {
-    target: Option<ExternalEndpoint>,
-    activity: Load<Vec<DockerActivity>>,
-    report: Load<EnvironmentReport>,
+    target: Option<Target>,
+    page: Option<Page>,
+    generation: u64,
+    reading: Load<ResultPage>,
+    task: Option<Task<()>>,
 }
 
 #[derive(Default)]
@@ -34,9 +38,44 @@ enum Load<T> {
     Failed,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+enum Target {
+    Marsa,
+    External(Box<ExternalEndpoint>),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Page {
+    Activity(u32),
+    Report,
+    Disk,
+}
+
 enum ResultPage {
     Activity(Vec<DockerActivity>),
     Report(EnvironmentReport),
+    Disk(PrunePreviewResponse),
+}
+
+impl Observations {
+    fn select(&mut self, target: Option<Target>, page: Option<Page>) {
+        if self.target != target || self.page != page {
+            *self = Self {
+                target,
+                page,
+                generation: self.generation.wrapping_add(1),
+                ..Self::default()
+            };
+        }
+    }
+
+    pub(in crate::screens::system) fn clear(&mut self) {
+        self.select(None, None);
+    }
+
+    fn current(&self, generation: u64) -> bool {
+        self.generation == generation
+    }
 }
 
 impl SystemView {
@@ -49,6 +88,7 @@ impl SystemView {
         cx: &mut Context<Self>,
     ) -> Div {
         if local {
+            self.environment_observations.clear();
             let ready = screen.state.engine().is_some_and(|engine| {
                 matches!(engine.state(), EngineState::Ready | EngineState::Idle)
             });
@@ -72,27 +112,26 @@ impl SystemView {
                 )
             };
         }
-        let Some(target) = target else {
-            return settings_text(
-                screen,
-                Role::Small,
-                gui::GUI_ENVIRONMENT_OFFLINE.text(screen.locale),
-                ColorToken::TextMuted,
-            );
-        };
-        if self.environment_observations.target.as_ref() != Some(&target) {
-            self.environment_observations = Observations {
-                target: Some(target),
-                ..Observations::default()
-            };
-        }
-        let load = if report {
-            matches!(self.environment_observations.report, Load::Empty)
+        let page = if report {
+            Page::Report
         } else {
-            matches!(self.environment_observations.activity, Load::Empty)
+            let preferences = self.monitoring();
+            if !preferences.collect_activity {
+                return self.activity_disabled(screen);
+            }
+            Page::Activity(preferences.activity_retention.hours())
         };
-        if load {
-            self.load_environment_observations(report, cx);
+        self.environment_observations.select(
+            target
+                .clone()
+                .map(|endpoint| Target::External(Box::new(endpoint))),
+            Some(page),
+        );
+        if target.is_none() {
+            return self.offline_observations(screen, cx);
+        }
+        if matches!(self.environment_observations.reading, Load::Empty) {
+            self.load_environment_observations(cx);
         }
         if report {
             self.environment_report(screen, cx)
@@ -101,63 +140,211 @@ impl SystemView {
         }
     }
 
-    fn load_environment_observations(&mut self, report: bool, cx: &mut Context<Self>) {
+    pub(crate) fn environment_disk_page(
+        &mut self,
+        target: Option<ExternalEndpoint>,
+        name: &str,
+        screen: &ScreenContext<'_>,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        self.environment_observations.select(
+            target
+                .clone()
+                .map(|endpoint| Target::External(Box::new(endpoint))),
+            Some(Page::Disk),
+        );
+        let Some(target) = target else {
+            return div();
+        };
+        if matches!(self.environment_observations.reading, Load::Empty) {
+            self.load_environment_observations(cx);
+        }
+        let page = &self.environment_observations.reading;
+        let body = self.observation_header(
+            screen,
+            gui::GUI_ENVIRONMENT_DISK_HELP,
+            matches!(page, Load::Loading),
+            cx,
+        );
+        if let Load::Ready(ResultPage::Disk(preview)) = page {
+            return body.child(crate::screens::system::disk::external_cleanup(
+                screen,
+                (name.to_owned(), target.address()),
+                preview,
+                self.monitoring().show_volume_candidates,
+            ));
+        }
+        body.children(status(
+            screen,
+            page,
+            false,
+            gui::GUI_SYSTEM_DISK_INVENTORY_UNAVAILABLE,
+        ))
+    }
+
+    pub(in crate::screens::system) fn managed_activity_panel(
+        &mut self,
+        screen: &ScreenContext<'_>,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let preferences = self.monitoring();
+        if !preferences.collect_activity {
+            return self.activity_disabled(screen);
+        }
+        let ready = screen
+            .state
+            .engine()
+            .is_some_and(|engine| matches!(engine.state(), EngineState::Ready | EngineState::Idle));
+        self.environment_observations.select(
+            ready.then_some(Target::Marsa),
+            Some(Page::Activity(preferences.activity_retention.hours())),
+        );
+        if !ready {
+            return settings_text(
+                screen,
+                Role::Small,
+                gui::GUI_DESKTOP_RESOURCES_ARE_AVAILABLE_WHEN_THE_ENGINE_IS_RUNNING
+                    .text(screen.locale),
+                ColorToken::TextMuted,
+            );
+        }
+        if matches!(self.environment_observations.reading, Load::Empty) {
+            self.load_environment_observations(cx);
+        }
+        self.environment_activity(screen, cx)
+    }
+
+    fn activity_disabled(&mut self, screen: &ScreenContext<'_>) -> Div {
+        self.environment_observations.clear();
+        settings_text(
+            screen,
+            Role::Small,
+            gui::GUI_ENVIRONMENT_MONITORING_ACTIVITY_DISABLED.text(screen.locale),
+            ColorToken::TextMuted,
+        )
+    }
+
+    fn offline_observations(&self, screen: &ScreenContext<'_>, cx: &Context<Self>) -> Div {
+        row(screen.locale)
+            .gap_3()
+            .items_center()
+            .child(settings_text(
+                screen,
+                Role::Small,
+                gui::GUI_ENVIRONMENT_OFFLINE.text(screen.locale),
+                ColorToken::TextMuted,
+            ))
+            .child(
+                Button::new("retry-environment-connection")
+                    .label(gui::GUI_DESKTOP_REFRESH.text(screen.locale))
+                    .disabled(self.external_inventory_pending())
+                    .on_click(cx.listener(|this, _, _, cx| this.refresh_external_inventory(cx))),
+            )
+    }
+
+    fn load_environment_observations(&mut self, cx: &mut Context<Self>) {
+        const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+        const DISK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+        const RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
         let Some(services) = &self.services else {
             return;
         };
-        let Some(target) = self.environment_observations.target.clone() else {
+        let observations = &mut self.environment_observations;
+        let (Some(target), Some(page)) = (observations.target.clone(), observations.page) else {
             return;
         };
-        let observations = &mut self.environment_observations;
-        let docker = services.resource_docker(Some(target.clone()));
-        if report {
-            if matches!(observations.report, Load::Loading) {
-                return;
-            }
-            observations.report = Load::Loading;
-        } else {
-            if matches!(observations.activity, Load::Loading) {
-                return;
-            }
-            observations.activity = Load::Loading;
+        if observations.task.is_some() {
+            return;
         }
-        let mut pending = services.pending(async move {
-            if report {
-                let containers = docker.containers().await?;
-                let images = docker.images().await?;
-                let volumes = docker.volumes().await.ok().map(|items| items.len());
-                let networks = docker.networks().await.ok().map(|items| items.len());
-                Ok(ResultPage::Report(EnvironmentReport::from_inventory(
-                    &containers,
-                    images.len(),
-                    volumes,
-                    networks,
-                )))
-            } else {
-                Ok(ResultPage::Activity(docker.recent_activity().await?))
+        let generation = observations.generation;
+        observations.reading = Load::Loading;
+        let services = std::sync::Arc::clone(services);
+        let timer = cx.background_executor().clone();
+        observations.task = Some(cx.spawn(async move |this, cx| {
+            loop {
+                let result = match (page, &target) {
+                    (Page::Activity(hours), target) => {
+                        let endpoint = match target {
+                            Target::Marsa => None,
+                            Target::External(endpoint) => Some(endpoint.as_ref().clone()),
+                        };
+                        services
+                            .engine_activity(endpoint, hours)
+                            .result()
+                            .await
+                            .and_then(Result::ok)
+                            .map(ResultPage::Activity)
+                    }
+                    (Page::Report, Target::External(endpoint)) => {
+                        let docker = endpoint.management_client();
+                        services
+                            .pending(async move {
+                                let containers = docker.containers().await?;
+                                let images = docker.images().await?;
+                                let volumes = docker.volumes().await.ok().map(|items| items.len());
+                                let networks =
+                                    docker.networks().await.ok().map(|items| items.len());
+                                Ok(ResultPage::Report(EnvironmentReport::from_inventory(
+                                    &containers,
+                                    images.len(),
+                                    volumes,
+                                    networks,
+                                )))
+                            })
+                            .result()
+                            .await
+                            .and_then(Result::ok)
+                    }
+                    (Page::Disk, Target::External(endpoint)) => {
+                        let docker = endpoint.management_client();
+                        services
+                            .pending(async move {
+                                let preview = docker
+                                    .cleanup_preview(PrunePreviewRequest {
+                                        categories: [
+                                            DiskCategory::Containers,
+                                            DiskCategory::Images,
+                                            DiskCategory::Volumes,
+                                            DiskCategory::BuildCache,
+                                        ]
+                                        .into_iter()
+                                        .map(i32::from)
+                                        .collect(),
+                                        volume_names: Vec::new(),
+                                    })
+                                    .await?;
+                                Ok(ResultPage::Disk(preview))
+                            })
+                            .result()
+                            .await
+                            .and_then(Result::ok)
+                    }
+                    (_, Target::Marsa) => return,
+                };
+                let retry = result.is_none();
+                if this
+                    .update(cx, |this, cx| {
+                        let observations = &mut this.environment_observations;
+                        if !observations.current(generation) {
+                            return false;
+                        }
+                        observations.reading = result.map_or(Load::Failed, Load::Ready);
+                        cx.notify();
+                        true
+                    })
+                    .ok()
+                    != Some(true)
+                {
+                    break;
+                }
+                let interval = match (retry, page) {
+                    (true, _) => RETRY_INTERVAL,
+                    (false, Page::Disk) => DISK_INTERVAL,
+                    (false, _) => REFRESH_INTERVAL,
+                };
+                timer.timer(interval).await;
             }
-        });
-        cx.spawn(async move |this, cx| {
-            let result = pending.result().await;
-            let _ = this.update(cx, |this, cx| {
-                let observations = &mut this.environment_observations;
-                if observations.target.as_ref() != Some(&target) {
-                    return;
-                }
-                match result {
-                    Some(Ok(ResultPage::Activity(events))) => {
-                        observations.activity = Load::Ready(events)
-                    }
-                    Some(Ok(ResultPage::Report(snapshot))) => {
-                        observations.report = Load::Ready(snapshot)
-                    }
-                    _ if report => observations.report = Load::Failed,
-                    _ => observations.activity = Load::Failed,
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        }));
         cx.notify();
     }
 
@@ -166,15 +353,14 @@ impl SystemView {
         screen: &ScreenContext<'_>,
         cx: &Context<Self>,
     ) -> Div {
-        let page = &self.environment_observations.activity;
-        let mut body = self.observation_header(
-            screen,
-            gui::GUI_ENVIRONMENT_ACTIVITY_PERIOD,
-            false,
-            matches!(page, Load::Loading),
-            cx,
-        );
-        if let Load::Ready(events) = page
+        let page = &self.environment_observations.reading;
+        let period = match self.environment_observations.page {
+            Some(Page::Activity(1)) => gui::GUI_ENVIRONMENT_MONITORING_PERIOD_ONE_HOUR,
+            Some(Page::Activity(6)) => gui::GUI_ENVIRONMENT_MONITORING_PERIOD_SIX_HOURS,
+            _ => gui::GUI_ENVIRONMENT_ACTIVITY_PERIOD,
+        };
+        let mut body = self.observation_header(screen, period, matches!(page, Load::Loading), cx);
+        if let Load::Ready(ResultPage::Activity(events)) = page
             && !events.is_empty()
         {
             body = body.child(panel(screen).gap_1().children(events.iter().map(|event| {
@@ -195,21 +381,20 @@ impl SystemView {
         body.children(status(
             screen,
             page,
-            matches!(page, Load::Ready(events) if events.is_empty()),
+            matches!(page, Load::Ready(ResultPage::Activity(events)) if events.is_empty()),
             gui::GUI_ENVIRONMENT_NO_EVENTS,
         ))
     }
 
     pub(super) fn environment_report(&self, screen: &ScreenContext<'_>, cx: &Context<Self>) -> Div {
-        let page = &self.environment_observations.report;
+        let page = &self.environment_observations.reading;
         let mut body = self.observation_header(
             screen,
             gui::GUI_ENVIRONMENT_REPORT_HELP,
-            true,
             matches!(page, Load::Loading),
             cx,
         );
-        if let Load::Ready(snapshot) = page {
+        if let Load::Ready(ResultPage::Report(snapshot)) = page {
             body = report_body(screen, body, snapshot);
         }
         body.children(status(screen, page, false, gui::GUI_ENVIRONMENT_NO_EVENTS))
@@ -219,7 +404,6 @@ impl SystemView {
         &self,
         screen: &ScreenContext<'_>,
         help: TextKey,
-        report: bool,
         busy: bool,
         cx: &Context<Self>,
     ) -> Div {
@@ -245,7 +429,13 @@ impl SystemView {
                         .label(gui::GUI_DESKTOP_REFRESH.text(screen.locale))
                         .disabled(busy)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.load_environment_observations(report, cx)
+                            let observations = &mut this.environment_observations;
+                            observations.generation = observations.generation.wrapping_add(1);
+                            observations.task = None;
+                            if matches!(observations.target, Some(Target::External(_))) {
+                                this.refresh_external_inventory(cx);
+                            }
+                            this.load_environment_observations(cx);
                         })),
                 ),
         )
@@ -425,7 +615,7 @@ fn status<T>(
         Load::Empty | Load::Loading => (gui::GUI_DESKTOP_WORKING, ColorToken::TextMuted),
         Load::Ready(_) if empty => (empty_key, ColorToken::TextMuted),
         Load::Ready(_) => return None,
-        Load::Failed => (gui::GUI_ENVIRONMENT_OFFLINE, ColorToken::StatusWarning),
+        Load::Failed => (gui::GUI_DESKTOP_UNAVAILABLE, ColorToken::StatusWarning),
     };
     Some(settings_text(
         screen,
@@ -433,4 +623,20 @@ fn status<T>(
         label.text(screen.locale),
         token,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leaving_and_returning_rejects_an_earlier_read_of_the_same_page() {
+        let mut observations = Observations::default();
+        observations.select(None, Some(Page::Activity(24)));
+        let first = observations.generation;
+        observations.select(None, Some(Page::Disk));
+        observations.select(None, Some(Page::Activity(24)));
+        assert!(!observations.current(first));
+        assert!(observations.current(observations.generation));
+    }
 }

@@ -307,10 +307,15 @@ and [privileged network reconciliation] source.
 [Primary disk resize](https://github.com/lima-vm/lima/blob/v2.3.0/website/content/en/docs/config/disk.md#resizing-the-vms-primary-disk)
 [User-mode network](https://github.com/lima-vm/lima/blob/v2.3.0/website/content/en/docs/config/network/user.md)
 
-For the active external Docker environment, the Activity page shows the engine's recent
-events, newest first. Docker Engine keeps up to 256 events in memory. Marsa
-requests the events retained from the previous 24 hours and displays the resource,
-action and time. [Docker Engine event history](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/events/events.go#L12-L32),
+Activity shows recent Docker events from the selected environment, newest first.
+For Marsa the events use the passive owner API and appear alongside lifecycle
+history and approvals. Docker Engine keeps up to 256 events in memory. In
+Settings → Environments, select the engine before editing its Observation and
+maintenance settings. The activity switch controls event reads and health
+alerts. Activity reads the engine's retained events from the last 1, 6 or
+24 hours and displays the resource, action and time. Marsa keeps no separate
+persistent event history. An opt-in local alert reports new transitions to
+unhealthy while a Marsa window monitors the selected engine. [Docker Engine event history](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/events/events.go#L12-L32),
 [Docker Engine date filtering](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L274-L305).
 
 Overview opens with four equal cards: the selected environment (icon, name,
@@ -332,6 +337,15 @@ built-in engine or verified local Lima VM. The button uses the same stop
 confirmation as Machine.
 [Moby 29.10.0 Engine API](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml),
 [Moby disk accounting compatibility](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L207-L248).
+
+Disk & cleanup shows Docker's reported accounting and exact candidates for
+the selected environment. The Images cleanup action opens this review. Each engine's
+settings control whether unused volumes appear in the candidate list. The
+Overview image update setting controls registry digest comparisons for that
+engine. Verified Marsa release updates use the app-wide updater described in
+[D-029](15-decisions.md#d-029-verify-updates-with-tuf). Cleanup remains a preview until the engine can guarantee deletion of
+the reviewed identity. Host allocation and reclaim apply to the built-in
+Marsa VM only. See [Disk cleanup with a preview](07-file-sharing-and-storage.md#disk-cleanup-with-a-preview).
 
 The Reports page follows the active environment. Reports for an external engine
 refresh its container inventory

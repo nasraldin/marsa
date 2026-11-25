@@ -63,10 +63,6 @@ pub(crate) enum FormKind {
     RemoveImages {
         items: Vec<(String, String, Vec<String>)>,
     },
-    /// Bulk prune via Docker `/images/prune`. `dangling` selects untagged layers only.
-    PruneImages {
-        dangling: bool,
-    },
     CreateVolume,
     RemoveVolume {
         name: String,
@@ -101,7 +97,6 @@ impl FormKind {
             | Self::Run { .. }
             | Self::RemoveImage { .. }
             | Self::RemoveImages { .. }
-            | Self::PruneImages { .. }
             | Self::TagImage { .. } => ResourceKind::Images,
             Self::NetworkMembership { .. } => ResourceKind::Networks,
             Self::CreateStack { .. } | Self::DeployStack => ResourceKind::Compose,
@@ -132,12 +127,6 @@ impl FormKind {
             Self::RemoveImage { .. } | Self::RemoveImages { .. } => {
                 gui::GUI_DESKTOP_REMOVE_IMAGE.text(locale)
             }
-            Self::PruneImages { dangling: true } => {
-                gui::GUI_DESKTOP_PRUNE_DANGLING_IMAGES.text(locale)
-            }
-            Self::PruneImages { dangling: false } => {
-                gui::GUI_DESKTOP_PRUNE_UNUSED_IMAGES.text(locale)
-            }
             Self::CreateVolume => gui::GUI_DESKTOP_CREATE_VOLUME.text(locale),
             Self::RemoveVolume { .. } => gui::GUI_DESKTOP_REMOVE_VOLUME.text(locale),
             Self::CreateNetwork => gui::GUI_DESKTOP_CREATE_NETWORK.text(locale),
@@ -162,7 +151,6 @@ impl FormKind {
             Self::ImportImage
             | Self::CreateStack { .. }
             | Self::DeployStack
-            | Self::PruneImages { .. }
             | Self::Pull
             | Self::CreateVolume
             | Self::CreateNetwork => None,
@@ -209,12 +197,6 @@ impl FormKind {
             Self::RemoveVolume { in_use: false, .. } | Self::ComposeDown { volumes: true, .. } => {
                 Some(gui::GUI_SYSTEM_ACTIVITY_DESTROY_EXPLANATION)
             }
-            Self::PruneImages { dangling: true } => {
-                Some(gui::GUI_DESKTOP_PRUNE_DANGLING_IMAGES_HELP)
-            }
-            Self::PruneImages { dangling: false } => {
-                Some(gui::GUI_DESKTOP_PRUNE_UNUSED_IMAGES_HELP)
-            }
             _ => None,
         }
     }
@@ -237,7 +219,6 @@ impl FormKind {
             self,
             Self::RemoveImage { .. }
                 | Self::RemoveImages { .. }
-                | Self::PruneImages { .. }
                 | Self::RemoveVolume { .. }
                 | Self::RemoveNetwork { .. }
                 | Self::NetworkMembership { attach: false, .. }
@@ -283,9 +264,6 @@ pub(crate) enum ResourceRequest {
     RemoveImages {
         ids: Vec<String>,
         force: bool,
-    },
-    PruneImages {
-        dangling: bool,
     },
     CreateVolume(String),
     RemoveVolume {
@@ -433,9 +411,6 @@ impl Form {
                     force: self.force,
                 }
             }
-            FormKind::PruneImages { dangling } => ResourceRequest::PruneImages {
-                dangling: *dangling,
-            },
             FormKind::CreateVolume => ResourceRequest::CreateVolume(nonempty()?.to_owned()),
             FormKind::RemoveVolume {
                 name,

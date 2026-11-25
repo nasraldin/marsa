@@ -6,6 +6,7 @@ mod appearance;
 mod compose_template;
 mod config_sets;
 mod deploy_secrets;
+mod environment_monitoring;
 mod external_docker;
 mod git_sources;
 mod integrations;
@@ -188,7 +189,12 @@ impl SystemView {
         let content = match self.settings_tab {
             SettingsTab::General => self.general(screen, cx),
             SettingsTab::Sharing => self.sharing(screen, cx),
-            SettingsTab::Environments => self.external_docker(screen, cx),
+            SettingsTab::Environments => div()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .child(self.external_docker(screen, cx))
+                .child(self.environment_monitoring(screen, cx)),
             SettingsTab::GitSources => self.git_sources(screen, cx),
             SettingsTab::Registries => div()
                 .flex()

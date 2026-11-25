@@ -388,11 +388,6 @@ fn resource_route(method: &Method, path: &str, has_body: bool) -> bool {
                                 valid_pull_query(repo) && super::images::valid_tag(tag)
                             })
                     })
-                || matches!(
-                    path,
-                    "/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D"
-                        | "/images/prune?filters=%7B%22dangling%22%3A%5B%22false%22%5D%7D"
-                )
         }
         Method::GET if !has_body => {
             matches!(
@@ -997,13 +992,13 @@ mod tests {
         ] {
             assert!(!external_route(&Method::DELETE, path, true, false));
         }
-        assert!(external_route(
+        assert!(!external_route(
             &Method::POST,
             "/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D",
             true,
             false
         ));
-        assert!(external_route(
+        assert!(!external_route(
             &Method::POST,
             "/images/prune?filters=%7B%22dangling%22%3A%5B%22false%22%5D%7D",
             true,
