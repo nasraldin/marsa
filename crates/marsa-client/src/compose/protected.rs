@@ -1,8 +1,13 @@
 //! Resolve deploy secrets after Compose has normalized the user-selected model.
 
 use std::{
-    collections::BTreeMap, future::Future, io, os::unix::fs::PermissionsExt as _, path::Path,
-    process::Stdio, time::Duration,
+    collections::{BTreeMap, BTreeSet},
+    future::Future,
+    io,
+    os::unix::fs::PermissionsExt as _,
+    path::Path,
+    process::Stdio,
+    time::Duration,
 };
 
 use serde_json::{Value, json};
@@ -13,7 +18,7 @@ use tokio::{
 };
 
 use super::{ComposeError, ComposeStream, relay::Relay};
-use crate::docker::{DeploySecretStore, deploy_secrets::valid_name};
+use crate::docker::{DeploySecretStore, DockerClient, ImageReference, deploy_secrets::valid_name};
 
 const PROVIDER: &str = "MARSA_KEYCHAIN";
 const LIMIT: usize = 32;
@@ -28,11 +33,20 @@ pub(super) async fn start(
     name: &str,
     socket: &str,
     relay: Option<Relay>,
+    engine: &DockerClient,
 ) -> Result<ComposeStream, ComposeError> {
-    launch(binary, file, name, socket, relay, |names| async move {
-        let store = DeploySecretStore::for_canonical_project(file, name).await?;
-        Ok(store.resolve_all(&names).await?)
-    })
+    launch(
+        binary,
+        file,
+        name,
+        socket,
+        relay,
+        engine,
+        |names| async move {
+            let store = DeploySecretStore::for_canonical_project(file, name).await?;
+            Ok(store.resolve_all(&names).await?)
+        },
+    )
     .await
 }
 
@@ -42,6 +56,7 @@ async fn launch<F>(
     name: &str,
     socket: &str,
     relay: Option<Relay>,
+    engine: &DockerClient,
     provider: impl FnOnce(Vec<String>) -> F,
 ) -> Result<ComposeStream, ComposeError>
 where
@@ -107,6 +122,9 @@ where
     .await
     .map_err(|_| ComposeError::ProtectedModel)??;
     let mut plan = Plan::from_json(model)?;
+    timeout(PREPARE_LIMIT, plan.pin_receiving_images(engine))
+        .await
+        .map_err(|_| ComposeError::ProtectedModel)??;
     let names: Vec<_> = plan.consumers.keys().cloned().collect();
     let secrets = provider(names.clone()).await?;
     if names.len() != secrets.len() {
@@ -209,9 +227,15 @@ impl Plan {
             .ok_or(ComposeError::ProtectedModel)?;
         for (service, config) in services {
             let fields = config.as_object_mut().ok_or(ComposeError::ProtectedModel)?;
-            if ["provider", "extends", "env_file", "label_file"]
-                .iter()
-                .any(|key| fields.contains_key(*key))
+            if [
+                "provider",
+                "extends",
+                "env_file",
+                "label_file",
+                "volumes_from",
+            ]
+            .iter()
+            .any(|key| fields.contains_key(*key))
             {
                 return Err(ComposeError::ProtectedModel);
             }
@@ -220,6 +244,12 @@ impl Plan {
             let Some(secrets) = fields.get("secrets").and_then(Value::as_array) else {
                 continue;
             };
+            let receives_ordinary_secret = secrets.iter().any(|secret| {
+                secret
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .is_some_and(|source| !consumers.contains_key(source))
+            });
             for secret in secrets {
                 let source = secret
                     .get("source")
@@ -229,26 +259,17 @@ impl Plan {
                     continue;
                 };
                 let expected = format!("/run/secrets/{source}");
-                if secret.get("target").and_then(Value::as_str) != Some(expected.as_str())
+                if receives_ordinary_secret
+                    || secret.get("target").and_then(Value::as_str) != Some(expected.as_str())
                     || fields.get("read_only").and_then(Value::as_bool) == Some(true)
                     || fields
                         .get("configs")
                         .and_then(Value::as_array)
                         .is_some_and(|configs| configs.iter().any(conflicting_config))
-                    || fields.contains_key("volumes_from")
+                    // Docker follows symlinks before extracting the secret archive.
+                    // A destination outside /run/secrets can still be a shared mount.
                     || fields.contains_key("tmpfs")
-                    || fields
-                        .get("volumes")
-                        .and_then(Value::as_array)
-                        .is_some_and(|mounts| {
-                            mounts.iter().any(|mount| {
-                                mount.get("type").and_then(Value::as_str) != Some("volume")
-                                    || mount
-                                        .get("target")
-                                        .and_then(Value::as_str)
-                                        .is_none_or(overlaps_secrets)
-                            })
-                        })
+                    || fields.contains_key("volumes")
                     || entries.len() >= LIMIT
                 {
                     return Err(ComposeError::ProtectedModel);
@@ -260,6 +281,29 @@ impl Plan {
             return Err(ComposeError::ProtectedModel);
         }
         Ok(Self { model, consumers })
+    }
+
+    async fn pin_receiving_images(&mut self, engine: &DockerClient) -> Result<(), ComposeError> {
+        let services: BTreeSet<_> = self.consumers.values().flatten().collect();
+        let mut inspected = BTreeMap::new();
+        for service in services {
+            let image = &mut self.model["services"][service]["image"];
+            let reference = image.as_str().ok_or(ComposeError::ProtectedModel)?;
+            if !inspected.contains_key(reference) {
+                let parsed =
+                    ImageReference::parse(reference).map_err(|_| ComposeError::ProtectedModel)?;
+                let id = engine
+                    .resolve_compose_secret_image(parsed)
+                    .await
+                    .map_err(|_| ComposeError::ProtectedModel)?;
+                inspected.insert(reference.to_owned(), id);
+            }
+            let id = inspected
+                .get(reference)
+                .ok_or(ComposeError::ProtectedModel)?;
+            *image = json!(id.as_str());
+        }
+        Ok(())
     }
 
     fn bind(&mut self, name: &str, variable: &str, revision: &str) -> Result<(), ComposeError> {
@@ -367,6 +411,33 @@ mod tests {
             assert!(Plan::from_json(config).is_err(), "{field}");
         }
     }
+    #[test]
+    fn rejects_a_shared_volume_at_any_consumer_path_and_inherited_volumes() {
+        let mut config = model();
+        config["volumes"] = json!({"shared": {}});
+        config["services"]["other"] = json!({
+            "image": "app:latest",
+            "volumes": [{"type": "volume", "source": "shared", "target": "/data"}]
+        });
+        assert!(Plan::from_json(config.clone()).is_ok());
+
+        let mut inherited = config.clone();
+        inherited["services"]["other"]["volumes_from"] = json!(["app:rw"]);
+        assert!(Plan::from_json(inherited).is_err());
+
+        let mut ordinary_secret = config.clone();
+        ordinary_secret["secrets"]["file"] = json!({"file": "/tmp/fixture"});
+        ordinary_secret["services"]["app"]["secrets"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"source": "file", "target": "/data"}));
+        assert!(Plan::from_json(ordinary_secret).is_err());
+
+        config["services"]["app"]["volumes"] =
+            json!([{"type": "volume", "source": "shared", "target": "/data"}]);
+        assert!(Plan::from_json(config).is_err());
+    }
+
     #[tokio::test]
     #[ignore = "requires the pinned Compose and Docker CLI and a disposable Unix-socket engine project"]
     async fn copies_the_secret_only_into_the_granted_container() {
@@ -379,6 +450,10 @@ mod tests {
         let docker =
             PathBuf::from(env::var_os("MARSA_TEST_DOCKER").expect("set MARSA_TEST_DOCKER"));
         let socket = env::var("MARSA_TEST_DOCKER_SOCKET").expect("set MARSA_TEST_DOCKER_SOCKET");
+        let engine = crate::docker::ExternalEndpoint::test_unix_socket(Path::new(&socket))
+            .await
+            .unwrap()
+            .management_client();
         let image = env::var("MARSA_TEST_SECRET_IMAGE").expect("set MARSA_TEST_SECRET_IMAGE");
         let project = format!(
             "marsasecret{}",
@@ -402,6 +477,26 @@ mod tests {
             },
             "secrets": {"credential": {"environment": "MARSA_KEYCHAIN"}}
         });
+        if let Ok(volume_image) = env::var("MARSA_TEST_VOLUME_IMAGE") {
+            let mut with_volume = spec.clone();
+            with_volume["services"]["granted"]["image"] = json!(volume_image);
+            fs::write(&file, serde_json::to_vec(&with_volume).unwrap()).unwrap();
+            let rejected = launch(
+                &compose,
+                &file,
+                &project,
+                &socket,
+                None,
+                &engine,
+                |_| async {
+                    panic!(
+                        "an image declaring a VOLUME must be rejected before credential retrieval"
+                    )
+                },
+            )
+            .await;
+            assert!(matches!(rejected, Err(ComposeError::ProtectedModel)));
+        }
         let source = serde_json::to_vec(&spec).unwrap();
         fs::write(&file, &source).unwrap();
         let mut token = [0; 32];
@@ -416,6 +511,7 @@ mod tests {
             &project,
             &socket,
             None,
+            &engine,
             |names| async move {
                 assert_eq!(names, ["credential"]);
                 Ok(vec![("fixture-revision".to_owned(), copies)])
@@ -531,6 +627,7 @@ mod tests {
             &project,
             &socket,
             None,
+            &engine,
             |names| async move {
                 assert_eq!(names, ["credential"]);
                 Ok(vec![("fixture-revision-2".to_owned(), secret)])

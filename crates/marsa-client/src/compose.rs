@@ -13,7 +13,11 @@ use tokio::{
     process::{Child, ChildStderr, ChildStdout, Command},
 };
 
-use crate::{ClientError, docker::ExternalEndpoint, docker_socket_path, platform};
+use crate::{
+    ClientError,
+    docker::{DockerClient, ExternalEndpoint},
+    docker_socket_path, platform,
+};
 
 mod protected;
 mod relay;
@@ -167,6 +171,16 @@ impl ComposeCommand {
             .parent()
             .and_then(std::path::Path::parent)
             .ok_or(ComposeError::File)?;
+        let keychain_engine = self
+            .keychain
+            .then(|| {
+                endpoint
+                    .as_ref()
+                    .map(ExternalEndpoint::management_client)
+                    .map_or_else(DockerClient::discover, Ok)
+                    .map_err(|_| ComposeError::ProtectedModel)
+            })
+            .transpose()?;
         let relay = endpoint
             .map(relay::Relay::start)
             .transpose()
@@ -183,8 +197,16 @@ impl ComposeCommand {
             socket
         };
         let socket = socket.to_str().ok_or(ComposeError::EndpointPath)?;
-        if self.keychain {
-            return protected::start(&binary, &project_file, &self.project, socket, relay).await;
+        if let Some(engine) = keychain_engine {
+            return protected::start(
+                &binary,
+                &project_file,
+                &self.project,
+                socket,
+                relay,
+                &engine,
+            )
+            .await;
         }
         let inherited_path = std::env::var_os("PATH");
         let path = std::env::join_paths(

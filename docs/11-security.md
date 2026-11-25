@@ -106,16 +106,26 @@ Docker labels, so a later deploy recreates containers whose saved secret
 revision changed.
 
 Compose 5.8.0 puts each runtime secret into the granted container's writable
-layer. The engine administrator and the granted workload can read the
-materialized file. Keychain removal leaves existing container copies in
-place, and exporting or committing a container can include those files.
+filesystem. The engine administrator and the granted workload can read the
+materialized file. A workload that prints the secret exposes it in its own
+container logs. Keychain removal leaves existing container copies in place,
+and exporting or committing a container can include those files.
 Marsa limits the protected path to standard `/run/secrets/<name>` targets
-and refuses conflicting mounts, host providers, jobs and model runners.
+and refuses Compose mounts on receiving services, inherited volumes in the
+project, and other secret sources or conflicting configs on receiving services.
+Moby follows symbolic links when extracting the secret archive, so an
+apparently unrelated mount path could lead to shared storage. Marsa also
+rejects images with declared volumes and pins receiving images to their local
+content IDs. This prevents Compose from inheriting a previous container's
+mount at an image-declared volume destination. Protected deployment disallows
+host providers, jobs and model runners.
 Compose writes secret files immediately before engine start. A failed copy
 prevents that container from starting, and a deploy retry can populate an
 existing stopped container.
 [Pinned Compose runtime implementation](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/secrets.go)
-· [Pinned start executor](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/executor_ops.go).
+· [Pinned start executor](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/executor_ops.go)
+· [Pinned Compose volume inheritance](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/create.go#L1202-L1246)
+· [Pinned Moby archive extraction](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/archive_unix.go#L121-L158).
 
 ## Registry credentials
 

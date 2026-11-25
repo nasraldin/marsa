@@ -357,7 +357,9 @@ selected local Compose file, project name, and secret name. Declare that
 secret with `environment: MARSA_KEYCHAIN` in the top-level `secrets` map and
 grant it to each intended service. In Compose → Deploy Stack, select the
 target engine and enable **Use saved Keychain secrets**. The required images
-must already be on that engine.
+must already be on that engine. Services receiving Keychain secrets cannot
+declare mounts or use images that declare volumes. The project cannot inherit
+container volumes.
 
 ## Feature priorities
 
