@@ -7,7 +7,7 @@ use marsa_ui::{
         SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, px,
     },
     gpui_component::checkbox::Checkbox,
-    tokens::scale::{Radius, Space},
+    tokens::scale::Space,
 };
 
 use crate::screens::common::{ScreenContext, color, row};
@@ -63,58 +63,36 @@ pub(crate) fn table_row(
         )
 }
 
-/// Status / tag pill matching the existing State chip style.
+/// Status pill matching the shared workspace indicator.
 pub(crate) fn status_pill(
     screen: &ScreenContext<'_>,
     label: SharedString,
     foreground: ColorToken,
     background: ColorToken,
 ) -> Div {
-    row(screen.locale)
-        .gap(px(Space::S8.pixels()))
-        .items_center()
-        .rounded(px(Radius::Full.pixels()))
-        .px(px(Space::S8.pixels()))
-        .py(px(Space::S4.pixels()))
-        .bg(color(screen.palette, background))
-        .child(
-            div()
-                .size(px(Space::S8.pixels()))
-                .rounded_full()
-                .bg(color(screen.palette, foreground)),
-        )
-        .child(
-            div()
-                .text_sm()
-                .text_color(color(screen.palette, foreground))
-                .child(label),
-        )
+    marsa_ui::components::indicators::status_pill(
+        screen.locale,
+        screen.palette,
+        label,
+        foreground,
+        background,
+    )
 }
 
-/// Compact badge without the status dot (tag count / tag name).
+/// Compact technical badge matching the shared workspace indicator.
 pub(crate) fn tag_badge(
     screen: &ScreenContext<'_>,
     label: SharedString,
     foreground: ColorToken,
     background: ColorToken,
 ) -> Div {
-    row(screen.locale)
-        .items_center()
-        .min_w_0()
-        .max_w_full()
-        .rounded(px(Radius::Full.pixels()))
-        .px(px(Space::S4.pixels()))
-        .py(px(2.))
-        .bg(color(screen.palette, background))
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_xs()
-                .font_family("IBM Plex Mono")
-                .text_color(color(screen.palette, foreground))
-                .child(label),
-        )
+    marsa_ui::components::indicators::tag_badge(
+        screen.locale,
+        screen.palette,
+        label,
+        foreground,
+        background,
+    )
 }
 
 /// Flex cell wrapper matching the Foundations column growth model.

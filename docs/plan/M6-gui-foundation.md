@@ -141,7 +141,7 @@ owner's Arabic terminology review under M7-14, as required by D-035.
 
 ### M6-05 Core components
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-02, M6-03, M6-04
 - **Docs:** [08 Design system](../08-gui.md#design-system-marsa-ui)
 - **Do:** Build Marsa's component set on gpui-component, each using tokens, direction and translations: button, icon button, text input, search field, select, checkbox, switch, tabs, list and virtualised list, table and virtualised table, tree, dialog, confirmation dialog with typed confirmation, toast, menu, tooltip, badge and status pill, progress, empty state, error state, code and monospace block, split view. Add a component gallery app.

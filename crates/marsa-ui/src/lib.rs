@@ -8,6 +8,9 @@ pub use tokens::{ColorToken, Palette};
 mod platform;
 
 #[cfg(target_os = "macos")]
+pub mod components;
+
+#[cfg(target_os = "macos")]
 pub mod direction;
 
 #[cfg(target_os = "macos")]
