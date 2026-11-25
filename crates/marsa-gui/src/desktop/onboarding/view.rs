@@ -1,9 +1,12 @@
 //! Language, appearance, sharing and Docker setup layouts from Figma Flows.
 
+use std::path::Path;
+
 use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
     gpui::{
-        Context, Div, FontWeight, InteractiveElement as _, ParentElement, Styled, div, img, px, svg,
+        Context, Div, ExternalPaths, FontWeight, InteractiveElement as _, ParentElement,
+        StatefulInteractiveElement as _, Styled, div, img, px, svg,
     },
     gpui_component::{
         Disableable, IconName,
@@ -16,7 +19,7 @@ use marsa_ui::{
 
 use crate::screens::{
     common::{ScreenContext, align, color, panel, row, technical},
-    theme_picker::{choice_button, theme_picker},
+    theme_picker::{choice_button, selection_check, theme_picker},
 };
 
 use super::{Desktop, Setup, Step};
@@ -197,7 +200,12 @@ fn step_rail(setup: &Setup, palette: Palette) -> Div {
                             ColorToken::TextMuted
                         },
                     ))
-                    .children(done.then_some(IconName::Check))
+                    .children(done.then(|| {
+                        svg()
+                            .path("icons/circle-check.svg")
+                            .size(px(16.))
+                            .text_color(color(palette, ColorToken::StatusRunning))
+                    }))
                     .children((!done).then(|| (index + 1).to_string()));
                 let element = row(locale)
                     .gap_3()
@@ -255,7 +263,7 @@ fn language_options(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> D
                                         .child(direction.text(choice)),
                                 ),
                         )
-                        .children(selected.then_some(IconName::Check)),
+                        .children(selected.then(|| selection_check(palette))),
                 )
                 .on_click(cx.listener(move |desktop, _, _, cx| desktop.setup_locale(choice, cx)))
         }),
@@ -265,25 +273,42 @@ fn language_options(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> D
 fn sharing(setup: &Setup, screen: &ScreenContext<'_>, cx: &Context<Desktop>) -> Div {
     let locale = screen.locale;
     let palette = screen.palette;
-    let empty = setup.folders.is_empty();
-    panel(screen)
-        .min_h(px(182.))
+    let drop_zone = div()
+        .id("setup-share-drop")
+        .w_full()
+        .rounded(px(12.))
+        .border_1()
+        .border_dashed()
+        .border_color(color(palette, ColorToken::BorderControl))
+        .bg(color(palette, ColorToken::BgElevated))
+        .px_6()
+        .py_8()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_3()
+        .cursor_pointer()
+        .hover(|style| style.bg(color(palette, ColorToken::BgHover)))
+        .can_drop(|drag, _, _| drag.downcast_ref::<ExternalPaths>().is_some())
+        .on_drop(cx.listener(|desktop, paths: &ExternalPaths, _, cx| {
+            desktop.add_setup_folders(paths.paths(), cx);
+        }))
+        .on_click(cx.listener(|desktop, _, _, cx| desktop.choose_setup_folder(cx)))
         .child(
-            row(locale)
-                .gap_2()
-                .text_size(ui_size(16.))
-                .font_weight(FontWeight::MEDIUM)
-                .child(
-                    svg()
-                        .path("icons/folder-open.svg")
-                        .size(px(18.))
-                        .text_color(color(palette, ColorToken::TextMuted)),
-                )
-                .child(if empty {
-                    gui::GUI_SETUP_NO_FOLDERS.text(locale)
-                } else {
-                    gui::GUI_DESKTOP_SHARED_FOLDERS.text(locale)
-                }),
+            svg()
+                .path("icons/folder-open.svg")
+                .size(px(36.))
+                .text_color(color(palette, ColorToken::AccentDefault)),
+        )
+        .child(
+            align(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color(palette, ColorToken::TextPrimary)),
+                locale,
+            )
+            .child(gui::GUI_SETUP_DROP_FOLDERS.text(locale)),
         )
         .child(
             align(
@@ -292,29 +317,100 @@ fn sharing(setup: &Setup, screen: &ScreenContext<'_>, cx: &Context<Desktop>) -> 
                     .text_color(color(palette, ColorToken::TextMuted)),
                 locale,
             )
-            .child(gui::GUI_SETUP_FOLDERS_HINT.text(locale)),
+            .child(gui::GUI_SETUP_DROP_FOLDERS_HINT.text(locale)),
         )
+        .child(
+            Button::new("setup-choose-folder")
+                .outline()
+                .mt_1()
+                .label(gui::GUI_SETUP_BROWSE_FOLDER.text(locale))
+                .disabled(setup.pending)
+                .on_click(cx.listener(|desktop, _, _, cx| desktop.choose_setup_folder(cx))),
+        );
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(drop_zone)
+        .children(setup.folders.is_empty().then(|| {
+            align(
+                div()
+                    .text_sm()
+                    .text_color(color(palette, ColorToken::TextMuted)),
+                locale,
+            )
+            .child(gui::GUI_SETUP_NO_FOLDERS.text(locale))
+        }))
         .children(setup.folders.iter().enumerate().map(|(index, folder)| {
             let path = folder.clone();
+            let name = Path::new(folder)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(folder);
             row(locale)
-                .gap_2()
-                .justify_between()
+                .id(("setup-folder", index))
+                .gap_3()
+                .w_full()
+                .px_3()
+                .py_3()
+                .rounded(px(10.))
+                .bg(color(palette, ColorToken::BgSubtle))
+                .border_1()
+                .border_color(color(palette, ColorToken::BorderSubtle))
                 .child(
-                    align(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .font_family("IBM Plex Mono"),
-                        locale,
-                    )
-                    .child(technical(folder)),
+                    div()
+                        .size(px(40.))
+                        .rounded(px(8.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(color(palette, ColorToken::BgElevated))
+                        .border_1()
+                        .border_color(color(palette, ColorToken::BorderSubtle))
+                        .child(
+                            svg()
+                                .path("icons/folder.svg")
+                                .size(px(20.))
+                                .text_color(color(palette, ColorToken::AccentDefault)),
+                        ),
+                )
+                .child(
+                    align(div().flex_1().min_w_0().flex().flex_col().gap_1(), locale)
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .truncate()
+                                .child(name.to_owned()),
+                        )
+                        .child(
+                            row(locale)
+                                .gap_2()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_xs()
+                                        .font_family("IBM Plex Mono")
+                                        .text_color(color(palette, ColorToken::TextMuted))
+                                        .child(technical(folder)),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(color(palette, ColorToken::StatusRunning))
+                                        .child(gui::GUI_SETUP_FOLDER_READY.text(locale)),
+                                ),
+                        ),
                 )
                 .child(
                     Button::new(("setup-remove-folder", index))
                         .ghost()
                         .p_0()
-                        .size(px(32.))
+                        .size(px(28.))
+                        .rounded_full()
                         .child(IconName::Close)
                         .accessibility_label(gui::GUI_DESKTOP_REMOVE.text(locale))
                         .disabled(setup.pending)
@@ -326,15 +422,6 @@ fn sharing(setup: &Setup, screen: &ScreenContext<'_>, cx: &Context<Desktop>) -> 
                         })),
                 )
         }))
-        .child(
-            row(locale).pt_4().child(
-                Button::new("setup-choose-folder")
-                    .outline()
-                    .label(gui::GUI_SETUP_CHOOSE_FOLDER.text(locale))
-                    .disabled(setup.pending)
-                    .on_click(cx.listener(|desktop, _, _, cx| desktop.choose_setup_folder(cx))),
-            ),
-        )
 }
 
 fn docker(screen: &ScreenContext<'_>) -> Div {
