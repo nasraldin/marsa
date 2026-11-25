@@ -264,7 +264,10 @@ pub(crate) enum ResourceRequest {
         project: String,
         yaml: String,
     },
-    DeployStack(String),
+    DeployStack {
+        project: String,
+        keychain: bool,
+    },
     Run {
         id: String,
         name: Option<String>,
@@ -306,6 +309,7 @@ pub(super) struct Form {
     input: Option<Entity<InputState>>,
     compose_editor: Option<Entity<EditorState>>,
     force: bool,
+    keychain: bool,
 }
 
 impl Form {
@@ -346,6 +350,7 @@ impl Form {
             input,
             compose_editor,
             force: false,
+            keychain: false,
         }
     }
 
@@ -369,7 +374,16 @@ impl Form {
                     yaml: yaml.to_string(),
                 }
             }
-            FormKind::DeployStack => ResourceRequest::DeployStack(nonempty()?.to_owned()),
+            FormKind::DeployStack => {
+                let project = nonempty()?;
+                if !valid_project_name(project) {
+                    return None;
+                }
+                ResourceRequest::DeployStack {
+                    project: project.to_owned(),
+                    keychain: self.keychain,
+                }
+            }
             FormKind::ImportImage => ResourceRequest::ImportImage,
             FormKind::PushImage { id, reference } => ResourceRequest::PushImage {
                 id: id.clone(),
@@ -561,6 +575,31 @@ impl Form {
                     .child(text(screen, Role::Small, label).font_weight(FontWeight::MEDIUM))
                     .child(crate::screens::common::resource_input(input).aria_label(label)),
             );
+        }
+        if matches!(self.kind, FormKind::DeployStack) {
+            let view = view.clone();
+            form = form
+                .child(
+                    Checkbox::new("compose-keychain")
+                        .label(gui::GUI_DEPLOY_SECRETS_USE.text(screen.locale))
+                        .checked(self.keychain)
+                        .on_click(move |checked, _, cx| {
+                            view.update(cx, |view, cx| {
+                                if let Some(form) = &mut view.form {
+                                    form.keychain = *checked;
+                                    cx.refresh_windows();
+                                }
+                            });
+                        }),
+                )
+                .children(self.keychain.then(|| {
+                    text(
+                        screen,
+                        Role::Small,
+                        gui::GUI_DEPLOY_SECRETS_CONFIRM.text(screen.locale),
+                    )
+                    .text_color(tone(screen, ColorToken::TextMuted))
+                }));
         }
         if let Some(editor) = &self.compose_editor {
             let invalid_project = self.input.as_ref().is_some_and(|input| {

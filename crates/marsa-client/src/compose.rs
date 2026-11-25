@@ -15,6 +15,7 @@ use tokio::{
 
 use crate::{ClientError, docker::ExternalEndpoint, docker_socket_path, platform};
 
+mod protected;
 mod relay;
 
 const MAX_OUTPUT_LINE: usize = 64 * 1024;
@@ -53,6 +54,7 @@ pub struct ComposeCommand {
     project: String,
     operation: ComposeOperation,
     remove_volumes: bool,
+    keychain: bool,
 }
 
 impl ComposeCommand {
@@ -81,6 +83,7 @@ impl ComposeCommand {
             project,
             operation,
             remove_volumes: false,
+            keychain: false,
         })
     }
 
@@ -122,6 +125,15 @@ impl ComposeCommand {
         }
         command.remove_volumes = true;
         Ok(command)
+    }
+
+    /// Opt an approved deployment into the dedicated Keychain secret route.
+    pub fn with_keychain(mut self) -> Result<Self, ComposeError> {
+        if self.operation != ComposeOperation::Up {
+            return Err(ComposeError::ProtectedModel);
+        }
+        self.keychain = true;
+        Ok(self)
     }
 
     /// Launch the verified bundled process and retain its output until this stream drops.
@@ -171,6 +183,9 @@ impl ComposeCommand {
             socket
         };
         let socket = socket.to_str().ok_or(ComposeError::EndpointPath)?;
+        if self.keychain {
+            return protected::start(&binary, &project_file, &self.project, socket, relay).await;
+        }
         let inherited_path = std::env::var_os("PATH");
         let path = std::env::join_paths(
             std::iter::once(bin_directory.to_path_buf())
@@ -229,6 +244,7 @@ impl ComposeCommand {
         Ok(ComposeStream {
             child,
             _relay: relay,
+            _private_directory: None,
             stdout: Some(stdout),
             stderr: Some(stderr),
             out_buffer: Vec::new(),
@@ -278,6 +294,7 @@ pub struct ComposeOutput {
 pub struct ComposeStream {
     child: Child,
     _relay: Option<relay::Relay>,
+    _private_directory: Option<tempfile::TempDir>,
     stdout: Option<BufReader<ChildStdout>>,
     stderr: Option<BufReader<ChildStderr>>,
     out_buffer: Vec<u8>,
@@ -351,6 +368,12 @@ async fn bounded_output<R: AsyncBufRead + Unpin>(
 /// Errors reported while launching or reading the bundled Compose process.
 #[derive(Debug, Error)]
 pub enum ComposeError {
+    /// The normalized project cannot be deployed with saved Keychain credentials.
+    #[error("this Compose model does not support protected deploy secrets")]
+    ProtectedModel,
+    /// The requested secret could not be resolved from the signed Keychain provider.
+    #[error(transparent)]
+    DeploySecret(#[from] crate::docker::DeploySecretError),
     /// The project file is not an absolute path to a YAML file.
     #[error("expected a local Compose YAML file")]
     File,

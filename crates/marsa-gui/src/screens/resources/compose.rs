@@ -31,6 +31,7 @@ const MAX_OUTPUT_BYTES: usize = 2048;
 pub(super) enum Invocation {
     Create(String),
     Standard(ComposeOperation),
+    Keychain,
     RemoveVolumes(String),
 }
 
@@ -51,9 +52,12 @@ impl ResourcesView {
         let (invocation, endpoint) = action;
         let external = endpoint.is_some();
         let creating = matches!(invocation, Invocation::Create(_));
+        let keychain = matches!(invocation, Invocation::Keychain);
         let success = match &invocation {
             Invocation::Create(_) => SuccessKind::ComposeCreated,
-            Invocation::Standard(ComposeOperation::Up) => SuccessKind::ComposeUp,
+            Invocation::Standard(ComposeOperation::Up) | Invocation::Keychain => {
+                SuccessKind::ComposeUp
+            }
             Invocation::Standard(ComposeOperation::Restart) => SuccessKind::ComposeRestart,
             Invocation::Standard(ComposeOperation::Down) | Invocation::RemoveVolumes(_) => {
                 SuccessKind::ComposeDown
@@ -99,6 +103,10 @@ impl ResourcesView {
                         }
                     }
                 }
+                Invocation::Keychain => {
+                    ComposeCommand::for_selected_file(path, project.clone(), ComposeOperation::Up)
+                        .and_then(ComposeCommand::with_keychain)
+                }
                 Invocation::Standard(operation) => {
                     ComposeCommand::for_selected_file(path, project.clone(), operation)
                 }
@@ -143,6 +151,8 @@ impl ResourcesView {
                 let Ok(lines) = batch else {
                     let failure = if creating {
                         Outcome::ComposeFileKept
+                    } else if keychain {
+                        Outcome::ComposeKeychainFailed
                     } else {
                         Outcome::Rejected
                     };

@@ -34,7 +34,7 @@ pub(in crate::docker) async fn get(path: &Path, key: &str) -> io::Result<Option<
     Ok(Some(value))
 }
 
-pub(super) async fn list(path: &Path) -> io::Result<BTreeMap<String, String>> {
+pub(in crate::docker) async fn list(path: &Path) -> io::Result<BTreeMap<String, String>> {
     let output = run(path, "list", &[], LIST_LIMIT)
         .await?
         .ok_or_else(failure)?;

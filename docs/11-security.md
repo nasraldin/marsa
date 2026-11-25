@@ -87,6 +87,32 @@ See [07](07-file-sharing-and-storage.md#the-allowlist). Security-relevant points
 - Paths are canonicalised and symlinks resolved before checking.
 - The protected-path list is code, has tests, and cannot be overridden from settings.
 
+## Compose deploy secrets
+
+An explicit deploy option grants the selected Docker engine and the services
+named in the Compose model access to the saved workload credentials. The
+Keychain namespace scopes entries to the canonical Compose path, exact
+project name, and secret name. Settings keeps no plaintext secret values.
+Replacement writes a fresh Keychain revision before retiring its predecessor.
+
+Marsa loads and normalizes the user-selected Compose model before retrieving
+any Keychain values. It uses a private second invocation whose environment
+contains fresh per-deployment keys, referenced only by the approved runtime
+secret definitions. The child receives the validated model over stdin.
+It bypasses further dotenv loading and uses no host provider, build,
+credential helper, or image pull. The protected invocation discards raw
+Compose and engine output. Only an opaque random revision is stored in
+Docker labels, so a later deploy recreates containers whose saved secret
+revision changed.
+
+Compose 5.8.0 puts each runtime secret into the granted container's writable
+layer. The engine administrator and the granted workload can read the
+materialized file. Keychain removal leaves existing container copies in
+place, and exporting or committing a container can include those files.
+Marsa limits the protected path to standard `/run/secrets/<name>` targets
+and refuses conflicting mounts.
+[Pinned Compose runtime implementation](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/secrets.go).
+
 ## Registry credentials
 
 - `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS Keychain when that helper is on the Docker CLI's `PATH`. The authenticated opt-in adds `credsStore = osxkeychain` to the configured Docker client file only after the caller obtains consent. Existing `credsStore` and `credHelpers` entries remain untouched. If Docker already holds credentials in the file, log out before enabling Keychain and log in again afterwards. [Docker login](https://docs.docker.com/reference/cli/docker/login/), [pinned helper source](https://github.com/docker/docker-credential-helpers/blob/v0.9.13/osxkeychain/osxkeychain.go).
