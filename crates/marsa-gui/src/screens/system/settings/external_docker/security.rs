@@ -362,9 +362,13 @@ impl SystemView {
                             Button::new(("environment-scan-retention", index))
                                 .outline()
                                 .selected(settings.retention == retention)
+                                .toggled(settings.retention == retention)
                                 .label(label.text(locale))
-                                .disabled(busy || settings.retention == retention)
+                                .disabled(busy)
                                 .on_click(cx.listener(move |this, _, window, cx| {
+                                    if settings.retention == retention {
+                                        return;
+                                    }
                                     let work = Work::Save(ScanSettings {
                                         retention,
                                         ..settings
@@ -391,20 +395,22 @@ impl SystemView {
                     .map(|(key, error)| message(screen, key, error)),
             )
             .child(
-                Button::new("environment-scan-clear-caches")
-                    .outline()
-                    .label(gui::GUI_ENVIRONMENT_SCAN_CACHE_CLEAR.text(locale))
-                    .disabled(busy)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.confirm_security_work(
-                            Work::ClearCaches,
-                            gui::GUI_ENVIRONMENT_SCAN_CACHE_CLEAR,
-                            gui::GUI_ENVIRONMENT_SCAN_CACHE_CONFIRM,
-                            locale,
-                            window,
-                            cx,
-                        );
-                    })),
+                row(locale).child(
+                    Button::new("environment-scan-clear-caches")
+                        .outline()
+                        .label(gui::GUI_ENVIRONMENT_SCAN_CACHE_CLEAR.text(locale))
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.confirm_security_work(
+                                Work::ClearCaches,
+                                gui::GUI_ENVIRONMENT_SCAN_CACHE_CLEAR,
+                                gui::GUI_ENVIRONMENT_SCAN_CACHE_CONFIRM,
+                                locale,
+                                window,
+                                cx,
+                            );
+                        })),
+                ),
             )
             .children(
                 panel

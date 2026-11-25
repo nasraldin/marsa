@@ -114,6 +114,17 @@ impl ScanSettingsStore {
         let retention = self.load().await?.retention;
         let history = self.history_locked(now, retention, &lock).await?;
 
+        let reports: Vec<_> = results
+            .iter()
+            .filter_map(|(scanner, result)| Some((*scanner, result.as_ref().ok()?.clone())))
+            .collect();
+        if reports.is_empty() {
+            return Ok(if history.report.is_some() {
+                RetentionOutcome::Unchanged
+            } else {
+                history.outcome
+            });
+        }
         if retention == ScanRetention::SessionOnly {
             return Ok(if history.outcome == RetentionOutcome::Discarded {
                 history.outcome
@@ -121,17 +132,8 @@ impl ScanSettingsStore {
                 RetentionOutcome::SessionOnly
             });
         }
-
-        let reports: Vec<_> = results
-            .iter()
-            .filter_map(|(scanner, result)| Some((*scanner, result.as_ref().ok()?.clone())))
-            .collect();
-        if reports.is_empty() {
-            return Ok(if history.outcome == RetentionOutcome::Expired {
-                history.outcome
-            } else {
-                RetentionOutcome::Unchanged
-            });
+        if history.report.is_some_and(|report| report.scanned_at > now) {
+            return Ok(RetentionOutcome::Unchanged);
         }
 
         let path = self.report_path();
@@ -177,10 +179,7 @@ impl ScanSettingsStore {
             let report: RetainedScan =
                 serde_json::from_slice(&bytes).map_err(|_| ScanError::Report)?;
             ImageId::parse(report.image.as_str()).map_err(|_| ScanError::Report)?;
-            if now
-                .checked_sub(report.scanned_at)
-                .is_some_and(|age| age < seconds)
-            {
+            if now.saturating_sub(report.scanned_at) < seconds {
                 return Ok(ScanHistory {
                     report: Some(report),
                     outcome: RetentionOutcome::Retained,

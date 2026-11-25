@@ -108,6 +108,56 @@ async fn retention_accepts_previous_settings_and_expires_only_its_engine_report(
     assert!(!second.report_path().exists());
 }
 
+#[tokio::test]
+async fn an_older_or_failed_scan_does_not_replace_the_saved_report() {
+    if nix::unistd::geteuid().is_root() {
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let store = ScanSettingsStore {
+        directory: directory.path().to_owned(),
+        key: "engine".into(),
+    };
+    let a = ImageId::parse(format!("sha256:{}", "a".repeat(64))).unwrap();
+    let b = ImageId::parse(format!("sha256:{}", "b".repeat(64))).unwrap();
+    let failure = [(Scanner::Trivy, Err(ScanError::Process))];
+    let findings = [(
+        Scanner::Trivy,
+        Ok(ScanReport {
+            total: 0,
+            findings: vec![],
+        }),
+    )];
+
+    assert_eq!(
+        store.record_at(&a, &failure, 100).await.unwrap(),
+        RetentionOutcome::Empty
+    );
+    store
+        .save(ScanSettings {
+            retention: ScanRetention::SevenDays,
+            ..ScanSettings::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        store.record_at(&a, &findings, 100).await.unwrap(),
+        RetentionOutcome::Retained
+    );
+    assert_eq!(
+        store.record_at(&b, &findings, 99).await.unwrap(),
+        RetentionOutcome::Unchanged
+    );
+    assert_eq!(
+        store.record_at(&b, &failure, 101).await.unwrap(),
+        RetentionOutcome::Unchanged
+    );
+    assert_eq!(
+        store.history_at(102).await.unwrap().report.unwrap().image(),
+        a.as_str()
+    );
+}
+
 #[test]
 fn cache_cleanup_does_not_follow_links_or_remove_its_lock() {
     if nix::unistd::geteuid().is_root() {
