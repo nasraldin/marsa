@@ -278,7 +278,7 @@ impl SystemView {
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(disk.map_or_else(
                                         || message(locale, gui::GUI_DESKTOP_UNAVAILABLE),
-                                        |usage| bytes(usage.host_allocated_bytes).into(),
+                                        |usage| bytes(locale, usage.host_allocated_bytes).into(),
                                     )),
                             ),
                     )
@@ -478,7 +478,7 @@ impl SystemView {
                                 palette,
                                 gui::GUI_DESKTOP_SPACE_RETURNED_TO_THE_MAC.text(locale),
                             ))
-                            .child(mono(&bytes(size)))
+                            .child(mono(&bytes(locale, size)))
                     })),
             )
     }
@@ -542,7 +542,7 @@ fn disk_chart(locale: Locale, palette: Palette, categories: &[DiskCategoryUsage]
                         )
                         .child(category_text(entry.category()).text(locale))
                         .child(
-                            mono(&bytes(entry.used_bytes))
+                            mono(&bytes(locale, entry.used_bytes))
                                 .text_color(color(palette, ColorToken::TextMuted)),
                         )
                 }))
@@ -614,7 +614,9 @@ fn cleanup_contents(
                 .flex_shrink_0()
                 .child(candidate.size_bytes.map_or_else(
                     || muted(palette, gui::GUI_DESKTOP_UNKNOWN_SIZE.text(locale)),
-                    |size| mono(&bytes(size)).text_color(color(palette, ColorToken::TextMuted)),
+                    |size| {
+                        mono(&bytes(locale, size)).text_color(color(palette, ColorToken::TextMuted))
+                    },
                 )),
         )
 }
@@ -637,7 +639,7 @@ fn cleanup_summary(locale: Locale, palette: Palette, count: usize, estimate: Opt
                 .gap_2()
                 .child("·")
                 .child(gui::GUI_DESKTOP_ESTIMATED_GUEST_SPACE.text(locale))
-                .child(mono(&bytes(size)))
+                .child(mono(&bytes(locale, size)))
         }))
 }
 

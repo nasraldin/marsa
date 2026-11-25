@@ -365,11 +365,11 @@ fn summary(status: &UpdateStatus, locale: Locale) -> Div {
         .children(status.bytes_downloaded.map(|downloaded| {
             row(locale)
                 .gap_2()
-                .child(technical(&bytes(downloaded)))
+                .child(technical(&bytes(locale, downloaded)))
                 .children(
                     status
                         .download_size_bytes
-                        .map(|total| technical(&bytes(total))),
+                        .map(|total| technical(&bytes(locale, total))),
                 )
         }))
         .children(notes.filter(|notes| notes.len() <= 8192).map(|notes| {

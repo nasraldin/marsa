@@ -2819,7 +2819,10 @@ dependencies = [
  "marsa-core",
  "marsa-l10n",
  "proc-macro2",
+ "rust-i18n",
+ "rust-i18n-support",
  "sys-locale",
+ "time",
  "vt100",
 ]
 

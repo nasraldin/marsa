@@ -87,14 +87,12 @@ pub fn run<T: Render>(
             KeyBinding::new("cmd-q", QuitMarsa, None),
         ]);
         cx.on_action(|_: &QuitMarsa, cx| cx.quit());
-        cx.set_menus([Menu::new(keys::GUI_WINDOW_TITLE.text(locale)).items([
-            MenuItem::action(keys::GUI_WINDOW_CLOSE.text(locale), CloseWindow),
-            MenuItem::action(keys::GUI_WINDOW_QUIT.text(locale), QuitMarsa),
-        ])]);
+
         cx.set_global(Launcher {
             open: Rc::new(move |cx| launch_window(&create, cx, locale)),
             workspace: None,
         });
+        update_workspace_locale(locale, cx);
         if let Err(error) = show_workspace(cx) {
             eprintln!("{}", keys::GUI_WINDOW_OPEN_FAILED.text(locale));
             eprintln!("{error}");
@@ -103,6 +101,23 @@ pub fn run<T: Render>(
         }
     });
     result.get()
+}
+
+pub(super) fn update_workspace_locale(locale: Locale, cx: &mut App) {
+    let Some(launcher) = cx.try_global::<Launcher>() else {
+        return;
+    };
+    let workspace = launcher.workspace;
+    let title = keys::GUI_WINDOW_TITLE.text(locale);
+    cx.set_menus([Menu::new(title).items([
+        MenuItem::action(keys::GUI_WINDOW_CLOSE.text(locale), CloseWindow),
+        MenuItem::action(keys::GUI_WINDOW_QUIT.text(locale), QuitMarsa),
+    ])]);
+    if let Some(handle) = workspace {
+        cx.defer(move |cx| {
+            let _ = cx.update_window(handle, |_, window, _| window.set_window_title(title));
+        });
+    }
 }
 
 fn launch_window<T: Render>(

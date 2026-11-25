@@ -985,9 +985,9 @@ gui-desktop-log-settings-title = السجلات والملفات
 gui-desktop-log-settings-body = تسري التفضيلات على السجلات المباشرة للحاويات والمكدسات.
 gui-desktop-log-buffer-size = حجم ذاكرة السجل المؤقتة
 gui-desktop-log-buffer-body = الحد الأقصى لعدد الأسطر الأخيرة المحفوظة في كل عرض سجل مفتوح.
-gui-desktop-log-buffer-compact = ٥٠٠ للحاوية / ٦٤ للمكدس
-gui-desktop-log-buffer-medium = ٢٬٠٠٠ للحاوية / ١٢٨ للمكدس
-gui-desktop-log-buffer-full = ٨٬٠٠٠ للحاوية / ٢٥٦ للمكدس
+gui-desktop-log-buffer-compact = 500 للحاوية / 64 للمكدس
+gui-desktop-log-buffer-medium = 2,000 للحاوية / 128 للمكدس
+gui-desktop-log-buffer-full = 8,000 للحاوية / 256 للمكدس
 gui-desktop-log-local-timestamps = عرض الطوابع الزمنية بالتوقيت المحلي
 gui-desktop-log-local-timestamps-body = تُستخدم المنطقة الزمنية المضبوطة على هذا الـ Mac. عند الإيقاف يُستخدم التوقيت العالمي المنسّق (UTC).
 gui-settings-about = حول
@@ -1194,10 +1194,27 @@ gui-settings-terminal-font-plex = IBM Plex Mono
 gui-settings-terminal-font-menlo = Menlo
 gui-settings-time-format = تنسيق الوقت
 gui-settings-time-format-description = اختر صيغة الساعة للطوابع الزمنية.
-gui-settings-time-format-twelve = ١٢ ساعة
-gui-settings-time-format-twenty-four = ٢٤ ساعة
+gui-settings-time-format-twelve = 12 ساعة
+gui-settings-time-format-twenty-four = 24 ساعة
 gui-clock-am = ص
 gui-clock-pm = م
+
+gui-size-per-second = /ث
+
+## Gregorian dates in the desktop interface
+
+gui-date-january = يناير
+gui-date-february = فبراير
+gui-date-march = مارس
+gui-date-april = أبريل
+gui-date-may = مايو
+gui-date-june = يونيو
+gui-date-july = يوليو
+gui-date-august = أغسطس
+gui-date-september = سبتمبر
+gui-date-october = أكتوبر
+gui-date-november = نوفمبر
+gui-date-december = ديسمبر
 
 gui-environment-tab-security = الأمان
 gui-environment-scan-title = فحص الصور بحثًا عن الثغرات
@@ -1216,7 +1233,7 @@ gui-environment-scan-no-findings = لم يُبلّغ عن ثغرات معروف�
 gui-environment-scan-missing = ثبّت الإصدار الرسمي الحالي لأداة الفحص في ⁦/opt/homebrew/bin⁩ أو ⁦/usr/local/bin⁩ أو ⁦~/.local/bin⁩، ثم أعد المحاولة.
 gui-environment-scan-install = دليل التثبيت
 gui-environment-scan-failed = تعذّر الفحص. تحقّق من الصورة المحددة وتثبيت الأداة والاتصال بقواعد البيانات.
-gui-environment-scan-export-failed = تعذّر تصدير الصورة. يجب أن تبقى الصورة محلية وألا يتجاوز حجم أرشيفها ٤ غيغابايت ثنائية.
+gui-environment-scan-export-failed = تعذّر تصدير الصورة. يجب أن تبقى الصورة محلية وألا يتجاوز حجم أرشيفها 4 غيغابايت ثنائية.
 gui-environment-scan-timeout = تجاوزت أداة الفحص المهلة المحددة.
 gui-environment-scan-invalid-report = أعادت الأداة تقريرًا غير صالح أو كبيرًا جدًا.
 gui-environment-scan-fix = أُصلحت في

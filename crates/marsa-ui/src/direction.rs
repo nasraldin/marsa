@@ -23,11 +23,16 @@ pub fn init(locale: Locale, cx: &mut App) {
 
 /// Relayout all windows and update Component behavior for the selected locale.
 pub fn set_locale(locale: Locale, cx: &mut App) {
-    match locale {
-        Locale::EnglishUs => LayoutDirection::Ltr,
-        Locale::Arabic => LayoutDirection::Rtl,
-    }
-    .set_global(cx);
+    static COMPONENT_TRANSLATIONS: std::sync::Once = std::sync::Once::new();
+    COMPONENT_TRANSLATIONS.call_once(|| rust_i18n::extend!(gpui_component));
+
+    let (catalog, direction) = match locale {
+        Locale::EnglishUs => ("en", LayoutDirection::Ltr),
+        Locale::Arabic => ("ar", LayoutDirection::Rtl),
+    };
+    gpui_component::set_locale(catalog);
+    direction.set_global(cx);
+    crate::platform::update_workspace_locale(locale, cx);
 }
 
 /// Create a horizontal row whose first child is at the logical start.

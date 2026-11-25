@@ -1199,6 +1199,23 @@ gui-settings-time-format-twenty-four = 24-hour
 gui-clock-am = AM
 gui-clock-pm = PM
 
+gui-size-per-second = /s
+
+## Gregorian dates in the desktop interface
+
+gui-date-january = January
+gui-date-february = February
+gui-date-march = March
+gui-date-april = April
+gui-date-may = May
+gui-date-june = June
+gui-date-july = July
+gui-date-august = August
+gui-date-september = September
+gui-date-october = October
+gui-date-november = November
+gui-date-december = December
+
 gui-environment-tab-security = Security
 gui-environment-scan-title = Image vulnerability scanning
 gui-environment-scan-help = Scan a local image from this environment. The scanner may download vulnerability databases.
