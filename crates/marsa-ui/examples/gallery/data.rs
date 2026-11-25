@@ -7,13 +7,14 @@ use marsa_ui::{
         table::{Column, TableDelegate, TableState},
         tree::{TreeItem, TreeState, tree},
     },
-    direction::isolate_technical_text,
+    direction::{LogicalStyle as _, isolate_technical_text, row_for},
     gpui::{
         App, Context, Entity, IntoElement, ParentElement as _, SharedString, Styled as _, Window,
-        div,
+        div, px,
     },
-    gpui_component::IndexPath,
+    gpui_component::{Icon, IconName, IndexPath},
     gui_keys as gui,
+    tokens::scale::Space,
 };
 
 pub(super) struct Rows {
@@ -123,12 +124,28 @@ impl TableDelegate for Rows {
     }
 }
 
-pub(super) fn example_tree(state: &Entity<TreeState>) -> impl IntoElement {
-    tree(state, |index, entry, _, _, _| {
+pub(super) fn example_tree(state: &Entity<TreeState>, locale: Locale) -> impl IntoElement {
+    tree(state, move |index, entry, _, _, cx| {
         let item = entry.item();
         ListItem::new(("example-tree-row", index))
             .accessibility_label(item.label.clone())
-            .child(item.label.clone())
+            .child(
+                row_for(locale)
+                    .padding_start(px(entry.depth() as f32 * Space::S16.pixels()), cx)
+                    .gap(px(Space::S4.pixels()))
+                    .child(
+                        div()
+                            .size(px(Space::S16.pixels()))
+                            .children(entry.is_folder().then(|| {
+                                Icon::new(if entry.is_expanded() {
+                                    IconName::ChevronDown
+                                } else {
+                                    IconName::ChevronRight
+                                })
+                            })),
+                    )
+                    .child(item.label.clone()),
+            )
     })
 }
 

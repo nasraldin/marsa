@@ -184,6 +184,8 @@ impl Gallery {
 
     fn controls(&self, cx: &mut Context<Self>) -> Div {
         let label = |key| self.label(key);
+        let locale = self.locale;
+        let palette = self.palette;
         column()
             .child(
                 self.card(
@@ -197,11 +199,13 @@ impl Gallery {
             .child(
                 self.card(
                     gui::GUI_GALLERY_ICON_BUTTON,
-                    Button::new("advance-icon")
-                        .ghost()
-                        .icon(IconName::Plus)
-                        .accessibility_label(label(gui::GUI_GALLERY_ADVANCE))
-                        .on_click(cx.listener(|this, _, _, cx| this.advance(cx))),
+                    row_for(locale).child(
+                        Button::new("advance-icon")
+                            .ghost()
+                            .icon(IconName::Plus)
+                            .accessibility_label(label(gui::GUI_GALLERY_ADVANCE))
+                            .on_click(cx.listener(|this, _, _, cx| this.advance(cx))),
+                    ),
                 ),
             )
             .child(self.card(
@@ -253,6 +257,21 @@ impl Gallery {
                         })),
                 ),
             )
+            .child(self.card(
+                gui::GUI_GALLERY_SPLIT,
+                div().h(px(Space::S80.pixels())).child(self.split.render(
+                    "gallery-split",
+                    locale,
+                    palette,
+                    label(gui::GUI_GALLERY_RESIZE),
+                    [gui::GUI_GALLERY_SUMMARY, gui::GUI_GALLERY_DETAILS].map(|key| {
+                        align_to_start(div(), locale)
+                            .p(px(Space::S8.pixels()))
+                            .child(label(key))
+                            .into_any_element()
+                    }),
+                )),
+            ))
     }
 
     fn data(&self) -> Div {
@@ -279,7 +298,7 @@ impl Gallery {
                     gui::GUI_GALLERY_TREE,
                     div()
                         .h(px(Space::S80.pixels() * 2.))
-                        .child(data::example_tree(&self.tree)),
+                        .child(data::example_tree(&self.tree, self.locale)),
                 ),
             )
     }
@@ -429,21 +448,6 @@ impl Gallery {
                         ),
                 ),
             )
-            .child(self.card(
-                gui::GUI_GALLERY_SPLIT,
-                div().h(px(Space::S80.pixels())).child(self.split.render(
-                    "gallery-split",
-                    locale,
-                    palette,
-                    label(gui::GUI_GALLERY_RESIZE),
-                    [gui::GUI_GALLERY_SUMMARY, gui::GUI_GALLERY_DETAILS].map(|key| {
-                        align_to_start(div(), locale)
-                            .p(px(Space::S8.pixels()))
-                            .child(label(key))
-                            .into_any_element()
-                    }),
-                )),
-            ))
     }
 }
 

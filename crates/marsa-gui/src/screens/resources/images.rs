@@ -10,7 +10,7 @@ use marsa_ui::{
         Window, div, px,
     },
     gpui_component::{
-        Disableable, Icon, IconName, Placement,
+        Disableable, Icon, Placement,
         button::{Button, ButtonVariants as _},
     },
     gui_keys as gui,

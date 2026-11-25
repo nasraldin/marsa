@@ -85,6 +85,12 @@ impl Palette {
             colors.table_foot_foreground = c(TextMuted);
             colors.table_hover = c(BgHover);
             colors.table_row_border = c(BorderSubtle);
+            colors.progress_bar = c(AccentDefault);
+            colors.tab_active = c(BgElevated);
+            colors.tab_active_foreground = c(TextPrimary);
+            colors.tab_bar = c(BgSubtle);
+            colors.tab_bar_segmented = c(BgSubtle);
+            colors.tab_foreground = c(TextMuted);
             colors.sidebar = c(GlassRail);
             colors.sidebar_border = c(GlassEdge);
             colors.sidebar_foreground = c(TextMuted);
