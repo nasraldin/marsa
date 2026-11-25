@@ -141,7 +141,7 @@ owner's Arabic terminology review under M7-14, as required by D-035.
 
 ### M6-05 Core components
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M6-02, M6-03, M6-04
 - **Docs:** [08 Design system](../08-gui.md#design-system-marsa-ui)
 - **Do:** Build Marsa's component set on gpui-component, each using tokens, direction and translations: button, icon button, text input, search field, select, checkbox, switch, tabs, list and virtualised list, table and virtualised table, tree, dialog, confirmation dialog with typed confirmation, toast, menu, tooltip, badge and status pill, progress, empty state, error state, code and monospace block, split view. Add a component gallery app.
@@ -149,6 +149,22 @@ owner's Arabic terminology review under M7-14, as required by D-035.
 - **Accept when:**
   - Every component appears in the gallery in four variants.
   - Every component is fully operable by keyboard.
+
+Run the gallery with `cargo run --locked -p marsa-ui --example gallery -- en-US light`.
+The gallery also accepts `ar` and `dark`.
+
+Native qualification covered keyboard activation, text and search, select,
+checkbox and switch, tabs, list and table selection, tree navigation, dialogs,
+toast dismissal, menus, help, copy, split resizing, and page scrolling. The
+Images route was also checked with three isolated sample images in all four
+variants. The native `component_render` test covers independent table
+accessibility identities, measured split resizing, and keyboard reachability of
+toast dismissal.
+
+[English light](../spikes/M6-05-component-gallery/en-light.png),
+[English dark](../spikes/M6-05-component-gallery/en-dark.png),
+[Arabic light](../spikes/M6-05-component-gallery/ar-light.png),
+[Arabic dark](../spikes/M6-05-component-gallery/ar-dark.png).
 
 ### M6-06 Four-variant snapshot harness
 
