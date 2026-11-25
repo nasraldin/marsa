@@ -1009,7 +1009,7 @@ Signed Settings rendered both saved switch states in every variant.
 
 ### M7-53 Authenticate Git sources over SSH
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-30
 - **Docs:** [11 Git sources](../11-security.md#git-sources), [11 SSH agent access](../11-security.md#ssh-agent-access)
 - **Do:** Add explicitly configured SSH sources with a verified host key and a selected private key reference. Pin the connection to the configured host, port, user and key policy for branch testing and checkout.
