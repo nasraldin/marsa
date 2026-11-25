@@ -15,6 +15,7 @@ use marsa_ui::{
         button::{Button, ButtonVariants as _},
     },
     gui_keys as gui,
+    locale_format::{self, SizeFormat},
     tokens::{
         scale::Space,
         typography::{Role, ui_size},
@@ -188,7 +189,6 @@ fn render_body(
     view: &marsa_ui::gpui::Entity<ResourcesView>,
     cx: &App,
 ) -> impl IntoElement {
-    let locale = screen.locale;
     let _ = cx;
     div()
         .flex()
@@ -197,8 +197,7 @@ fn render_body(
         .w_full()
         .child(action_icons(screen, detail, data, view))
         .child(layers::render_layers_section(
-            locale,
-            screen.palette,
+            screen,
             &detail.id,
             detail.layers.as_deref(),
             detail.layers_failed,
@@ -360,7 +359,10 @@ fn inspect_cards(
 fn metadata_card(screen: &ScreenContext<'_>, image: &ImageDetails) -> Div {
     let created = image
         .created
-        .clone()
+        .as_deref()
+        .and_then(|created| {
+            locale_format::rfc3339_utc(screen.locale, screen.display.time_format, created)
+        })
         .unwrap_or_else(|| message(screen.locale, gui::GUI_DESKTOP_UNAVAILABLE).to_string());
     let author = image
         .author
@@ -385,7 +387,11 @@ fn metadata_card(screen: &ScreenContext<'_>, image: &ImageDetails) -> Div {
             ),
             (
                 message(screen.locale, gui::GUI_DESKTOP_SIZE),
-                SharedString::from(format_bytes(screen.locale, image.size)),
+                SharedString::from(locale_format::bytes(
+                    screen.locale,
+                    SizeFormat::DecimalDetail,
+                    image.size,
+                )),
             ),
         ],
     )
@@ -498,28 +504,4 @@ fn section_heading(screen: &ScreenContext<'_>, title: SharedString) -> Div {
             .pb_2()
             .child(title),
     )
-}
-
-fn format_bytes(locale: Locale, bytes: u64) -> String {
-    if bytes >= 1_000_000_000 {
-        format!(
-            "{:.2} {}",
-            bytes as f64 / 1_000_000_000.,
-            gui::GUI_DESKTOP_GB.text(locale)
-        )
-    } else if bytes >= 1_000_000 {
-        format!(
-            "{:.2} {}",
-            bytes as f64 / 1_000_000.,
-            gui::GUI_DESKTOP_MB.text(locale)
-        )
-    } else if bytes >= 1_000 {
-        format!(
-            "{:.0} {}",
-            bytes as f64 / 1_000.,
-            gui::GUI_DESKTOP_KB.text(locale)
-        )
-    } else {
-        format!("{bytes} {}", gui::GUI_DESKTOP_B.text(locale))
-    }
 }

@@ -21,7 +21,8 @@ mod native {
             Pixels, Render, SharedString, Styled, TextRun, Window, WindowBounds, WindowOptions,
             WindowingRequest, canvas, div, font, px, size,
         },
-        gpui_component::{IconName, resolve_icon_path},
+        gpui_component::{self, IconName, resolve_icon_path},
+        gui_keys,
     };
 
     const TECHNICAL: [&str; 2] = ["/tmp/work:123", "--name=api-43"];
@@ -126,6 +127,7 @@ mod native {
                 ),
             ] {
                 direction::set_locale(locale, cx);
+                assert_locale_labels(locale);
                 let [path, option] = TECHNICAL.map(direction::isolate_technical_text);
                 let sentence = SharedString::from(match locale {
                     Locale::EnglishUs => format!("Path {path} then {option}"),
@@ -163,8 +165,32 @@ mod native {
                 })
                 .expect("direction test window updates");
             }
+            direction::set_locale(Locale::EnglishUs, cx);
+            assert_locale_labels(Locale::EnglishUs);
             std::process::exit(0);
         });
+    }
+
+    fn assert_locale_labels(locale: Locale) {
+        let tag = gpui_component::locale();
+        let expected = match locale {
+            Locale::EnglishUs => ("en", "Cancel", "Please select", "Copy"),
+            Locale::Arabic => ("ar", "إلغاء", "اختر خيارًا", "نسخ"),
+        };
+        assert_eq!(&*tag, expected.0);
+        assert_eq!(
+            gpui_component::_rust_i18n_translate(&tag, "Dialog.cancel"),
+            expected.1
+        );
+        assert_eq!(gui_keys::GUI_DESKTOP_CANCEL.text(locale), expected.1);
+        assert_eq!(
+            gpui_component::_rust_i18n_translate(&tag, "Combobox.placeholder"),
+            expected.2
+        );
+        assert_eq!(
+            gpui_component::_rust_i18n_translate(&tag, "Copy"),
+            expected.3
+        );
     }
 
     fn assert_technical_order(sentence: &SharedString, locale: Locale, window: &Window) {

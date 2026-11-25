@@ -117,7 +117,7 @@ GPUI Component 0.10.0 calls rust-i18n and exports a runtime locale setter.
 Its upstream catalog contains English but no Arabic. rust-i18n 4.2.4 exposes
 a crate-scoped catalog extension, which can add translations without
 replacing Marsa's Fluent catalog.
-[Pinned GPUI Component setup](https://github.com/longbridge/gpui-kit/blob/f697c3133d55c64fa8a5b67926147fb3dadd276d/crates/component/src/lib.rs#L145-L183)
+[Pinned GPUI Component setup](https://github.com/longbridge/gpui-kit/blob/f697c3133d55c64fa8a5b67926147fb3dadd276d/crates/component/src/lib.rs#L122-L160)
 · [Pinned upstream catalog](https://github.com/longbridge/gpui-kit/blob/f697c3133d55c64fa8a5b67926147fb3dadd276d/crates/component/locales/ui.yml)
 · [rust-i18n 4.2.4 release](https://crates.io/crates/rust-i18n/4.2.4).
 

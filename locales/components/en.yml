@@ -1,0 +1,5 @@
+# Literal lookups absent from the pinned GPUI Component English catalog.
+gpui_component:
+  Copy: Copy
+  Combobox:
+    placeholder: Please select

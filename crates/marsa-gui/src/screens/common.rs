@@ -14,6 +14,7 @@ use marsa_ui::{
         dialog::Dialog,
         input::{Input, InputState},
     },
+    locale_format::{self, SizeFormat, day_periods},
     preferences::{DisplaySettings, TimeFormat},
     tokens::{
         scale::Space,
@@ -55,14 +56,6 @@ pub(crate) fn log_time(
             timestamp.format_12_hour(local, am, pm)
         }
     }
-}
-
-/// The locale's markers for the two halves of a 12-hour clock.
-pub(crate) fn day_periods(locale: Locale) -> (&'static str, &'static str) {
-    (
-        marsa_ui::gui_keys::GUI_CLOCK_AM.text(locale),
-        marsa_ui::gui_keys::GUI_CLOCK_PM.text(locale),
-    )
 }
 
 pub(crate) fn copy(locale: Locale, en: &'static str, ar: &'static str) -> &'static str {
@@ -182,19 +175,6 @@ pub(crate) fn update_input_placeholder(
     }
 }
 
-pub(crate) fn disk_bytes(value: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
-    let mut amount = value as f64;
-    let mut unit = 0;
-    while amount >= 1024. && unit + 1 < UNITS.len() {
-        amount /= 1024.;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{value} B")
-    } else if amount.fract() == 0. {
-        format!("{amount:.0} {}", UNITS[unit])
-    } else {
-        format!("{amount:.1} {}", UNITS[unit])
-    }
+pub(crate) fn disk_bytes(locale: Locale, value: u64) -> String {
+    locale_format::bytes(locale, SizeFormat::Binary, value)
 }

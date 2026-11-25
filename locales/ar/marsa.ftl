@@ -1278,3 +1278,18 @@ gui-desktop-copy-command = نسخ الأمر
 gui-overview-live = مباشر
 gui-overview-machine = الجهاز
 gui-overview-engine-type = المحرّك
+
+## Gregorian dates in the desktop interface
+
+gui-date-january = يناير
+gui-date-february = فبراير
+gui-date-march = مارس
+gui-date-april = أبريل
+gui-date-may = مايو
+gui-date-june = يونيو
+gui-date-july = يوليو
+gui-date-august = أغسطس
+gui-date-september = سبتمبر
+gui-date-october = أكتوبر
+gui-date-november = نوفمبر
+gui-date-december = ديسمبر

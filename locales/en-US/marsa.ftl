@@ -1278,3 +1278,18 @@ gui-desktop-copy-command = Copy command
 gui-overview-live = Live
 gui-overview-machine = Machine
 gui-overview-engine-type = Engine
+
+## Gregorian dates in the desktop interface
+
+gui-date-january = January
+gui-date-february = February
+gui-date-march = March
+gui-date-april = April
+gui-date-may = May
+gui-date-june = June
+gui-date-july = July
+gui-date-august = August
+gui-date-september = September
+gui-date-october = October
+gui-date-november = November
+gui-date-december = December

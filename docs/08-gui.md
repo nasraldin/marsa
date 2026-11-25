@@ -189,17 +189,28 @@ width as the sample count grows.
 | Locales | `en-US` (source), `ar` (Modern Standard Arabic) | Decided |
 | Translation format | Fluent (`.ftl`) files in [`locales/`](../locales/README.md) | Implemented in M6-12 |
 | Plurals | Full CLDR rules; Arabic has six plural forms | Decided as a requirement |
-| Library | **Verify:** gpui-component is built on rust-i18n, which may not provide plural rules. Use Fluent for Marsa strings and bridge gpui-component's own strings | Verify |
-| Dates, times, sizes | Locale-aware formatting with Western digits | Proposed |
+| Library | Fluent for Marsa strings. GPUI Component uses its pinned rust-i18n catalog, extended with Arabic by Marsa. | Implemented in M6-04 |
+| Dates, times, sizes | Locale-aware human-readable formatting with Western digits | Implemented in M6-04 |
 | Runtime switching | Language changes apply live | Decided |
-| Missing strings | Build fails if any key exists in one locale and not the other | Proposed |
+| Missing strings | Build fails on missing or unexpected keys or mismatched placeholders | Implemented in M6-04 |
 | Review | Arabic strings are reviewed by a fluent speaker for terminology consistency; a glossary of technical terms lives in `locales/GLOSSARY.md` | Proposed |
 
 `marsa-l10n` validates the application catalogs and provides typed message
 keys and locale-specific Fluent bundles through `marsa-client`. The GUI supports
 English and Arabic. The CLI reads generated messages in English as specified in
-[D-033](15-decisions.md#d-033-keep-the-command-line-interface-in-english). GUI
-integration and locale formatting remain part of M6-04.
+[D-033](15-decisions.md#d-033-keep-the-command-line-interface-in-english).
+The desktop updates its Fluent locale, component catalog, native menu and window labels, and layout direction together. GPUI Component's rust-i18n catalog handles
+component wording and named interpolation. Fluent handles application plurals.
+The application build checks the Arabic component extension against the pinned
+English keys and placeholders.
+
+Desktop dates follow Gregorian field order in the selected language. Human
+times honor the selected 12- or 24-hour clock, including localized day-period
+labels. Byte sizes use localized SI units and standard IEC symbols. Technical
+timestamps and identifiers retain their interoperable representation.
+[Gregorian data for English](https://github.com/unicode-org/cldr-json/blob/49.0.0/cldr-json/cldr-dates-full/main/en/ca-gregorian.json)
+· [Gregorian data for Arabic](https://github.com/unicode-org/cldr-json/blob/49.0.0/cldr-json/cldr-dates-full/main/ar/ca-gregorian.json)
+· [Arabic Western-digit symbols](https://github.com/unicode-org/cldr-json/blob/49.0.0/cldr-json/cldr-numbers-full/main/ar/numbers.json).
 
 Technical terms policy (**Proposed**): keep established English terms that developers actually use (Docker, container image names, Compose, volume names as typed) in Latin script where an Arabic term would confuse, and translate interface language (actions, labels, messages) fully.
 

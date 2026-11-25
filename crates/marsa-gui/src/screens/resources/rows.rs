@@ -11,6 +11,7 @@ use marsa_ui::{
         SharedString, StatefulInteractiveElement, Styled, div, px,
     },
     gpui_component::{Icon, IconName, scroll::ScrollableElement as _},
+    locale_format::{self, SizeFormat},
     tokens::{
         scale::{Radius, Space},
         typography::Role,
@@ -448,7 +449,7 @@ pub(super) fn snapshot_rows(
                 );
                 let repository =
                     repository.unwrap_or_else(|| gui::GUI_DESKTOP_UNTAGGED.text(screen.locale));
-                let size = format_bytes(screen.locale, image.size);
+                let size = locale_format::bytes(screen.locale, SizeFormat::Decimal, image.size);
                 let age =
                     format_age(screen.locale, image.created).unwrap_or_else(|| missing.to_owned());
                 let action_target = in_use_tag
@@ -512,7 +513,7 @@ pub(super) fn snapshot_rows(
                 let usage = volume_usage.get(&volume.name);
                 let size = usage.and_then(|usage| usage.size_bytes).map_or_else(
                     || missing.to_owned(),
-                    |size| format_bytes(screen.locale, size),
+                    |size| locale_format::bytes(screen.locale, SizeFormat::Decimal, size),
                 );
                 let attached = if users.is_empty()
                     && usage
@@ -741,59 +742,6 @@ fn joined(locale: Locale, values: &[String]) -> String {
     }
 }
 
-fn format_bytes(locale: Locale, bytes: u64) -> String {
-    if bytes >= 1_000_000_000 {
-        format!(
-            "{:.1} {}",
-            bytes as f64 / 1_000_000_000.,
-            gui::GUI_DESKTOP_GB.text(locale)
-        )
-    } else if bytes >= 1_000_000 {
-        format!(
-            "{:.1} {}",
-            bytes as f64 / 1_000_000.,
-            gui::GUI_DESKTOP_MB.text(locale)
-        )
-    } else if bytes >= 1_000 {
-        format!(
-            "{:.1} {}",
-            bytes as f64 / 1_000.,
-            gui::GUI_DESKTOP_KB.text(locale)
-        )
-    } else {
-        format!("{bytes} {}", gui::GUI_DESKTOP_B.text(locale))
-    }
-}
-
-/// Absolute UTC timestamp for Age-cell tooltips (`YYYY-MM-DD HH:MM:SS UTC`).
-pub(super) fn format_created_timestamp(created: i64) -> Option<String> {
-    let total = u64::try_from(created).ok()?;
-    let days = i32::try_from(total / 86_400).ok()?;
-    let tod = total % 86_400;
-    let hour = tod / 3_600;
-    let minute = (tod % 3_600) / 60;
-    let second = tod % 60;
-    let (year, month, day) = unix_days_to_ymd(days);
-    Some(format!(
-        "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02} UTC"
-    ))
-}
-
-/// Civil Gregorian date from days since the Unix epoch (Howard Hinnant).
-fn unix_days_to_ymd(days: i32) -> (i32, u32, u32) {
-    let z = days.wrapping_add(719_468);
-    let era = if z >= 0 { z } else { z.wrapping_sub(146_096) } / 146_097;
-    let doe = z.wrapping_sub(era * 146_097) as u32;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i32 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m, d)
-}
-
 fn format_age(locale: Locale, created: i64) -> Option<String> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
     let age = now.checked_sub(u64::try_from(created).ok()?)?;
@@ -812,18 +760,6 @@ fn format_age(locale: Locale, created: i64) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn created_timestamp_formats_utc() {
-        assert_eq!(
-            format_created_timestamp(0).as_deref(),
-            Some("1970-01-01 00:00:00 UTC")
-        );
-        assert_eq!(
-            format_created_timestamp(1_704_067_200).as_deref(),
-            Some("2024-01-01 00:00:00 UTC")
-        );
-    }
 
     #[test]
     fn image_rows_aggregate_one_row_per_image_id() {

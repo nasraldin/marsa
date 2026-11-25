@@ -6,16 +6,15 @@ use std::collections::VecDeque;
 
 use marsa_client::api::{AgentAuditRecord, AuditDecision, EngineState, ListAgentAuditRequest};
 use marsa_ui::{
-    ColorToken, Locale,
+    ColorToken,
     direction::LogicalStyle as _,
     gpui::{Context, Div, ParentElement, SharedString, Styled, div, px},
     gpui_component::{Disableable, Selectable, button::Button},
-    preferences::TimeFormat,
 };
 
 use crate::{
     desktop::status,
-    screens::common::{ScreenContext, color, day_periods, panel, row},
+    screens::common::{ScreenContext, color, panel, row},
 };
 
 use super::{
@@ -365,18 +364,4 @@ fn audit_row(screen: &ScreenContext<'_>, record: &AgentAuditRecord) -> Div {
         }))
 }
 
-pub(super) fn utc_time(locale: Locale, format: TimeFormat, timestamp: i64) -> String {
-    let seconds = timestamp.div_euclid(1000).rem_euclid(86400);
-    let hour = seconds / 3600;
-    let minute = seconds / 60 % 60;
-    let second = seconds % 60;
-    match format {
-        TimeFormat::TwentyFourHour => format!("{hour:02}:{minute:02}:{second:02} UTC"),
-        TimeFormat::TwelveHour => {
-            let (am, pm) = day_periods(locale);
-            let period = if hour < 12 { am } else { pm };
-            let hour_12 = (hour + 11) % 12 + 1;
-            format!("{hour_12:02}:{minute:02}:{second:02} {period} UTC")
-        }
-    }
-}
+pub(super) use marsa_ui::locale_format::time_utc as utc_time;

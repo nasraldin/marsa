@@ -1,0 +1,148 @@
+# Arabic extension for GPUI Component 0.10.0. See ../GLOSSARY.md.
+gpui_component:
+  Attachment:
+    Remove: إزالة
+    Retry: إعادة المحاولة
+  Calendar:
+    week.0: ح
+    week.1: ن
+    week.2: ث
+    week.3: ر
+    week.4: خ
+    week.5: ج
+    week.6: س
+    month.January: يناير
+    month.February: فبراير
+    month.March: مارس
+    month.April: أبريل
+    month.May: مايو
+    month.June: يونيو
+    month.July: يوليو
+    month.August: أغسطس
+    month.September: سبتمبر
+    month.October: أكتوبر
+    month.November: نوفمبر
+    month.December: ديسمبر
+  DatePicker:
+    placeholder: اختر تاريخًا
+    time: الوقت
+  Select:
+    placeholder: اختر خيارًا
+  ComboBox:
+    placeholder: اختر خيارًا
+    search_placeholder: ابحث…
+    empty: لا توجد نتائج
+  DropdownButton:
+    more_options: مزيد من الخيارات
+  Dock:
+    Unnamed: بلا اسم
+    Close: إغلاق
+    Zoom In: تكبير
+    Zoom Out: تصغير
+    Collapse: طيّ
+    Expand: توسيع
+    Unavailable Panel: هذه اللوحة غير متاحة في هذا الإصدار.
+  ColorPicker:
+    Palette: لوحة الألوان
+    HSLA: HSLA
+    Hue: درجة اللون
+    Saturation: التشبّع
+    Lightness: الإضاءة
+    Alpha: الشفافية
+  Dialog:
+    ok: موافق
+    cancel: إلغاء
+  Command:
+    placeholder: اكتب أمرًا أو ابحث…
+    empty: لا توجد نتائج.
+  List:
+    search_placeholder: ابحث…
+  Input:
+    Decrement: إنقاص
+    Increment: زيادة
+    Replace: استبدال
+    Replace All: استبدال الكل
+    Clear: مسح
+    Cut: قص
+    Copy: نسخ
+    Paste: لصق
+    Select All: تحديد الكل
+    Go to Definition: الانتقال إلى التعريف
+    Show Code Actions: عرض إجراءات الشيفرة
+    Show Password: إظهار كلمة المرور
+    Hide Password: إخفاء كلمة المرور
+  Settings:
+    search_placeholder: ابحث…
+    no_results: لا توجد إعدادات مطابقة
+    no_results_description: جرّب كلمة بحث أخرى.
+    Reset All: إعادة ضبط الكل
+  Pagination:
+    previous: السابق
+    next: التالي
+  Carousel:
+    label: عارض الشرائح
+    previous: الشريحة السابقة
+    next: الشريحة التالية
+    slide: "الشريحة %{current} من %{total}"
+    pagination: التنقل بين الشرائح
+    go_to_slide: "انتقل إلى الشريحة %{current}"
+  Table:
+    SortBy: "الفرز حسب %{column}"
+  Chart:
+    open: الافتتاح
+    high: الأعلى
+    low: الأدنى
+    close: الإغلاق
+  Questionnaire:
+    progress: "السؤال %{current} من %{total}"
+    previous: السابق
+    next: التالي
+    skip: تخطّي
+    submit: إرسال
+    error.required: اختر إجابة للمتابعة.
+    error.optional: اختر إجابة أو تخطَّ هذا السؤال.
+  Speech:
+    Start: إملاء
+    Stop: إيقاف الإملاء
+    Unavailable: الإملاء غير متاح
+  Diff:
+    BinaryChanges: تغيّر الملف الثنائي
+    NoTextChanges: لا تغييرات نصية في هذه الرقعة
+    NoChanges: لا تغييرات
+    EmptyFile: ملف فارغ
+    AddedFile: ملف مضاف
+    DeletedFile: ملف محذوف
+    RenamedFile: تغيّر الاسم
+    CopiedFile: نُسخ
+    HiddenLines: "أسطر خارج الرقعة (%{count})"
+    ExpandAbove: "أظهر الأسطر أعلاه (%{count})"
+    ExpandBelow: "أظهر الأسطر أدناه (%{count})"
+    CollapseFile: "اطوِ %{name}"
+    ExpandFile: "وسّع %{name}"
+    AddAnnotation: "أضف ملاحظة إلى السطر %{line}"
+    ConflictedFile: تعارضات
+    CurrentChange: التغيير الحالي
+    IncomingChange: التغيير الوارد
+    BaseChange: الأصل المشترك
+    AcceptCurrent: قبول التغيير الحالي
+    AcceptIncoming: قبول التغيير الوارد
+    AcceptBoth: قبول التغييرين
+    AcceptedCurrent: قُبل التغيير الحالي
+    AcceptedIncoming: قُبل التغيير الوارد
+    AcceptedBoth: قُبل التغييران
+    UndoResolution: تراجع
+    Original: الأصلي
+    Modified: المعدّل
+    ExpandLines: "أظهر الأسطر التي لم تتغيّر (%{count})"
+    SourceLine: "%{side}، السطر %{line}"
+    AddedLine: "%{side}، السطر %{line}، مضاف"
+    RemovedLine: "%{side}، السطر %{line}، محذوف"
+    UnchangedLines: "أسطر لم تتغيّر (%{count})"
+    SelectLine: "حدّد السطر %{line} في %{side}"
+    NoNewline: لا يوجد سطر جديد في نهاية الملف
+    Viewer: "فروق %{name}"
+    ViewerFiles: "فروق الملفات (%{count})"
+  Copy: نسخ
+  # The pinned component renders this spelling, while its catalog has ComboBox.
+  Combobox:
+    placeholder: اختر خيارًا

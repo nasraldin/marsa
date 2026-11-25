@@ -25,6 +25,7 @@ use marsa_ui::{
         scroll::ScrollableElement as _,
     },
     gui_keys as gui,
+    locale_format::{self, SizeFormat},
     tokens::{
         scale::{Radius, Space},
         typography::{Role, ui_size},
@@ -1004,8 +1005,8 @@ fn pull_body(
                         SharedString::from(format!(
                             "{}: {} / {}",
                             gui::GUI_DESKTOP_DOWNLOADED.text(locale),
-                            format_bytes(locale, downloaded),
-                            format_bytes(locale, expected)
+                            locale_format::bytes(locale, SizeFormat::Decimal, downloaded),
+                            locale_format::bytes(locale, SizeFormat::Decimal, expected)
                         )),
                     )
                     .text_color(tone(screen, ColorToken::TextMuted)),
@@ -1374,30 +1375,6 @@ fn byte_totals(pull: &PullState) -> (u64, u64) {
         }
     }
     (downloaded, expected)
-}
-
-fn format_bytes(locale: Locale, bytes: u64) -> String {
-    if bytes >= 1_000_000_000 {
-        format!(
-            "{:.1} {}",
-            bytes as f64 / 1_000_000_000.,
-            gui::GUI_DESKTOP_GB.text(locale)
-        )
-    } else if bytes >= 1_000_000 {
-        format!(
-            "{:.1} {}",
-            bytes as f64 / 1_000_000.,
-            gui::GUI_DESKTOP_MB.text(locale)
-        )
-    } else if bytes >= 1_000 {
-        format!(
-            "{:.1} {}",
-            bytes as f64 / 1_000.,
-            gui::GUI_DESKTOP_KB.text(locale)
-        )
-    } else {
-        format!("{bytes} {}", gui::GUI_DESKTOP_B.text(locale))
-    }
 }
 
 #[cfg(test)]

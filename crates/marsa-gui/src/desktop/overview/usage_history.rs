@@ -131,7 +131,7 @@ impl UsageHistory {
             .map(|(index, sample)| {
                 let label = match (metric, sample) {
                     (Metric::Cpu, Some(value)) => format!("{value:.1}%"),
-                    (Metric::Memory, Some(value)) => disk_bytes(*value as u64),
+                    (Metric::Memory, Some(value)) => disk_bytes(screen.locale, *value as u64),
                     _ => "—".into(),
                 };
                 (index, label)
