@@ -40,6 +40,9 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-029 | Verify updates with TUF | Accepted |
 | D-031 | Scope development file sync with Compose Watch | Accepted |
 | D-033 | Keep the command-line interface in English | Accepted |
+| D-035 | The project owner reviews Arabic terminology | Accepted |
+| D-036 | Offer the optional Docker socket link in Settings | Accepted |
+| D-037 | Offer opt-in crash reporting | Accepted |
 
 ---
 
@@ -277,3 +280,24 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** D-003 makes the headless daemon the system of record. Overview launch was doing a cold, multi-call Docker fan-out on every open, which contradicts the GUI start-up rule (first frame from a snapshot, no client polling). A daemon cache keeps the CLI and MCP as capable as the GUI. Bundled `rusqlite` currently conflicts with the vendored `hashbrown` used by Prost.
 - **Consequence:** Host API minor 14 adds `prefer_cache` and `observed_at_unix_millis` on `Stats.DockerOverview`. External engines remain client-side until a later task. A follow-up may swap the JSON file for SQLite without changing the API.
 - **Date and task:** 2026-11-25, M4-26.
+
+## D-035 The project owner reviews Arabic terminology
+
+- **Decision:** The project owner will review the Arabic desktop copy and the terminology glossary.
+- **Why:** The owner volunteered to perform the review for Q-06.
+- **Consequence:** M6-04 prepares the glossary. M7-14 records the owner's review and any corrections alongside the four-variant audit.
+- **Date and task:** 2026-11-25, M0-10.
+
+## D-036 Offer the optional Docker socket link in Settings
+
+- **Decision:** Offer the optional `/var/run/docker.sock` link in desktop Settings only. Leave it off by default.
+- **Why:** The owner chose the settings-only placement for Q-08.
+- **Consequence:** M4-04 provides an auditable one-time administrator action and matching removal for the owner socket. First-run setup uses the normal Docker context.
+- **Date and task:** 2026-11-25, M0-10.
+
+## D-037 Offer opt-in crash reporting
+
+- **Decision:** Add opt-in crash reporting under M9-12. Reporting is off by default.
+- **Why:** The owner chose opt-in crash reporting for Q-10.
+- **Consequence:** The implementation documents report fields, the destination and retention before consent. Reports follow the [privacy rules](11-security.md#privacy) and the outbound-connection test covers the reporting path.
+- **Date and task:** 2026-11-25, M0-10.

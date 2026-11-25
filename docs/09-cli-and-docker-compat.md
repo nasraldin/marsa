@@ -33,7 +33,7 @@ flowchart TB
 |---|---|---|
 | Docker context `marsa` | Registered on request | Use `docker --context marsa` for one command or explicitly run `docker context use marsa` to change your current context |
 | `DOCKER_HOST` | Set by the caller | Use `unix://$HOME/.marsa/run/docker.sock` with clients that take an endpoint. The host API supplies the exact value for `marsa env` |
-| `/var/run/docker.sock` | Off | The optional administrator action is tracked in M4-04. Q-08 governs where it is offered |
+| `/var/run/docker.sock` | Off | M4-04 provides the optional administrator action in Settings only. [D-036](15-decisions.md#d-036-offer-the-optional-docker-socket-link-in-settings) |
 
 ### Client discovery
 

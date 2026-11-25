@@ -115,7 +115,7 @@ remain in M3-04 under [D-028](../15-decisions.md#d-028-qualify-native-ipv4-indep
 
 ### M9-08 Clean uninstall
 
-- **Status:** blocked (M4-04 and Q-08)
+- **Status:** blocked (M4-04)
 - **Depends on:** M4-04, M9-18
 - **Docs:** [12 Uninstall](../12-build-release-update.md#uninstall), Q-08
 - **Do:** Implement and document the uninstall procedure, including the matching removal of optional Docker integration installed by M4-04. Verify the procedure on a clean machine.
@@ -209,11 +209,11 @@ redirected stage member was refused and its target remained intact.
 - **Status:** todo
 - **Depends on:** M3-08, Q-10
 - **Docs:** [11 Privacy](../11-security.md#privacy)
-- **Do:** Confirm no network call leaves the machine except registry traffic, update checks and the configurable network probe; add a test that fails on any other outbound connection from `marsad` or the GUI. Implement opt-in crash reporting only if Q-10 says so; otherwise document that none exists.
+- **Do:** Enumerate and test outbound connections from `marsad` and the GUI. Add crash reporting with explicit opt-in and document the approved report fields, destination and retention under [D-037](../15-decisions.md#d-037-offer-opt-in-crash-reporting).
 - **Deliver:** the outbound-connection test, a privacy note for users.
 - **Accept when:**
   - The test enumerates and justifies every outbound destination.
-  - Telemetry is off by default and absent unless Q-10 adds an opt-in.
+  - Crash reporting is off by default. Outbound tests cover disabled, enabled, and revoked consent.
 
 ### M9-13 Collect a local diagnostics archive
 

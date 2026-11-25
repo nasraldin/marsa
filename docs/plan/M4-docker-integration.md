@@ -43,7 +43,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 
 ### M4-04 Optional Docker socket symlink
 
-- **Status:** blocked (owner decision Q-08)
+- **Status:** todo
 - **Depends on:** M4-01
 - **Docs:** [09 How clients find the engine](../09-cli-and-docker-compat.md#how-clients-find-the-engine), Q-08
 - **Do:** Implement the opt-in `/var/run/docker.sock` symlink as a single, auditable administrator action with a matching removal.
@@ -51,7 +51,7 @@ Design: [03 Docker socket proxy](../03-host-daemon.md#docker-socket-proxy), [06 
 - **Accept when:**
   - Creating and removing the symlink leaves no other change on the system.
 
-Q-08 governs where the optional administrator action is offered. Context registration and environment discovery have their own task, M4-16.
+[D-036](../15-decisions.md#d-036-offer-the-optional-docker-socket-link-in-settings) places the optional administrator action in Settings. Context registration and environment discovery have their own task, M4-16.
 
 ### M4-05 Shared-folder allowlist
 
