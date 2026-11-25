@@ -452,7 +452,7 @@ Settings and viewer tests cover persisted choices, bounded buffers, and missing 
 
 ### M7-26 Show the installed release and its dependencies
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M10-12
 - **Docs:** [08 Screens](../08-gui.md#screens), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
 - **Do:** Extend the existing About screen with bilingual notes for the installed build, bundled Docker tool versions, live daemon and guest versions, and Finder access to bundled inventories and notices.
@@ -461,7 +461,23 @@ Settings and viewer tests cover persisted choices, bounded buffers, and missing 
   - App version and bundled tools come from the installed build. Daemon and guest component versions come from the owner daemon when connected.
   - The correct release notes appear in each locale. Source checkouts and bundles missing an asset report its absence, and distribution inventory and notice actions reveal the installed evidence.
 
-Bundle verification confirmed both release-note languages and the four staged tool records. Release inventory and notes are loaded from the installed app. The Mac locked before the final four-variant desktop checks.
+An offscreen native run used an ad hoc-signed copy of the assembled app that
+passed strict, deep signature verification. The displayed app version matched
+the bundle version. Both localized notes and four tool records matched their
+installed files. The packaged owner daemon reported its version and 11 guest
+component versions matching its bundled manifest with the engine stopped.
+
+Tab and Space activated the four evidence actions. The fixture recorded each
+macOS Finder selection call and verified its exact installed file path. The test
+used the staged Docker inventory and local fixtures at the reserved app
+inventory, guest inventory and notice paths. [M10-08](M10-release.md#m10-08-licence-notices-sbom-and-source-publication)
+tracks the complete distribution evidence.
+
+Native captures cover English and Arabic in light and dark appearances.
+After the owner daemon disconnected, About kept its installed notes and
+tools and showed the daemon connection state. A signed bundle with its
+notes and tool inventory removed and an unbundled source executable both
+showed asset absence.
 
 ### M7-27 Configure desktop registry credentials
 
