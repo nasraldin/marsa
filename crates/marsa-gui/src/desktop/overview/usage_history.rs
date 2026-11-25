@@ -5,14 +5,18 @@ use std::collections::{BTreeMap, VecDeque};
 use marsa_client::docker::{ContainerId, OverviewUtilization};
 use marsa_ui::{
     ColorToken,
-    gpui::{Div, ParentElement as _, Styled as _, div, px},
+    gpui::{
+        App, Div, InteractiveElement as _, IntoElement, ParentElement as _, PathBuilder,
+        StatefulInteractiveElement as _, Styled as _, canvas, div, point, px,
+    },
+    gpui_component::tooltip::Tooltip,
 };
 
-use crate::screens::common::{ScreenContext, color, row};
+use crate::screens::common::{ScreenContext, color, disk_bytes, row};
 
 const SAMPLE_COUNT: usize = 24;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Metric {
     Cpu,
     Memory,
@@ -113,15 +117,120 @@ impl UsageHistory {
         )
     }
 
-    pub(super) fn engine_sparkline(&self, screen: &ScreenContext<'_>, metric: Metric) -> Div {
-        sparkline(
-            screen,
-            self.engine_values(metric),
-            metric.color(),
-            px(220.),
-            px(36.),
-            px(5.),
-        )
+    /// Thin line chart scaled to host capacity, with per-sample hover tooltips.
+    ///
+    /// `ceiling` is the absolute Y maximum (host CPUs × 100 for CPU, memory limit
+    /// bytes for memory). Without it the chart falls back to the observed peak.
+    pub(super) fn engine_line(
+        &self,
+        screen: &ScreenContext<'_>,
+        metric: Metric,
+        ceiling: Option<f64>,
+    ) -> impl IntoElement {
+        let samples: Vec<_> = self.engine_values(metric).collect();
+        let tips: Vec<_> = samples
+            .iter()
+            .enumerate()
+            .map(|(index, sample)| {
+                let label = match (metric, sample) {
+                    (Metric::Cpu, Some(value)) => format!("{value:.1}%"),
+                    (Metric::Memory, Some(value)) => disk_bytes(*value as u64),
+                    _ => "—".into(),
+                };
+                (index, label)
+            })
+            .collect();
+        let peak = samples.iter().copied().flatten().fold(0., f64::max);
+        // Prefer host capacity so idle usage sits low instead of filling the chart.
+        let maximum = ceiling
+            .filter(|value| value.is_finite() && *value > 0.)
+            .unwrap_or(peak)
+            .max(peak)
+            .max(1.);
+        let token = metric.color();
+        let palette = screen.palette;
+        let chart_id = match metric {
+            Metric::Cpu => 0_u8,
+            Metric::Memory => 1,
+        };
+        let painted = samples.clone();
+        div()
+            .relative()
+            .w_full()
+            .h(px(44.))
+            .rounded(px(6.))
+            .bg(color(screen.palette, ColorToken::BgSubtle))
+            .overflow_hidden()
+            .child(
+                canvas(
+                    |_, _, _| {},
+                    move |bounds, (), window, _: &mut App| {
+                        let count = painted.len();
+                        if count == 0 {
+                            return;
+                        }
+                        let width = f32::from(bounds.size.width);
+                        let height = f32::from(bounds.size.height);
+                        let mut fill = PathBuilder::fill();
+                        let mut stroke = PathBuilder::stroke(px(2.));
+                        let mut started = false;
+                        let mut first = None;
+                        let mut last = None;
+                        for (index, sample) in painted.iter().enumerate() {
+                            let Some(value) = sample.filter(|value| value.is_finite()) else {
+                                started = false;
+                                continue;
+                            };
+                            let x = if count == 1 {
+                                bounds.origin.x + bounds.size.width / 2.
+                            } else {
+                                bounds.origin.x + px(width * index as f32 / (count - 1) as f32)
+                            };
+                            let y = bounds.origin.y
+                                + px(height
+                                    * (1. - (value / maximum).clamp(0., 1.) as f32 * 0.82 - 0.08));
+                            if started {
+                                fill.line_to(point(x, y));
+                                stroke.line_to(point(x, y));
+                            } else {
+                                fill.move_to(point(x, y));
+                                stroke.move_to(point(x, y));
+                                started = true;
+                                first = Some(point(x, y));
+                            }
+                            last = Some(point(x, y));
+                        }
+                        if let (Some(start), Some(end)) = (first, last) {
+                            let bottom = bounds.origin.y + bounds.size.height;
+                            fill.line_to(point(end.x, bottom));
+                            fill.line_to(point(start.x, bottom));
+                            fill.close();
+                            if let Ok(path) = fill.build() {
+                                window.paint_path(path, color(palette, token).opacity(0.22));
+                            }
+                        }
+                        if let Ok(path) = stroke.build() {
+                            window.paint_path(path, color(palette, token));
+                        }
+                    },
+                )
+                .size_full(),
+            )
+            .child(
+                row(screen.locale)
+                    .absolute()
+                    .inset_0()
+                    .children(tips.into_iter().map(|(index, tip)| {
+                        div()
+                            .id(("overview-history-hover", chart_id as usize * 64 + index))
+                            .flex_1()
+                            .h_full()
+                            .hover(|style| {
+                                style.bg(color(palette, ColorToken::AccentSubtle).opacity(0.55))
+                            })
+                            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    })),
+            )
     }
 }
 
@@ -170,6 +279,8 @@ mod tests {
                 name: "fixture".into(),
                 cpu_percent: Some(value),
                 memory_bytes: Some((value as u64) * 1024),
+                memory_limit: Some(1024 * 1024),
+                online_cpus: Some(4),
             }],
         };
         let mut history = UsageHistory::default();

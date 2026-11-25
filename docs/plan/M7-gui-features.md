@@ -573,13 +573,12 @@ hit testing, dragging, and the two-axis corner.
 - **Status:** done
 - **Depends on:** M7-37
 - **Docs:** [08 GUI](../08-gui.md)
-- **Do:** Keep top running containers. Redesign the containers and Docker disk cards as proportional bar charts, add a CPU and memory history card from live samples, and order Overview as inventory → container status → live usage → disk → top consumers.
+- **Do:** Keep top running containers. Lay out Overview as four wrapping header cards—context (with status strip), CPU/memory history (percent plus absolute size against host budget), disk usage (donut and legend), and resources—then the top consumers list.
 - **Deliver:** Overview chart layout, engine-level usage history, English and Arabic copy.
 - **Accept when:**
-  - Container lifecycle and health rows show share bars and open the matching filter.
-  - CPU and memory history updates from Overview samples without changing top consumers.
-  - Disk shows a total, stacked share bar, and per-category bars on the same scale.
+  - The four header cards wrap together; context includes clickable lifecycle/health counts and the healthy banner.
+  - CPU/memory show percent and consumed size against the host budget; disk uses a donut and legend; history updates from Overview samples without changing top consumers.
   - Verify English/Arabic and light/dark.
 
 Headless coverage for engine history and the Overview chart layout is in place.
-English and Arabic copy cover the history card and healthy banner.
+English and Arabic copy cover the history card, disk card, resources label, and healthy banner.

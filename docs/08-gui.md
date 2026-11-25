@@ -289,10 +289,13 @@ requests the events retained from the previous 24 hours and displays the resourc
 action and time. [Docker Engine event history](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/events/events.go#L12-L32),
 [Docker Engine date filtering](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L274-L305).
 
-Overview shows the selected environment's inventory, container lifecycle and
-health as bar charts, live CPU and memory history for running containers,
-Docker disk accounting as proportional bars, and the top consumers list.
-Select a lifecycle or health row to open the matching Containers filter.
+Overview opens with four equal cards: the selected environment (icon, name,
+status, runtime, OS/arch, plus container status counts and a health banner),
+CPU and memory history with percent and absolute consumption against the host
+budget, Docker disk usage as a donut with a category legend, and a resources
+card for Images, Volumes, Stacks, and Networks. The top running containers list
+stays below.
+Select a status count to open the matching Containers filter.
 Live usage and top-consumer sparklines keep the last 24 samples for the
 selected engine while Overview is visible. A missing category or sample stays
 unavailable. Disk bars use the sum of reported category sizes as the shared
