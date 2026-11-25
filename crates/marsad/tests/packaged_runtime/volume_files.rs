@@ -78,14 +78,10 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
     fs::write(root.join("seed/sub/clean.txt"), b"nested fixture").unwrap();
     std::os::unix::fs::symlink("/etc/passwd", root.join("seed/escape")).unwrap();
     let archive = scratch.path().join("seed.tar");
-    checked(
-        Command::new("/usr/bin/tar")
-            .arg("-cf")
-            .arg(&archive)
-            .arg("-C")
-            .arg(&root)
-            .arg("seed"),
-    );
+    let mut seed = tar::Builder::new(fs::File::create(&archive).unwrap());
+    seed.follow_symlinks(false);
+    seed.append_dir_all("seed", root.join("seed")).unwrap();
+    seed.into_inner().unwrap().sync_all().unwrap();
     let docker_config = scratch.path().join("docker");
     fs::create_dir(&docker_config).unwrap();
     let host = format!("unix://{}", paths.docker_socket().display());
@@ -160,6 +156,23 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
             assert!(entries.next().is_none());
         }
     }
+    let option_volume = format!("{volume}-options");
+    docker(&[
+        "volume",
+        "create",
+        "--opt",
+        "type=tmpfs",
+        "--opt",
+        "device=tmpfs",
+        &option_volume,
+    ]);
+    let unsupported = find_volume(&inventory, &option_volume).await;
+    assert!(matches!(
+        client.select_volume_download(&unsupported).await,
+        Err(VolumeDownloadError::Unsupported)
+    ));
+    docker(&["volume", "rm", &option_volume]);
+
     let clean_directory = prepare(&client, &selected, "/sub", true).await.unwrap();
     assert!(clean_directory.format() == ContainerFileFormat::Tar);
     let directory_output = scratch.path().join("directory.tar");
@@ -180,24 +193,15 @@ async fn packaged_volume_downloads_stay_in_the_selected_volume() {
     let mut output = Vec::new();
     file.read_to_end(&mut output).unwrap();
     assert_eq!(output, b"nested fixture");
-    assert!(entries.next().is_none());
-
-    let option_volume = format!("{volume}-options");
-    docker(&[
-        "volume",
-        "create",
-        "--opt",
-        "type=tmpfs",
-        "--opt",
-        "device=tmpfs",
-        &option_volume,
-    ]);
-    let unsupported = find_volume(&inventory, &option_volume).await;
-    assert!(matches!(
-        client.select_volume_download(&unsupported).await,
-        Err(VolumeDownloadError::Unsupported)
-    ));
-    docker(&["volume", "rm", &option_volume]);
+    let extra = entries
+        .next()
+        .transpose()
+        .unwrap()
+        .map(|entry| entry.path().unwrap().into_owned());
+    assert_eq!(
+        extra, None,
+        "the seeded directory contains exactly one file"
+    );
 
     assert!(matches!(
         prepare(&client, &selected, "/escape", true).await,
