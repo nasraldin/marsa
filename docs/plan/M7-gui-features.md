@@ -498,7 +498,7 @@ source evidence and allowed connection paths.
 
 ### M7-28 Save and check out HTTPS Git repositories
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** in progress
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md#git-sources)
 - **Do:** Manage named HTTPS Git repository and branch references, test branch access, and create a checkout in a chosen folder for explicit selection by the Compose workflow.
