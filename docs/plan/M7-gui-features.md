@@ -438,7 +438,7 @@ The signed Compose client created the reviewed file in a disposable directory, d
 
 ### M7-25 Desktop log preferences
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** done
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings)
 - **Do:** Configure live log buffer size and time zone through the revisioned desktop settings. Retain bounded engine timestamps for the latest container and Compose output.
@@ -448,11 +448,32 @@ The signed Compose client created the reviewed file in a disposable directory, d
   - Container logs and combined Compose logs use the selected limits and time zone, without increasing existing resource bounds.
   - Log lines without usable engine timestamps remain readable.
 
-Settings and viewer tests cover persisted choices, bounded buffers, and missing timestamps. The same Docker log records were checked in Dubai and New York, including the daylight saving transition rules. The Mac locked before the final four-variant desktop checks.
+The signed native desktop qualification used a private owner daemon and a
+disposable two-service Compose project on Lima Docker Engine 29.9.2 with
+Compose 5.8.0. In each locale and appearance, a revisioned Settings save
+changed open viewers from Medium and UTC to Compact and local time. The
+container viewer retained 500 of 701 lines. Combined logs retained 64 of
+128 lines, including output from both services. The same Docker timestamps
+displayed in UTC and with the New York offset selected for the fixture.
+The daemon reported that a restart was unnecessary. Container identities
+and start times stayed fixed through Settings saves and the subsequent
+desktop and daemon relaunch, which restored Compact and local time.
+
+Signed renders verified clean container timestamps after consolidating
+direction isolation in the ANSI renderer. Tests cover the byte bounds,
+preserving text when timestamps are absent or malformed, and displaying
+the same engine timestamp in UTC and local time.
+
+[English light](../screenshots/m7-25/en-light-settings.png) ·
+[English dark](../screenshots/m7-25/en-dark-settings.png) ·
+[Arabic light](../screenshots/m7-25/ar-light-settings.png) ·
+[Arabic dark](../screenshots/m7-25/ar-dark-settings.png) ·
+[Container logs](../screenshots/m7-25/container-local.png) ·
+[Combined Compose logs](../screenshots/m7-25/compose-local.png).
 
 ### M7-26 Show the installed release and its dependencies
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** done
 - **Depends on:** M10-12
 - **Docs:** [08 Screens](../08-gui.md#screens), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
 - **Do:** Extend the existing About screen with bilingual notes for the installed build, bundled Docker tool versions, live daemon and guest versions, and Finder access to bundled inventories and notices.
@@ -461,7 +482,23 @@ Settings and viewer tests cover persisted choices, bounded buffers, and missing 
   - App version and bundled tools come from the installed build. Daemon and guest component versions come from the owner daemon when connected.
   - The correct release notes appear in each locale. Source checkouts and bundles missing an asset report its absence, and distribution inventory and notice actions reveal the installed evidence.
 
-Bundle verification confirmed both release-note languages and the four staged tool records. Release inventory and notes are loaded from the installed app. The Mac locked before the final four-variant desktop checks.
+An offscreen native run used an ad hoc-signed copy of the assembled app that
+passed strict, deep signature verification. The displayed app version matched
+the bundle version. Both localized notes and four tool records matched their
+installed files. The packaged owner daemon reported its version and 11 guest
+component versions matching its bundled manifest with the engine stopped.
+
+Tab and Space activated the four evidence actions. The fixture recorded each
+macOS Finder selection call and verified its exact installed file path. The test
+used the staged Docker inventory and local fixtures at the reserved app
+inventory, guest inventory and notice paths. [M10-08](M10-release.md#m10-08-licence-notices-sbom-and-source-publication)
+tracks the complete distribution evidence.
+
+Native captures cover English and Arabic in light and dark appearances.
+After the owner daemon disconnected, About kept its installed notes and
+tools and showed the daemon connection state. A signed bundle with its
+notes and tool inventory removed and an unbundled source executable both
+showed asset absence.
 
 ### M7-27 Configure desktop registry credentials
 

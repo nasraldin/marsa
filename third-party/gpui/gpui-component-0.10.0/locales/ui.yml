@@ -390,6 +390,9 @@ Dialog:
     zh-HK: 取消
     zh-TW: 取消
     it: Annulla
+Notification:
+  close:
+    en: Dismiss notification
 Command:
   placeholder:
     en: Type a command or search...

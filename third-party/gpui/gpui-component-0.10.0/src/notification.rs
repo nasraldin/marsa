@@ -15,8 +15,8 @@ use gpui::{
     relative, rems,
 };
 use gpui_base::{
-    LogicalStyledExt as _, Toast as BaseToast, ToastManager, ToastMotion, ToastOptions, ToastStack,
-    ToastStackState, ToastTransitionStatus,
+    LayoutDirection, LogicalStyledExt as _, Toast as BaseToast, ToastManager, ToastMotion,
+    ToastOptions, ToastStack, ToastStackState, ToastTransitionStatus, logical_anchor,
 };
 
 use crate::{
@@ -269,7 +269,8 @@ impl Notification {
     /// Set the placement of the notification, overriding the global
     /// [`NotificationSettings::placement`].
     ///
-    /// Notifications are stacked separately for each placement.
+    /// Notifications are stacked separately for each placement. Horizontal
+    /// anchors mirror with the interface direction.
     pub fn placement(mut self, placement: Anchor) -> Self {
         self.placement = Some(placement);
         self
@@ -408,7 +409,7 @@ impl Render for Notification {
         let action = self
             .action_builder
             .clone()
-            .map(|builder| builder(self, window, cx).small().me(rems(0.875), cx));
+            .map(|builder| builder(self, window, cx).small());
 
         let transition_status = self.transition_status;
         let closing = transition_status == ToastTransitionStatus::Ending;
@@ -423,7 +424,6 @@ impl Render for Notification {
             .transition_status(transition_status)
             .h_flex()
             .flex_row_dir(cx)
-            .group("")
             .occlude()
             .relative()
             .w_full()
@@ -460,23 +460,16 @@ impl Render for Notification {
             )
             .when_some(action, |this, action| this.child(action))
             .child(
-                div()
-                    .absolute()
-                    .top_1()
-                    .inset_e(rems(0.25), cx)
-                    .invisible()
-                    .group_hover("", |this| this.visible())
-                    .child(
-                        Button::new("close")
-                            .icon(IconName::Close)
-                            .accessibility_label("Close")
-                            .ghost()
-                            .xsmall()
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.dismiss(window, cx);
-                            })),
-                    ),
+                Button::new("close")
+                    .icon(IconName::Close)
+                    .accessibility_label(rust_i18n::t!("Notification.close").to_string())
+                    .ghost()
+                    .xsmall()
+                    .flex_shrink_0()
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.dismiss(window, cx);
+                    })),
             )
             .when_some(self.on_click.clone(), |this, on_click| {
                 this.on_click(cx.listener(move |view, event, window, cx| {
@@ -1030,6 +1023,7 @@ impl Render for NotificationList {
             (settings.placement, settings.margins.clone(), settings.width);
 
         let groups = self.grouped(cx);
+        let direction = LayoutDirection::global(cx);
         self.stacks
             .retain(|(anchor, _)| groups.iter().any(|(a, _, _)| a == anchor));
 
@@ -1054,6 +1048,7 @@ impl Render for NotificationList {
                     self.stacks.len() - 1
                 });
             let stack = &self.stacks[stack_ix].1;
+            let anchor = logical_anchor(anchor, direction);
 
             items
                 .into_iter()

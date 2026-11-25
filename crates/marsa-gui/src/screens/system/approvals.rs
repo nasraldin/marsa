@@ -5,14 +5,12 @@ use marsa_client::api::{
 };
 use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
+    components::inputs::TypedConfirmation,
     direction::LogicalStyle as _,
-    gpui::{
-        AppContext, Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window, div, px,
-    },
+    gpui::{Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window, div, px},
     gpui_component::{
         Disableable, Sizable, WindowExt,
         button::{Button, ButtonVariants},
-        input::{Input, InputEvent, InputState},
     },
 };
 use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
@@ -96,19 +94,12 @@ impl SystemView {
             .any(|resource| resource.kind == "volume");
         let can_grant =
             approval.can_grant_for_project && approval.tier() == PermissionTier::Operate;
-        let confirmation = destroy.then(|| match approval.affected.as_slice() {
-            [resource] if !resource.name.is_empty() => resource.name.clone(),
-            _ => approval.id.clone(),
-        });
-        let input = confirmation.as_ref().map(|_| {
-            let input = cx.new(|cx| InputState::new(window, cx));
-            cx.subscribe_in(&input, window, |_, _, event, window, _| {
-                if matches!(event, InputEvent::Change) {
-                    window.refresh();
-                }
-            })
-            .detach();
-            input
+        let confirmation = destroy.then(|| {
+            let phrase = match approval.affected.as_slice() {
+                [resource] if !resource.name.is_empty() => resource.name.clone(),
+                _ => approval.id.clone(),
+            };
+            TypedConfirmation::new(phrase, window, cx)
         });
         let title = if volume && destroy {
             gui::GUI_SYSTEM_ACTIVITY_DESTROY_VOLUME_TITLE
@@ -223,15 +214,15 @@ impl SystemView {
                         ),
                 );
             }
-            if let (Some(input), Some(phrase)) = (&input, &confirmation) {
+            if let Some(confirmation) = &confirmation {
                 content = content.child(
                     div()
                         .flex()
                         .flex_col()
                         .gap_2()
                         .child(confirmation_key.text(locale))
-                        .child(Input::new(input).aria_label(confirmation_key.text(locale)))
-                        .child(mono(phrase).text_color(muted_color)),
+                        .child(confirmation.field(confirmation_key.text(locale)))
+                        .child(mono(confirmation.phrase()).text_color(muted_color)),
                 );
             }
             if approval.expires_at_unix_millis > 0 {
@@ -284,13 +275,10 @@ impl SystemView {
             let allow_id = approval_id.clone();
             let grant = view.clone();
             let grant_id = approval_id.clone();
-            let enabled = confirmation.as_ref().is_none_or(|phrase| {
-                input
-                    .as_ref()
-                    .is_some_and(|input| input.read(cx).value().as_ref() == phrase.as_str())
-            });
+            let enabled = confirmation
+                .as_ref()
+                .is_none_or(|input| input.confirmed(cx));
             let expected = confirmation.clone();
-            let confirm_input = input.clone();
             let allow_button = Button::new("allow-reviewed-agent-request")
                 .small()
                 .disabled(!enabled)
@@ -300,11 +288,7 @@ impl SystemView {
                     gui::GUI_SYSTEM_ACTIVITY_ALLOW_ONCE.text(locale)
                 })
                 .on_click(move |_, window, cx| {
-                    if expected.as_ref().is_some_and(|phrase| {
-                        confirm_input
-                            .as_ref()
-                            .is_none_or(|input| input.read(cx).value().as_ref() != phrase.as_str())
-                    }) {
+                    if expected.as_ref().is_some_and(|input| !input.confirmed(cx)) {
                         return;
                     }
                     window.close_dialog(cx);

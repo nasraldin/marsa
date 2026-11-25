@@ -276,7 +276,7 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 
 ### M3-19 Qualify default-capacity cold boot
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-12
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [07 Data disk](../07-file-sharing-and-storage.md#data-disk)
 - **Do:** Diagnose and eliminate timing failures when the packaged VM starts with a new default 64 GiB data disk, including after cancellation of a first start. Record preparation, agent connection and Docker readiness separately. Preserve the complete blank-device verification for disks of unknown provenance.
@@ -292,8 +292,42 @@ mount, before formatting an entirely sparse 64 GiB new image. Prior
 and shut down cleanly. The two results establish a timing risk and a
 working packaged control path.
 
-A controlled signed test with matching 64 GiB userspace settings reached
-Ready in 34.949 s from a fresh disk and 36.843 s from the same sparse inode
-after interruption. Guest disk preparation took 30.153 s and 32.735 s.
-Both stopped cleanly. The earlier Auto-network timeout still needs a
-matched comparison.
+The signed qualification used Virtualization.framework on an Apple M1
+Max with macOS 27.2.1, two guest CPUs, 1 GiB guest RAM, a 64 GiB data
+disk and idle stop disabled. The package used the pinned Linux 7.3.5,
+Alpine 3.24.4, and Docker 29.10.0 (commit `06db173`). Fresh and
+interrupted starts used identical settings within each network mode.
+The interrupted start requested Stop as soon as the guest reported
+`mount_system` and restarted with the same wholly sparse inode.
+
+The serial scan with only a faster byte comparison reproduced a
+handshake failure. The host observed it at 62.303 s, with the disk probe
+complete and the blank scan still running. The qualified implementation
+uses four exact readers with 1 MiB of buffer each. Together they cover
+the whole device, including its final sector. Only a completely successful
+zero scan can reach formatting. The existing ext4 checks still precede
+any filesystem repair.
+
+Disk preparation measures the first guest's `data_disk` stage. Agent
+connection is the observed time from Start to successful control
+negotiation in the guest that subsequently reaches Docker Ready. Docker
+Ready is the host Start response. Auto switched network backends during
+acquisition. The existing 75 s daemon startup budget was retained.
+
+| Network and start | Baseline disk (s) | Baseline Ready (s) | Revised disk (s) | Revised agent (s) | Revised Ready (s) | Revised Stop (s) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Userspace fresh | 30.153 | 34.949 | 23.203 | 25.930 | 27.129 | 0.228 |
+| Userspace interrupted | 32.735 | 36.843 | 24.681 | 28.115 | 29.915 | 0.308 |
+| Auto fresh | 40.965 | 61.812 | 25.621 | 42.485 | 52.114 | 0.334 |
+| Auto interrupted | 28.601 | 48.306 | 21.491 | 40.837 | 46.336 | 0.321 |
+
+A prior signed run of the same four-reader scan also passed all four
+cases, with Ready at 20.429 s and 21.625 s in userspace and 47.713 s
+and 47.273 s in Auto. A signed guest refused an existing DOS-partitioned
+disk and a disk with an unrecognized marker in its last 4 KiB. Neither
+reached formatting or agent startup. Both retained their marker,
+capacity, inode, allocated blocks and modification timestamp.
+
+The signed package exercised guest source `7550907f`. Its host daemon
+and pinned kernel matched the baseline package. The ARM64 Linux guest
+unit suites passed 43 tests and Clippy passed with warnings denied.
