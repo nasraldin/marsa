@@ -6,6 +6,10 @@ mod files;
 mod logging;
 #[cfg(target_os = "macos")]
 mod login;
+#[cfg(target_os = "macos")]
+mod uninstall;
+#[cfg(target_os = "macos")]
+pub(super) use uninstall::run as uninstall;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod menu_bar;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

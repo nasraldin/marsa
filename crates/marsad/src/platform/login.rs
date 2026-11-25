@@ -63,7 +63,7 @@ impl Status {
     }
 }
 
-fn app_service() -> io::Result<Retained<SMAppService>> {
+pub(super) fn bundled_agent() -> io::Result<(PathBuf, String, String)> {
     let bundle = NSBundle::mainBundle();
     let path = PathBuf::from(bundle.bundlePath().to_string());
     let identifier = bundle
@@ -78,6 +78,16 @@ fn app_service() -> io::Result<Retained<SMAppService>> {
     if !fs::symlink_metadata(plist).is_ok_and(|metadata| metadata.is_file()) {
         return Err(missing_bundle());
     }
+    Ok((path, identifier, name))
+}
+
+pub(super) fn disable_installed_agent() -> io::Result<()> {
+    let service = app_service()?;
+    apply(&service, Action::Disable).map(|_| ())
+}
+
+fn app_service() -> io::Result<Retained<SMAppService>> {
+    let (_, _, name) = bundled_agent()?;
     // SAFETY: The name is a single plist filename in the calling app's
     // LaunchAgents directory. Service Management verifies the app signature.
     Ok(unsafe { SMAppService::agentServiceWithPlistName(&NSString::from_str(&name)) })
