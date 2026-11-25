@@ -7,6 +7,8 @@ use std::{
     process::Stdio,
 };
 
+#[cfg(target_os = "macos")]
+pub mod docker_socket_link;
 mod docker_transport;
 mod lima;
 pub(crate) use lima::{check_lima_target, lima_lifecycle_command, trusted_lima_binary};

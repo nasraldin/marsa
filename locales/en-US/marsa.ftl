@@ -450,6 +450,18 @@ gui-desktop-refresh = Refresh
 gui-desktop-refused = Refused
 gui-desktop-register-context = Register context
 gui-desktop-register-the-local-marsa-context-with-docker = Register the local Marsa context with Docker.
+gui-docker-socket-title = Legacy Docker socket
+gui-docker-socket-description = Give tools that use the system Docker socket access to your local Marsa engine. macOS asks for administrator approval.
+gui-docker-socket-install = Install socket link
+gui-docker-socket-remove = Remove socket link
+gui-docker-socket-install-confirm = Create the system Docker socket link to your private Marsa socket? An existing entry for another engine stays in place.
+gui-docker-socket-remove-confirm = Remove the system Docker socket link for Marsa? Tools using the link will lose access to Marsa.
+gui-docker-socket-installed = The system Docker socket now points to Marsa.
+gui-docker-socket-removed = The Marsa system Docker socket link is removed.
+gui-docker-socket-occupied = Another entry already uses the system Docker socket path.
+gui-docker-socket-target-unavailable = Start the local Marsa engine and try again.
+gui-docker-socket-failed = macOS could not change the system Docker socket link.
+
 gui-desktop-registry-credentials = Registry credentials
 gui-desktop-remove = Remove
 gui-desktop-remove-folder-access = Remove folder access?
@@ -1191,6 +1203,23 @@ gui-settings-time-format-twelve = 12-hour
 gui-settings-time-format-twenty-four = 24-hour
 gui-clock-am = AM
 gui-clock-pm = PM
+
+gui-size-per-second = /s
+
+## Gregorian dates in the desktop interface
+
+gui-date-january = January
+gui-date-february = February
+gui-date-march = March
+gui-date-april = April
+gui-date-may = May
+gui-date-june = June
+gui-date-july = July
+gui-date-august = August
+gui-date-september = September
+gui-date-october = October
+gui-date-november = November
+gui-date-december = December
 
 gui-environment-tab-security = Security
 gui-environment-scan-title = Image vulnerability scanning

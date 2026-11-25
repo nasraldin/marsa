@@ -192,6 +192,18 @@ impl Services {
     }
 
     #[cfg(target_os = "macos")]
+    pub(crate) fn configure_docker_socket_link(
+        &self,
+        action: marsa_client::docker_socket_link::LinkAction,
+    ) -> Pending<marsa_client::docker_socket_link::LinkOutcome> {
+        self.pending(async move {
+            marsa_client::docker_socket_link::configure(action)
+                .await
+                .map_err(ServiceError::Runtime)
+        })
+    }
+
+    #[cfg(target_os = "macos")]
     pub(crate) fn external_inventory(
         &self,
     ) -> Pending<Vec<marsa_client::docker::ExternalInventory>> {

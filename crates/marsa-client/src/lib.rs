@@ -51,6 +51,10 @@ pub fn request_id() -> std::io::Result<String> {
 #[cfg(target_os = "macos")]
 pub mod git_sources;
 
+/// The opt-in macOS legacy Docker socket link used by Settings.
+#[cfg(target_os = "macos")]
+pub use platform::docker_socket_link;
+
 /// Login item configuration for the packaged macOS app.
 #[cfg(target_os = "macos")]
 pub mod login;

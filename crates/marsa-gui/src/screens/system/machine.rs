@@ -164,11 +164,11 @@ impl SystemView {
                 settings
                     .vm
                     .memory
-                    .map(bytes)
+                    .map(|value| bytes(locale, value))
                     .unwrap_or_else(|| gui::GUI_DESKTOP_AUTOMATIC.text(locale).to_owned()),
                 self.disk
                     .as_ref()
-                    .map(|disk| bytes(disk.host_allocated_bytes))
+                    .map(|disk| bytes(locale, disk.host_allocated_bytes))
                     .unwrap_or_else(|| gui::GUI_DESKTOP_UNAVAILABLE.text(locale).to_owned()),
             )
         });
@@ -328,8 +328,8 @@ impl SystemView {
                 machine_resource_values(
                     screen,
                     format!("{} vCPU", settings.cpus),
-                    bytes(settings.memory_bytes),
-                    bytes(settings.disk_bytes),
+                    bytes(locale, settings.memory_bytes),
+                    bytes(locale, settings.disk_bytes),
                 )
             },
         );
@@ -625,7 +625,7 @@ impl SystemView {
                                 memory.clone(),
                                 &memory_choices,
                                 move |memory| {
-                                    memory.map(bytes).unwrap_or_else(|| {
+                                    memory.map(|value| bytes(locale, value)).unwrap_or_else(|| {
                                         gui::GUI_DESKTOP_AUTOMATIC.text(locale).to_owned()
                                     })
                                 },

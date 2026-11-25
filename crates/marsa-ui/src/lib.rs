@@ -11,6 +11,12 @@ mod platform;
 pub mod direction;
 
 #[cfg(target_os = "macos")]
+pub mod locale_format;
+
+#[cfg(target_os = "macos")]
+rust_i18n::i18n!("../../locales/components");
+
+#[cfg(target_os = "macos")]
 mod assets;
 
 #[cfg(target_os = "macos")]

@@ -183,7 +183,7 @@ impl SystemView {
                                     locale,
                                     palette,
                                     gui::GUI_SYSTEM_ACTIVITY_SIZE,
-                                    &bytes(size),
+                                    &bytes(locale, size),
                                 )
                             }))
                             .children((!resource.related_containers.is_empty()).then(|| {

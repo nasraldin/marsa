@@ -668,7 +668,7 @@ impl Desktop {
                             .typography(Role::Title)
                             .apply(div().flex_shrink_0())
                             .child(if total > 0 {
-                                technical(&disk_bytes(total))
+                                technical(&disk_bytes(locale, total))
                             } else {
                                 technical("—")
                             }),
@@ -720,7 +720,7 @@ impl Desktop {
                                             ))
                                             .child(value.map_or_else(
                                                 || technical("—"),
-                                                |bytes| technical(&disk_bytes(bytes)),
+                                                |bytes| technical(&disk_bytes(locale, bytes)),
                                             )),
                                     )
                             }),
@@ -1070,11 +1070,11 @@ fn usage_card(
     let memory_detail = memory.map(|bytes| match memory_limit {
         Some(limit) if limit > 0 => format!(
             "{} {} {}",
-            disk_bytes(bytes as u64),
+            disk_bytes(locale, bytes as u64),
             gui::GUI_OVERVIEW_OF.text(locale),
-            disk_bytes(limit)
+            disk_bytes(locale, limit)
         ),
-        _ => disk_bytes(bytes as u64),
+        _ => disk_bytes(locale, bytes as u64),
     });
     let cpu_ceiling = Some(f64::from(cpus) * 100.);
     let memory_ceiling = memory_limit
@@ -1288,7 +1288,7 @@ fn ranking(
                 .filter_map(|(index, entry)| {
                     let usage = match metric {
                         Metric::Cpu => format!("{:.1}%", entry.cpu_percent?),
-                        Metric::Memory => disk_bytes(entry.memory_bytes?),
+                        Metric::Memory => disk_bytes(locale, entry.memory_bytes?),
                     };
                     let id = entry.id.clone();
                     let name = entry.name.clone();

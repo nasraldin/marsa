@@ -54,7 +54,7 @@ use {
     std::sync::OnceLock,
 };
 
-use crate::open_type::apply_features_and_fallbacks;
+use crate::open_type::{apply_features_and_fallbacks, with_weight_variation};
 
 #[allow(non_upper_case_globals)]
 const kCGImageAlphaOnly: u32 = 7;
@@ -69,13 +69,18 @@ struct FontKey {
     font_fallbacks: Option<FontFallbacks>,
 }
 
+struct FontFamily {
+    ids: SmallVec<[FontId; 4]>,
+    in_memory: bool,
+}
+
 struct AppleTextSystemState {
     memory_source: MemSource,
     system_source: SystemSource,
     fonts: Vec<FontKitFont>,
     font_selections: HashMap<Font, FontId>,
     font_ids_by_postscript_name: HashMap<String, FontId>,
-    font_ids_by_font_key: HashMap<FontKey, SmallVec<[FontId; 4]>>,
+    families_by_font_key: HashMap<FontKey, FontFamily>,
     postscript_names_by_font_id: HashMap<FontId, String>,
 }
 
@@ -88,7 +93,7 @@ impl AppleTextSystem {
             fonts: Vec::new(),
             font_selections: HashMap::default(),
             font_ids_by_postscript_name: HashMap::default(),
-            font_ids_by_font_key: HashMap::default(),
+            families_by_font_key: HashMap::default(),
             postscript_names_by_font_id: HashMap::default(),
         }))
     }
@@ -150,16 +155,14 @@ impl PlatformTextSystem for AppleTextSystem {
                 font_features: font.features.clone(),
                 font_fallbacks: font.fallbacks.clone(),
             };
-            let candidates = if let Some(font_ids) = lock.font_ids_by_font_key.get(&font_key) {
-                font_ids.as_slice()
-            } else {
-                let font_ids =
+            if !lock.families_by_font_key.contains_key(&font_key) {
+                let family =
                     lock.load_family(&font.family, &font.features, font.fallbacks.as_ref())?;
-                lock.font_ids_by_font_key.insert(font_key.clone(), font_ids);
-                lock.font_ids_by_font_key[&font_key].as_ref()
-            };
-
-            let candidate_properties = candidates
+                lock.families_by_font_key.insert(font_key.clone(), family);
+            }
+            let family = &lock.families_by_font_key[&font_key];
+            let candidate_properties = family
+                .ids
                 .iter()
                 .map(|font_id| lock.fonts[font_id.0].properties())
                 .collect::<SmallVec<[_; 4]>>();
@@ -173,7 +176,12 @@ impl PlatformTextSystem for AppleTextSystem {
                 },
             )?;
 
-            let font_id = candidates[ix];
+            let font_id = family.ids[ix];
+            let font_id = if family.in_memory {
+                lock.resolve_weight(font_id, font.weight)
+            } else {
+                font_id
+            };
             lock.font_selections.insert(font.clone(), font_id);
             Ok(font_id)
         }
@@ -286,15 +294,15 @@ impl AppleTextSystemState {
         name: &str,
         features: &FontFeatures,
         fallbacks: Option<&FontFallbacks>,
-    ) -> Result<SmallVec<[FontId; 4]>> {
+    ) -> Result<FontFamily> {
         let name = gpui::font_name_with_fallbacks(name, ".AppleSystemUIFont");
 
         let mut font_ids = SmallVec::new();
         let mut postscript_names_seen = HashSet::default();
-        let family = self
-            .memory_source
-            .select_family_by_name(name)
-            .or_else(|_| self.system_source.select_family_by_name(name))?;
+        let (family, in_memory) = match self.memory_source.select_family_by_name(name) {
+            Ok(family) => (family, true),
+            Err(_) => (self.system_source.select_family_by_name(name)?, false),
+        };
         for font in family.fonts() {
             let mut font = font.load()?;
 
@@ -379,15 +387,34 @@ impl AppleTextSystemState {
                 );
                 continue;
             }
-            let font_id = FontId(self.fonts.len());
-            font_ids.push(font_id);
-            self.font_ids_by_postscript_name
-                .insert(postscript_name.clone(), font_id);
-            self.postscript_names_by_font_id
-                .insert(font_id, postscript_name);
-            self.fonts.push(font);
+            font_ids.push(self.insert_font(font, postscript_name));
         }
-        Ok(font_ids)
+
+        Ok(FontFamily {
+            ids: font_ids,
+            in_memory,
+        })
+    }
+
+    fn resolve_weight(&mut self, font_id: FontId, weight: FontWeight) -> FontId {
+        let Some(font) = with_weight_variation(&self.fonts[font_id.0], weight.0) else {
+            return font_id;
+        };
+        let name = font.native_font().postscript_name();
+        if self.postscript_names_by_font_id.get(&font_id) == Some(&name) {
+            return font_id;
+        }
+        self.insert_font(font, name)
+    }
+
+    fn insert_font(&mut self, font: FontKitFont, postscript_name: String) -> FontId {
+        let font_id = FontId(self.fonts.len());
+        self.font_ids_by_postscript_name
+            .insert(postscript_name.clone(), font_id);
+        self.postscript_names_by_font_id
+            .insert(font_id, postscript_name);
+        self.fonts.push(font);
+        font_id
     }
 
     fn advance(&self, font_id: FontId, glyph_id: GlyphId) -> Result<Size<f32>> {

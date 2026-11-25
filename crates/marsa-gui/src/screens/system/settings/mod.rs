@@ -25,7 +25,7 @@ use marsa_ui::{
     direction::{LogicalStyle, POPOVER_TOP_START},
     gpui::{
         Context, Div, InteractiveElement, ParentElement, PromptButton, PromptLevel, SharedString,
-        Styled, Window, div, px, svg,
+        Styled, Window, div, px, rems, svg,
     },
     gpui_component::{
         Disableable, Selectable,
@@ -150,7 +150,8 @@ impl SystemView {
                     .child(self.settings_section_picker(screen, cx))
             } else {
                 div()
-                    .w(px(188.))
+                    .w(rems(13.5))
+                    .min_w(px(188.))
                     .h_full()
                     .flex_shrink_0()
                     .border_end(px(1.), cx)
@@ -298,13 +299,17 @@ impl SystemView {
             .selected(selected)
             .toggled(selected)
             .w_full()
-            .h(px(Space::S36.pixels()))
+            .h_auto()
+            .min_h(px(Space::S36.pixels()))
             .rounded(px(Radius::R8.pixels()))
             .px_2()
+            .py_1()
             .accessibility_label(tab.title(locale))
             .child(
                 row(locale)
                     .w_full()
+                    .min_w_0()
+                    .items_center()
                     .gap_2()
                     .child(settings_icon(
                         screen,
@@ -312,12 +317,11 @@ impl SystemView {
                         Space::S16.pixels(),
                         foreground,
                     ))
-                    .child(settings_text(
-                        screen,
-                        Role::Label,
-                        tab.title(locale),
-                        foreground,
-                    )),
+                    .child(
+                        settings_text(screen, Role::Label, tab.title(locale), foreground)
+                            .min_w_0()
+                            .whitespace_normal(),
+                    ),
             );
         let button = if selected {
             button.bg(color(screen.palette, ColorToken::AccentSubtle))

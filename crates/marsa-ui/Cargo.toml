@@ -12,12 +12,17 @@ marsa-core = { path = "../marsa-core" }
 [dev-dependencies]
 proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
 
+[build-dependencies]
+rust-i18n-support = { version = "=4.2.4", features = ["codegen"] }
+
 [lints]
 workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 marsa-l10n = { path = "../marsa-l10n" }
+rust-i18n = "=4.2.4"
 sys-locale = "=0.3.2"
+time = { version = "=0.3.55", default-features = false, features = ["parsing"] }
 gpui-component.workspace = true
 gpui-base = "=0.10.0"
 gpui-kit-assets = "=0.10.0"
@@ -27,4 +32,8 @@ vt100 = "=0.18.1"
 
 [[test]]
 name = "direction_render"
+harness = false
+
+[[test]]
+name = "typography_native"
 harness = false

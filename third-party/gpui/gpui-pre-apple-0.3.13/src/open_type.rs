@@ -17,13 +17,17 @@ use core_text::font_descriptor::{
 use core_text::{
     font::{CTFont, cascade_list_for_languages},
     font_descriptor::{
-        CTFontDescriptor, CTFontDescriptorCreateWithAttributes, kCTFontCascadeListAttribute,
+        CTFontDescriptor, CTFontDescriptorCreateCopyWithVariation,
+        CTFontDescriptorCreateWithAttributes, kCTFontCascadeListAttribute,
         kCTFontFeatureSettingsAttribute,
     },
 };
 use font_kit::font::Font as FontKitFont;
 use gpui::{FontFallbacks, FontFeatures};
-use objc2_core_text::{kCTFontOpenTypeFeatureTag, kCTFontOpenTypeFeatureValue};
+use objc2_core_text::{
+    kCTFontOpenTypeFeatureTag, kCTFontOpenTypeFeatureValue, kCTFontVariationAxisIdentifierKey,
+    kCTFontVariationAxisMaximumValueKey, kCTFontVariationAxisMinimumValueKey,
+};
 
 pub fn apply_features_and_fallbacks(
     font: &mut FontKitFont,
@@ -55,13 +59,72 @@ pub fn apply_features_and_fallbacks(
         let new_descriptor = CTFontDescriptorCreateWithAttributes(attrs);
         CFRelease(attrs as _);
         let new_descriptor = CTFontDescriptor::wrap_under_create_rule(new_descriptor);
-        // font-kit uses the older core-text wrappers. Borrow the same CF objects
-        // for the generated API, then transfer its create-rule ownership back.
-        let native_font = font.native_font();
+        *font = copy_with_descriptor(&font.native_font(), &new_descriptor);
+
+        Ok(())
+    }
+}
+
+/// Apply an OpenType CSS weight to a variable family loaded from memory.
+pub(crate) fn with_weight_variation(font: &FontKitFont, weight: f32) -> Option<FontKitFont> {
+    let native_font = font.native_font();
+    let axes = native_font.get_variation_axes()?;
+    let weight_tag = i64::from(u32::from_be_bytes(*b"wght"));
+    // SAFETY: CoreText supplies process-lifetime CFString constants for the axis dictionary.
+    let (identifier, minimum, maximum) = unsafe {
+        (
+            CFString::wrap_under_get_rule(
+                std::ptr::from_ref(kCTFontVariationAxisIdentifierKey).cast(),
+            ),
+            CFString::wrap_under_get_rule(
+                std::ptr::from_ref(kCTFontVariationAxisMinimumValueKey).cast(),
+            ),
+            CFString::wrap_under_get_rule(
+                std::ptr::from_ref(kCTFontVariationAxisMaximumValueKey).cast(),
+            ),
+        )
+    };
+    let axis = axes.iter().find(|axis| {
+        axis.find(&identifier)
+            .and_then(|value| value.downcast::<CFNumber>())
+            .and_then(|value| value.to_i64())
+            == Some(weight_tag)
+    })?;
+    let minimum = axis.find(&minimum)?.downcast::<CFNumber>()?.to_f64()?;
+    let maximum = axis.find(&maximum)?.downcast::<CFNumber>()?.to_f64()?;
+    if !weight.is_finite()
+        || minimum
+            .partial_cmp(&maximum)
+            .is_none_or(|order| order.is_gt())
+    {
+        return None;
+    }
+    let tag = CFNumber::from(weight_tag);
+    let descriptor = native_font.copy_descriptor();
+    // SAFETY: The descriptor and CFNumber are live and the font advertises the weight axis.
+    let variant = unsafe {
+        CTFontDescriptorCreateCopyWithVariation(
+            descriptor.as_concrete_TypeRef(),
+            tag.as_concrete_TypeRef(),
+            f64::from(weight).clamp(minimum, maximum),
+        )
+    };
+    if variant.is_null() {
+        return None;
+    }
+    // SAFETY: CoreText returned an owned descriptor under the Create rule.
+    let variant = unsafe { CTFontDescriptor::wrap_under_create_rule(variant) };
+    Some(copy_with_descriptor(&native_font, &variant))
+}
+
+fn copy_with_descriptor(native_font: &CTFont, descriptor: &CTFontDescriptor) -> FontKitFont {
+    // SAFETY: The legacy wrappers and generated bindings refer to the same typed CF objects.
+    // Transfer the retained font from the generated API back to the legacy create-rule wrapper.
+    unsafe {
         let generated_font = &*native_font
             .as_concrete_TypeRef()
             .cast::<objc2_core_text::CTFont>();
-        let descriptor = &*new_descriptor
+        let descriptor = &*descriptor
             .as_concrete_TypeRef()
             .cast::<objc2_core_text::CTFontDescriptor>();
         let new_font = generated_font.copy_with_attributes(0.0, std::ptr::null(), Some(descriptor));
@@ -70,9 +133,7 @@ pub fn apply_features_and_fallbacks(
                 .as_ptr()
                 .cast(),
         );
-        *font = font_kit::font::Font::from_native_font(&new_font);
-
-        Ok(())
+        FontKitFont::from_native_font(&new_font)
     }
 }
 
