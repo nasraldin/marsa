@@ -241,6 +241,7 @@ Because the guest image is replaced whole on update, a patched kernel and engine
 ## Privacy
 
 - **Decided:** no telemetry by default. Any future telemetry is opt-in, documented field by field, and never includes container names, image names, paths or environment values.
+- The owner approved opt-in crash reporting in [D-037](15-decisions.md#d-037-offer-opt-in-crash-reporting). M9-12 owns implementation and verification.
 - Crash reports are opt-in and reviewed by the user before sending.
 - The network-mode probe contacts only the configured probe targets and sends no identifiers.
 

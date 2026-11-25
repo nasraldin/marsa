@@ -103,7 +103,7 @@ in both languages.
 
 ### M6-04 GUI translations and locale formatting
 
-- **Status:** blocked (M6-01 GPUI dependency qualification)
+- **Status:** todo
 - **Depends on:** M6-01, M6-12
 - **Docs:** [08 Internationalisation](../08-gui.md#internationalisation), V-10
 - **Do:** Integrate the Fluent catalogs with the component layer. Verify how gpui-component localises its own strings and how they coexist with Fluent (V-10). Implement locale-aware date, time and size formatting with Western digits and live language switching. Create `locales/GLOSSARY.md` for technical terms and arrange Arabic terminology review.
@@ -203,7 +203,7 @@ glow and rail use the same active accent as the controls.
 
 ### M6-10 Tray item
 
-- **Status:** blocked (packaged VM runtime, GUI executable and approval event producer pending)
+- **Status:** todo
 - **Depends on:** M3-12, M6-01, M8-02, Q-06
 - **Docs:** [03 Responsibilities](../03-host-daemon.md#responsibilities), D-003
 - **Do:** Implement the menu-bar item owned by `marsad`: engine state, start and stop, open the GUI, pending agent approvals count, quit. Localised and following the system appearance.

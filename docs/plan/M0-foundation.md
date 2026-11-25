@@ -109,7 +109,7 @@
 
 ### M0-10 Record owner decisions for implementation gates
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-02, M0-09
 - **Docs:** [15 Decisions](../15-decisions.md), [16 Open questions](../16-risks-and-open-questions.md)
 - **Do:** Record the owner's choices for Arabic review, Docker socket link placement and opt-in crash reporting.

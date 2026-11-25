@@ -8,17 +8,17 @@ These need a decision from a person. Agents must not decide them.
 |---|---|---|---|
 | Q-03 | Is the name "Marsa" clear to use? Trademark search in the software class, domain, GitHub organisation, crates.io, Homebrew names | Check before any public release | M10 |
 | Q-04 | Who holds the Apple Developer Program account and the update signing key? | A project-owned account; the update key offline or hardware-backed | M10 |
-| Q-06 | Who reviews Arabic translations and terminology? | A fluent reviewer plus a term glossary | M6, M7 |
 | Q-07 | Default for LAN exposure of published ports: loopback only (proposed) or Docker Desktop's behaviour? | Loopback only | M4 |
-| Q-08 | Should `/var/run/docker.sock` be offered during onboarding or only in settings? | Settings only, with a hint when a tool fails to connect | M4, M7 |
 | Q-09 | Business model and governance (contributions, CLA or DCO, security contact)? | DCO, a `SECURITY.md` contact | First public release |
-| Q-10 | Is any telemetry wanted at all? | None by default (decided); decide whether an opt-in exists | M9 |
 
 ## Resolved owner questions
 
 | # | Decision | Recorded in |
 |---|---|---|
 | Q-01 | MIT licence | [D-022](15-decisions.md#d-022-licence-marsa-under-mit) |
+| Q-06 | The project owner will review the Arabic desktop and glossary. The review remains part of M7-14. | [D-035](15-decisions.md#d-035-the-project-owner-reviews-arabic-terminology) |
+| Q-08 | Offer the optional Docker socket link in Settings only. | [D-036](15-decisions.md#d-036-offer-the-optional-docker-socket-link-in-settings) |
+| Q-10 | Add opt-in crash reporting, off by default. | [D-037](15-decisions.md#d-037-offer-opt-in-crash-reporting) |
 
 ## Resolved platform and runner questions
 
