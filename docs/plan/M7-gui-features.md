@@ -508,11 +508,27 @@ Verified both transports and terminal I/O against [Hawser upstream bca2770](http
 
 ### M7-33 Refine desktop screen hierarchy and typography controls
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-20
 - **Docs:** [08 GUI](../08-gui.md)
 - **Do:** Review the desktop routes and refine task grouping, control placement, and readable states. Group desktop preferences and provide native font and size pickers.
 - **Accept when:** The typography controls persist and apply real fonts and sizes. Major route actions and states are discoverable, and scrollable content remains reachable in both supported languages and appearances.
+
+On macOS, Settings applied and saved a different interface font, text size,
+and terminal font. All three choices reappeared after restarting the owner
+daemon and the desktop. The native text test verifies all six interface
+sizes, bundled Latin and Arabic faces, Raleway's regular, medium, and
+semibold weights, and the System and JetBrains Mono terminal faces.
+
+The Extra Large checks used a disposable owner and a read-only engine fixture.
+Keyboard shortcuts opened Containers, Disk & cleanup, and Settings in all
+four variants. The checks reached later rows in Containers, Images, Volumes,
+Networks, and Stacks while the table headings and filters stayed visible.
+The Settings rail adapts to the font size and wraps longer labels. See the
+Settings snapshots in [English light](../spikes/M7-33-typography/en-light.png),
+[English dark](../spikes/M7-33-typography/en-dark.png),
+[Arabic light](../spikes/M7-33-typography/ar-light.png), and
+[Arabic dark](../spikes/M7-33-typography/ar-dark.png).
 
 ### M7-35 Restore desktop scrolling and finish the usability controls
 
@@ -709,3 +725,15 @@ English and Arabic copy cover the history card, disk card, resources label, and 
   - Docker changes update the managed Overview counts without a periodic Docker inventory query.
   - Utilization history, disk measurements, and update indicators continue to refresh.
   - The cached first frame and external engine behavior from M7-41 are preserved.
+
+### M7-49 Open Images details with the keyboard
+
+- **Status:** todo
+- **Depends on:** M7-46
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Give the Images table and list a focusable control that opens the existing image details modal. The current row opens details from a pointer click.
+- **Deliver:** A localized details control and a keyboard regression test.
+- **Accept when:**
+  - Tab reaches a localized details control in both views. Return and Space open the focused image's details.
+  - Closing the modal restores focus to its trigger. Row selection, pointer opening, and Run, Push, and Remove remain independently operable.
+  - Verify English and Arabic in light and dark mode.

@@ -40,6 +40,13 @@ and AccessKit. The Component branch keeps Linux, Windows, and web dependencies
 behind explicit features for future work on those platforms. The unfiltered
 audit still checks the full resolved Marsa workspace.
 
+The CoreText backend applies the OpenType `wght` axis after FontKit selects a
+face from a bundled family. FontKit's in-memory source loads the Raleway
+variable font at its Thin default. The Marsa native typography test checks
+that the selected font resolves to the Regular metrics and that Medium and
+Semibold resolve to distinct faces. It also covers bundled static fonts and
+the System terminal font.
+
 The date components use Jiff civil dates and date-times and retain the default
 date formats and calendar behavior. Jiff's civil date range is ±9,999 years
 and some custom format directives differ from Chrono. The LSP URI adapter

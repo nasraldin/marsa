@@ -28,3 +28,7 @@ vt100 = "=0.18.1"
 [[test]]
 name = "direction_render"
 harness = false
+
+[[test]]
+name = "typography_native"
+harness = false
