@@ -314,6 +314,7 @@ gui-desktop-end-session = End session
 gui-desktop-engine-events = Engine events
 gui-desktop-estimated-guest-space = Estimated guest space
 gui-desktop-exclude-disk-from-time-machine = Exclude disk from Time Machine
+gui-desktop-groups = Group actions
 gui-desktop-expand-all-groups = Expand all groups
 gui-desktop-collapse-all-groups = Collapse all groups
 gui-desktop-expand-group = Expand group
