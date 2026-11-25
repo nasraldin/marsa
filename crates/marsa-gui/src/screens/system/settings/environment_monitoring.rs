@@ -168,6 +168,7 @@ impl SystemView {
                 gui::GUI_ENVIRONMENT_MONITORING_RETENTION_HELP.text(locale),
                 div().flex_shrink_0().child(history),
             ))
+            .child(self.maintenance_schedule(screen, cx))
     }
 
     fn save_monitoring(

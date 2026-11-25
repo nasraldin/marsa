@@ -911,7 +911,7 @@ requests. Native snapshots show the focused control and opened modal in
 
 ### M7-50 Schedule environment maintenance reviews
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-21
 - **Docs:** [08 Screens](../08-gui.md#screens), [03 Host daemon](../03-host-daemon.md), [11 Security](../11-security.md)
 - **Do:** Let the owner configure when to refresh the existing read-only maintenance review for each environment. Define the schedule owner, restart behavior and supported transports so the interface can state when a configured review will run.
@@ -919,6 +919,21 @@ requests. Native snapshots show the focused control and opened modal in
 - **Accept when:**
   - A saved schedule changes subsequent runs and continues to address the engine it was configured for.
   - Offline, skipped and failed reviews report their outcome. Review execution preserves the exact destructive preview and confirmation gate.
+- **Qualification:** In a signed hidden native workspace connected to a
+  disposable owner daemon, saved the hourly schedule, selected a different
+  engine before the review was due, and verified the original registered
+  socket received both scheduled reads. Restarted the daemon and workspace
+  and verified the saved cadence, a fresh next deadline and empty session
+  history. The fixture advanced the deadline to exercise dispatch without
+  waiting an hour. Verified offline, changed identity, failed read, and
+  opt-out after registration removal. A live Lima engine returned the
+  existing candidate-limit error and Settings showed the failed review.
+  Opened the standard read-only review from a successful registered Unix
+  fixture. [English light](../screenshots/m7-50/en-light.png),
+  [English dark](../screenshots/m7-50/en-dark.png),
+  [Arabic light](../screenshots/m7-50/ar-light.png),
+  [Arabic dark](../screenshots/m7-50/ar-dark.png),
+  [Arabic review](../screenshots/m7-50/review-ar-dark.png).
 
 ### M7-51 Download files from a supported volume
 

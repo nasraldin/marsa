@@ -204,6 +204,15 @@ impl Services {
     }
 
     #[cfg(target_os = "macos")]
+    pub(crate) fn scheduled_builtin_cleanup(
+        &self,
+        request: marsa_client::api::PrunePreviewRequest,
+    ) -> Pending<marsa_client::docker::ScheduledCleanup> {
+        let daemon = self.session.backend.daemon.clone();
+        self.pending(async move { Ok(daemon.scheduled_builtin_cleanup(request).await?) })
+    }
+
+    #[cfg(target_os = "macos")]
     pub(crate) fn external_inventory(
         &self,
     ) -> Pending<Vec<marsa_client::docker::ExternalInventory>> {

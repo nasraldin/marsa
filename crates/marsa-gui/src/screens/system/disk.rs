@@ -46,6 +46,15 @@ const BREAKDOWN: [DiskCategory; 5] = [
     DiskCategory::Networks,
 ];
 
+pub(super) fn cleanup_request(include_volumes: bool) -> PrunePreviewRequest {
+    PrunePreviewRequest {
+        categories: cleanup_categories(include_volumes)
+            .map(|category| category as i32)
+            .collect(),
+        volume_names: Vec::new(),
+    }
+}
+
 impl SystemView {
     pub(super) fn load_disk(&mut self, cx: &Context<Self>) {
         let Some(services) = self.services.as_ref() else {
@@ -62,13 +71,7 @@ impl SystemView {
             let inventory = if full_disk_view {
                 client
                     .disk()
-                    .prune_preview(PrunePreviewRequest {
-                        categories: CLEANUP
-                            .into_iter()
-                            .map(|category| category as i32)
-                            .collect(),
-                        volume_names: Vec::new(),
-                    })
+                    .prune_preview(cleanup_request(true))
                     .await
                     .ok()
                     .map(|response| response.into_inner())
@@ -471,7 +474,7 @@ pub(super) fn external_cleanup(
         )
 }
 
-fn show_cleanup_review(
+pub(super) fn show_cleanup_review(
     locale: Locale,
     palette: Palette,
     environment: Option<(String, String)>,
@@ -638,19 +641,22 @@ fn disk_chart(locale: Locale, palette: Palette, categories: &[DiskCategoryUsage]
         }))
 }
 
-fn ordered_candidates(
+fn cleanup_categories(include_volumes: bool) -> impl Iterator<Item = DiskCategory> + Clone {
+    CLEANUP
+        .into_iter()
+        .filter(move |category| include_volumes || *category != DiskCategory::Volumes)
+}
+
+pub(super) fn ordered_candidates(
     preview: &PrunePreviewResponse,
     show_volume_candidates: bool,
 ) -> impl Iterator<Item = &PruneCandidate> + Clone {
-    CLEANUP
-        .into_iter()
-        .filter(move |category| show_volume_candidates || *category != DiskCategory::Volumes)
-        .flat_map(move |category| {
-            preview
-                .candidates
-                .iter()
-                .filter(move |candidate| candidate.category() == category)
-        })
+    cleanup_categories(show_volume_candidates).flat_map(move |category| {
+        preview
+            .candidates
+            .iter()
+            .filter(move |candidate| candidate.category() == category)
+    })
 }
 
 fn candidate_key(candidate: &PruneCandidate) -> (i32, String) {
