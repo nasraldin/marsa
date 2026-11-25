@@ -216,6 +216,36 @@ pub struct ImageHistoryLayer {
 }
 
 impl DockerClient {
+    pub(crate) async fn resolve_compose_secret_image(
+        &self,
+        image: super::ImageReference,
+    ) -> Result<ImageId, DockerError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "PascalCase")]
+        struct Inspect {
+            id: String,
+            config: Config,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "PascalCase")]
+        struct Config {
+            volumes: Option<BTreeMap<String, serde::de::IgnoredAny>>,
+        }
+
+        let inspection: Inspect = self
+            .snapshot(&format!("/images/{}/json", image.query()))
+            .await?;
+        if inspection
+            .config
+            .volumes
+            .is_some_and(|volumes| !volumes.is_empty())
+        {
+            return Err(DockerError::ResourceIdentity);
+        }
+        ImageId::parse(inspection.id)
+    }
+
     /// Read image metadata by its full content identifier.
     pub async fn inspect_image(&self, id: &ImageId) -> Result<ImageDetails, DockerError> {
         let details: ImageDetails = self

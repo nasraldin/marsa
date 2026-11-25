@@ -42,7 +42,7 @@ impl ImageReference {
         &self.0
     }
 
-    fn query(&self) -> String {
+    pub(super) fn query(&self) -> String {
         use std::fmt::Write as _;
 
         let mut query = String::new();
