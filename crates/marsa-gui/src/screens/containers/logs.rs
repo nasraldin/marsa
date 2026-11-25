@@ -639,16 +639,11 @@ fn line_element(
     } else {
         ColorToken::TextPrimary
     };
-    let prefix = match timestamp_format.zip(line.content.timestamp) {
-        Some(((locale, format, local), timestamp)) => {
-            format!(
-                "{}    {}    {source:<6}    ",
-                isolate_technical_text(&log_time(locale, format, local, timestamp)),
-                line.container
-            )
-        }
-        None => format!("{}    {source:<6}    ", line.container),
-    };
+    let timestamp = timestamp_format
+        .zip(line.content.timestamp)
+        .map(|((locale, format, local), timestamp)| log_time(locale, format, local, timestamp));
+    // The ANSI renderer isolates the full prefix, including the timestamp.
+    let prefix = line_prefix(&line.container, source, timestamp.as_deref());
     let element = div()
         .w_full()
         .px_3()
@@ -669,6 +664,13 @@ fn line_element(
             .h(ui_size(23.))
             .overflow_hidden()
             .whitespace_nowrap()
+    }
+}
+
+fn line_prefix(container: &str, source: &str, timestamp: Option<&str>) -> String {
+    match timestamp {
+        Some(timestamp) => format!("{timestamp}    {container}    {source:<6}    "),
+        None => format!("{container}    {source:<6}    "),
     }
 }
 
@@ -718,6 +720,21 @@ mod tests {
     use marsa_ui::preferences::LogBufferSize;
 
     use super::*;
+
+    #[test]
+    fn container_log_prefix_inserts_no_direction_controls_before_ansi_rendering() {
+        for timestamp in ["2026-11-25T21:29:28Z", "2026-11-25T16:29:28-05:00"] {
+            let prefix = line_prefix("example", "stdout", Some(timestamp));
+            assert_eq!(
+                isolate_technical_text(&prefix).as_ref(),
+                format!("\u{2066}{timestamp}    example    stdout    \u{2069}")
+            );
+        }
+        assert_eq!(
+            line_prefix("example", "stderr", None),
+            "example    stderr    "
+        );
+    }
 
     #[test]
     fn container_buffer_drops_oldest_rows_when_the_limit_changes() {
