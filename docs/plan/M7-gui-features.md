@@ -414,7 +414,7 @@ the option, and Escape dismissed the editor in each variant.
 
 ### M7-23 Configure image scanning and retention
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-21
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Add scanner report retention and controls for the desktop scanner database caches. Preserve each environment's existing scanner opt-in and tool preference.
@@ -423,6 +423,17 @@ the option, and Escape dismissed the editor in each variant.
   - The selected engine's saved tool setting controls a scan.
   - Report retention affects what can be reopened and reports its outcome.
   - Confirmed scanner-cache cleanup reports its outcome and serializes with scanning.
+
+Native offscreen qualification used a disposable Unix engine and isolated
+scanner processes. Keyboard activation saved Trivy and one-day retention,
+requested the selected image archive and reopened its findings. The AppKit
+Cancel button left the cache in place. Confirming cleanup reported the Trivy
+cache removed and the Grype cache already empty. Confirming editor-only
+retention removed the saved report. The engine recorded only reads.
+[English light](../spikes/M7-23-scanner-retention/en-light.png),
+[English dark](../spikes/M7-23-scanner-retention/en-dark.png),
+[Arabic light](../spikes/M7-23-scanner-retention/ar-light.png), and
+[Arabic dark](../spikes/M7-23-scanner-retention/ar-dark.png).
 
 Scheduled maintenance review and volume downloads have independent owners and
 capability boundaries. See M7-50 and M7-51.
