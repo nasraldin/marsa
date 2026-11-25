@@ -614,8 +614,11 @@ secret stayed out of desktop settings. A signed client build using the pinned
 Keychain helper verified persistence, authenticated branch lookup, and an exact
 shallow checkout against a local smart Git HTTPS server. The fixture trusted its
 local certificate for that process. The server recorded authentication only on
-the selected repository. Changing the URL revoked the old association, a stale
-reference was rejected, and the client refused the redirect.
+the selected repository. Changing the URL revoked the old association. Credential
+rotation refused an older removal confirmation and drained the private cleanup
+journal. A disposable Apple Git control used the fixture's `.netrc`, and the
+signed client refused that ambient credential, a stale repository reference,
+and the redirect. A saved URL with a trailing slash authenticated successfully.
 [English light](../screenshots/m7-30/en-light.png),
 [English dark](../screenshots/m7-30/en-dark.png),
 [Arabic light](../screenshots/m7-30/ar-light.png),
