@@ -103,7 +103,7 @@ in both languages.
 
 ### M6-04 GUI translations and locale formatting
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-01, M6-12
 - **Docs:** [08 Internationalisation](../08-gui.md#internationalisation), V-10
 - **Do:** Integrate the Fluent catalogs with the component layer. Verify how gpui-component localises its own strings and how they coexist with Fluent (V-10). Implement locale-aware date, time and size formatting with Western digits and live language switching. Create `locales/GLOSSARY.md` for technical terms and arrange Arabic terminology review.
@@ -112,6 +112,14 @@ in both languages.
   - Switching language at runtime updates text and direction without a restart.
   - gpui-component's built-in strings appear in the selected language.
   - Dates, times and sizes follow the selected locale and use Western digits.
+
+GPUI Component 0.10.0 calls rust-i18n and exports a runtime locale setter.
+Its upstream catalog contains English but no Arabic. rust-i18n 4.2.4 exposes
+a crate-scoped catalog extension, which can add translations without
+replacing Marsa's Fluent catalog.
+[Pinned GPUI Component setup](https://github.com/longbridge/gpui-kit/blob/f697c3133d55c64fa8a5b67926147fb3dadd276d/crates/component/src/lib.rs#L145-L183)
+· [Pinned upstream catalog](https://github.com/longbridge/gpui-kit/blob/f697c3133d55c64fa8a5b67926147fb3dadd276d/crates/component/locales/ui.yml)
+· [rust-i18n 4.2.4 release](https://crates.io/crates/rust-i18n/4.2.4).
 
 ### M6-05 Core components
 
