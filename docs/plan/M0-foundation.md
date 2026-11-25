@@ -95,3 +95,14 @@
 - **Accept when:**
   - A broken link, an invalid Mermaid block or a reference to a missing task ID fails the job.
   - The job passes on the current docs.
+
+### M0-09 Skip build jobs for documentation-only changes
+
+- **Status:** in progress
+- **Depends on:** M0-06, M0-08
+- **Docs:** [12 Continuous integration](../12-build-release-update.md#continuous-integration)
+- **Do:** Classify the changed paths in Tier 1 before starting the Rust verification and guest build jobs.
+- **Deliver:** Job conditions and regression coverage for the change classifier.
+- **Accept when:**
+  - Documentation-only pull requests and pushes to `main` run the documentation check and report the build jobs as skipped.
+  - Mixed changes, workflow changes and unavailable diffs keep the build jobs eligible to run.
