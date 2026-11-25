@@ -53,6 +53,10 @@ impl TableState {
         }
     }
 
+    pub(super) fn shows_view_modes(self) -> bool {
+        matches!(self, Self::Rows | Self::NoMatches)
+    }
+
     pub(super) fn can_create(self) -> bool {
         matches!(self, Self::Rows | Self::Empty | Self::NoMatches)
     }
@@ -238,4 +242,17 @@ pub(super) fn render(
         _ => {}
     }
     content
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TableState;
+
+    #[test]
+    fn no_matches_keeps_the_view_mode_controls_available() {
+        assert!(TableState::Rows.shows_view_modes());
+        assert!(TableState::NoMatches.shows_view_modes());
+        assert!(!TableState::Empty.shows_view_modes());
+        assert!(!TableState::Offline.shows_view_modes());
+    }
 }

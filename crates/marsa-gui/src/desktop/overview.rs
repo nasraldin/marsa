@@ -18,7 +18,7 @@ use marsa_ui::{
         Window, canvas, div, point, px, relative, rgb, svg,
     },
     gpui_component::{
-        Disableable, Icon, IconName,
+        Disableable, IconName,
         button::{Button, ButtonVariants as _},
     },
     gui_keys as gui,
@@ -258,11 +258,29 @@ impl Desktop {
             })
         });
         let platform = version.map(|details| format!("{}/{}", details.os, details.arch));
-        let (lima_state, lima_feedback) = if local {
-            (None, None)
+        let (lifecycle, lima_state, lima_feedback) = if local {
+            let power = overview_power_action(engine).map(|(action, label, icon)| {
+                let label = label.text(locale);
+                let button = Button::new("overview-engine-lifecycle")
+                    .size(px(36.))
+                    .p_0()
+                    .child(icon)
+                    .accessibility_label(label)
+                    .tooltip(label)
+                    .on_click(cx.listener(move |desktop, _, window, cx| {
+                        desktop.request_engine(action, window, cx);
+                    }));
+                if action == EngineAction::Start {
+                    button.primary()
+                } else {
+                    button.ghost()
+                }
+            });
+            (power, None, None)
         } else {
-            self.system.update(cx, |system, _cx| {
+            self.system.update(cx, |system, cx| {
                 (
+                    system.overview_lima_power(locale, cx),
                     system.lima_machine_state(),
                     system.lima_machine_feedback(screen),
                 )
@@ -288,21 +306,6 @@ impl Desktop {
                 _ => gui::GUI_DESKTOP_OVERVIEW_WAITING_ENGINE,
             };
             // Same empty state for Marsa, Lima, and any other inactive context.
-            let start = if local {
-                matches!(engine, Some(EngineState::Stopped | EngineState::Failed)).then(|| {
-                    Button::new("overview-engine-start")
-                        .primary()
-                        .icon(Icon::default().path("icons/play.svg"))
-                        .label(gui::GUI_DESKTOP_START_MACHINE.text(locale))
-                        .on_click(cx.listener(|desktop, _, window, cx| {
-                            desktop.request_engine(EngineAction::Start, window, cx);
-                        }))
-                })
-            } else {
-                self.system.update(cx, |system, cx| {
-                    system.overview_lima_power(locale, false, cx)
-                })
-            };
             return div()
                 .flex_1()
                 .w_full()
@@ -351,7 +354,7 @@ impl Desktop {
                     row(locale)
                         .items_center()
                         .gap_2()
-                        .children(start)
+                        .children(lifecycle)
                         .child(
                             Button::new("overview-inactive-refresh")
                                 .outline()
@@ -382,33 +385,6 @@ impl Desktop {
                     lima_feedback.map(|feedback| div().max_w(px(480.)).w_full().child(feedback)),
                 );
         }
-        let lifecycle = match (local, engine) {
-            (true, Some(EngineState::Ready | EngineState::Idle | EngineState::Paused)) => Some((
-                EngineAction::Stop,
-                gui::GUI_DESKTOP_STOP_MACHINE,
-                "icons/square-stop.svg",
-            )),
-            _ => None,
-        };
-        let lifecycle = lifecycle.map(|(action, label, glyph)| {
-            Button::new("overview-engine-lifecycle")
-                .ghost()
-                .size(px(36.))
-                .p_0()
-                .child(Icon::default().path(glyph))
-                .accessibility_label(label.text(locale))
-                .tooltip(label.text(locale))
-                .on_click(cx.listener(move |desktop, _, window, cx| {
-                    desktop.request_engine(action, window, cx);
-                }))
-        });
-        let lifecycle = if local {
-            lifecycle
-        } else {
-            self.system.update(cx, |system, cx| {
-                system.overview_lima_power(locale, true, cx)
-            })
-        };
         let refresh = Button::new("overview-refresh")
             .ghost()
             .size(px(36.))
@@ -746,6 +722,24 @@ fn disk_volumes() -> Hsla {
 }
 fn disk_build_cache() -> Hsla {
     rgb(0x9b67ff).into()
+}
+
+fn overview_power_action(
+    engine: Option<EngineState>,
+) -> Option<(EngineAction, marsa_ui::TextKey, IconName)> {
+    match engine {
+        Some(EngineState::Stopped | EngineState::Failed) => Some((
+            EngineAction::Start,
+            gui::GUI_DESKTOP_START_MACHINE,
+            IconName::Play,
+        )),
+        Some(EngineState::Ready | EngineState::Idle | EngineState::Paused) => Some((
+            EngineAction::Stop,
+            gui::GUI_DESKTOP_STOP_MACHINE,
+            IconName::Square,
+        )),
+        _ => None,
+    }
 }
 
 fn observed(sample: &OverviewSample) -> bool {
@@ -1427,4 +1421,22 @@ fn mono(screen: &ScreenContext<'_>) -> Div {
 
 fn number(count: Option<usize>) -> marsa_ui::gpui::SharedString {
     count.map_or_else(|| technical("—"), |count| technical(&count.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inactive_overview_can_start_a_stopped_engine_or_stop_a_paused_engine() {
+        for (state, expected) in [
+            (EngineState::Stopped, EngineAction::Start),
+            (EngineState::Paused, EngineAction::Stop),
+        ] {
+            assert!(
+                overview_power_action(Some(state)).is_some_and(|(action, _, _)| action == expected)
+            );
+        }
+        assert!(overview_power_action(Some(EngineState::Starting)).is_none());
+    }
 }
