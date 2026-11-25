@@ -70,7 +70,7 @@
 - **Do:** Add the Tier 1 workflow (static checks, unit and integration tests on hosted runners). Verify whether hosted Apple silicon runners can run Virtualization.framework guests (V-13) and record the finding. Add the Tier 2 workflow definition targeting a runner label for a Mac with virtualization, disabled until a runner and real-VM test package exist. Restrict dispatch to the default branch of a private validation repository.
 - **Deliver:** `.github/workflows/tier1.yml`, `.github/workflows/tier2.yml`, an updated V-13 entry in the risks doc.
 - **Accept when:**
-  - Tier 1 runs on every push and pull request and is green.
+  - Tier 1 runs on every pull request and on pushes to `main`, and is green.
   - The V-13 finding is written into [16](../16-risks-and-open-questions.md) with its source.
   - Tier 2 is defined and documented, with instructions for registering the runner in a private validation repository.
 
