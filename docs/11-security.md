@@ -165,9 +165,11 @@ place, and never sends a cleanup request to Docker.
 
 Settings saves the repository name, HTTPS URL and branch in an owner-private
 file. The desktop runs the root-owned macOS `/usr/bin/git` in a fresh private
-directory with the environment cleared, system and global Git configuration
-disabled, HTTPS certificate checks enforced, redirects and other protocols
-disabled, and no hooks, templates or submodule checkout. Tested with Apple
+directory with the environment cleared and system and global Git configuration
+disabled. A separate empty home keeps libcurl away from the login user's
+`.netrc`. Git verifies HTTPS certificates and disables redirects, other
+protocols, ambient HTTP authentication, hooks, templates and submodule checkout.
+Tested with Apple
 Git 2.54.0. [Git environment options](https://git-scm.com/docs/git/2.54.0) ·
 [Git configuration](https://git-scm.com/docs/git-config/2.54.0).
 
@@ -183,11 +185,17 @@ the test or checkout, the desktop verifies that the selected reference still
 matches its saved record and starts a short-lived owner-private Unix socket.
 The system Git helper obtains the credential over that socket only when its
 requested protocol, authority and repository path match the approved URL.
-Git receives no credential in its environment or command arguments. Changing
+The selected credential uses HTTPS Basic authentication. Git receives no
+credential in its environment or command arguments. Changing
 the URL or removing the repository or credential revokes the association.
+The action checks the current Keychain revision against the reviewed revision.
+A private cleanup journal records opaque item names before mutations and
+retries pending erasures on subsequent repository or credential edits.
 Compose receives only the file the owner selects after checkout.
 [Git credential context](https://git-scm.com/docs/gitcredentials/2.54.0) ·
-[Git helper request format](https://git-scm.com/docs/git-credential/2.54.0).
+[Git helper request format](https://git-scm.com/docs/git-credential/2.54.0) ·
+[Pinned HTTP authentication setup](https://github.com/git/git/blob/v2.54.0/http.c#L566-L623) ·
+[Pinned libcurl home lookup](https://github.com/curl/curl/blob/curl-8_7_1/lib/netrc.c#L279-L316).
 
 ## SSH agent access
 

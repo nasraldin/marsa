@@ -25,6 +25,11 @@ pub(super) struct Journal {
 }
 
 impl Journal {
+    /// A replacement can need two additional records before writing Keychain.
+    pub(super) fn needs_capacity(&self) -> bool {
+        self.keys.len() > MAX_KEYS - 2
+    }
+
     /// Read the journal while the caller holds the shared repository mutation lock.
     pub(super) async fn load(directory: &Path) -> Result<Self, GitSourceError> {
         platform::check_user_docker_directory(directory)

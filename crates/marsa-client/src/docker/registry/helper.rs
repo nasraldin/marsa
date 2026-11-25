@@ -11,7 +11,7 @@ use tokio::{
 
 const KEYCHAIN_NOT_FOUND: &[u8] = b"credentials not found in native keychain";
 const DEADLINE: Duration = Duration::from_secs(15);
-const CREDENTIAL_LIMIT: usize = 8 * 1024;
+pub(crate) const CREDENTIAL_LIMIT: usize = 8 * 1024;
 const LIST_LIMIT: usize = 1024 * 1024;
 
 #[derive(Deserialize, Serialize)]

@@ -1048,6 +1048,7 @@ gui-git-credential-saved = حُفظت بيانات الاعتماد في سلس�
 gui-git-credential-removed = أزيلت بيانات الاعتماد المحفوظة
 gui-git-credential-invalid = أدخل اسم المستخدم وكلمة المرور أو رمز الوصول.
 gui-git-credential-unavailable = تعذّر على مرسى قراءة بيانات اعتماد المستودع في سلسلة المفاتيح أو كتابتها.
+gui-git-credential-changed = تغيّرت بيانات الاعتماد المحفوظة. راجع المستودع وحاول مرة أخرى.
 gui-git-credential-cleanup = طُبّق تغيير المستودع. تعذّرت إزالة العنصر السابق من سلسلة المفاتيح.
 gui-git-store-failed = تعذّر الوصول إلى مستودعات Git المحفوظة.
 gui-registries-title = السجلات

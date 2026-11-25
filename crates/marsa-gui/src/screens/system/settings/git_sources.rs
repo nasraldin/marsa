@@ -54,9 +54,9 @@ impl Outcome {
     ) -> Result<Self, GitSourceError> {
         let (key, color) = match result {
             Ok(_) => (success, ColorToken::TextPrimary),
-            Err(error @ GitSourceError::CredentialCleanup) => {
-                (error_key(&error), ColorToken::StatusWarning)
-            }
+            Err(
+                error @ (GitSourceError::CredentialChanged | GitSourceError::CredentialCleanup),
+            ) => (error_key(&error), ColorToken::StatusWarning),
             Err(error) => return Err(error),
         };
         Ok(Self::Changed(store.list().await?, key, color))
@@ -536,6 +536,7 @@ fn error_key(error: &GitSourceError) -> TextKey {
         GitSourceError::BranchMissing => gui::GUI_GIT_BRANCH_MISSING,
         GitSourceError::CredentialInvalid => gui::GUI_GIT_CREDENTIAL_INVALID,
         GitSourceError::CredentialUnavailable => gui::GUI_GIT_CREDENTIAL_UNAVAILABLE,
+        GitSourceError::CredentialChanged => gui::GUI_GIT_CREDENTIAL_CHANGED,
         GitSourceError::CredentialCleanup => gui::GUI_GIT_CREDENTIAL_CLEANUP,
         GitSourceError::NotFound | GitSourceError::Store(_) => gui::GUI_GIT_STORE_FAILED,
     }

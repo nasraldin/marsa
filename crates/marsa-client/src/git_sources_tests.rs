@@ -2,7 +2,7 @@
 
 use std::os::unix::fs::PermissionsExt;
 
-use crate::git_sources::{GitRepositoryConfig, GitRepositoryStore};
+use crate::git_sources::{GitRepositoryConfig, GitRepositoryStore, GitSourceError};
 
 fn config(url: &str, branch: &str) -> GitRepositoryConfig {
     GitRepositoryConfig {
@@ -74,6 +74,37 @@ async fn checked_repository_edits_survive_reopen_and_do_not_change_id() {
     );
     reopened.remove(&id).await.unwrap();
     assert!(reopened.list().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn stale_credential_review_cannot_edit_the_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("marsa");
+    let store = GitRepositoryStore::at(directory.clone());
+    store
+        .save(None, config("https://git.example/repo", "main"))
+        .await
+        .unwrap();
+    let path = directory.join("git-repositories.json");
+    let mut entries: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    entries[0]["credential_revision"] = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa".into();
+    std::fs::write(&path, serde_json::to_vec(&entries).unwrap()).unwrap();
+    let reviewed = store.list().await.unwrap().remove(0);
+    entries[0]["credential_revision"] = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb".into();
+    let replacement = serde_json::to_vec(&entries).unwrap();
+    std::fs::write(&path, &replacement).unwrap();
+    assert!(matches!(
+        store.remove_https_credential(&reviewed).await,
+        Err(GitSourceError::CredentialChanged)
+    ));
+    assert!(matches!(
+        store
+            .save_https_credential(&reviewed, "fixture".into(), "dummy".into())
+            .await,
+        Err(GitSourceError::CredentialChanged)
+    ));
+    assert_eq!(std::fs::read(path).unwrap(), replacement);
 }
 
 #[tokio::test]

@@ -1048,6 +1048,7 @@ gui-git-credential-saved = Credentials saved in Keychain
 gui-git-credential-removed = Saved credentials removed
 gui-git-credential-invalid = Enter a username and password or token.
 gui-git-credential-unavailable = Marsa could not read or write the repository credential in Keychain.
+gui-git-credential-changed = The saved credentials changed. Review the repository and try again.
 gui-git-credential-cleanup = The repository change took effect. Keychain could not remove the previous item.
 gui-git-store-failed = Could not access saved Git repositories.
 gui-registries-title = Registries

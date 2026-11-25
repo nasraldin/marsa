@@ -7,6 +7,7 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::Stdio,
+    sync::Arc,
     time::Duration,
 };
 
@@ -15,7 +16,10 @@ use tokio::{fs, process::Command, time::timeout};
 
 use crate::{docker_socket_path, platform, request_id};
 
+mod credential_cleanup;
 mod https_credentials;
+
+use credential_cleanup::Journal;
 
 const STORE: &str = "git-repositories.json";
 const STORE_LIMIT: usize = 256 * 1024;
@@ -94,6 +98,9 @@ pub enum GitSourceError {
     /// The signed helper or matching Keychain item was unavailable.
     #[error("the saved Git credential is unavailable")]
     CredentialUnavailable,
+    /// The saved HTTPS credential changed after the row was reviewed.
+    #[error("the saved Git credential changed; review the current entry")]
+    CredentialChanged,
     /// The association changed and an obsolete Keychain value still needs cleanup.
     #[error("the Git credential changed but the previous Keychain entry remains")]
     CredentialCleanup,
@@ -121,15 +128,9 @@ impl GitRepositoryConfig {
 
     async fn test_with(&self, repository: Option<&GitRepository>) -> Result<(), GitSourceError> {
         self.validate()?;
-        let workspace = tokio::task::spawn_blocking(|| {
-            tempfile::Builder::new()
-                .permissions(Permissions::from_mode(0o700))
-                .tempdir()
-        })
-        .await
-        .map_err(|_| GitSourceError::Git)?
-        .map_err(|_| GitSourceError::Git)?;
-        let mut command = git(workspace.path()).await?;
+        let workspace = private_git_directory().await?;
+        let home = private_git_directory().await?;
+        let mut command = git(workspace.path(), home.path()).await?;
         let _credentials = https_credentials::attach(&mut command, repository).await?;
         command
             .args(["ls-remote", "--exit-code", "--refs", "--", &self.url])
@@ -173,7 +174,8 @@ impl GitRepositoryConfig {
         .await
         .map_err(|_| GitSourceError::Destination)?
         .map_err(|_| GitSourceError::Destination)?;
-        let mut command = git(workspace.path()).await?;
+        let home = private_git_directory().await?;
+        let mut command = git(workspace.path(), home.path()).await?;
         let _credentials = https_credentials::attach(&mut command, repository).await?;
         command.args([
             "clone",
@@ -254,7 +256,18 @@ fn valid_branch(value: &str) -> bool {
         })
 }
 
-async fn git(workspace: &Path) -> Result<Command, GitSourceError> {
+async fn private_git_directory() -> Result<tempfile::TempDir, GitSourceError> {
+    tokio::task::spawn_blocking(|| {
+        tempfile::Builder::new()
+            .permissions(Permissions::from_mode(0o700))
+            .tempdir()
+    })
+    .await
+    .map_err(|_| GitSourceError::Git)?
+    .map_err(|_| GitSourceError::Git)
+}
+
+async fn git(workspace: &Path, home: &Path) -> Result<Command, GitSourceError> {
     let executable = platform::system_git()
         .await
         .map_err(|_| GitSourceError::Git)?;
@@ -262,6 +275,8 @@ async fn git(workspace: &Path) -> Result<Command, GitSourceError> {
     command
         .current_dir(workspace)
         .env_clear()
+        // libcurl otherwise falls back to the login user's home for .netrc.
+        .env("HOME", home)
         .env("PATH", "/usr/bin:/bin")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -279,6 +294,8 @@ async fn git(workspace: &Path) -> Result<Command, GitSourceError> {
             "http.followRedirects=false",
             "-c",
             "http.sslVerify=true",
+            "-c",
+            "http.emptyAuth=false",
             "-c",
             "credential.helper=",
             "-c",
@@ -373,111 +390,125 @@ impl GitRepositoryStore {
         config: GitRepositoryConfig,
     ) -> Result<String, GitSourceError> {
         config.validate()?;
-        let (id, previous) = self
-            .change(|entries| {
-                if let Some(id) = id {
-                    let item = entries
-                        .iter_mut()
-                        .find(|item| item.id == id)
-                        .ok_or(GitSourceError::NotFound)?;
-                    let previous = (item.config.url != config.url && item.has_https_credential())
-                        .then(|| item.clone());
-                    if previous.is_some() {
-                        item.credential_revision = None;
-                    }
-                    item.config = config;
-                    return Ok((item.id.clone(), previous));
-                }
-                let id = request_id().map_err(GitSourceError::Store)?;
-                if entries.len() >= MAX_REPOSITORIES || entries.iter().any(|item| item.id == id) {
-                    return Err(GitSourceError::Store(io::Error::other(
-                        "Git repository store is full or ID was reused",
-                    )));
-                }
-                entries.push(GitRepository {
-                    id: id.clone(),
-                    config,
-                    credential_revision: None,
-                });
-                Ok((id, None))
-            })
-            .await?;
-        erase_previous(previous).await?;
-        Ok(id)
+        self.change(|entries| {
+            if let Some(id) = id {
+                let item = entries
+                    .iter_mut()
+                    .find(|item| item.id == id)
+                    .ok_or(GitSourceError::NotFound)?;
+                let revoke = if item.config.url != config.url {
+                    let key = credential_key(item);
+                    item.credential_revision = None;
+                    key
+                } else {
+                    None
+                };
+                item.config = config;
+                return Ok((item.id.clone(), revoke));
+            }
+            let id = request_id().map_err(GitSourceError::Store)?;
+            if entries.len() >= MAX_REPOSITORIES || entries.iter().any(|item| item.id == id) {
+                return Err(GitSourceError::Store(io::Error::other(
+                    "Git repository store is full or ID was reused",
+                )));
+            }
+            entries.push(GitRepository {
+                id: id.clone(),
+                config,
+                credential_revision: None,
+            });
+            Ok((id, None))
+        })
+        .await
     }
 
     /// Remove a saved reference and revoke its Keychain association.
     pub async fn remove(&self, id: &str) -> Result<(), GitSourceError> {
-        let removed = self
-            .change(|entries| {
-                let index = entries
-                    .iter()
-                    .position(|item| item.id == id)
-                    .ok_or(GitSourceError::NotFound)?;
-                Ok(entries.remove(index))
-            })
-            .await?;
-        erase_previous(Some(removed)).await
+        self.change(|entries| {
+            let index = entries
+                .iter()
+                .position(|item| item.id == id)
+                .ok_or(GitSourceError::NotFound)?;
+            Ok(((), credential_key(&entries.remove(index))))
+        })
+        .await
     }
 
     /// Store a credential for the currently saved repository and exact approved URL.
     pub async fn save_https_credential(
         &self,
-        id: &str,
-        approved_url: &str,
+        reviewed: &GitRepository,
         username: String,
         secret: String,
     ) -> Result<(), GitSourceError> {
+        if !https_credentials::valid_values(&username, &secret) {
+            return Err(GitSourceError::CredentialInvalid);
+        }
         let lock = self.lock().await?;
         let mut entries = self.list().await?;
-        let item = entries
-            .iter_mut()
-            .find(|item| item.id == id && item.config.url == approved_url)
-            .ok_or(GitSourceError::NotFound)?;
-        let previous = item.clone();
+        let active = credential_keys(&entries);
+        let item = reviewed_credential(&mut entries, reviewed)?;
         let revision = request_id().map_err(GitSourceError::Store)?;
-        https_credentials::save(item, &revision, username, secret).await?;
-        item.credential_revision = Some(revision.clone());
-        let updated = item.clone();
-        if let Err(error) = self.persist(&entries, lock).await {
-            let _ = https_credentials::erase(&updated, &revision).await;
-            return Err(error);
+        let mut journal = Journal::load(&self.0).await?;
+        if journal.needs_capacity() {
+            let _ = journal.reconcile(&active, &lock).await;
         }
-        erase_previous(Some(previous)).await
+        // Track both outcomes before writing Keychain. Recovery preserves
+        // whichever revision the repository file ultimately commits.
+        let key = https_credentials::key(item, &revision);
+        journal
+            .record(std::iter::once(key).chain(credential_key(item)), &lock)
+            .await?;
+        https_credentials::save(item, &revision, username, secret).await?;
+        item.credential_revision = Some(revision);
+        self.finish_change(&entries, &mut journal, &lock).await
     }
 
     /// Revoke the Keychain association for the exact saved source.
     pub async fn remove_https_credential(
         &self,
-        id: &str,
-        approved_url: &str,
+        reviewed: &GitRepository,
     ) -> Result<(), GitSourceError> {
-        let removed = self
-            .change(|entries| {
-                let item = entries
-                    .iter_mut()
-                    .find(|item| item.id == id && item.config.url == approved_url)
-                    .ok_or(GitSourceError::NotFound)?;
-                let old = item.clone();
-                item.credential_revision = None;
-                Ok(old)
-            })
-            .await?;
-        erase_previous(Some(removed)).await
+        self.change(|entries| {
+            let item = reviewed_credential(entries, reviewed)?;
+            let old = credential_key(item);
+            item.credential_revision = None;
+            Ok(((), old))
+        })
+        .await
     }
 
     async fn change<T>(
         &self,
-        action: impl FnOnce(&mut Vec<GitRepository>) -> Result<T, GitSourceError>,
+        action: impl FnOnce(&mut Vec<GitRepository>) -> Result<(T, Option<String>), GitSourceError>,
     ) -> Result<T, GitSourceError> {
         let lock = self.lock().await?;
         let mut entries = self.list().await?;
-        let result = action(&mut entries)?;
-        self.persist(&entries, lock).await?;
+        let active = credential_keys(&entries);
+        let (result, revoke) = action(&mut entries)?;
+        let mut journal = Journal::load(&self.0).await?;
+        if journal.needs_capacity() {
+            let _ = journal.reconcile(&active, &lock).await;
+        }
+        journal.record(revoke, &lock).await?;
+        self.finish_change(&entries, &mut journal, &lock).await?;
         Ok(result)
     }
 
-    async fn lock(&self) -> Result<File, GitSourceError> {
+    async fn finish_change(
+        &self,
+        entries: &[GitRepository],
+        journal: &mut Journal,
+        lock: &Arc<File>,
+    ) -> Result<(), GitSourceError> {
+        self.persist(entries, lock).await?;
+        journal
+            .reconcile(&credential_keys(entries), lock)
+            .await
+            .map_err(|_| GitSourceError::CredentialCleanup)
+    }
+
+    async fn lock(&self) -> Result<Arc<File>, GitSourceError> {
         let directory = self.0.clone();
         tokio::task::spawn_blocking(move || {
             platform::lock_docker_state(&directory, "desktop-git-sources.lock")
@@ -486,25 +517,50 @@ impl GitRepositoryStore {
         .map_err(io::Error::other)
         .map_err(GitSourceError::Store)?
         .map_err(GitSourceError::Store)
+        .map(Arc::new)
     }
 
-    async fn persist(&self, entries: &[GitRepository], lock: File) -> Result<(), GitSourceError> {
+    async fn persist(
+        &self,
+        entries: &[GitRepository],
+        lock: &Arc<File>,
+    ) -> Result<(), GitSourceError> {
         let data = serde_json::to_vec(entries)
             .map_err(io::Error::other)
             .map_err(GitSourceError::Store)?;
         if data.len() > STORE_LIMIT {
             return Err(GitSourceError::Store(io::ErrorKind::InvalidData.into()));
         }
-        let path = self.0.join(STORE);
+        let directory = self.0.clone();
+        let path = directory.join(STORE);
+        let lock = lock.clone();
         tokio::task::spawn_blocking(move || {
             let _lock = lock;
-            platform::replace_docker_state(&path, &data)
+            platform::replace_docker_state(&path, &data)?;
+            // Erasing the former Keychain item must follow a durable commit.
+            File::open(directory)?.sync_all()
         })
         .await
         .map_err(io::Error::other)
         .map_err(GitSourceError::Store)?
         .map_err(GitSourceError::Store)
     }
+}
+
+fn reviewed_credential<'a>(
+    entries: &'a mut [GitRepository],
+    reviewed: &GitRepository,
+) -> Result<&'a mut GitRepository, GitSourceError> {
+    let item = entries
+        .iter_mut()
+        .find(|item| item.id == reviewed.id)
+        .ok_or(GitSourceError::NotFound)?;
+    if item.config.url != reviewed.config.url
+        || item.credential_revision != reviewed.credential_revision
+    {
+        return Err(GitSourceError::CredentialChanged);
+    }
+    Ok(item)
 }
 
 fn valid_identifier(value: &str) -> bool {
@@ -514,13 +570,35 @@ fn valid_identifier(value: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
 }
 
-async fn erase_previous(previous: Option<GitRepository>) -> Result<(), GitSourceError> {
-    if let Some(previous) = previous
-        && let Some(revision) = previous.credential_revision.as_deref()
-    {
-        https_credentials::erase(&previous, revision)
+fn credential_key(repository: &GitRepository) -> Option<String> {
+    repository
+        .credential_revision
+        .as_deref()
+        .map(|revision| https_credentials::key(repository, revision))
+}
+
+fn credential_keys(entries: &[GitRepository]) -> HashSet<String> {
+    entries.iter().filter_map(credential_key).collect()
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn git_uses_an_empty_home_outside_the_checkout() {
+        let checkout = private_git_directory().await.unwrap();
+        let home = private_git_directory().await.unwrap();
+        fs::write(checkout.path().join(".netrc"), "macros in the checkout")
             .await
-            .map_err(|_| GitSourceError::CredentialCleanup)?;
+            .unwrap();
+        let git = git(checkout.path(), home.path()).await.unwrap();
+        let actual = git
+            .as_std()
+            .get_envs()
+            .find_map(|(key, value)| (key == "HOME").then_some(value).flatten());
+        assert_eq!(actual, Some(home.path().as_os_str()));
+        assert_ne!(git.as_std().get_current_dir(), Some(home.path()));
+        assert!(!home.path().join(".netrc").exists());
     }
-    Ok(())
 }

@@ -35,11 +35,36 @@ pub(super) fn key(repository: &GitRepository, revision: &str) -> String {
 }
 
 pub(super) fn valid_values(username: &str, secret: &str) -> bool {
-    valid_value(username, 256) && !username.contains(':') && valid_value(secret, 4096)
+    valid_value(username, 256)
+        && !username.contains(':')
+        && valid_value(secret, 4096)
+        && json_size(username) + json_size(secret) <= keychain::CREDENTIAL_LIMIT - 512
 }
 
 fn valid_value(value: &str, limit: usize) -> bool {
     !value.is_empty() && value.len() <= limit && !value.contains(['\0', '\r', '\n'])
+}
+
+// The Go helper escapes HTML characters and these Unicode line separators.
+// Reserve the rest of the bounded response for the key and JSON field names.
+fn json_size(value: &str) -> usize {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '"' | '\\' => 2,
+            '<' | '>' | '&' | '\u{2028}' | '\u{2029}' | '\u{0}'..='\u{1f}' => 6,
+            _ => ch.len_utf8(),
+        })
+        .sum()
+}
+
+pub(super) fn valid_key(key: &str) -> bool {
+    key.strip_prefix(PREFIX).is_some_and(|digest| {
+        digest.len() == 43
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    })
 }
 
 pub(super) async fn save(
@@ -62,12 +87,12 @@ pub(super) async fn save(
         .map_err(|_| GitSourceError::CredentialUnavailable)
 }
 
-pub(super) async fn erase(
-    repository: &GitRepository,
-    revision: &str,
-) -> Result<(), GitSourceError> {
+pub(super) async fn erase_key(key: &str) -> Result<(), GitSourceError> {
+    if !valid_key(key) {
+        return Err(GitSourceError::CredentialInvalid);
+    }
     let helper = provider().await?;
-    keychain::erase(&helper, &key(repository, revision))
+    keychain::erase(&helper, key)
         .await
         .map_err(|_| GitSourceError::CredentialUnavailable)
 }
@@ -100,7 +125,14 @@ pub(super) async fn attach(
     let broker = Broker::new(expected, credential).await?;
     command
         .env("MARSA_GIT_CREDENTIAL_SOCKET", broker.socket())
-        .args(["-c", "credential.useHttpPath=true", "-c", CREDENTIAL_HELPER]);
+        .args([
+            "-c",
+            "http.proactiveAuth=basic",
+            "-c",
+            "credential.useHttpPath=true",
+            "-c",
+            CREDENTIAL_HELPER,
+        ]);
     Ok(Some(broker))
 }
 
@@ -189,7 +221,9 @@ impl Context {
         if uri.scheme_str() != Some("https") {
             return None;
         }
-        Self::from_parts(uri.authority()?, uri.path().strip_prefix('/')?)
+        // Git strips leading and trailing slashes from the approved URL when
+        // building its helper request. Only the saved URL gets this treatment.
+        Self::from_parts(uri.authority()?, uri.path().trim_matches('/'))
     }
 
     fn from_parts(authority: &Authority, path: &str) -> Option<Self> {
@@ -274,8 +308,14 @@ mod tests {
         }
         assert!(!valid_values("fixture", "test\nurl=invalid"));
         assert!(!valid_values("fixture:other", "token"));
-        assert!(Context::for_url("https://example.invalid//team/source.git").is_none());
-        assert!(Context::for_url("https://example.invalid/team/source.git/").is_none());
+        assert!(valid_values("fixture", &"a".repeat(4096)));
+        assert!(!valid_values("fixture", &"<".repeat(4096)));
+        for url in [
+            "https://example.invalid//team/source.git",
+            "https://example.invalid/team/source.git/",
+        ] {
+            assert_eq!(Context::for_url(url).as_ref(), Some(&expected));
+        }
     }
 
     #[tokio::test]

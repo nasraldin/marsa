@@ -100,10 +100,7 @@ impl SystemView {
                                                 let store = GitRepositoryStore::discover()?;
                                                 let result = store
                                                     .save_https_credential(
-                                                        &source.id,
-                                                        &source.config.url,
-                                                        username,
-                                                        secret,
+                                                        &source, username, secret,
                                                     )
                                                     .await;
                                                 Outcome::change(
@@ -145,9 +142,7 @@ impl SystemView {
                     this.git_source_task(
                         async move {
                             let store = GitRepositoryStore::discover()?;
-                            let result = store
-                                .remove_https_credential(&repository.id, &repository.config.url)
-                                .await;
+                            let result = store.remove_https_credential(&repository).await;
                             Outcome::change(&store, result, gui::GUI_GIT_CREDENTIAL_REMOVED).await
                         },
                         cx,
