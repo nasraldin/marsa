@@ -291,3 +291,9 @@ mount, before formatting an entirely sparse 64 GiB new image. Prior
 64 GiB boots succeeded. The subsequent 1 GiB fixture reached Docker 29.10.0
 and shut down cleanly. The two results establish a timing risk and a
 working packaged control path.
+
+A controlled signed test with matching 64 GiB userspace settings reached
+Ready in 34.949 s from a fresh disk and 36.843 s from the same sparse inode
+after interruption. Guest disk preparation took 30.153 s and 32.735 s.
+Both stopped cleanly. The earlier Auto-network timeout still needs a
+matched comparison.
