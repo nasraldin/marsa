@@ -1,16 +1,17 @@
 //! Mirrored workspace sidebar and live engine indicator.
 
 use marsa_ui::{
-    ColorToken,
+    ColorToken, brand_mark_for_source,
     gpui::{
-        Anchor, Context, Div, FontWeight, InteractiveElement, ParentElement, Styled, div, img,
-        prelude::FluentBuilder, px, svg,
+        Anchor, AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement,
+        ParentElement, Styled, div, img, prelude::FluentBuilder, px, svg,
     },
     gpui_component::{
         Icon, IconName, Selectable,
         button::{Button, ButtonVariants},
         menu::{DropdownMenu as _, PopupMenuItem},
     },
+    is_brand_mark,
 };
 use marsa_ui::{gui_keys as gui, tokens::typography::ui_size};
 
@@ -207,7 +208,7 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
     let description = format!("{label}: {context} · {state_text}");
     let system = desktop.system.read(cx);
     let active_icon = if current.includes_marsa() {
-        "marsa/docker-engine.svg"
+        "marsa/docker.svg"
     } else {
         workspace.map_or("icons/server.svg", |workspace| {
             context_icon(system, workspace)
@@ -216,7 +217,7 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
     let choices = std::iter::once((
         Environment::Marsa,
         system.environment_presentation(None).0,
-        "marsa/docker-engine.svg",
+        "marsa/docker.svg",
     ))
     .chain(desktop.external_inventory.iter().map(|workspace| {
         (
@@ -245,12 +246,11 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
         .justify_center()
         .rounded(px(9.))
         .bg(color(palette, status_surface))
-        .child(
-            svg()
-                .path(active_icon)
-                .size(px(26.))
-                .text_color(color(palette, status_text)),
-        );
+        .child(engine_mark(
+            active_icon,
+            26.,
+            Some(color(palette, status_text)),
+        ));
     let button = if desktop.collapsed {
         button.h(px(52.)).p_0().child(engine_icon)
     } else {
@@ -292,10 +292,22 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
         let menu = choices.iter().fold(menu, |menu, (choice, name, icon)| {
             let picked = choice.clone();
             let desktop = desktop_entity.clone();
+            let label = crate::screens::common::technical(name);
+            let path = *icon;
+            // Brand marks keep authored colors; monochrome glyphs use Icon tinting.
+            let item = if is_brand_mark(path) {
+                PopupMenuItem::element(move |_, _| {
+                    row(locale)
+                        .gap_2()
+                        .items_center()
+                        .child(img(path).size(px(16.)).flex_shrink_0())
+                        .child(label.clone())
+                })
+            } else {
+                PopupMenuItem::new(label).icon(Icon::default().path(path))
+            };
             menu.item(
-                PopupMenuItem::new(crate::screens::common::technical(name))
-                    .icon(Icon::default().path(*icon))
-                    .checked(choice.same_identity(&current))
+                item.checked(choice.same_identity(&current))
                     .on_click(move |_, _, cx| {
                         let _ = desktop.update(cx, |desktop, cx| {
                             desktop.select_environment(picked.clone(), cx)
@@ -314,18 +326,27 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
     })
 }
 
+/// Render a context glyph. Brand SVGs/PNGs use `img` so theme tinting cannot recolor them.
+fn engine_mark(path: &'static str, size: f32, tint: Option<marsa_ui::gpui::Hsla>) -> AnyElement {
+    if is_brand_mark(path) {
+        img(path).size(px(size)).flex_shrink_0().into_any_element()
+    } else {
+        let mut glyph = svg().path(path).size(px(size));
+        if let Some(tint) = tint {
+            glyph = glyph.text_color(tint);
+        }
+        glyph.into_any_element()
+    }
+}
+
 fn context_icon(system: &SystemView, workspace: &ExternalWorkspace) -> &'static str {
     if workspace.endpoint.lima_instance().is_some() || workspace.source.starts_with("Colima · ") {
         return "icons/laptop.svg";
     }
-    if workspace.endpoint.managed_id().is_none() {
-        let source = workspace.source.to_ascii_lowercase();
-        if source.contains("podman") {
-            return "marsa/podman.svg";
-        }
-        if source == "docker desktop" || source == "desktop-linux" {
-            return "marsa/docker-engine.svg";
-        }
+    if workspace.endpoint.managed_id().is_none()
+        && let Some(mark) = brand_mark_for_source(&workspace.source)
+    {
+        return mark;
     }
     environment_icon_path(system.environment_presentation(Some(workspace)).1)
 }
