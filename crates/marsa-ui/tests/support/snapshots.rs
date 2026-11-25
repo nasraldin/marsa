@@ -113,7 +113,13 @@ impl SnapshotSuite {
         Self {
             references: manifest.join("tests/snapshots"),
             output: env::var_os("MARSA_SNAPSHOT_DIFF_DIR").map_or_else(
-                || manifest.join("../../target/ui-snapshot-diffs"),
+                || {
+                    manifest
+                        .ancestors()
+                        .nth(2)
+                        .expect("workspace root")
+                        .join("target/ui-snapshot-diffs")
+                },
                 PathBuf::from,
             ),
             update,
@@ -173,18 +179,21 @@ impl SnapshotSuite {
             .expect("save visual diff PNG");
     }
 
-    pub(super) fn finish(self, fixtures: usize) {
-        assert_eq!(
-            self.failures,
-            0,
-            "snapshot mismatches; artifacts in {}",
-            self.output.display()
-        );
+    pub(super) fn finish(self, fixtures: usize) -> bool {
+        if self.failures != 0 {
+            eprintln!(
+                "{} snapshot mismatches; artifacts in {}",
+                self.failures,
+                self.output.display()
+            );
+            return false;
+        }
         let action = if self.update { "Updated" } else { "Verified" };
         println!(
             "{action} {} native snapshots for {fixtures} fixtures.",
             fixtures * Variant::ALL.len()
         );
+        true
     }
 }
 

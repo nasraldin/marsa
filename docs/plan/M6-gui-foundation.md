@@ -168,7 +168,7 @@ toast dismissal.
 
 ### M6-06 Four-variant snapshot harness
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M6-05
 - **Docs:** [13 GUI tests](../13-testing-and-benchmarks.md#gui-tests)
 - **Do:** Build the snapshot test harness that renders any component or screen in English light, English dark, Arabic light and Arabic dark, compares against committed references, and produces a visual diff. Add layout assertions for right-to-left.
@@ -176,6 +176,17 @@ toast dismissal.
 - **Accept when:**
   - A deliberate visual change fails CI with a diff image.
   - Each component has four committed reference images.
+
+Native Metal captures verified 25 gallery fixtures, including the open
+dialog, typed confirmation, toast, menu and tooltip. Each fixture has four
+committed references. The split fixture measures the inline start pane;
+the direction tests verify mirrored icons and the visual order of mixed
+Arabic and technical text.
+
+A temporary change from a primary to an outline gallery button made the
+native suite exit with a failure and produced four diff images in the
+Tier 1 artifact directory. Restoring the button passed all 100 comparisons.
+Tier 1 retains the existing Markdown-only path classification.
 
 ### M6-07 App store and services
 

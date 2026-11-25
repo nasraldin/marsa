@@ -180,8 +180,7 @@ mod native {
                         suite.compare(case.name, variant, &actual);
                     }
                 }
-                suite.finish(CASES.len());
-                std::process::exit(0);
+                std::process::exit(i32::from(!suite.finish(CASES.len())));
             })
             .detach();
         });
