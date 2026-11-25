@@ -98,7 +98,7 @@
 
 ### M0-09 Skip build jobs for documentation-only changes
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M0-06, M0-08
 - **Docs:** [12 Continuous integration](../12-build-release-update.md#continuous-integration)
 - **Do:** Classify the changed paths in Tier 1 before starting the Rust verification and guest build jobs.
