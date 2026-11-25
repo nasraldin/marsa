@@ -30,6 +30,9 @@ use objc2_app_kit::{
     NSRunningApplication, NSStatusBar, NSStatusItem, NSUserInterfaceLayoutDirection,
     NSVariableStatusItemLength, NSWorkspace, NSWorkspaceOpenConfiguration,
 };
+use objc2_core_foundation::{
+    CFRunLoop, CFRunLoopMode, kCFRunLoopCommonModes, kCFRunLoopDefaultMode,
+};
 use objc2_foundation::{NSDictionary, NSLocale, NSPoint, NSString, NSURL};
 use objc2_security::{SessionAttributeBits, SessionGetInfo, callerSecuritySession};
 use tokio::sync::{mpsc, oneshot};
@@ -362,8 +365,22 @@ struct StopAppKit;
 
 impl Drop for StopAppKit {
     fn drop(&mut self) {
-        DispatchQueue::main().exec_async(stop_application);
+        // SAFETY: These immutable system constants describe the run loop modes.
+        if let Some(common) = unsafe { kCFRunLoopCommonModes } {
+            schedule_appkit(common, stop_application);
+        }
     }
+}
+
+fn schedule_appkit(mode: &CFRunLoopMode, work: impl Fn() + Send + Sync + 'static) {
+    let Some(run_loop) = CFRunLoop::main() else {
+        return;
+    };
+    let callback = block2::RcBlock::new(work);
+    // SAFETY: mode points to a CFString. Core Foundation copies the block and
+    // invokes it in the main run loop, including nested modal modes when requested.
+    unsafe { run_loop.perform_block(Some(mode), Some(&callback)) };
+    run_loop.wake_up();
 }
 
 fn stop_application() {
@@ -375,7 +392,11 @@ fn stop_application() {
         // A stop during a confirmation otherwise stops only that modal
         // loop. Cancel the confirmation and stop the app after it unwinds.
         application.stopModalWithCode(NSModalResponseCancel);
-        DispatchQueue::main().exec_async(stop_application);
+        // SAFETY: The default mode constant is immutable. Waiting for that
+        // mode lets the nested AppKit confirmation unwind before stopping the app.
+        if let Some(default) = unsafe { kCFRunLoopDefaultMode } {
+            schedule_appkit(default, stop_application);
+        }
     } else {
         application.stop(None);
     }
