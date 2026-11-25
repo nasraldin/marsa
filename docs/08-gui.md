@@ -225,7 +225,9 @@ filters, and table columns above the scrollable rows. Resource details scroll
 below their back control. Select the current sidebar route to return to its
 list.
 
-Settings → General groups the interface and terminal font menus with six
+Settings → General shares the System, Light, and Dark theme cards with
+first-run setup and offers the interface language in a dropdown. It groups
+the interface and terminal font menus with six
 base text sizes. IBM Plex supplies the defaults and Arabic glyph fallback.
 The menus include native macOS system faces and the
 [optional bundled families](../assets/fonts/README.md#optional-typefaces).

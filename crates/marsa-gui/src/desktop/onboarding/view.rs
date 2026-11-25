@@ -11,11 +11,13 @@ use marsa_ui::{
         scroll::ScrollableElement as _,
     },
     gui_keys as gui,
-    preferences::Theme,
     tokens::typography::{Role, ui_size},
 };
 
-use crate::screens::common::{ScreenContext, align, color, panel, row, technical};
+use crate::screens::{
+    common::{ScreenContext, align, color, panel, row, technical},
+    theme_picker::{choice_button, theme_picker},
+};
 
 use super::{Desktop, Setup, Step};
 
@@ -36,7 +38,15 @@ impl Desktop {
         let (title, help) = setup.step.copy();
         let content = match setup.step {
             Step::Language => language_options(setup, palette, cx),
-            Step::Appearance => theme_options(setup, palette, cx),
+            Step::Appearance => theme_picker(
+                "setup-theme",
+                locale,
+                palette,
+                Some(setup.appearance),
+                setup.pending,
+                cx,
+                Desktop::setup_appearance,
+            ),
             Step::Sharing => sharing(setup, &screen, cx),
             Step::Docker => docker(&screen),
         };
@@ -213,16 +223,21 @@ fn language_options(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> D
         [
             (
                 Locale::EnglishUs,
-                "English (US)",
+                gui::GUI_LANGUAGE_ENGLISH_US_AUTONYM,
                 gui::GUI_SETUP_ENGLISH_DIRECTION,
             ),
-            (Locale::Arabic, "العربية", gui::GUI_SETUP_ARABIC_DIRECTION),
+            (
+                Locale::Arabic,
+                gui::GUI_LANGUAGE_ARABIC_AUTONYM,
+                gui::GUI_SETUP_ARABIC_DIRECTION,
+            ),
         ]
         .into_iter()
         .enumerate()
         .map(|(index, (choice, label, direction))| {
             let selected = setup.locale == choice;
-            option_button(("setup-language", index), selected, palette)
+            let label = label.text(choice);
+            choice_button(("setup-language", index), selected, palette)
                 .w_full()
                 .h(px(76.))
                 .accessibility_label(label)
@@ -245,90 +260,6 @@ fn language_options(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> D
                 .on_click(cx.listener(move |desktop, _, _, cx| desktop.setup_locale(choice, cx)))
         }),
     )
-}
-
-fn theme_options(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> Div {
-    let locale = setup.locale;
-    row(locale).gap_3().flex_wrap().children(
-        [
-            (Theme::System, gui::GUI_DESKTOP_SYSTEM, palette),
-            (Theme::Light, gui::GUI_DESKTOP_LIGHT, Palette::Light),
-            (Theme::Dark, gui::GUI_DESKTOP_DARK, Palette::Dark),
-        ]
-        .into_iter()
-        .enumerate()
-        .map(|(index, (choice, name, tint))| {
-            let selected = setup.appearance == choice;
-            option_button(("setup-theme", index), selected, palette)
-                .flex_1()
-                .min_w(px(116.))
-                .h(px(156.))
-                .accessibility_label(name.text(locale))
-                .child(
-                    div()
-                        .w_full()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(theme_thumbnail(locale, tint))
-                        .child(
-                            row(locale)
-                                .justify_between()
-                                .gap_2()
-                                .child(name.text(locale))
-                                .children(selected.then_some(IconName::Check)),
-                        ),
-                )
-                .on_click(
-                    cx.listener(move |desktop, _, _, cx| desktop.setup_appearance(choice, cx)),
-                )
-        }),
-    )
-}
-
-fn theme_thumbnail(locale: Locale, palette: Palette) -> Div {
-    row(locale)
-        .h(px(92.))
-        .w_full()
-        .rounded(px(6.))
-        .overflow_hidden()
-        .bg(color(palette, ColorToken::BgCanvas))
-        .child(
-            div()
-                .w(px(44.))
-                .h_full()
-                .bg(color(palette, ColorToken::BgSidebar)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .h_full()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .p_3()
-                .child(
-                    div()
-                        .w(px(74.))
-                        .h(px(8.))
-                        .rounded_full()
-                        .bg(color(palette, ColorToken::AccentDefault)),
-                )
-                .child(
-                    div()
-                        .w_full()
-                        .h(px(8.))
-                        .rounded_full()
-                        .bg(color(palette, ColorToken::BgSubtle)),
-                )
-                .child(
-                    div()
-                        .w(px(60.))
-                        .h(px(8.))
-                        .rounded_full()
-                        .bg(color(palette, ColorToken::BgSubtle)),
-                ),
-        )
 }
 
 fn sharing(setup: &Setup, screen: &ScreenContext<'_>, cx: &Context<Desktop>) -> Div {
@@ -505,32 +436,6 @@ fn setup_footer(setup: &Setup, palette: Palette, cx: &Context<Desktop>) -> Div {
                 .disabled(setup.pending)
                 .on_click(cx.listener(|desktop, _, _, cx| desktop.setup_step(true, cx))),
         )
-}
-
-fn option_button(
-    id: impl Into<marsa_ui::gpui::ElementId>,
-    selected: bool,
-    palette: Palette,
-) -> Button {
-    Button::new(id)
-        .outline()
-        .rounded(px(8.))
-        .bg(color(
-            palette,
-            if selected {
-                ColorToken::AccentSubtle
-            } else {
-                ColorToken::BgElevated
-            },
-        ))
-        .border_color(color(
-            palette,
-            if selected {
-                ColorToken::AccentFocus
-            } else {
-                ColorToken::BorderSubtle
-            },
-        ))
 }
 
 fn heading(locale: Locale) -> Div {

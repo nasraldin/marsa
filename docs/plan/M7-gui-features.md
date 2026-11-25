@@ -538,3 +538,17 @@ the restart confirmation.
 
 Native checks covered four locale and theme combinations, Overview start and
 confirmed stop, and saving a new CPU allocation on the disposable Lima VM.
+
+### M7-38 Match Settings appearance to first-run setup
+
+- **Status:** done
+- **Depends on:** M7-35
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Present the interface language in a dropdown and share visual theme choices between Settings and first-run setup.
+- **Accept when:**
+  - The menu offers System, English (US), and العربية and reports the selected language.
+  - Both surfaces use System, Light, and Dark previews with recognizable icons and a selected state.
+  - Verify the four locale and theme combinations and the keyboard path.
+
+Native Settings checks covered the four appearance and language combinations
+and keyboard selection from the language menu.

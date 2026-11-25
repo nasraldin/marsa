@@ -6,3 +6,4 @@ pub(crate) mod containers;
 pub(crate) mod external_inventory;
 pub(crate) mod resources;
 pub(crate) mod system;
+pub(crate) mod theme_picker;
