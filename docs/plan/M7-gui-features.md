@@ -560,7 +560,7 @@ source evidence and allowed connection paths.
 
 An ad hoc signed native desktop fixture used a real daemon and the operating system's Apple Git 2.54.0 (Apple Git-157). In all four variants, the fixture saved and edited a repository, recovered the same entry after relaunch, and verified both cancellation and confirmed removal across restarts. It accepted the public Docker Compose examples repository's `master` branch over HTTPS and rejected a missing branch. A direct Git control failed under the supplied ambient URL rewrite and transport settings. Marsa used trusted Git and completed the checkout with those same overrides present, bypassing the Git executable injected into `PATH`.
 
-The fixture supplied the chosen folder and removal response at the native callbacks. The resulting checkout matched the tested branch and revision, preserved existing sentinel files, and had owner-only permissions even under a more broadly readable parent. The repository store was owner-only. A distinct action opened the Deploy Stack dialog for the selected Lima engine. The fixture skipped Finder reveal and stopped before submitting a deployment. Authenticated HTTPS and SSH are tracked in M7-30.
+The fixture supplied the chosen folder and removal response at the native callbacks. The resulting checkout matched the tested branch and revision, preserved existing sentinel files, and had owner-only permissions even under a more broadly readable parent. The repository store was owner-only. A distinct action opened the Deploy Stack dialog for the selected Lima engine. The fixture skipped Finder reveal and stopped before submitting a deployment. M7-30 covers authenticated HTTPS, and M7-53 tracks SSH.
 
 [English light](../screenshots/m7-28/en-light.png) ·
 [English dark](../screenshots/m7-28/en-dark.png) ·
@@ -599,7 +599,7 @@ existing host allowlist.
 
 ### M7-30 Authenticate HTTPS Git sources
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-28
 - **Docs:** [11 Git sources](../11-security.md#git-sources)
 - **Do:** Save an optional HTTPS username and password or token in the macOS Keychain. Give the trusted system Git client the credential for the selected saved HTTPS source.
@@ -607,6 +607,19 @@ existing host allowlist.
 - **Accept when:** Tests and checkout use only the credential associated with the selected repository. Git uses the existing pinned HTTPS and redirect rules. Secrets stay out of settings and Compose. Removing or changing a saved source revokes its former credential association.
 
 Authenticated SSH uses a different host-key and identity policy and is tracked in M7-53.
+
+Verified the Settings dialog and its Save button in four signed native views.
+The fixture supplied dummy values at the input controls and verified that the
+secret stayed out of desktop settings. A signed client build using the pinned
+Keychain helper verified persistence, authenticated branch lookup, and an exact
+shallow checkout against a local smart Git HTTPS server. The fixture trusted its
+local certificate for that process. The server recorded authentication only on
+the selected repository. Changing the URL revoked the old association, a stale
+reference was rejected, and the client refused the redirect.
+[English light](../screenshots/m7-30/en-light.png),
+[English dark](../screenshots/m7-30/en-dark.png),
+[Arabic light](../screenshots/m7-30/ar-light.png),
+[Arabic dark](../screenshots/m7-30/ar-dark.png).
 
 ### M7-31 Download container files
 

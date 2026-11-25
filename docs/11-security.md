@@ -176,6 +176,19 @@ child directory of the owner-selected folder. Review files in the checkout
 before using the usual Compose picker to select its YAML and confirm the
 target engine.
 
+An optional HTTPS credential is saved through the signed macOS Keychain
+helper. Its Keychain item is scoped to the saved repository ID and exact URL.
+Settings contains only the current nonsecret association revision. To run
+the test or checkout, the desktop verifies that the selected reference still
+matches its saved record and starts a short-lived owner-private Unix socket.
+The system Git helper obtains the credential over that socket only when its
+requested protocol, authority and repository path match the approved URL.
+Git receives no credential in its environment or command arguments. Changing
+the URL or removing the repository or credential revokes the association.
+Compose receives only the file the owner selects after checkout.
+[Git credential context](https://git-scm.com/docs/gitcredentials/2.54.0) ·
+[Git helper request format](https://git-scm.com/docs/git-credential/2.54.0).
+
 ## SSH agent access
 
 For builds, the Docker client selects the host agent and offers it through its own Buildx session. BuildKit makes the socket available to Dockerfile steps that request an SSH mount within that session. A build with an SSH grant can request signatures from the chosen agent for the lifetime of its session. The upstream provider permits signing without exporting private keys. Adding, removing and locking keys through the forwarded socket is refused by the upstream provider. [Pinned provider source](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).

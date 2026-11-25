@@ -1,6 +1,6 @@
 //! Desktop registry addresses and owner-private Keychain operations.
 
-pub(super) mod helper;
+pub(crate) mod helper;
 mod probe;
 #[cfg(test)]
 mod tests;
