@@ -26,6 +26,7 @@ use crate::{
         ScreenContext, align, color, dialog_actions, dialog_frame, dialog_heading, message, panel,
         row, technical,
     },
+    screens::external_inventory::ExternalWorkspace,
     services::{Command, EngineAction},
 };
 
@@ -157,34 +158,19 @@ impl SystemView {
             name => name,
         });
         let resources = self.settings.as_ref().map(|(settings, _)| {
-            row(locale)
-                .flex_wrap()
-                .gap_3()
-                .child(resource(
-                    screen,
-                    "icons/cpu.svg",
-                    gui::GUI_SYSTEM_MACHINE_PROCESSORS,
-                    format!("{} vCPU", settings.vm.cpus),
-                ))
-                .child(resource(
-                    screen,
-                    "icons/memory-stick.svg",
-                    gui::GUI_SYSTEM_MACHINE_MEMORY,
-                    settings
-                        .vm
-                        .memory
-                        .map(bytes)
-                        .unwrap_or_else(|| gui::GUI_DESKTOP_AUTOMATIC.text(locale).to_owned()),
-                ))
-                .child(resource(
-                    screen,
-                    "icons/hard-drive.svg",
-                    gui::GUI_SYSTEM_MACHINE_DISK_ALLOCATION,
-                    self.disk
-                        .as_ref()
-                        .map(|disk| bytes(disk.host_allocated_bytes))
-                        .unwrap_or_else(|| gui::GUI_DESKTOP_UNAVAILABLE.text(locale).to_owned()),
-                ))
+            machine_resource_values(
+                screen,
+                format!("{} vCPU", settings.vm.cpus),
+                settings
+                    .vm
+                    .memory
+                    .map(bytes)
+                    .unwrap_or_else(|| gui::GUI_DESKTOP_AUTOMATIC.text(locale).to_owned()),
+                self.disk
+                    .as_ref()
+                    .map(|disk| bytes(disk.host_allocated_bytes))
+                    .unwrap_or_else(|| gui::GUI_DESKTOP_UNAVAILABLE.text(locale).to_owned()),
+            )
         });
         let actions = row(locale)
             .gap_2()
@@ -221,48 +207,228 @@ impl SystemView {
                 }
             }));
         let detail = engine.cloned();
-        div().flex().flex_col().gap_4()
-            .child(panel(screen)
-                .child(row(locale).justify_between().gap_3().flex_wrap()
-                    .child(row(locale).gap_2().flex_wrap()
-                        .child(system_icon(palette, "icons/server.svg"))
-                        .child(title_text(gui::GUI_DESKTOP_LINUX_VIRTUAL_MACHINE.text(locale)))
-                        .child(status::compact_badge(locale, palette, state)))
-                    .child(actions))
-                .children(running.then(|| muted(palette, gui::GUI_DESKTOP_RUNNING_WORKLOADS_WILL_BE_INTERRUPTED_SAVE_YOUR_WORK_FIRST.text(locale))))
-                .child(row(locale).flex_wrap().gap_3().border_t_1().pt_3()
-                    .border_color(color(palette, ColorToken::BorderSubtle))
-                    .child(machine_fact(screen, gui::GUI_DESKTOP_BACKEND, backend))
-                    .child(machine_fact(screen, gui::GUI_SYSTEM_MACHINE_ARCHITECTURE, host_architecture()))
-                    .child(machine_fact(screen, gui::GUI_DESKTOP_DOCKER_CONTEXT, if engine.is_some() { "marsa" } else { "—" }))),
+        let resource_action = (!self.restart_required).then(|| {
+            Button::new("edit-machine-resources")
+                .outline()
+                .disabled(self.settings.is_none() || self.busy())
+                .label(gui::GUI_DESKTOP_EDIT_RESOURCES.text(locale))
+                .on_click(cx.listener(move |view, _, window, cx| {
+                    view.edit_machine_resources(locale, palette, window, cx)
+                }))
+        });
+        let resource_body = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .children(resources)
+            .children(self.restart_required.then(|| {
+                div()
+                    .text_sm()
+                    .text_color(color(palette, ColorToken::StatusWarning))
+                    .child(gui::GUI_DESKTOP_RESOURCE_CHANGES_ARE_PENDING.text(locale))
+            }));
+        let diagnostics = div().flex().flex_col().gap_1().children(
+            matches!(
+                state,
+                Some(EngineState::Starting | EngineState::Booting | EngineState::Failed)
             )
-            .child(panel(screen)
-                .child(row(locale).justify_between().gap_3().flex_wrap()
-                    .child(div().min_w_0().flex().flex_col().gap_1()
-                        .child(title_text(gui::GUI_DESKTOP_RESOURCES.text(locale)))
-                        .child(muted(palette, gui::GUI_SYSTEM_MACHINE_RESOURCE_NOTICE.text(locale))))
-                    .children((!self.restart_required).then(|| {
-                        Button::new("edit-machine-resources").outline()
-                            .disabled(self.settings.is_none() || self.busy())
-                            .label(gui::GUI_DESKTOP_EDIT_RESOURCES.text(locale))
-                            .on_click(cx.listener(move |view, _, window, cx| view.edit_machine_resources(locale, palette, window, cx)))
-                    })))
-                .children(resources)
-                .children(self.restart_required.then(|| {
-                    div().text_sm().text_color(color(palette, ColorToken::StatusWarning))
-                        .child(gui::GUI_DESKTOP_RESOURCE_CHANGES_ARE_PENDING.text(locale))
-                })),
+            .then(|| engine.and_then(|engine| engine.boot_stage.as_deref()))
+            .flatten()
+            .map(mono),
+        );
+        let startup = Button::new("startup-details")
+            .outline()
+            .label(gui::GUI_DESKTOP_VIEW_STARTUP_DETAILS.text(locale))
+            .on_click(cx.listener(move |view, _, window, cx| {
+                view.startup_details(detail.clone(), locale, palette, window, cx)
+            }));
+        machine_layout(
+            machine_identity(
+                screen,
+                gui::GUI_DESKTOP_LINUX_VIRTUAL_MACHINE.text(locale).into(),
+                status::compact_badge(locale, palette, state),
+                [
+                    (gui::GUI_DESKTOP_BACKEND, backend),
+                    (gui::GUI_SYSTEM_MACHINE_ARCHITECTURE, host_architecture()),
+                    (
+                        gui::GUI_DESKTOP_DOCKER_CONTEXT,
+                        if engine.is_some() { "marsa" } else { "—" },
+                    ),
+                ],
+                actions,
+                running.then(|| {
+                    muted(
+                        palette,
+                        gui::GUI_DESKTOP_RUNNING_WORKLOADS_WILL_BE_INTERRUPTED_SAVE_YOUR_WORK_FIRST
+                            .text(locale),
+                    )
+                }),
+            ),
+            machine_section(
+                screen,
+                gui::GUI_DESKTOP_RESOURCES,
+                gui::GUI_SYSTEM_MACHINE_RESOURCE_NOTICE.text(locale),
+                resource_action,
+                resource_body,
+            ),
+            machine_section(
+                screen,
+                gui::GUI_DESKTOP_BOOT_DIAGNOSTICS,
+                startup_copy(state).text(locale),
+                Some(startup),
+                diagnostics,
+            ),
+        )
+    }
+
+    pub(crate) fn external_machine(
+        &self,
+        name: &str,
+        workspace: Option<&ExternalWorkspace>,
+        connection: &'static str,
+        screen: &ScreenContext<'_>,
+        cx: &Context<Self>,
+    ) -> Div {
+        let locale = screen.locale;
+        let palette = screen.palette;
+        let lima = self.has_lima_machine_target();
+        let settings = self.lima_machine_settings();
+        let state = self.lima_machine_state();
+        let unavailable = gui::GUI_DESKTOP_UNAVAILABLE.text(locale);
+        let status = if lima && state.is_some() {
+            status::compact_badge(locale, palette, state)
+        } else {
+            status::badge_with_text(
+                locale,
+                palette,
+                workspace.map(|workspace| {
+                    if workspace.reachable {
+                        EngineState::Ready
+                    } else {
+                        EngineState::Failed
+                    }
+                }),
+                connection,
             )
-            .child(panel(screen).child(row(locale).justify_between().gap_3().flex_wrap()
-                .child(div().min_w_0().flex().flex_col().gap_1()
-                    .child(title_text(gui::GUI_DESKTOP_BOOT_DIAGNOSTICS.text(locale)))
-                    .child(muted(palette, startup_copy(state).text(locale)))
-                    .children(matches!(state, Some(EngineState::Starting | EngineState::Booting | EngineState::Failed))
-                        .then(|| engine.and_then(|engine| engine.boot_stage.as_deref())).flatten().map(mono)))
-                .child(Button::new("startup-details").outline()
-                    .label(gui::GUI_DESKTOP_VIEW_STARTUP_DETAILS.text(locale))
-                    .on_click(cx.listener(move |view, _, window, cx| view.startup_details(detail.clone(), locale, palette, window, cx))))),
+        };
+        let refresh = Button::new("refresh-machine-connection")
+            .outline()
+            .label(gui::GUI_DESKTOP_REFRESH.text(locale))
+            .on_click(cx.listener(|this, _, window, cx| this.refresh_lima_selection(window, cx)));
+        let resources = settings.map_or_else(
+            || {
+                machine_resource_values(
+                    screen,
+                    unavailable.into(),
+                    unavailable.into(),
+                    unavailable.into(),
+                )
+            },
+            |settings| {
+                machine_resource_values(
+                    screen,
+                    format!("{} vCPU", settings.cpus),
+                    bytes(settings.memory_bytes),
+                    bytes(settings.disk_bytes),
+                )
+            },
+        );
+        let resource_notice = if let Some(settings) = settings {
+            if settings.stopped {
+                gui::GUI_ENVIRONMENT_LIMA_STOPPED
+            } else if settings.running {
+                gui::GUI_ENVIRONMENT_LIMA_RUNNING
+            } else {
+                gui::GUI_ENVIRONMENT_LIMA_UNKNOWN_STATE
+            }
+        } else if lima {
+            gui::GUI_SYSTEM_MACHINE_LIMA_RESOURCES_UNAVAILABLE
+        } else {
+            gui::GUI_SYSTEM_MACHINE_PROVIDER_MANAGED
+        };
+        let version = workspace.and_then(|workspace| workspace.verified_engine.as_ref());
+        let address = workspace.map(|workspace| workspace.endpoint.address());
+        let network = settings
+            .and_then(|settings| settings.host_loopback)
+            .map(|allowed| {
+                muted(
+                    palette,
+                    if allowed {
+                        gui::GUI_SYSTEM_MACHINE_LOOPBACK_ALLOWED
+                    } else {
+                        gui::GUI_SYSTEM_MACHINE_LOOPBACK_DENIED
+                    }
+                    .text(locale),
+                )
+            });
+        let diagnostics = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                row(locale)
+                    .gap_3()
+                    .flex_wrap()
+                    .child(machine_fact_value(
+                        screen,
+                        gui::GUI_SYSTEM_MACHINE_DOCKER_CONNECTION,
+                        div()
+                            .text_size(ui_size(12.))
+                            .line_height(ui_size(18.))
+                            .child(connection),
+                    ))
+                    .children(address.as_deref().map(|value| {
+                        machine_fact(screen, gui::GUI_SYSTEM_MACHINE_DOCKER_ENDPOINT, value)
+                    }))
+                    .children(version.map(|engine| {
+                        machine_fact(
+                            screen,
+                            gui::GUI_SYSTEM_MACHINE_DOCKER_VERSION,
+                            &engine.version,
+                        )
+                    })),
             )
+            .children(self.lima_machine_feedback(screen));
+        machine_layout(
+            machine_identity(
+                screen,
+                technical(name),
+                status,
+                [
+                    (
+                        gui::GUI_DESKTOP_BACKEND,
+                        settings.map_or(if lima { "Lima" } else { "—" }, |s| s.backend),
+                    ),
+                    (
+                        gui::GUI_SYSTEM_MACHINE_ARCHITECTURE,
+                        settings.and_then(|s| s.architecture).unwrap_or("—"),
+                    ),
+                    (gui::GUI_DESKTOP_DOCKER_CONTEXT, name),
+                ],
+                self.lima_machine_actions(locale, cx),
+                None,
+            ),
+            machine_section(
+                screen,
+                gui::GUI_DESKTOP_RESOURCES,
+                resource_notice.text(locale),
+                lima.then(|| self.lima_machine_edit_button(locale, cx)),
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(resources)
+                    .children(network)
+                    .children(self.lima_machine_editor(screen, cx)),
+            ),
+            machine_section(
+                screen,
+                gui::GUI_DESKTOP_BOOT_DIAGNOSTICS,
+                gui::GUI_SYSTEM_MACHINE_EXTERNAL_DIAGNOSTICS.text(locale),
+                Some(refresh),
+                diagnostics,
+            ),
+        )
     }
 
     pub(crate) fn failed_engine(&self, screen: &ScreenContext<'_>, cx: &mut Context<Self>) -> Div {
@@ -606,12 +772,12 @@ fn startup_copy(state: Option<EngineState>) -> TextKey {
     }
 }
 
-pub(super) fn title_text(text: &'static str) -> Div {
+pub(super) fn title_text(text: impl Into<marsa_ui::gpui::SharedString>) -> Div {
     div()
         .text_size(ui_size(16.))
         .line_height(ui_size(24.))
         .font_weight(FontWeight::MEDIUM)
-        .child(text)
+        .child(text.into())
 }
 
 pub(super) fn mono(value: &str) -> Div {
@@ -638,7 +804,117 @@ pub(super) fn system_icon(palette: Palette, path: &'static str) -> Icon {
         .text_color(color(palette, ColorToken::TextMuted))
 }
 
+fn machine_layout(identity: Div, resources: Div, diagnostics: Div) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .child(identity)
+        .child(resources)
+        .child(diagnostics)
+}
+
+fn machine_identity(
+    screen: &ScreenContext<'_>,
+    name: marsa_ui::gpui::SharedString,
+    badge: Div,
+    facts: [(TextKey, &str); 3],
+    actions: Div,
+    notice: Option<Div>,
+) -> Div {
+    panel(screen)
+        .child(
+            row(screen.locale)
+                .justify_between()
+                .gap_3()
+                .flex_wrap()
+                .child(
+                    row(screen.locale)
+                        .gap_2()
+                        .flex_wrap()
+                        .child(system_icon(screen.palette, "icons/server.svg"))
+                        .child(title_text(name).min_w_0().truncate())
+                        .child(badge),
+                )
+                .child(actions),
+        )
+        .children(notice)
+        .child(
+            row(screen.locale)
+                .flex_wrap()
+                .gap_3()
+                .border_t_1()
+                .pt_3()
+                .border_color(color(screen.palette, ColorToken::BorderSubtle))
+                .children(
+                    facts
+                        .into_iter()
+                        .map(|(label, value)| machine_fact(screen, label, value)),
+                ),
+        )
+}
+
+fn machine_section(
+    screen: &ScreenContext<'_>,
+    heading: TextKey,
+    description: &'static str,
+    action: Option<Button>,
+    body: Div,
+) -> Div {
+    panel(screen)
+        .child(
+            row(screen.locale)
+                .justify_between()
+                .gap_3()
+                .flex_wrap()
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(title_text(heading.text(screen.locale)))
+                        .child(muted(screen.palette, description)),
+                )
+                .children(action),
+        )
+        .child(body)
+}
+
+fn machine_resource_values(
+    screen: &ScreenContext<'_>,
+    cpu: String,
+    memory: String,
+    disk: String,
+) -> Div {
+    row(screen.locale)
+        .flex_wrap()
+        .gap_3()
+        .child(resource(
+            screen,
+            "icons/cpu.svg",
+            gui::GUI_SYSTEM_MACHINE_PROCESSORS,
+            cpu,
+        ))
+        .child(resource(
+            screen,
+            "icons/memory-stick.svg",
+            gui::GUI_SYSTEM_MACHINE_MEMORY,
+            memory,
+        ))
+        .child(resource(
+            screen,
+            "icons/hard-drive.svg",
+            gui::GUI_SYSTEM_MACHINE_DISK_ALLOCATION,
+            disk,
+        ))
+}
+
 fn machine_fact(screen: &ScreenContext<'_>, key: TextKey, value: &str) -> Div {
+    machine_fact_value(screen, key, mono(value))
+}
+
+fn machine_fact_value(screen: &ScreenContext<'_>, key: TextKey, value: Div) -> Div {
     div()
         .flex()
         .flex_col()
@@ -646,7 +922,7 @@ fn machine_fact(screen: &ScreenContext<'_>, key: TextKey, value: &str) -> Div {
         .flex_1()
         .min_w(px(128.))
         .child(muted(screen.palette, key.text(screen.locale)))
-        .child(mono(value))
+        .child(value)
 }
 
 fn resource(screen: &ScreenContext<'_>, icon: &'static str, key: TextKey, value: String) -> Div {
