@@ -75,9 +75,14 @@ If the engine stops during startup, open **Machine** to see the failed stage and
 
 ## Uninstall
 
-1. Back up workload data you want to keep. Stop the engine and turn off **Start at login** under **Settings → General**.
-2. Quit Marsa and move `Marsa.app` from Applications to Trash.
-3. Remove the `marsa` Docker context if you registered it. If it is your active context, switch to the context you want to use first.
-4. In Finder, open `~/.marsa` through **Go → Go to Folder**. Move that folder to Trash only if you want to delete all of Marsa’s volumes, images, settings and local grants. Remove any shell PATH entries or links you added for Marsa.
+1. Back up any workload data you want to keep. If you installed the optional Docker socket link, remove it under **Settings → General** and approve the macOS prompt. Stop the engine and quit Marsa.
+2. If `marsa` is your active Docker context, select the context you want to keep using with `docker context use`. If you used a custom `DOCKER_CONFIG` to register Marsa, use that same directory for the uninstall command.
+3. While the app is still installed, run the command below. Substitute the app's installed path if needed. Type `UNINSTALL MARSA` to confirm permanent removal of the app's images, volumes, settings, grants, and logs.
 
-The factory reset command also deletes workload data and requires typed confirmation. It resets a Marsa installation while the app is still installed.
+   ```sh
+   "/Applications/Marsa.app/Contents/MacOS/marsad" uninstall
+   ```
+
+4. Move the app to Trash. If you installed it with Homebrew, run `brew uninstall --cask marsa` to remove the app and the command link installed by the cask. Remove any shell PATH entries or links you added manually.
+
+The command unregisters Marsa's login agent and removes the matching Marsa Docker context. It keeps other Docker contexts and configuration. The separate `marsa reset --factory` command resets an installed app and also deletes workload data.

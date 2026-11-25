@@ -2,6 +2,8 @@
 
 mod keychain;
 mod store;
+#[cfg(target_os = "macos")]
+pub use store::{ContextRemoval, ContextRemovalError, prepare_context_removal};
 
 use std::{
     io,
