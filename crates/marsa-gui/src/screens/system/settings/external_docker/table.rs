@@ -15,7 +15,7 @@ use marsa_ui::{
         StatefulInteractiveElement as _, Styled as _, div, prelude::FluentBuilder as _, px,
     },
     gpui_component::{
-        Disableable as _, IconName, Sizable as _,
+        Disableable as _, Icon, IconName, Sizable as _,
         button::{Button, ButtonVariants as _},
         tooltip::Tooltip,
     },
@@ -503,12 +503,12 @@ impl SystemView {
             match screen.state.engine().map(|engine| engine.state()) {
                 Some(EngineState::Ready | EngineState::Idle | EngineState::Paused) => Some((
                     EngineAction::Stop,
-                    IconName::Square,
+                    "icons/square-stop.svg",
                     gui::GUI_DESKTOP_STOP_MACHINE,
                 )),
                 Some(EngineState::Stopped | EngineState::Failed) => Some((
                     EngineAction::Start,
-                    IconName::Play,
+                    "icons/play.svg",
                     gui::GUI_DESKTOP_START_MACHINE,
                 )),
                 _ => None,
@@ -523,7 +523,7 @@ impl SystemView {
                 row_action(
                     "environment-engine-lifecycle",
                     index,
-                    icon,
+                    Icon::default().path(icon),
                     label.text(locale),
                 )
                 .disabled(disabled || self.busy())
@@ -537,7 +537,7 @@ impl SystemView {
                     row_action(
                         "environment-lima-lifecycle",
                         index,
-                        icon,
+                        Icon::default().path(icon),
                         label.text(locale),
                     )
                     .disabled(disabled || self.services.is_none())
@@ -558,7 +558,7 @@ impl SystemView {
                 row_action(
                     "use-environment",
                     index,
-                    IconName::ArrowUp,
+                    Icon::from(IconName::ArrowUp),
                     gui::GUI_ENVIRONMENT_USE.text(locale),
                 )
                 .disabled(disabled || selection.is_none())
@@ -572,7 +572,7 @@ impl SystemView {
                 row_action(
                     "test-environment-row",
                     index,
-                    IconName::Network,
+                    Icon::from(IconName::Network),
                     gui::GUI_ENVIRONMENT_TEST.text(locale),
                 )
                 .disabled(disabled || self.services.is_none())
@@ -584,7 +584,7 @@ impl SystemView {
                 row_action(
                     "edit-environment",
                     index,
-                    IconName::Settings2,
+                    Icon::from(IconName::Settings2),
                     gui::GUI_ENVIRONMENT_EDIT_TITLE.text(locale),
                 )
                 .disabled(disabled)
@@ -666,7 +666,7 @@ fn table_line(locale: Locale, cells: [Div; 6]) -> Div {
     )
 }
 
-fn row_action(id: &'static str, index: usize, icon: IconName, label: &'static str) -> Button {
+fn row_action(id: &'static str, index: usize, icon: Icon, label: &'static str) -> Button {
     Button::new((id, index))
         .ghost()
         .small()

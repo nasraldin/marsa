@@ -8,7 +8,8 @@ use marsa_ui::{
         ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, div, ease_out_quint,
         px, svg,
     },
-    gpui_component::button::Button,
+    gpui_component::button::{Button, ButtonVariants as _},
+    gui_keys as gui,
     tokens::scale::Motion,
 };
 
@@ -32,6 +33,24 @@ impl Tone {
             Self::Error => ("icons/circle-alert.svg", ColorToken::StatusError),
         }
     }
+}
+
+/// Close control shared by every toast so the dismiss glyph stays visible.
+pub(crate) fn dismiss_button(id: impl Into<ElementId>, locale: Locale, palette: Palette) -> Button {
+    let label = gui::GUI_DESKTOP_DISMISS.text(locale);
+    Button::new(id)
+        .ghost()
+        .size(px(28.))
+        .p_0()
+        .flex_shrink_0()
+        .accessibility_label(label)
+        .tooltip(label)
+        .child(
+            svg()
+                .path("icons/x.svg")
+                .size(px(14.))
+                .text_color(color(palette, ColorToken::TextMuted)),
+        )
 }
 
 /// Anchor a toast above the content at the logical bottom-end of the workspace.

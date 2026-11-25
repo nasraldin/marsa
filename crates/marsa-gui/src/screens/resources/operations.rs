@@ -13,8 +13,7 @@ use marsa_client::{
 };
 use marsa_ui::{
     ColorToken, Locale,
-    gpui::{AnyElement, Context, Div, ParentElement, PathPromptOptions, Styled, div, px, svg},
-    gpui_component::button::{Button, ButtonVariants as _},
+    gpui::{AnyElement, Context, Div, ParentElement, PathPromptOptions, Styled, div, px},
     tokens::{scale::Space, typography::Role},
 };
 
@@ -429,16 +428,12 @@ impl ResourcesView {
                 Tone::Warning,
             ),
         };
-        let label = gui::GUI_DESKTOP_DISMISS.text(screen.locale);
-        let dismiss = Button::new("dismiss-resource-toast")
-            .ghost()
-            .accessibility_label(label)
-            .tooltip(label)
-            .child(svg().path("icons/x.svg").size(px(14.)))
-            .on_click(cx.listener(|view, _, _, cx| {
-                view.outcome = None;
-                cx.refresh_windows();
-            }));
+        let dismiss =
+            toast::dismiss_button("dismiss-resource-toast", screen.locale, screen.palette)
+                .on_click(cx.listener(|view, _, _, cx| {
+                    view.outcome = None;
+                    cx.refresh_windows();
+                }));
         Some(toast::render(
             ("resource-toast", outcome as usize),
             screen.locale,

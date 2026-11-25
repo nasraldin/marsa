@@ -10,7 +10,7 @@ use marsa_ui::{
         Window, div, px,
     },
     gpui_component::{
-        Disableable as _, IconName, WindowExt as _,
+        Disableable as _, Icon, IconName, WindowExt as _,
         button::{Button, ButtonVariants as _},
         checkbox::Checkbox,
         input::{InputEvent, InputState},
@@ -236,9 +236,14 @@ impl SystemView {
         }
     }
 
-    pub(crate) fn overview_lima_power(&self, locale: Locale, cx: &Context<Self>) -> Option<Button> {
+    pub(crate) fn overview_lima_power(
+        &self,
+        locale: Locale,
+        icon_only: bool,
+        cx: &Context<Self>,
+    ) -> Option<Button> {
         let vm = self.lima_vm(VmScope::Machine)?;
-        self.lima_power_button(vm, VmScope::Machine, locale, true, cx)
+        self.lima_power_button(vm, VmScope::Machine, locale, icon_only, cx)
     }
 
     pub(crate) fn refresh_lima_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -364,16 +369,19 @@ impl SystemView {
         }));
         let button = if icon_only {
             button
+                .ghost()
                 .w(px(36.))
                 .h(px(36.))
                 .p_0()
-                .child(icon)
+                .child(Icon::default().path(icon))
                 .accessibility_label(label)
                 .tooltip(label)
         } else {
-            button.icon(icon).label(label)
+            button.icon(Icon::default().path(icon)).label(label)
         };
-        Some(if running && matches!(scope, VmScope::Machine) {
+        Some(if icon_only {
+            button
+        } else if running && matches!(scope, VmScope::Machine) {
             button.primary()
         } else {
             button.outline()
@@ -824,17 +832,17 @@ fn field(
         .child(resource_input(state).aria_label(label).disabled(disabled))
 }
 
-pub(super) fn lima_next_action(settings: LimaSettings) -> Option<(bool, IconName, TextKey)> {
+pub(super) fn lima_next_action(settings: LimaSettings) -> Option<(bool, &'static str, TextKey)> {
     if settings.running && !settings.stopped {
         Some((
             false,
-            IconName::Square,
+            "icons/square-stop.svg",
             gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_STOP,
         ))
     } else if settings.stopped && !settings.running {
         Some((
             true,
-            IconName::Play,
+            "icons/play.svg",
             gui::GUI_ENVIRONMENT_LIMA_LIFECYCLE_START,
         ))
     } else {
