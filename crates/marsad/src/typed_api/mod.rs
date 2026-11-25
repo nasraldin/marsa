@@ -10,6 +10,7 @@ mod docker_discovery;
 mod engine;
 mod events;
 mod factory_reset;
+mod inventory_cache;
 mod meta;
 mod network;
 mod proxy_activation;
@@ -102,6 +103,7 @@ struct Shared {
     docker_keychain_requests: requests::Cache<(), bool>,
     edit: tokio::sync::Mutex<()>,
     closing: watch::Sender<bool>,
+    inventory: inventory_cache::InventoryCache,
 }
 
 impl TypedApi {
@@ -114,10 +116,13 @@ impl TypedApi {
         let share_policy =
             SharePolicy::for_account(&home, &account.dir, &paths).map_err(io::Error::other)?;
         let (closing, _) = watch::channel(false);
+        let inventory = inventory_cache::InventoryCache::open(paths.docker_inventory_cache())
+            .map_err(|error| io::Error::other(error.to_string()))?;
         Ok(Self {
             inner: Arc::new(Shared {
                 agents: agents::State::new(paths.clone(), uid),
                 grants: GrantStore::new(paths.clone(), uid),
+                inventory,
                 paths,
                 uid,
                 events: events::Bus::new(settings)?,
@@ -315,6 +320,7 @@ impl TypedApi {
         listener: UnixListener,
         stop: impl Future<Output = ()>,
     ) -> Result<(), tonic::transport::Error> {
+        self.spawn_inventory_refresh();
         Server::builder()
             .timeout(Duration::from_secs(180))
             .add_service(
