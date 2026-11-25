@@ -208,7 +208,7 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
     let description = format!("{label}: {context} · {state_text}");
     let system = desktop.system.read(cx);
     let active_icon = if current.includes_marsa() {
-        "marsa/docker.svg"
+        "marsa/harbor.png"
     } else {
         workspace.map_or("icons/server.svg", |workspace| {
             context_icon(system, workspace)
@@ -217,7 +217,7 @@ fn context_card(desktop: &Desktop, cx: &mut Context<Desktop>) -> impl marsa_ui::
     let choices = std::iter::once((
         Environment::Marsa,
         system.environment_presentation(None).0,
-        "marsa/docker.svg",
+        "marsa/harbor.png",
     ))
     .chain(desktop.external_inventory.iter().map(|workspace| {
         (
@@ -340,13 +340,16 @@ fn engine_mark(path: &'static str, size: f32, tint: Option<marsa_ui::gpui::Hsla>
 }
 
 fn context_icon(system: &SystemView, workspace: &ExternalWorkspace) -> &'static str {
-    if workspace.endpoint.lima_instance().is_some() || workspace.source.starts_with("Colima · ") {
-        return "icons/laptop.svg";
-    }
-    if workspace.endpoint.managed_id().is_none()
-        && let Some(mark) = brand_mark_for_source(&workspace.source)
+    let (name, icon) = system.environment_presentation(Some(workspace));
+    if let Some(mark) =
+        brand_mark_for_source(&name).or_else(|| brand_mark_for_source(&workspace.source))
     {
         return mark;
     }
-    environment_icon_path(system.environment_presentation(Some(workspace)).1)
+    let lima_like =
+        workspace.endpoint.lima_instance().is_some() || workspace.source.starts_with("Colima · ");
+    if lima_like && workspace.endpoint.managed_id().is_none() {
+        return "icons/laptop.svg";
+    }
+    environment_icon_path(icon)
 }

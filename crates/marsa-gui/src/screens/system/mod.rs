@@ -475,6 +475,7 @@ impl SystemView {
         let (message, tone) = notice.presentation(locale);
         let dismiss = toast::dismiss_button("dismiss-notice", locale, screen.palette).on_click(
             cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
                 if operation_notice.is_none() && this.daemon_notice == Some(notice) {
                     this.daemon_notice_dismissed = true;
                 } else if this.notice == operation_notice {

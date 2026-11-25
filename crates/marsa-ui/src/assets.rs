@@ -211,6 +211,14 @@ mod tests {
             brand_mark_for_source("compose-prod"),
             Some("marsa/docker-stack.svg")
         );
+        assert_eq!(
+            brand_mark_for_source("Lima · docker"),
+            Some("marsa/docker.svg")
+        );
+        assert_eq!(
+            brand_mark_for_source("Colima · podman"),
+            Some("marsa/podman.svg")
+        );
         assert_eq!(brand_mark_for_source("custom-remote"), None);
     }
 

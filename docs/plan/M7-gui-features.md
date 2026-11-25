@@ -599,7 +599,7 @@ English and Arabic copy cover the history card, disk card, resources label, and 
 
 ### M7-42 Polish first-run setup selection, sharing, and RTL traffic lights
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-38, M7-39
 - **Docs:** [08 Screens](../08-gui.md#screens), [08 Direction layer](../08-gui.md#direction-layer)
 - **Do:** Keep native traffic-light hover glyphs readable in Arabic by spanning the titlebar and forcing LTR on the controls. Use a green circle-check for selected language and appearance choices. Restyle the sharing step as a dashed drop zone with browse and folder cards.
@@ -610,6 +610,55 @@ English and Arabic copy cover the history card, disk card, resources label, and 
   - Sharing offers a dashed drop/browse zone and lists chosen folders as removable cards.
   - Verify English/Arabic and light/dark.
 
+### M7-43 Shared table shell on Images
+
+- **Status:** done
+- **Depends on:** M7-06, M7-42
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Add reusable table chrome (filter/sort/columns dropdowns, sortable headers, multi-select) and apply it on Images: one row per image; columns Image, Tags, Size, Age, State, Actions; usage filter All / In use / Some unused / Unused with icons; Tags count + in-use tag badges; Run / Push / Remove row actions. Layers open from the details modal (M7-46).
+- **Deliver:** `screens/table` module, Images wiring, English and Arabic copy, unit tests for filter/sort/columns helpers.
+- **Accept when:**
+  - Images shows the default columns and supports header-click sort plus the Sort by / Order menu.
+  - Usage filter and Columns picker (show/hide, Reset) work; Image column stays pinned.
+  - Multi-select supports bulk remove with confirmation; row actions run, push, and remove; row click opens image details.
+  - Verify English/Arabic and light/dark.
+
+### M7-44 Environment brand marks and Images toolbar
+
+- **Status:** done
+- **Depends on:** M7-43
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Use the Marsa harbor mark for the Marsa environment entry; resolve Lima/Colima and other contexts via engine brand marks (Docker, Podman, …). Replace Images trailing actions with icon buttons for refresh, pull, load-from-tar, and a prune menu (unused vs dangling) backed by Docker `/images/prune`.
+- **Deliver:** Sidebar icon fix, `prune_images` client route, Images icon rail, English and Arabic copy.
+- **Accept when:**
+  - Environment menu shows harbor for Marsa and the correct engine logo for Lima·docker / Podman-style sources.
+  - Images toolbar offers refresh, pull, load tar, and both prune confirms.
+  - Verify English/Arabic and light/dark.
+
+### M7-45 Pull image wizard and Images select-all header
+
+- **Status:** done
+- **Depends on:** M7-44
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Replace the single-field Pull form with a Configure → Pull dialog matching the product flow: registry, image name, full reference preview, live layer table, progress, output log, then Keep / Remove. Move Images select-all into the table header column aligned with row checkboxes.
+- **Deliver:** `resources/pull` wizard, Images header checkbox, English and Arabic copy, unit tests for reference composition and layer status.
+- **Accept when:**
+  - Pull dialog walks Configure → Pulling → completed Keep/Remove against a real engine stream (no demo data).
+  - Select-all checkbox sits in the Images table header, not the toolbar.
+  - Verify English/Arabic and light/dark.
+
+### M7-46 Image details modal with layers stack
+
+- **Status:** done
+- **Depends on:** M7-45
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Opening an Images row shows a wide details modal titled like the layers screenshot (`Image layers: sha256:…`) with the expandable layer stack (size bars, opcode colours, Normal/Large, expand for Created/Size/Command/Comment). Keep run/push/remove on the parent table; also expose run/push/export/tag/remove as icons in the modal. Create-container from Run uses a single scrollbar. Parent columns use flexible widths.
+- **Deliver:** `resources/image_detail`, `resources/layers`, `resources/run`, English and Arabic copy.
+- **Accept when:**
+  - Parent table keeps run/push/remove; clicking a row opens the details/layers modal.
+  - Modal shows the layer stack matching the product screenshot and the five action icons.
+  - Create container from Run has one scrollbar; columns fit Size/Age tightly.
+  - Verify English/Arabic and light/dark.
 
 ### M7-47 Preserve desktop refinements after integration
 
