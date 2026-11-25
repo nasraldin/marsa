@@ -388,7 +388,7 @@ the option, and Escape dismissed the editor in each variant.
 
 ### M7-24 Compose template and new stack creation
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** in progress
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Let users save or restore the default Compose template in Settings. Use the template when creating a new stack in an explicitly chosen project directory.
