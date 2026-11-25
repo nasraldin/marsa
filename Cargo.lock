@@ -2792,6 +2792,8 @@ dependencies = [
  "marsa-core",
  "prost",
  "prost-build",
+ "serde",
+ "serde_json",
  "thiserror",
  "tonic",
  "tonic-prost",

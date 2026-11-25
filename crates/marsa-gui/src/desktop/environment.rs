@@ -30,7 +30,7 @@ impl Desktop {
     ) -> Div {
         let locale = screen.locale;
         let palette = screen.palette;
-        let selection = self.environment.read(cx);
+        let selection = self.environment.read(cx).clone();
         let workspace = self
             .external_inventory
             .iter()
@@ -93,71 +93,70 @@ impl Desktop {
             .label(gui::GUI_ENVIRONMENT_MANAGE.text(locale))
             .on_click(cx.listener(|desktop, _, _, cx| desktop.open_contexts(cx)));
 
-        align(div().flex().flex_col().gap_4(), locale).child(
-            panel(screen)
-                .gap_4()
-                .child(
-                    row(locale)
-                        .justify_between()
-                        .gap_3()
-                        .flex_wrap()
-                        .child(heading)
-                        .child(row(locale).gap_2().flex_wrap().child(refresh).child(manage)),
-                )
-                .when_some(workspace, |card, workspace| {
-                    card.child(
+        align(div().flex().flex_col().gap_4(), locale)
+            .child(
+                panel(screen)
+                    .gap_4()
+                    .child(
                         row(locale)
+                            .justify_between()
                             .gap_3()
                             .flex_wrap()
+                            .child(heading)
                             .child(
-                                screen
-                                    .typography(Role::Mono)
-                                    .apply(div().min_w_0().truncate())
-                                    .child(technical(&workspace.endpoint.address())),
-                            )
-                            .children(workspace.verified_engine.as_ref().map(|engine| {
-                                screen
-                                    .typography(Role::Small)
-                                    .apply(div())
-                                    .text_color(color(palette, ColorToken::TextMuted))
-                                    .child(technical(&format!("Docker {}", engine.version)))
-                            })),
-                    )
-                })
-                .when(!ready && !busy, |card| {
-                    card.child(
-                        screen
-                            .typography(Role::Small)
-                            .apply(div())
-                            .text_color(color(palette, ColorToken::StatusWarning))
-                            .child(gui::GUI_ENVIRONMENT_OFFLINE.text(locale)),
-                    )
-                })
-                .when(ready && route == Route::Disk, |card| {
-                    card.child(
-                        row(locale)
-                            .gap_3()
-                            .flex_wrap()
-                            .border_t_1()
-                            .border_color(color(palette, ColorToken::BorderSubtle))
-                            .pt_3()
-                            .child(
-                                screen
-                                    .typography(Role::Small)
-                                    .apply(div().flex_1().min_w(px(200.)))
-                                    .text_color(color(palette, ColorToken::TextMuted))
-                                    .child(gui::GUI_ENVIRONMENT_DISK_HELP.text(locale)),
-                            )
-                            .child(
-                                Button::new("external-disk-open-volumes")
-                                    .outline()
-                                    .label(Route::Volumes.name(locale))
-                                    .on_click(cx.listener(|desktop, _, _, cx| {
-                                        desktop.navigate(Route::Volumes, cx)
-                                    })),
+                                row(locale)
+                                    .gap_2()
+                                    .flex_wrap()
+                                    .children((route != Route::Disk || !ready).then_some(refresh))
+                                    .child(manage),
                             ),
                     )
-                }),
-        )
+                    .when_some(workspace, |card, workspace| {
+                        card.child(
+                            row(locale)
+                                .gap_3()
+                                .flex_wrap()
+                                .child(
+                                    screen
+                                        .typography(Role::Mono)
+                                        .apply(div().min_w_0().truncate())
+                                        .child(technical(&workspace.endpoint.address())),
+                                )
+                                .children(workspace.verified_engine.as_ref().map(|engine| {
+                                    screen
+                                        .typography(Role::Small)
+                                        .apply(div())
+                                        .text_color(color(palette, ColorToken::TextMuted))
+                                        .child(technical(&format!("Docker {}", engine.version)))
+                                })),
+                        )
+                    })
+                    .when(!ready && !busy, |card| {
+                        card.child(
+                            screen
+                                .typography(Role::Small)
+                                .apply(div())
+                                .text_color(color(palette, ColorToken::StatusWarning))
+                                .child(gui::GUI_ENVIRONMENT_OFFLINE.text(locale)),
+                        )
+                    }),
+            )
+            .children((route == Route::Disk).then(|| {
+                let target = self
+                    .active_workspace(cx)
+                    .map(|workspace| workspace.endpoint.clone());
+                let name = workspace.map_or_else(
+                    || selection.name().to_owned(),
+                    |workspace| {
+                        self.system
+                            .read(cx)
+                            .environment_presentation(Some(workspace.as_ref()))
+                            .0
+                    },
+                );
+                self.system.update(cx, |system, cx| {
+                    system.environment_disk_page(target, &name, screen, cx)
+                })
+            }))
     }
 }

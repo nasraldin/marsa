@@ -1,9 +1,11 @@
 //! Host settings validation and versioned TOML persistence format.
 
 mod environment_appearance;
+mod environment_monitoring;
 mod network;
 
 pub use environment_appearance::{EnvironmentAppearance, EnvironmentIcon};
+pub use environment_monitoring::{ActivityRetention, EnvironmentMonitoring};
 mod preferences;
 mod vm;
 
@@ -136,6 +138,18 @@ impl Settings {
                 "use valid names and bounded identifiers",
             ));
         }
+        if self.ui.environment_monitoring.len() > 128
+            || self
+                .ui
+                .environment_monitoring
+                .keys()
+                .any(|key| key.is_empty() || key.len() > 4096 || key.chars().any(char::is_control))
+        {
+            return Err(SettingsError::invalid(
+                "ui.environment_monitoring",
+                "use valid, bounded environment identifiers",
+            ));
+        }
         if self
             .ui
             .compose_template
@@ -243,6 +257,33 @@ mod tests {
         );
         assert!(Settings::from_toml(&format!("{data}{}", data.replace("Web", "web"))).is_err());
         assert!(Settings::from_toml(&data.replace("8080", "0")).is_err());
+    }
+
+    #[test]
+    fn environment_monitoring_preserves_independent_policies_and_rejects_invalid_retention() {
+        let document = r#"
+            [ui.environment_monitoring."managed:example"]
+            collect_activity = false
+            activity_retention = "one_hour"
+            check_image_updates = false
+            show_volume_candidates = false
+
+            [ui.environment_monitoring.marsa]
+            notify_unhealthy = true
+        "#;
+        let settings = Settings::from_toml(document).unwrap();
+        let local = settings.ui.environment_monitoring["marsa"];
+        let external = settings.ui.environment_monitoring["managed:example"];
+        assert!(local.notify_unhealthy && local.collect_activity && local.check_image_updates);
+        assert!(!external.collect_activity && !external.check_image_updates);
+        assert!(!external.show_volume_candidates && !external.notify_unhealthy);
+        assert_eq!(external.activity_retention.hours(), 1);
+        assert!(Settings::default().ui.environment_monitoring.is_empty());
+        assert_eq!(
+            Settings::from_toml(&settings.to_toml().unwrap()).unwrap(),
+            settings
+        );
+        assert!(Settings::from_toml(&document.replace("one_hour", "unlimited")).is_err());
     }
 
     #[test]

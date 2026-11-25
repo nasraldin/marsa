@@ -8,11 +8,13 @@ license.workspace = true
 
 [features]
 default = ["host-api"]
-host-api = ["dep:tonic", "dep:tonic-prost", "dep:tonic-prost-build"]
+host-api = ["dep:tonic", "dep:tonic-prost", "dep:tonic-prost-build", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 marsa-core = { path = "../marsa-core" }
 prost = "=0.14.6"
+serde = { version = "=1.0.229", features = ["derive"], optional = true }
+serde_json = { version = "=1.0.154", optional = true }
 thiserror = "=2.0.21"
 tonic = { version = "=0.14.9", optional = true }
 tonic-prost = { version = "=0.14.9", optional = true }

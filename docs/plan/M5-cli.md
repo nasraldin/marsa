@@ -151,3 +151,4 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 Resume when a supported engine API can reject a mutable name or stale target
 at deletion. The [pinned Docker source](../07-file-sharing-and-storage.md#disk-cleanup-with-a-preview)
 documents the current boundary.
+M7-21 uses this same capability gate for desktop cleanup review.
