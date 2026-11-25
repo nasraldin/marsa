@@ -570,8 +570,9 @@ saved the same binary as TAR and directly, preserved nested contents inside a
 directory archive, and kept an existing destination byte-for-byte. The request
 retained its original container and engine when the selected container and
 workspace changed. Changing the format through Settings took effect immediately
-and survived a daemon restart and desktop relaunch. The locked-host fixture
-supplied the destination through the macOS save picker callback.
+and survived a daemon restart and desktop relaunch. Direct mode also saved a
+regular file whose long name used PAX metadata. The locked-host fixture supplied
+the destination through the macOS save picker callback.
 
 A Unix-socket regression verifies that a truncated zero-filled entry never
 publishes an archive or leaves a staging file. The archive check follows member
