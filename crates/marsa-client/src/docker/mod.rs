@@ -63,7 +63,8 @@ pub use images::{
 };
 pub use overview::{
     ContainerCounts, ContainerUtilization, DiskBreakdown, EngineVersion, OverviewClient,
-    OverviewSample, OverviewUtilization,
+    OverviewSample, OverviewUtilization, container_needs_update, image_tag_index,
+    normalize_image_ref,
 };
 use resources::ComposeLabels;
 pub use resources::{
@@ -204,6 +205,9 @@ pub struct ImageSummary {
     /// References that currently tag the image.
     #[serde(default, deserialize_with = "null_to_default")]
     pub repo_tags: Vec<String>,
+    /// Registry digests associated with this image content.
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub repo_digests: Vec<String>,
     /// Creation time in Unix seconds.
     pub created: i64,
     /// Aggregate image size in bytes.
