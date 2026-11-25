@@ -272,7 +272,7 @@ mod tests {
 
     fn scan_bytes(disk: &[u8], capacity: u64) -> io::Result<bool> {
         is_blank(capacity, |buffer, offset| {
-            disk[offset as usize..].read_exact(buffer)
+            (&disk[offset as usize..]).read_exact(buffer)
         })
     }
 
