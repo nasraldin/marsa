@@ -231,6 +231,10 @@ impl Plan {
                 let expected = format!("/run/secrets/{source}");
                 if secret.get("target").and_then(Value::as_str) != Some(expected.as_str())
                     || fields.get("read_only").and_then(Value::as_bool) == Some(true)
+                    || fields
+                        .get("configs")
+                        .and_then(Value::as_array)
+                        .is_some_and(|configs| configs.iter().any(conflicting_config))
                     || fields.contains_key("volumes_from")
                     || fields.contains_key("tmpfs")
                     || fields
@@ -280,6 +284,20 @@ impl Plan {
         }
         Ok(())
     }
+}
+
+fn conflicting_config(config: &Value) -> bool {
+    let Some(target) = config
+        .get("target")
+        .or_else(|| config.get("source"))
+        .and_then(Value::as_str)
+    else {
+        return true;
+    };
+    if target.starts_with('/') {
+        return overlaps_secrets(target);
+    }
+    overlaps_secrets(&format!("/{target}"))
 }
 
 fn overlaps_secrets(path: &str) -> bool {
@@ -338,6 +356,10 @@ mod tests {
         let mut config = model();
         config["services"]["app"]["volumes"] =
             json!([{"type": "bind", "source": "/tmp", "target": "/run"}]);
+        assert!(Plan::from_json(config).is_err());
+        let mut config = model();
+        config["services"]["app"]["configs"] =
+            json!([{"source": "copy", "target": "/run/secrets/database-password"}]);
         assert!(Plan::from_json(config).is_err());
         for field in ["include", "jobs", "models", "x-embedded"] {
             let mut config = model();
