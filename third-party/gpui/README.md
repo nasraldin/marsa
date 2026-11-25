@@ -11,3 +11,7 @@ in the application repository. Rebuild and audit from that workspace.
 
 Use the native macOS source graph for Marsa. Linux, Windows, and browser
 integrations have separate optional features for future platform work.
+
+Marsa places vertical scrollbar tracks and editor overview rulers at the inline
+end in both interface directions. The scrollbar tests cover mirrored hit
+geometry, thumb dragging, and the corner where two tracks meet.

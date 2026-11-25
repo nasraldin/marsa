@@ -222,8 +222,9 @@ Global elements: command palette, engine status indicator, global search, toast 
 
 Containers, Images, Volumes, Networks, and Stacks keep their page headings,
 filters, and table columns above the scrollable rows. Resource details scroll
-below their back control. Select the current sidebar route to return to its
-list.
+below their back control. The shared vertical scrollbar sits at the inline
+end, including on the left in Arabic. Select the current sidebar route to
+return to its list.
 
 Settings → General shares the System, Light, and Dark theme cards with
 first-run setup and offers the interface language in a dropdown. It groups
