@@ -236,7 +236,7 @@ where
         // accessibility node: GPUI reports focus only on an element with a
         // role, and otherwise falls back to the window.
         div()
-            .id("table")
+            .id(("table", self.state.entity_id()))
             .test_support()
             .role(role)
             .when_some(self.accessibility_label, |this, label| {

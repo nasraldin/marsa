@@ -4,12 +4,13 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use marsa_ui::{
     ColorToken, Locale,
+    components::inputs::search_input,
     gpui::{
         App, Context, Div, Entity, IntoElement, ParentElement as _, SharedString, Styled as _,
         Window, div, px,
     },
     gpui_component::{
-        Disableable, Icon, IconName, Placement,
+        Disableable, Icon, Placement,
         button::{Button, ButtonVariants as _},
     },
     gui_keys as gui,
@@ -18,7 +19,7 @@ use marsa_ui::{
 
 use crate::{
     screens::{
-        common::{ScreenContext, message, resource_input, row},
+        common::{ScreenContext, message, row},
         table::{
             ColumnId, ColumnsPickerState, SelectionToolbar, SortField, SortMenuState, SortOrder,
             TableViewMode, UsageFilter, cell, default_flex, idle_toolbar, selection_toolbar,
@@ -326,12 +327,10 @@ pub(super) fn render_table(
             && visible_keys.iter().all(|key| selected.contains(key)),
         select_all_indeterminate: selected_visible > 0 && selected_visible < visible_keys.len(),
     };
-    let search = div().w(px(224.)).child(
-        resource_input(&data.filter)
-            .cleanable(true)
-            .prefix(IconName::Search)
-            .aria_label(gui::GUI_DESKTOP_FILTER_RESOURCES.text(screen.locale)),
-    );
+    let search = div().w(px(224.)).child(search_input(
+        &data.filter,
+        gui::GUI_DESKTOP_FILTER_RESOURCES.text(screen.locale),
+    ));
 
     let toolbar = if selected_visible > 0 {
         let clear = view.downgrade();
