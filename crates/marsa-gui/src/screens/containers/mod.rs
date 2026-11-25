@@ -94,6 +94,8 @@ pub(crate) enum StatusFilter {
     Stopped,
     Restarting,
     Other,
+    /// Containers whose image tag now points at a newer digest.
+    Updates,
     Healthy,
     Unhealthy,
     HealthStarting,
@@ -102,13 +104,14 @@ pub(crate) enum StatusFilter {
 }
 
 impl StatusFilter {
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 12] = [
         Self::All,
         Self::Running,
         Self::Paused,
         Self::Stopped,
         Self::Restarting,
         Self::Other,
+        Self::Updates,
         Self::Healthy,
         Self::Unhealthy,
         Self::HealthStarting,
@@ -124,6 +127,7 @@ impl StatusFilter {
             Self::Stopped => gui::GUI_DESKTOP_STOPPED,
             Self::Restarting => gui::GUI_OVERVIEW_RESTARTING,
             Self::Other => gui::GUI_OVERVIEW_OTHER,
+            Self::Updates => gui::GUI_OVERVIEW_UPDATES,
             Self::Healthy => gui::GUI_OVERVIEW_HEALTHY,
             Self::Unhealthy => gui::GUI_OVERVIEW_UNHEALTHY,
             Self::HealthStarting => gui::GUI_OVERVIEW_HEALTH_STARTING,
@@ -145,6 +149,8 @@ impl StatusFilter {
                 state,
                 "created" | "exited" | "dead" | "running" | "paused" | "restarting"
             ),
+            // Resolved with image inventory in `matches_filter`.
+            Self::Updates => true,
             Self::Healthy => summary.health() == Some("healthy"),
             Self::Unhealthy => summary.health() == Some("unhealthy"),
             Self::HealthStarting => summary.health() == Some("starting"),
@@ -174,6 +180,8 @@ pub(crate) struct ContainerView {
     input: Option<Entity<InputState>>,
     query: String,
     filter: StatusFilter,
+    /// Image refs Overview marked outdated (includes registry digest checks).
+    overview_outdated_images: BTreeSet<String>,
     selected: BTreeSet<ContainerId>,
     focused: Option<ContainerTarget>,
     tab: Tab,
@@ -253,6 +261,7 @@ impl ContainerView {
             environment,
             _context_subscription,
             filter: StatusFilter::All,
+            overview_outdated_images: BTreeSet::new(),
             selected: BTreeSet::new(),
             focused: None,
             tab: Tab::Overview,
@@ -310,6 +319,7 @@ impl ContainerView {
     pub(crate) fn filter_from_overview(
         &mut self,
         filter: StatusFilter,
+        outdated_images: std::collections::BTreeSet<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -317,10 +327,14 @@ impl ContainerView {
             input.update(cx, |input, cx| input.set_value("", window, cx));
         }
         self.query.clear();
+        self.overview_outdated_images = outdated_images;
         self.set_status_filter(filter, cx);
     }
 
     fn set_status_filter(&mut self, filter: StatusFilter, cx: &mut Context<Self>) {
+        if filter != StatusFilter::Updates {
+            self.overview_outdated_images.clear();
+        }
         self.filter = filter;
         self.list_scroll
             .scroll_to_item_strict(0, marsa_ui::gpui::ScrollStrategy::Top);
@@ -713,21 +727,18 @@ impl ContainerView {
     }
 
     pub(crate) fn toast(&self, cx: &mut Context<Self>) -> Option<marsa_ui::gpui::AnyElement> {
-        use marsa_ui::gpui::{ParentElement, Styled, px, svg};
-        use marsa_ui::gpui_component::button::{Button, ButtonVariants};
         if !self.command_failed {
             return None;
         }
-        let label = gui::GUI_DESKTOP_DISMISS.text(self.locale);
-        let dismiss = Button::new("dismiss-container-toast")
-            .ghost()
-            .accessibility_label(label)
-            .tooltip(label)
-            .child(svg().path("icons/x.svg").size(px(14.)))
-            .on_click(cx.listener(|view, _, _, cx| {
-                view.command_failed = false;
-                cx.notify();
-            }));
+        let dismiss = crate::desktop::toast::dismiss_button(
+            "dismiss-container-toast",
+            self.locale,
+            self.palette,
+        )
+        .on_click(cx.listener(|view, _, _, cx| {
+            view.command_failed = false;
+            cx.notify();
+        }));
         Some(crate::desktop::toast::render(
             "container-toast",
             self.locale,

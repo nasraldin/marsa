@@ -78,7 +78,12 @@ pub(super) fn render(
     let card_columns = if compact { 2 } else { 3 };
     let filter = view.environment.read(cx);
     let mut rows = if filter.includes_marsa() {
-        collect_rows(view, &view.state.containers(), None)
+        collect_rows(
+            view,
+            &view.state.containers(),
+            None,
+            view.state.images().as_ref(),
+        )
     } else {
         Vec::new()
     };
@@ -101,6 +106,7 @@ pub(super) fn render(
             view,
             &inventory.state.containers(),
             Some(source),
+            inventory.state.images().as_ref(),
         ));
     }
     let grouped = matches!(mode, ViewMode::Table | ViewMode::Tree);
@@ -168,78 +174,113 @@ pub(super) fn render(
     let summary = container_count(total, locale);
 
     let loaded = status == states::TableState::Rows;
-    let mut toolbar = row(cx)
-        .w_full()
-        .gap_2()
-        .items_center()
-        .flex_wrap()
-        .flex_shrink_0()
-        .min_h(px(46.));
-    let groups = rows
+    let groups: Vec<GroupKey> = rows
         .iter()
         .filter_map(|entry| match entry {
             TableRow::Group { key, .. } => Some(key.clone()),
             _ => None,
         })
-        .collect::<Vec<_>>();
-    if loaded {
-        toolbar = toolbar
-            .p_2()
-            .rounded(px(12.))
-            .border_1()
-            .border_color(color(palette, ColorToken::BorderSubtle))
-            .bg(color(palette, ColorToken::BgSidebar));
-    }
-    if let Some(input) = view.input.as_ref() {
-        toolbar = toolbar.child(
-            div().w(px(216.)).child(
-                resource_input(input)
-                    .cleanable(true)
-                    .prefix(IconName::Search)
-                    .aria_label(gui::GUI_DESKTOP_SEARCH_CONTAINERS.text(locale)),
-            ),
-        );
-    }
-
-    let filter_view = entity.downgrade();
-    toolbar = toolbar.child(
-        Button::new("state-filter")
-            .outline()
-            .h(px(Space::S36.pixels()))
-            .icon(IconName::ChevronDown)
-            .label(view.filter.label(locale))
-            .dropdown_menu(move |menu, _, _| {
-                StatusFilter::ALL.into_iter().fold(menu, |menu, filter| {
-                    let weak = filter_view.clone();
-                    menu.item(
-                        PopupMenuItem::new(filter.label(locale)).on_click(move |_, _, cx| {
-                            let _ = weak.update(cx, |view, cx| {
-                                view.set_status_filter(filter, cx);
-                            });
-                        }),
-                    )
-                })
-            }),
-    );
-    if loaded {
-        toolbar = toolbar
-            .child(view_mode_rail(mode, &screen, cx))
-            .children((!groups.is_empty()).then(|| {
-                group_toggle(groups, &collapsed, locale, cx)
+        .collect();
+    // Match Images/Volumes: filters on the start, actions on the end — no boxed rail.
+    let toolbar = matches!(
+        status,
+        states::TableState::Rows | states::TableState::NoMatches | states::TableState::Empty
+    )
+    .then(|| {
+        let filter_view = entity.downgrade();
+        let current = view.filter;
+        let filters = row(cx)
+            .items_center()
+            .flex_wrap()
+            .gap_2()
+            .children(view.input.as_ref().map(|input| {
+                div().w(px(224.)).child(
+                    resource_input(input)
+                        .cleanable(true)
+                        .prefix(IconName::Search)
+                        .aria_label(gui::GUI_DESKTOP_SEARCH_CONTAINERS.text(locale)),
+                )
             }))
-            .child(div().flex_1())
             .child(
-                div()
-                    .text_size(ui_size(12.))
+                Button::new("state-filter")
+                    .outline()
+                    .h(px(Space::S36.pixels()))
+                    .child(
+                        row(cx)
+                            .gap_2()
+                            .child(current.label(locale))
+                            .child(Icon::new(IconName::ChevronDown).size(px(14.))),
+                    )
+                    .accessibility_label(current.label(locale))
+                    .dropdown_menu(move |menu, _, _| {
+                        StatusFilter::ALL.into_iter().fold(menu, |menu, filter| {
+                            let weak = filter_view.clone();
+                            menu.item(
+                                PopupMenuItem::new(filter.label(locale))
+                                    .checked(filter == current)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = weak.update(cx, |view, cx| {
+                                            view.set_status_filter(filter, cx);
+                                        });
+                                    }),
+                            )
+                        })
+                    }),
+            )
+            .child(
+                screen
+                    .typography(Role::Small)
+                    .apply(div())
                     .text_color(color(palette, ColorToken::TextMuted))
                     .child(summary),
             );
-    }
+        let actions = row(cx)
+            .items_center()
+            .flex_wrap()
+            .gap_2()
+            .children(loaded.then(|| {
+                row(cx)
+                    .gap_2()
+                    .child(view_mode_rail(mode, &screen, cx))
+                    .children(
+                        (!groups.is_empty())
+                            .then(|| group_toggle(groups.clone(), &collapsed, locale, cx)),
+                    )
+            }))
+            .child(
+                Button::new("new-container")
+                    .primary()
+                    .h(px(Space::S36.pixels()))
+                    .icon(IconName::Plus)
+                    .label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
+                    .disabled(
+                        view.services.is_none()
+                            || !(local_status.is_some_and(states::TableState::can_create)
+                                || !filter.includes_marsa()
+                                    && view.external_inventory.iter().any(|workspace| {
+                                        workspace.reachable && filter.includes_external(workspace)
+                                    })),
+                    )
+                    .on_click(
+                        cx.listener(|view, _, window, cx| super::create::open(view, window, cx)),
+                    ),
+            );
+        row(cx)
+            .w_full()
+            .justify_between()
+            .items_center()
+            .flex_wrap()
+            .gap_3()
+            .flex_shrink_0()
+            .child(filters)
+            .child(actions)
+    });
 
     let header = row(cx)
         .w_full()
         .items_center()
         .gap_2()
+        .flex_shrink_0()
         .child(
             div()
                 .flex_1()
@@ -264,29 +305,13 @@ pub(super) fn render(
                 .ghost()
                 .size(px(36.))
                 .p_0()
-                .bg(color(palette, ColorToken::BgSubtle))
+                .bg(color(palette, ColorToken::GlassControl))
                 .icon(IconName::Search)
                 .accessibility_label(gui::GUI_DESKTOP_SEARCH_COMMANDS.text(locale))
                 .tooltip(gui::GUI_DESKTOP_SEARCH_K.text(locale))
                 .on_click(|_, window, cx| {
                     window.dispatch_action(Box::new(crate::desktop::OpenCommandPalette), cx);
                 }),
-        )
-        .child(
-            Button::new("new-container")
-                .primary()
-                .h(px(36.))
-                .icon(IconName::Plus)
-                .label(gui::GUI_DESKTOP_NEW_CONTAINER.text(locale))
-                .disabled(
-                    view.services.is_none()
-                        || !(local_status.is_some_and(states::TableState::can_create)
-                            || !filter.includes_marsa()
-                                && view.external_inventory.iter().any(|workspace| {
-                                    workspace.reachable && filter.includes_external(workspace)
-                                })),
-                )
-                .on_click(cx.listener(|view, _, window, cx| super::create::open(view, window, cx))),
         );
 
     let body = div()
@@ -295,14 +320,8 @@ pub(super) fn render(
         .size_full()
         .min_h_0()
         .gap_3()
-        .child(header.flex_shrink_0())
-        .children(
-            matches!(
-                status,
-                states::TableState::Rows | states::TableState::NoMatches
-            )
-            .then_some(toolbar),
-        )
+        .child(header)
+        .children(toolbar)
         .children((loaded && !view.selected.is_empty()).then(|| bulk_toolbar(view, &screen, cx)));
 
     if !loaded {
@@ -469,10 +488,11 @@ fn collect_rows(
     view: &ContainerView,
     source: &BTreeMap<ContainerId, ContainerSummary>,
     engine: Option<Arc<RowSource>>,
+    images: &BTreeMap<String, marsa_client::docker::ImageSummary>,
 ) -> Vec<TableRow> {
     let mut projects: BTreeMap<Option<&str>, Vec<&ContainerSummary>> = BTreeMap::new();
     for item in source.values() {
-        if matches_filter(view, item) {
+        if matches_filter(view, item, images) {
             projects
                 .entry(item.compose_project())
                 .or_default()
@@ -519,8 +539,28 @@ fn collect_rows(
         .collect()
 }
 
-fn matches_filter(view: &ContainerView, item: &ContainerSummary) -> bool {
-    view.filter.accepts(item)
+fn matches_filter(
+    view: &ContainerView,
+    item: &ContainerSummary,
+    images: &BTreeMap<String, marsa_client::docker::ImageSummary>,
+) -> bool {
+    let status_ok = match view.filter {
+        StatusFilter::Updates => {
+            let images: Vec<_> = images.values().cloned().collect();
+            let tags = marsa_client::docker::image_tag_index(&images);
+            let local = marsa_client::docker::container_needs_update(
+                item,
+                &images,
+                &tags,
+                &Default::default(),
+            );
+            let from_overview = marsa_client::docker::normalize_image_ref(&item.image)
+                .is_some_and(|reference| view.overview_outdated_images.contains(&reference));
+            local || from_overview
+        }
+        filter => filter.accepts(item),
+    };
+    status_ok
         && (view.query.is_empty()
             || name(item).to_lowercase().contains(&view.query)
             || item.image.to_lowercase().contains(&view.query)
@@ -1150,7 +1190,7 @@ fn fixed_column(width: f32, value: SharedString) -> Div {
     div().w(px(width)).flex_shrink_0().truncate().child(value)
 }
 
-
+/// One icon that expands or collapses every project group (matches Images/Volumes tooling).
 fn group_toggle(
     groups: Vec<GroupKey>,
     collapsed: &BTreeSet<GroupKey>,
