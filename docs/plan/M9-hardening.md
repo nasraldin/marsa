@@ -115,7 +115,7 @@ remain in M3-04 under [D-028](../15-decisions.md#d-028-qualify-native-ipv4-indep
 
 ### M9-08 Clean uninstall
 
-- **Status:** blocked (M4-04)
+- **Status:** in progress
 - **Depends on:** M4-04, M9-18
 - **Docs:** [12 Uninstall](../12-build-release-update.md#uninstall), Q-08
 - **Do:** Implement and document the uninstall procedure, including the matching removal of optional Docker integration installed by M4-04. Verify the procedure on a clean machine.
