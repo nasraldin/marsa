@@ -420,4 +420,8 @@ The public repository runs Tier 1. Release checks consume Tier 2 results from th
 
 ## Uninstall
 
-`marsa reset --factory` followed by removing the app must leave nothing behind. A documented uninstall removes: the app bundle, `~/.marsa`, the launch agent, the Docker context, the optional `/var/run/docker.sock` symlink and any PATH entries Marsa added. An automated test verifies this on a clean machine.
+The [user uninstall procedure](user/README.md#uninstall) coordinates confirmed per-user cleanup and removal of the installed app bundle. The optional `/var/run/docker.sock` link is removed through desktop Settings before uninstall, using the same administrator confirmation as installation. The command refuses to continue when that link still points to the user's Marsa socket.
+
+While the app bundle is present, its `Contents/MacOS/marsad uninstall` command unregisters its login agent, checks that its daemon is stopped, then removes the owned Docker context, `~/.marsa`, and Marsa's app-specific macOS support files. Uninstall preserves Docker's selected context. Switch away from the owned context before uninstall. Homebrew handles the app and command link installed by its cask. A direct install is finished by removing the app from Applications.
+
+Factory reset recreates storage for the installed app. The uninstall command deletes that storage after explicit confirmation.

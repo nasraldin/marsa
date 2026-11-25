@@ -3,7 +3,7 @@
 use std::env;
 
 #[cfg(target_os = "macos")]
-pub(super) const LOGIN_USAGE: &str = "marsad [login status|enable|disable]";
+pub(super) const LOGIN_USAGE: &str = "marsad [login status|enable|disable | uninstall]";
 
 pub(super) fn usage(syntax: &str) -> String {
     format!("{} {syntax}", localized("Usage", "الاستخدام"))

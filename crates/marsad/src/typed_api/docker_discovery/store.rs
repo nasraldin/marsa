@@ -20,6 +20,11 @@ use thiserror::Error;
 
 use super::{DESCRIPTION, NAME};
 
+#[cfg(target_os = "macos")]
+mod uninstall;
+#[cfg(target_os = "macos")]
+pub use uninstall::{ContextRemoval, ContextRemovalError, prepare_context_removal};
+
 // Docker CLI 29.10.0 stores context metadata under the SHA-256 of the exact name.
 pub(super) const STORE_ID: &str =
     "2aa7f26ed846a5670389b351e8da12ad34cd81c68ca12d897f213c8350ed56f0";
