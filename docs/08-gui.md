@@ -339,7 +339,8 @@ If several intervals elapse while the Mac sleeps, the next check runs once.
 A stopped engine is reported as offline. A changed connection or engine identity
 requires the owner to save a new schedule. Settings lists a schedule for a
 removed connection until it is turned off. Scheduled candidates open in the
-read-only review.
+read-only review. A review exceeding the existing 512-candidate limit
+reports a failure.
 
 Overview opens with four equal cards: the selected environment (icon, name,
 status, runtime, OS/arch, plus container status counts and a health banner),
