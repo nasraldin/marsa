@@ -533,7 +533,7 @@ The client tested a real HTTPS branch, rejected a missing ref, and completed sep
 
 ### M7-29 Reusable container configuration sets
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** in progress
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings), [11 Security](../11-security.md)
 - **Do:** Save named sets of container network, restart, environment, label, port and mount options. Let users apply and edit a copy before creating a container.
