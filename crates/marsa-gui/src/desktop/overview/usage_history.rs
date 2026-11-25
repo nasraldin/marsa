@@ -104,7 +104,7 @@ impl UsageHistory {
     }
 
     pub(super) fn latest_engine(&self, metric: Metric) -> Option<f64> {
-        self.engine.iter().rev().find_map(|sample| match metric {
+        self.engine.back().and_then(|sample| match metric {
             Metric::Cpu => sample.cpu,
             Metric::Memory => sample.memory.map(|bytes| bytes as f64),
         })
@@ -307,8 +307,9 @@ mod tests {
         assert_eq!(cpu.len(), SAMPLE_COUNT);
         assert_eq!(cpu[0], Some(1.));
         assert_eq!(cpu.last(), Some(&None));
-        // Keep the last measured engine total while a sample is missing.
-        assert_eq!(history.latest_engine(Metric::Cpu), Some(23.));
+        // The chart retains prior points, while the current value is unavailable.
+        assert_eq!(history.latest_engine(Metric::Cpu), None);
+        assert_eq!(history.latest_engine(Metric::Memory), None);
         history.record(Some(&sample(4.)));
         assert_eq!(history.latest_engine(Metric::Cpu), Some(4.));
         assert_eq!(history.latest_engine(Metric::Memory), Some(4096.));

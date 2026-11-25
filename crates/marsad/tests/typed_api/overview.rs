@@ -168,3 +168,57 @@ async fn docker_inventory_events_are_observed_without_preventing_idle_stop() {
     let stopping = next_state(&mut events, idle, EngineState::Stopping).await;
     next_state(&mut events, stopping, EngineState::Stopped).await;
 }
+
+#[tokio::test]
+async fn recent_docker_activity_requires_an_already_running_vm() {
+    let body =
+        br#"{"Type":"container","Action":"start","Actor":{"ID":"fixture"},"time":1826918998}"#;
+    let mut response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    response.extend_from_slice(body);
+    let fixture = Fixture::with_docker(
+        vec![AgentStep::Send(b"HR".to_vec())],
+        vec![
+            AgentStep::Expect(b"GET /v1.57/events?since=".to_vec()),
+            AgentStep::Send(response),
+        ],
+    )
+    .await;
+    let mut stats = StatsClient::new(fixture.channel.clone());
+    let request = DockerOverviewRequest {
+        section: DockerOverviewSection::Activity.into(),
+        prefer_cache: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        stats
+            .docker_overview(request.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        Code::FailedPrecondition
+    );
+    assert_eq!(
+        fixture.supervisor.snapshot().state,
+        marsad::supervisor::State::Stopped
+    );
+    fixture.supervisor.ensure_ready().await.unwrap();
+    assert_eq!(
+        stats
+            .docker_overview(request.clone())
+            .await
+            .unwrap()
+            .into_inner()
+            .json,
+        body
+    );
+    fixture.supervisor.stop().await.unwrap();
+    assert_eq!(
+        stats.docker_overview(request).await.unwrap_err().code(),
+        Code::FailedPrecondition,
+        "activity is never served from the inventory cache"
+    );
+}

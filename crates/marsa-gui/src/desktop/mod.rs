@@ -130,11 +130,12 @@ impl Desktop {
         let environment = cx.new(|_| Environment::load());
         let _context_subscription = cx.observe(&environment, |this, environment, cx| {
             environment.read(cx).save();
+            let local = environment.read(cx).includes_marsa();
             this.resources
                 .update(cx, |view, _| view.switch_environment());
             this.palette_index = 0;
             this.system.update(cx, |view, cx| {
-                view.clear_lima_machine_target();
+                view.change_environment(local, cx);
                 view.refresh_external_inventory(cx);
             });
             cx.notify();
@@ -143,7 +144,8 @@ impl Desktop {
             ContainerView::new(services.clone(), locale, palette, environment.clone(), cx)
         });
         let resources = cx.new(|cx| ResourcesView::new(window, cx));
-        let system = cx.new(|cx| SystemView::new(services.clone(), window, cx));
+        let local = environment.read(cx).includes_marsa();
+        let system = cx.new(|cx| SystemView::new(services.clone(), local, window, cx));
         let _context_picker_subscription =
             cx.subscribe(&system, |this, _, SelectContext(selection), cx| {
                 this.select_environment(selection.clone(), cx);

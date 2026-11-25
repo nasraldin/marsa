@@ -190,8 +190,10 @@ never enters the Marsa engine's mutation or selection paths.
   - After cleanup and explicit reclaim, report the observed host allocation change. M9-14 connects automatic reclaim.
 
 The desktop route exposes storage usage, candidate identities, the engine's
-apply capability and explicit reclaim. Resume apply when M5-12 can bind
-eligibility and identity to the deletion itself.
+apply capability and explicit reclaim. M7-21 routes the Images cleanup
+shortcut to that review and previews external environments without a
+destructive apply. Resume apply when M5-12 can bind eligibility and identity
+to the deletion itself.
 
 ---
 
@@ -338,6 +340,28 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 - **Accept when:**
   - The dashboard and activity views are fed by the selected engine. They identify unavailable measurements and can recover from a disconnect.
   - A maintenance request targets the confirmed engine, previews destructive effects, and reports its outcome.
+
+Managed activity uses the passive owner API, and external observations
+stay pinned to the selected connection while they load or retry. Overview
+loads live measurements after its cached first frame. The external disk
+review shows available usage, candidate identities and the selected
+endpoint. The [Moby 29.10.0 Engine API schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml)
+documents the finite Activity query and verbose disk usage categories.
+The signed Apple silicon test observed a real Docker container event,
+previewed exact disposable storage identities and verified the resources
+remained. Two isolated external engines verified Activity switching,
+unavailable measurements and automatic recovery. Images opens the
+selected engine's cleanup review, and the fixture logged zero mutation
+requests. The native keyboard check opened Disk with Command–6 and closed
+the review with Escape. The review was checked in
+[English light](../spikes/M7-21-environment-observation/en-light.png),
+[English dark](../spikes/M7-21-environment-observation/en-dark.png),
+[Arabic light](../spikes/M7-21-environment-observation/ar-light.png), and
+[Arabic dark](../spikes/M7-21-environment-observation/ar-dark.png).
+
+Cleanup remains subject to the M5-12 exact-deletion gate. Per-environment
+settings for collection, retention and notifications remain open. Verified
+Marsa release updates remain app-wide.
 
 ### M7-22 Configure deploy-time secret providers
 

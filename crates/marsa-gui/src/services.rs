@@ -336,6 +336,12 @@ impl Services {
         )
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn managed_activity(&self) -> Pending<Vec<marsa_client::docker::DockerActivity>> {
+        let daemon = self.session.backend.daemon.clone();
+        self.pending(async move { Ok(daemon.connect().await?.recent_docker_activity().await?) })
+    }
+
     pub(crate) fn resource_docker(&self, endpoint: Option<ExternalEndpoint>) -> DockerClient {
         endpoint.map_or_else(
             || self.session.backend.docker.clone(),

@@ -2,12 +2,17 @@
 
 use http_body_util::{BodyExt, Limited};
 use hyper::Method;
+use marsa_proto::host::{
+    DOCKER_ACTIVITY_WINDOW_SECONDS, docker_activity_query,
+    v1::{DockerOverviewRequest, DockerOverviewSection},
+};
 use serde::Deserialize;
 use tokio::time::timeout;
 
+use crate::{ClientError, MarsaClient};
+
 use super::{ContainerSummary, DockerClient, DockerError, REQUEST_TIMEOUT, SNAPSHOT_LIMIT};
 
-const ACTIVITY_WINDOW_SECONDS: i64 = 24 * 60 * 60;
 const ACTIVITY_LIMIT: usize = 256;
 const EVENT_QUERY: &str = "/events?since=";
 
@@ -83,10 +88,7 @@ impl EnvironmentReport {
 impl DockerClient {
     /// Read up to 256 events that the engine retained from the last 24 hours, newest first.
     pub async fn recent_activity(&self) -> Result<Vec<DockerActivity>, DockerError> {
-        // Docker accepts Unix seconds. Round up so the current second is included.
-        let until = time::OffsetDateTime::now_utc().unix_timestamp() + 1;
-        let since = until - ACTIVITY_WINDOW_SECONDS;
-        let path = format!("{EVENT_QUERY}{since}&until={until}");
+        let path = docker_activity_query(time::OffsetDateTime::now_utc().unix_timestamp());
         let bytes = timeout(REQUEST_TIMEOUT, async {
             let (_, response) = self.request(Method::GET, &path).await?;
             Limited::new(response.body, SNAPSHOT_LIMIT)
@@ -98,14 +100,36 @@ impl DockerClient {
         .await
         .map_err(|_| DockerError::Timeout)??;
 
-        let mut events = serde_json::Deserializer::from_slice(&bytes)
-            .into_iter::<EngineEvent>()
-            .collect::<Result<Vec<_>, _>>()?;
-        events.reverse();
-        events.sort_by_key(|event| std::cmp::Reverse((event.time, event.time_nano)));
-        events.truncate(ACTIVITY_LIMIT);
-        Ok(events.into_iter().map(EngineEvent::project).collect())
+        activity_records(&bytes)
     }
+}
+
+impl MarsaClient {
+    /// Read recent activity through the owner API without waking the managed engine.
+    pub async fn recent_docker_activity(&self) -> Result<Vec<DockerActivity>, DockerError> {
+        let mut request = tonic::Request::new(DockerOverviewRequest {
+            section: DockerOverviewSection::Activity.into(),
+            ..Default::default()
+        });
+        request.set_timeout(REQUEST_TIMEOUT);
+        let response = self
+            .stats()
+            .docker_overview(request)
+            .await
+            .map_err(ClientError::from)?
+            .into_inner();
+        activity_records(&response.json)
+    }
+}
+
+fn activity_records(bytes: &[u8]) -> Result<Vec<DockerActivity>, DockerError> {
+    let mut events = serde_json::Deserializer::from_slice(bytes)
+        .into_iter::<EngineEvent>()
+        .collect::<Result<Vec<_>, _>>()?;
+    events.reverse();
+    events.sort_by_key(|event| std::cmp::Reverse((event.time, event.time_nano)));
+    events.truncate(ACTIVITY_LIMIT);
+    Ok(events.into_iter().map(EngineEvent::project).collect())
 }
 
 pub(super) fn finite_activity_route(path: &str) -> bool {
@@ -122,7 +146,7 @@ pub(super) fn finite_activity_route(path: &str) -> bool {
             .filter(|_| value.bytes().all(|byte| byte.is_ascii_digit()))
     };
     matches!((decimal_seconds(since), decimal_seconds(until)), (Some(since), Some(until))
-        if since > 0 && until > since && until - since <= ACTIVITY_WINDOW_SECONDS)
+        if since > 0 && until > since && until - since <= DOCKER_ACTIVITY_WINDOW_SECONDS)
 }
 
 #[derive(Deserialize)]

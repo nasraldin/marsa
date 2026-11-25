@@ -27,7 +27,7 @@ use marsa_client::{
 };
 use marsa_ui::{
     Locale,
-    gpui::{AnyElement, Context, Div, EventEmitter, Task, Window, div},
+    gpui::{AnyElement, Context, Div, EventEmitter, ParentElement as _, Task, Window, div},
     preferences::{AccentColor, DisplaySettings, Language, Settings, Theme},
 };
 
@@ -56,6 +56,7 @@ impl EventEmitter<OpenRoute> for SystemView {}
 pub(crate) struct SystemView {
     services: Option<Arc<Services>>,
     route: Route,
+    local_environment: bool,
     settings: Option<(Settings, u64)>,
     restart_required: bool,
     settings_tab: SettingsTab,
@@ -120,12 +121,14 @@ impl SystemView {
 
     pub(crate) fn new(
         services: Option<Arc<Services>>,
+        local_environment: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
             services,
             route: Route::Overview,
+            local_environment,
             settings: None,
             restart_required: false,
             settings_tab: SettingsTab::General,
@@ -256,7 +259,7 @@ impl SystemView {
             self.cleanup_selection.clear();
             self.vm_stats = None;
             self.vm_stats_task = None;
-        } else if self.route == Route::Machine {
+        } else if self.local_environment && self.route == Route::Machine {
             self.watch_vm(cx);
         }
         if revision != self.revision {
@@ -266,14 +269,25 @@ impl SystemView {
                 self.fetch_settings(cx);
                 self.enter(self.route, cx);
             }
-        } else if disk_became_ready && self.route == Route::Disk {
+        } else if self.local_environment && disk_became_ready && self.route == Route::Disk {
             self.load_disk(cx);
         }
+    }
+
+    pub(crate) fn change_environment(&mut self, local: bool, cx: &mut Context<Self>) {
+        self.local_environment = local;
+        self.environment_observations.clear();
+        self.clear_lima_machine_target();
+        self.route_load = None;
+        self.vm_stats_task = None;
+        self.vm_stats = None;
+        self.enter(self.route, cx);
     }
 
     pub(crate) fn enter(&mut self, route: Route, cx: &mut Context<Self>) {
         if self.route != route {
             self.clear_lima_machine_target();
+            self.environment_observations.clear();
         }
         self.route = route;
         self.route_load = None;
@@ -282,11 +296,11 @@ impl SystemView {
             self.vm_stats = None;
         }
         match route {
-            Route::Machine => {
+            Route::Machine if self.local_environment => {
                 self.load_disk(cx);
                 self.watch_vm(cx);
             }
-            Route::Disk => self.load_disk(cx),
+            Route::Disk if self.local_environment => self.load_disk(cx),
             Route::Settings if self.settings_tab == SettingsTab::Updates => {
                 self.load_update_status(cx)
             }
@@ -298,7 +312,7 @@ impl SystemView {
                 self.load_registries(cx)
             }
             Route::Settings if self.settings_tab == SettingsTab::General => self.load_login(cx),
-            Route::Activity => self.load_audit(cx),
+            Route::Activity if self.local_environment => self.load_audit(cx),
             _ => {}
         }
     }
@@ -417,7 +431,7 @@ impl SystemView {
     }
 
     pub(crate) fn render_route(
-        &self,
+        &mut self,
         route: Route,
         screen: &ScreenContext<'_>,
         history: &VecDeque<EngineState>,
@@ -427,7 +441,9 @@ impl SystemView {
         let view = match route {
             Route::Machine => self.machine(screen, cx),
             Route::Disk => self.disk(screen, cx),
-            Route::Activity => self.activity(screen, history, cx),
+            Route::Activity => self
+                .activity(screen, history, cx)
+                .child(self.managed_activity_panel(screen, cx)),
             Route::Settings => self.settings(screen, compact_settings, cx),
             _ => div(),
         };

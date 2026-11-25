@@ -11,7 +11,6 @@ use marsa_ui::{
     gpui_component::{
         Disableable, Icon, IconName, Placement,
         button::{Button, ButtonVariants as _},
-        menu::{DropdownMenu as _, PopupMenuItem},
     },
     gui_keys as gui,
     tokens::{scale::Space, typography::Role},
@@ -187,9 +186,7 @@ pub(super) fn action_rail(
             appearance,
             service.clone(),
         ))
-        .child(prune_menu(
-            screen, view, disabled, source, appearance, service,
-        ))
+        .child(cleanup_button(screen, service.is_some()))
 }
 
 fn toolbar_icon(
@@ -244,81 +241,18 @@ fn toolbar_form_icon(
     })
 }
 
-fn prune_menu(
-    screen: &ScreenContext<'_>,
-    view: &Entity<ResourcesView>,
-    disabled: bool,
-    source: Option<ResourceSource>,
-    appearance: (
-        Locale,
-        marsa_ui::Palette,
-        marsa_ui::preferences::DisplaySettings,
-    ),
-    service: Option<Arc<Services>>,
-) -> impl IntoElement {
-    let locale = screen.locale;
-    let label = message(locale, gui::GUI_DESKTOP_PRUNE_IMAGES);
-    let state = view.clone();
-    Button::new("prune-images")
+fn cleanup_button(screen: &ScreenContext<'_>, available: bool) -> impl IntoElement {
+    let label = message(screen.locale, gui::GUI_SYSTEM_DISK_REVIEW);
+    Button::new("review-image-cleanup")
         .outline()
         .h(px(Space::S36.pixels()))
         .px_2()
-        .disabled(disabled || service.is_none())
+        .disabled(!available)
         .accessibility_label(label.clone())
-        .tooltip(label.clone())
-        .child(
-            row(locale)
-                .gap_1()
-                .items_center()
-                .child(Icon::default().path("icons/trash.svg").size(px(16.)))
-                .child(Icon::new(IconName::ChevronDown).size(px(14.))),
-        )
-        .dropdown_menu(move |menu, _, _| {
-            let unused = state.clone();
-            let dangling = state.clone();
-            let unused_source = source.clone();
-            let dangling_source = source.clone();
-            let unused_service = service.clone();
-            let dangling_service = service.clone();
-            menu.item(
-                PopupMenuItem::new(message(locale, gui::GUI_DESKTOP_PRUNE_UNUSED_IMAGES)).on_click(
-                    move |_, window, cx| {
-                        if let Some(service) = &unused_service {
-                            unused.update(cx, |view, cx| {
-                                view.open_form(
-                                    (
-                                        FormKind::PruneImages { dangling: false },
-                                        unused_source.clone(),
-                                    ),
-                                    appearance,
-                                    Arc::clone(service),
-                                    window,
-                                    cx,
-                                );
-                            });
-                        }
-                    },
-                ),
-            )
-            .item(
-                PopupMenuItem::new(message(locale, gui::GUI_DESKTOP_PRUNE_DANGLING_IMAGES))
-                    .on_click(move |_, window, cx| {
-                        if let Some(service) = &dangling_service {
-                            dangling.update(cx, |view, cx| {
-                                view.open_form(
-                                    (
-                                        FormKind::PruneImages { dangling: true },
-                                        dangling_source.clone(),
-                                    ),
-                                    appearance,
-                                    Arc::clone(service),
-                                    window,
-                                    cx,
-                                );
-                            });
-                        }
-                    }),
-            )
+        .tooltip(label)
+        .child(Icon::default().path("icons/trash.svg").size(px(16.)))
+        .on_click(|_, window, cx| {
+            window.dispatch_action(Box::new(crate::desktop::NavigateToDisk), cx);
         })
 }
 

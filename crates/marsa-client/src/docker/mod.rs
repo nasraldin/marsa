@@ -1,6 +1,7 @@
 //! Typed access to Marsa and authenticated external Docker engines.
 
 mod actions;
+mod cleanup;
 mod contexts;
 pub(crate) mod deploy_secrets;
 mod environment_report;
@@ -272,6 +273,9 @@ pub enum DockerError {
     /// The registry did not provide an image for the configured guest platform.
     #[error("image has no matching Linux ARM64 manifest")]
     ImagePlatform,
+    /// The reported Docker inventory could not support an exact cleanup preview.
+    #[error("Docker cleanup preview is unavailable")]
+    CleanupPreview(#[source] Box<tonic::Status>),
     /// Docker reported failure while pulling an image.
     #[error("Docker image pull failed")]
     ImagePull,

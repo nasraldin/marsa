@@ -5,7 +5,7 @@ use std::{io, time::Duration};
 use marsa_proto::{
     guest::v1::VmStats,
     host::{
-        DOCKER_INVENTORY_LIMIT,
+        DOCKER_INVENTORY_LIMIT, docker_activity_query,
         v1::{
             DockerOverviewRequest, DockerOverviewResponse, DockerOverviewSection, VmStatsRequest,
             VmStatsSample, stats_server::Stats,
@@ -203,6 +203,12 @@ fn overview_path(request: DockerOverviewRequest) -> Result<String, &'static str>
     }
     if !id.is_empty() {
         return Err("unexpected Docker container identifier");
+    }
+    if section == DockerOverviewSection::Activity {
+        return Ok(format!(
+            "/v1.57{}",
+            docker_activity_query(inventory_cache::now_millis() / 1000)
+        ));
     }
     Ok(match section {
         DockerOverviewSection::Containers => "/v1.57/containers/json?all=true",

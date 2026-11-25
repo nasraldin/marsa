@@ -22,7 +22,7 @@ const CACHE_API_MINOR: u32 = 14;
 const SAMPLE_LIMIT: usize = 48;
 const SAMPLE_CONCURRENCY: usize = 8;
 const SAMPLE_BUDGET: Duration = Duration::from_secs(8);
-const DISK_TIMEOUT: Duration = Duration::from_secs(40);
+pub(super) const DISK_TIMEOUT: Duration = Duration::from_secs(40);
 pub(super) const DISK_PATH: &str = "/system/df?verbose=true";
 pub(super) const VERSION_PATH: &str = "/version";
 pub(super) const STATS_PATH: &str = "stats?stream=false";
@@ -340,7 +340,7 @@ impl OverviewClient {
                     Section::ContainerStats => {
                         format!("/containers/{}/{STATS_PATH}", container?.as_str())
                     }
-                    Section::Unspecified => return None,
+                    Section::Activity | Section::Unspecified => return None,
                 };
                 client
                     .snapshot_with_timeout(&path, section_timeout(section))

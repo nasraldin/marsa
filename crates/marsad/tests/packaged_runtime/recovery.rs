@@ -453,7 +453,10 @@ async fn wait_disk_usage(
 #[tokio::test]
 #[ignore = "requires Apple silicon virtualization, built guest artifacts, and the Docker CLI"]
 async fn packaged_cleanup_preview_lists_disposable_storage_without_removal() {
-    use marsa_proto::host::v1::{DiskCategory, PrunePreviewRequest};
+    use marsa_proto::host::v1::{
+        DiskCategory, DockerOverviewRequest, DockerOverviewSection, PrunePreviewRequest,
+        stats_client::StatsClient,
+    };
 
     let scratch = tempfile::tempdir_in("/tmp").unwrap();
     let home = scratch.path().join("home");
@@ -511,6 +514,24 @@ async fn packaged_cleanup_preview_lists_disposable_storage_without_removal() {
     let volume = "marsa-preview-volume";
     docker(&socket, &["volume", "create", volume]).await;
 
+    let activity = StatsClient::new(channel.clone())
+        .docker_overview(DockerOverviewRequest {
+            section: DockerOverviewSection::Activity.into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let events = serde_json::Deserializer::from_slice(&activity.json)
+        .into_iter::<serde_json::Value>()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert!(events.iter().any(|event| {
+        event["Type"] == "container"
+            && event["Action"] == "create"
+            && event["Actor"]["ID"] == container.trim()
+            && event["Actor"]["Attributes"]["name"] == "marsa-preview-stopped"
+    }));
     let mut disk = DiskClient::new(channel.clone());
     let default = disk
         .prune_preview(PrunePreviewRequest::default())

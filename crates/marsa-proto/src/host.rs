@@ -1,10 +1,22 @@
 //! Generated gRPC definitions used by the host daemon and its clients.
 
+pub mod docker_cleanup;
+
 /// The major version of the host API exposed by the generated bindings.
 pub const API_MAJOR: u32 = 1;
 
 /// The latest additive revision of the host API.
-pub const API_MINOR: u32 = 15;
+pub const API_MINOR: u32 = 16;
+
+/// Maximum lookback for a bounded Docker event history request.
+pub const DOCKER_ACTIVITY_WINDOW_SECONDS: i64 = 24 * 60 * 60;
+
+/// Build a finite read-only query that includes the current engine second.
+pub fn docker_activity_query(now: i64) -> String {
+    let until = now.saturating_add(1);
+    let since = until.saturating_sub(DOCKER_ACTIVITY_WINDOW_SECONDS);
+    format!("/events?since={since}&until={until}")
+}
 
 /// Maximum JSON byte length for a live Docker resource collection.
 pub const DOCKER_INVENTORY_LIMIT: usize = 8 * 1024 * 1024;

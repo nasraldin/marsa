@@ -8,7 +8,7 @@ use marsa_client::api::{
 };
 use marsa_ui::{
     ColorToken, Locale, Palette,
-    gpui::{Context, Div, FontWeight, ParentElement, Styled, Window, div, px},
+    gpui::{App, Context, Div, FontWeight, ParentElement, Styled, Window, div, px},
     gpui_component::{
         Disableable, Sizable, WindowExt,
         button::{Button, ButtonVariants},
@@ -21,7 +21,7 @@ use crate::{
     desktop::Route,
     screens::common::{
         ScreenContext, align, color, dialog_actions, dialog_frame, dialog_heading, message, panel,
-        row,
+        row, technical,
     },
 };
 
@@ -110,99 +110,19 @@ impl SystemView {
         cx: &mut Context<Self>,
     ) {
         let Some(preview) = &self.preview else { return };
-        if window.has_active_dialog(cx) {
-            return;
-        }
         let candidate_rows = ordered_candidates(preview)
             .filter(|candidate| self.cleanup_selection.contains(&candidate_key(candidate)))
             .cloned()
             .collect::<Vec<_>>();
-        if candidate_rows.is_empty() {
-            return;
-        }
-        let selected_bytes = sum_estimates(candidate_rows.iter());
-        let applies = match preview.apply_capability() {
-            PruneApplyCapability::ExactDeletionUnsupported => {
-                gui::GUI_DESKTOP_CLEANUP_APPLY_ENGINE_UNSUPPORTED
-            }
-            PruneApplyCapability::Unspecified => gui::GUI_DESKTOP_CLEANUP_PREVIEW_ONLY,
-        };
-        let volume_excluded = candidate_rows
-            .iter()
-            .all(|candidate| candidate.category() != DiskCategory::Volumes);
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog_frame(dialog, 680.)
-                .title(dialog_heading(
-                    locale,
-                    palette,
-                    gui::GUI_SYSTEM_DISK_REVIEW.text(locale),
-                ))
-                .child(
-                    align(div().flex().flex_col().gap_4(), locale)
-                        .child(muted(
-                            palette,
-                            gui::GUI_SYSTEM_DISK_REVIEW_EXPLANATION.text(locale),
-                        ))
-                        .child(cleanup_summary(
-                            locale,
-                            palette,
-                            candidate_rows.len(),
-                            selected_bytes,
-                        ))
-                        .child(
-                            div()
-                                .rounded(px(8.))
-                                .px_4()
-                                .py_2()
-                                .border_1()
-                                .border_color(color(palette, ColorToken::BorderSubtle))
-                                .bg(color(palette, ColorToken::BgCode))
-                                .children(candidate_rows.iter().enumerate().map(
-                                    |(index, candidate)| {
-                                        let line = cleanup_row(locale, palette, candidate, true);
-                                        if index == 0 { line.border_t_0() } else { line }
-                                    },
-                                )),
-                        )
-                        .child(
-                            row(locale)
-                                .items_start()
-                                .gap_3()
-                                .p_4()
-                                .rounded(px(8.))
-                                .bg(color(palette, ColorToken::StatusStartingBg))
-                                .child(system_icon(palette, "icons/info.svg"))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .gap_1()
-                                        .children(volume_excluded.then(|| {
-                                            div()
-                                                .font_weight(FontWeight::MEDIUM)
-                                                .text_color(color(
-                                                    palette,
-                                                    ColorToken::AccentDefault,
-                                                ))
-                                                .child(
-                                                    gui::GUI_SYSTEM_DISK_VOLUMES_EXCLUDED
-                                                        .text(locale),
-                                                )
-                                        }))
-                                        .child(muted(palette, applies.text(locale))),
-                                ),
-                        ),
-                )
-                .footer(
-                    dialog_actions(locale, palette).child(
-                        Button::new("close-cleanup-review")
-                            .outline()
-                            .small()
-                            .label(gui::GUI_DESKTOP_CLOSE.text(locale))
-                            .on_click(|_, window, cx| window.close_dialog(cx)),
-                    ),
-                )
-        });
+        show_cleanup_review(
+            locale,
+            palette,
+            None,
+            preview.apply_capability(),
+            &candidate_rows,
+            window,
+            cx,
+        );
     }
 
     fn reclaim(&mut self, cx: &mut Context<Self>) {
@@ -482,6 +402,183 @@ impl SystemView {
                     })),
             )
     }
+}
+
+pub(super) fn external_cleanup(
+    screen: &ScreenContext<'_>,
+    environment: (String, String),
+    preview: &PrunePreviewResponse,
+) -> Div {
+    let locale = screen.locale;
+    let palette = screen.palette;
+    let reviewed: Vec<_> = ordered_candidates(preview)
+        .filter(|candidate| candidate.category() != DiskCategory::Volumes)
+        .cloned()
+        .collect();
+    let capability = preview.apply_capability();
+    disk_panel(screen)
+        .gap_4()
+        .child(title_text(gui::GUI_DESKTOP_DISK_USAGE.text(locale)))
+        .child(disk_chart(locale, palette, &preview.observed_usage))
+        .children((!preview.unavailable_categories.is_empty()).then(|| {
+            row(locale)
+                .gap_2()
+                .flex_wrap()
+                .child(muted(
+                    palette,
+                    gui::GUI_DESKTOP_PREVIEW_UNAVAILABLE_FOR.text(locale),
+                ))
+                .children(
+                    preview
+                        .unavailable_categories
+                        .iter()
+                        .filter_map(|category| {
+                            DiskCategory::try_from(*category)
+                                .ok()
+                                .map(|category| message(locale, category_text(category)))
+                        }),
+                )
+        }))
+        .child(title_text(gui::GUI_DESKTOP_CLEANUP_CANDIDATES.text(locale)))
+        .children(
+            preview
+                .candidates
+                .iter()
+                .map(|candidate| cleanup_row(locale, palette, candidate, false)),
+        )
+        .children(
+            (preview.candidates.is_empty() && preview.unavailable_categories.is_empty()).then(
+                || {
+                    muted(
+                        palette,
+                        gui::GUI_DESKTOP_NO_UNUSED_RESOURCES_FOUND.text(locale),
+                    )
+                },
+            ),
+        )
+        .child(muted(
+            palette,
+            gui::GUI_DESKTOP_CLEANUP_APPLY_ENGINE_UNSUPPORTED.text(locale),
+        ))
+        .child(
+            Button::new("review-external-cleanup")
+                .outline()
+                .label(gui::GUI_SYSTEM_DISK_REVIEW.text(locale))
+                .disabled(reviewed.is_empty())
+                .on_click(move |_, window, cx| {
+                    show_cleanup_review(
+                        locale,
+                        palette,
+                        Some(environment.clone()),
+                        capability,
+                        &reviewed,
+                        window,
+                        cx,
+                    )
+                }),
+        )
+}
+
+fn show_cleanup_review(
+    locale: Locale,
+    palette: Palette,
+    environment: Option<(String, String)>,
+    capability: PruneApplyCapability,
+    candidate_rows: &[PruneCandidate],
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if candidate_rows.is_empty() || window.has_active_dialog(cx) {
+        return;
+    }
+    let selected_bytes = sum_estimates(candidate_rows.iter());
+    let applies = match capability {
+        PruneApplyCapability::ExactDeletionUnsupported => {
+            gui::GUI_DESKTOP_CLEANUP_APPLY_ENGINE_UNSUPPORTED
+        }
+        PruneApplyCapability::Unspecified => gui::GUI_DESKTOP_CLEANUP_PREVIEW_ONLY,
+    };
+    let volume_excluded = candidate_rows
+        .iter()
+        .all(|candidate| candidate.category() != DiskCategory::Volumes);
+    let candidate_rows = candidate_rows.to_vec();
+    window.open_dialog(cx, move |dialog, _, _| {
+        dialog_frame(dialog, 680.)
+            .title(dialog_heading(
+                locale,
+                palette,
+                gui::GUI_SYSTEM_DISK_REVIEW.text(locale),
+            ))
+            .child(
+                align(div().flex().flex_col().gap_4(), locale)
+                    .children(environment.as_ref().map(|(name, address)| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(technical(name))
+                            .child(mono(address).text_color(color(palette, ColorToken::TextMuted)))
+                    }))
+                    .child(muted(
+                        palette,
+                        gui::GUI_SYSTEM_DISK_REVIEW_EXPLANATION.text(locale),
+                    ))
+                    .child(cleanup_summary(
+                        locale,
+                        palette,
+                        candidate_rows.len(),
+                        selected_bytes,
+                    ))
+                    .child(
+                        div()
+                            .rounded(px(8.))
+                            .px_4()
+                            .py_2()
+                            .border_1()
+                            .border_color(color(palette, ColorToken::BorderSubtle))
+                            .bg(color(palette, ColorToken::BgCode))
+                            .children(candidate_rows.iter().enumerate().map(
+                                |(index, candidate)| {
+                                    let line = cleanup_row(locale, palette, candidate, true);
+                                    if index == 0 { line.border_t_0() } else { line }
+                                },
+                            )),
+                    )
+                    .child(
+                        row(locale)
+                            .items_start()
+                            .gap_3()
+                            .p_4()
+                            .rounded(px(8.))
+                            .bg(color(palette, ColorToken::StatusStartingBg))
+                            .child(system_icon(palette, "icons/info.svg"))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .children(volume_excluded.then(|| {
+                                        div()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(color(palette, ColorToken::AccentDefault))
+                                            .child(
+                                                gui::GUI_SYSTEM_DISK_VOLUMES_EXCLUDED.text(locale),
+                                            )
+                                    }))
+                                    .child(muted(palette, applies.text(locale))),
+                            ),
+                    ),
+            )
+            .footer(
+                dialog_actions(locale, palette).child(
+                    Button::new("close-cleanup-review")
+                        .outline()
+                        .small()
+                        .label(gui::GUI_DESKTOP_CLOSE.text(locale))
+                        .on_click(|_, window, cx| window.close_dialog(cx)),
+                ),
+            )
+    });
 }
 
 fn disk_panel(screen: &ScreenContext<'_>) -> Div {
