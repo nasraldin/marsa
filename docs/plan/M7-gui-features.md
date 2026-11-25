@@ -556,7 +556,7 @@ A disposable Lima container verified options including environment, labels, rest
 
 ### M7-31 Download container files
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Download an explicitly named path from a container to an owner-selected destination. Offer a persistent TAR or single-file download preference.
@@ -565,7 +565,23 @@ A disposable Lima container verified options including environment, labels, rest
   - Downloads use the selected container and its pinned environment. A single file can be saved directly, while directories use TAR.
   - Truncated transfers and existing destinations are preserved. Marsa does not unpack archive paths into the host filesystem.
 
-A disposable Lima container returned a binary file directly and a directory as TAR. The download refused to replace the existing destination. The pinned [Moby 29.10.0 schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml) documents the archive routes and path metadata header. The Mac locked before the final four-variant desktop checks.
+Signed desktop qualification on disposable, network-disabled Lima containers
+saved the same binary as TAR and directly, preserved nested contents inside a
+directory archive, and kept an existing destination byte-for-byte. The request
+retained its original container and engine when the selected container and
+workspace changed. Changing the format through Settings took effect immediately
+and survived a daemon restart and desktop relaunch. The locked-host fixture
+supplied the destination through the macOS save picker callback.
+
+A Unix-socket regression verifies that a truncated zero-filled entry never
+publishes an archive or leaves a staging file. The archive check follows member
+sizes, including bounded PAX metadata, before accepting end-of-archive markers.
+Host archive paths are never unpacked. [Moby 29.10.0 archive schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml)
+and [Go archive writer](https://github.com/golang/go/blob/go1.26.10/src/archive/tar/writer.go).
+
+Reviewed the request and persisted preference in English light, English dark,
+Arabic light, and Arabic dark. [Download dialog](../spikes/M7-31-container-downloads/download-dialog.jpg)
+and [Download settings](../spikes/M7-31-container-downloads/download-settings.jpg).
 
 ### M7-32 Connect to Hawser agents
 
