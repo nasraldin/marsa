@@ -4,6 +4,7 @@
 //! The engine socket and registry credentials remain with the Docker client.
 
 use std::{
+    fs::File,
     io,
     path::{Path, PathBuf},
     process::Stdio,
@@ -19,6 +20,9 @@ use tokio::{fs, io::AsyncReadExt as _, process::Command, time::timeout};
 use crate::{docker_socket_path, platform};
 
 use super::{DockerClient, DockerError, DockerScope, ImageId};
+
+mod retention;
+pub use retention::{RetainedScan, RetentionOutcome, ScanHistory, ScanRetention};
 
 const IMAGE_LIMIT: u64 = 4 * 1024 * 1024 * 1024;
 const REPORT_LIMIT: u64 = 32 * 1024 * 1024;
@@ -56,10 +60,14 @@ pub struct ScanSettings {
     pub enabled: bool,
     /// Tool selection, retained when scanning is disabled.
     pub choice: ScannerChoice,
+    /// Keep only the latest normalized report beyond the current editor.
+    #[serde(default)]
+    pub retention: ScanRetention,
 }
 
 /// Tool responsible for an individual result.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Scanner {
     /// Anchore Grype.
     Grype,
@@ -85,7 +93,8 @@ impl Scanner {
 }
 
 /// The severity assigned by a vulnerability scanner.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Severity {
     /// Scanner could not assign severity.
     Unknown,
@@ -102,7 +111,8 @@ pub enum Severity {
 }
 
 /// Display fields selected from the scanner response.
-#[derive(Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Finding {
     /// Identifier reported by the scanner.
     pub id: String,
@@ -117,7 +127,8 @@ pub struct Finding {
 }
 
 /// One scanner's result for the selected image.
-#[derive(Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScanReport {
     /// Total advisories in the result, including any omitted from the preview.
     pub total: usize,
@@ -127,6 +138,27 @@ pub struct ScanReport {
 
 /// The scanner and outcome for a requested image.
 pub type ScannerResult = (Scanner, Result<ScanReport, ScanError>);
+
+/// A completed scan and the outcome of its independent retention step.
+#[derive(Debug)]
+pub struct ScanOutcome {
+    /// Findings or failure from each selected scanner.
+    pub results: Vec<ScannerResult>,
+    /// Saving or removing retained reports cannot invalidate live findings.
+    pub retention: Result<RetentionOutcome, ScanError>,
+}
+
+/// Whether a desktop database cache contained files to clear.
+#[derive(Debug, Eq, PartialEq)]
+pub enum CacheCleanup {
+    /// Removed cached scanner data.
+    Cleared,
+    /// No cached scanner data existed.
+    Empty,
+}
+
+/// Cleanup outcome for each named desktop scanner cache.
+pub type CacheCleanupResults = [(Scanner, Result<CacheCleanup, ScanError>); 2];
 
 /// Safe-to-display categories for image scanning failures.
 #[derive(Debug, Error)]
@@ -211,15 +243,36 @@ impl ScanSettingsStore {
         }
     }
 
-    async fn save(&self, settings: ScanSettings) -> Result<(), ScanError> {
+    async fn save(&self, settings: ScanSettings) -> Result<Option<RetentionOutcome>, ScanError> {
         check_user()?;
         let directory = self.directory.clone();
         let path = self.path();
+        let report = self.report_path();
         let data = serde_json::to_vec(&settings)
             .map_err(|error| ScanError::State(io::Error::other(error)))?;
         tokio::task::spawn_blocking(move || {
             let _lock = platform::lock_docker_state(&directory, "desktop-scanners.lock")?;
-            platform::replace_docker_state(&path, &data)
+            let discarded = if settings.retention == ScanRetention::SessionOnly {
+                match std::fs::remove_file(report) {
+                    Ok(()) => Some(RetentionOutcome::Discarded),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error),
+                }
+            } else {
+                None
+            };
+            platform::replace_docker_state(&path, &data)?;
+            Ok(discarded)
+        })
+        .await
+        .map_err(|error| ScanError::State(io::Error::other(error)))?
+        .map_err(ScanError::State)
+    }
+
+    async fn lock(&self) -> Result<File, ScanError> {
+        let directory = self.directory.clone();
+        tokio::task::spawn_blocking(move || {
+            platform::lock_docker_state(&directory, "desktop-scanners.lock")
         })
         .await
         .map_err(|error| ScanError::State(io::Error::other(error)))?
@@ -239,15 +292,46 @@ impl DockerClient {
     }
 
     /// Atomically replace the owner's scanner preferences for this endpoint.
-    pub async fn save_scan_settings(&self, settings: ScanSettings) -> Result<(), ScanError> {
+    ///
+    /// Turning retention off immediately discards the previous report, if present.
+    pub async fn save_scan_settings(
+        &self,
+        settings: ScanSettings,
+    ) -> Result<Option<RetentionOutcome>, ScanError> {
         ScanSettingsStore::for_client(self)?.save(settings).await
+    }
+
+    /// Clear the shared desktop database caches for Grype and Trivy.
+    ///
+    /// Waits for scans using each cache before removing it. Does not alter Docker data.
+    pub async fn clear_scan_caches(&self) -> Result<CacheCleanupResults, ScanError> {
+        let store = ScanSettingsStore::for_client(self)?;
+        platform::check_user_docker_directory(&store.directory)
+            .await
+            .map_err(ScanError::State)?;
+        tokio::task::spawn_blocking(move || {
+            [Scanner::Grype, Scanner::Trivy].map(|scanner| {
+                let outcome = clear_cache(&cache_path(&store.directory, scanner))
+                    .map(|changed| {
+                        if changed {
+                            CacheCleanup::Cleared
+                        } else {
+                            CacheCleanup::Empty
+                        }
+                    })
+                    .map_err(ScanError::State);
+                (scanner, outcome)
+            })
+        })
+        .await
+        .map_err(|error| ScanError::State(io::Error::other(error)))
     }
 
     /// Scan this engine's selected immutable image according to the saved opt-in.
     ///
     /// A missing tool in Both mode yields an individual error, while an installed
     /// tool can still return its findings.
-    pub async fn scan_image(&self, image: &ImageId) -> Result<Vec<ScannerResult>, ScanError> {
+    pub async fn scan_image(&self, image: &ImageId) -> Result<ScanOutcome, ScanError> {
         let store = ScanSettingsStore::for_client(self)?;
         let settings = store.load().await?;
         if !settings.enabled {
@@ -261,13 +345,14 @@ impl DockerClient {
             ));
         }
         if tools.iter().all(|(_, binary)| binary.is_none()) {
-            return Ok(tools
+            let results = tools
                 .into_iter()
                 .map(|(scanner, _)| (scanner, Err(ScanError::Missing)))
-                .collect());
+                .collect();
+            return Ok(finish_scan(&store, image, results).await);
         }
 
-        let directory = store.directory;
+        let directory = store.directory.clone();
         let private = tokio::task::spawn_blocking({
             let directory = directory.clone();
             move || {
@@ -290,15 +375,49 @@ impl DockerClient {
         for (scanner, binary) in tools {
             let report = match binary {
                 Some(binary) => {
-                    let cache = directory.join(format!("desktop-scanner-{}", scanner.executable()));
+                    let cache = cache_path(&directory, scanner);
                     run(scanner, &binary, private.path(), &config, &archive, &cache).await
                 }
                 None => Err(ScanError::Missing),
             };
             reports.push((scanner, report));
         }
-        Ok(reports)
+        Ok(finish_scan(&store, image, reports).await)
     }
+}
+
+async fn finish_scan(
+    store: &ScanSettingsStore,
+    image: &ImageId,
+    results: Vec<ScannerResult>,
+) -> ScanOutcome {
+    let retention = match retention::timestamp() {
+        Ok(now) => store.record_at(image, &results, now).await,
+        Err(error) => Err(error),
+    };
+    ScanOutcome { results, retention }
+}
+
+fn cache_path(directory: &Path, scanner: Scanner) -> PathBuf {
+    directory.join(format!("desktop-scanner-{}", scanner.executable()))
+}
+
+fn clear_cache(cache: &Path) -> io::Result<bool> {
+    let _lock = platform::lock_docker_state(cache, "scan.lock")?;
+    let mut changed = false;
+    for entry in std::fs::read_dir(cache)? {
+        let entry = entry?;
+        if entry.file_name() == "scan.lock" {
+            continue;
+        }
+        if entry.file_type()?.is_dir() {
+            std::fs::remove_dir_all(entry.path())?;
+        } else {
+            std::fs::remove_file(entry.path())?;
+        }
+        changed = true;
+    }
+    Ok(changed)
 }
 
 fn check_user() -> Result<(), ScanError> {

@@ -1264,6 +1264,25 @@ gui-environment-scan-low = منخفضة
 gui-environment-scan-negligible = ضئيلة
 gui-environment-scan-unknown = غير معروفة
 
+gui-environment-scan-retention = الاحتفاظ بآخر تقرير لهذه البيئة
+gui-environment-scan-session = حتى إغلاق نافذة التحرير
+gui-environment-scan-one-day = يوم واحد
+gui-environment-scan-seven-days = ٧ أيام
+gui-environment-scan-retained = حُفظ آخر تقرير على جهاز Mac هذا.
+gui-environment-scan-session-result = تبقى هذه النتائج في نافذة التحرير حتى إغلاقها.
+gui-environment-scan-discard = إيقاف حفظ التقارير
+gui-environment-scan-discard-confirm = هل تريد إزالة التقرير المحفوظ لهذه البيئة والاحتفاظ بالنتائج المقبلة حتى إغلاق نافذة التحرير فقط؟
+gui-environment-scan-discarded = أُزيل التقرير المحفوظ السابق.
+gui-environment-scan-expired = انتهت مدة الاحتفاظ بالتقرير المحفوظ وأُزيل.
+gui-environment-scan-unchanged = لم يحل هذا الفحص محل آخر تقرير محفوظ.
+gui-environment-scan-retention-failed = تعذّر تحديث تقرير الفحص المحفوظ أو فتحه.
+gui-environment-scan-saved-image = النتائج المحفوظة للصورة
+gui-environment-scan-cache-clear = مسح ذاكرة الفحص المؤقتة
+gui-environment-scan-cache-confirm = هل تريد مسح ذاكرة قواعد بيانات Grype وTrivy المؤقتة المشتركة بين جميع البيئات على جهاز Mac هذا؟ قد تعيد عمليات الفحص التالية تنزيل قواعد البيانات.
+gui-environment-scan-cache-cleared = مُسحت الذاكرة المؤقتة.
+gui-environment-scan-cache-empty = الذاكرة المؤقتة فارغة بالفعل.
+gui-environment-scan-cache-failed = تعذّر مسح الذاكرة المؤقتة بالكامل.
+
 gui-overview-description = المحرّك وأعباء العمل والتخزين في البيئة النشطة.
 gui-overview-view-disk = عرض التخزين
 gui-overview-measuring = جارٍ جمع القياسات…

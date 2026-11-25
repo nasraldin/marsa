@@ -127,6 +127,16 @@ existing stopped container.
 · [Pinned Compose volume inheritance](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/create.go#L1202-L1246)
 · [Pinned Moby archive extraction](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/archive_unix.go#L121-L158).
 
+## Desktop image scanning
+
+Explicit image scans use the selected engine's immutable image ID. The
+installed scanner receives a temporary private archive and runs with a clean
+environment without the Docker socket or registry credentials. Opt-in report
+retention stores only bounded normalized findings and the original image ID
+in an owner-only file keyed by the engine. A confirmed cache cleanup operates
+on the desktop's fixed scanner database directories, keeps the scan locks in
+place, and never sends a cleanup request to Docker.
+
 ## Registry credentials
 
 - `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS Keychain when that helper is on the Docker CLI's `PATH`. The authenticated opt-in adds `credsStore = osxkeychain` to the configured Docker client file only after the caller obtains consent. Existing `credsStore` and `credHelpers` entries remain untouched. If Docker already holds credentials in the file, log out before enabling Keychain and log in again afterwards. [Docker login](https://docs.docker.com/reference/cli/docker/login/), [pinned helper source](https://github.com/docker/docker-credential-helpers/blob/v0.9.13/osxkeychain/osxkeychain.go).
