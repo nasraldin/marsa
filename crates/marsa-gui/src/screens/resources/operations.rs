@@ -34,7 +34,6 @@ pub(super) enum SuccessKind {
     ImagePulled,
     ImageRemoved,
     ImagesRemoved,
-    ImagesPruned,
     ImageImported,
     ImageExported,
     ImagePushed,
@@ -61,7 +60,6 @@ impl SuccessKind {
                 Self::ImagePulled => gui::GUI_DESKTOP_TOAST_IMAGE_PULLED,
                 Self::ImageRemoved => gui::GUI_DESKTOP_TOAST_IMAGE_REMOVED,
                 Self::ImagesRemoved => gui::GUI_DESKTOP_TOAST_IMAGES_REMOVED,
-                Self::ImagesPruned => gui::GUI_DESKTOP_TOAST_IMAGES_PRUNED,
                 Self::ImageImported => gui::GUI_DESKTOP_TOAST_IMAGE_IMPORTED,
                 Self::ImageExported => gui::GUI_DESKTOP_TOAST_IMAGE_EXPORTED,
                 Self::ImagePushed => gui::GUI_DESKTOP_TOAST_IMAGE_PUSHED,
@@ -472,10 +470,6 @@ async fn dispatch(
                             .await?;
                     }
                     SuccessKind::ImagesRemoved
-                }
-                ResourceRequest::PruneImages { dangling } => {
-                    docker.prune_images(dangling).await?;
-                    SuccessKind::ImagesPruned
                 }
                 _ => return Ok(Outcome::Unavailable),
             };

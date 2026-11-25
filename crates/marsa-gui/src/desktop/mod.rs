@@ -2,6 +2,7 @@
 
 mod background;
 mod environment;
+mod environment_health;
 mod overview;
 
 use marsa_ui::gpui_component::scroll::ScrollableElement as _;
@@ -71,6 +72,7 @@ pub(crate) fn bind_keys(cx: &mut App) {
 pub(crate) struct Desktop {
     route: Route,
     overview: overview::Overview,
+    health_alerts: environment_health::HealthAlerts,
     focus: FocusHandle,
     collapsed: bool,
     locale: Locale,
@@ -130,11 +132,12 @@ impl Desktop {
         let environment = cx.new(|_| Environment::load());
         let _context_subscription = cx.observe(&environment, |this, environment, cx| {
             environment.read(cx).save();
+            let selection = environment.read(cx).clone();
             this.resources
                 .update(cx, |view, _| view.switch_environment());
             this.palette_index = 0;
             this.system.update(cx, |view, cx| {
-                view.clear_lima_machine_target();
+                view.change_environment(selection, cx);
                 view.refresh_external_inventory(cx);
             });
             cx.notify();
@@ -143,7 +146,8 @@ impl Desktop {
             ContainerView::new(services.clone(), locale, palette, environment.clone(), cx)
         });
         let resources = cx.new(|cx| ResourcesView::new(window, cx));
-        let system = cx.new(|cx| SystemView::new(services.clone(), window, cx));
+        let selection = environment.read(cx).clone();
+        let system = cx.new(|cx| SystemView::new(services.clone(), selection, window, cx));
         let _context_picker_subscription =
             cx.subscribe(&system, |this, _, SelectContext(selection), cx| {
                 this.select_environment(selection.clone(), cx);
@@ -220,6 +224,9 @@ impl Desktop {
                                     state,
                                 );
                             this.state = state.clone();
+                            if inventory_changed && this.route == Route::Overview {
+                                this.overview.sync_inventory(state);
+                            }
                             if let Some(current) =
                                 this.engine().filter(|current| Some(*current) != before)
                             {
@@ -248,6 +255,7 @@ impl Desktop {
         Self {
             route: Route::Overview,
             overview: overview::Overview::default(),
+            health_alerts: environment_health::HealthAlerts::default(),
             focus,
             collapsed: false,
             locale,
@@ -485,6 +493,7 @@ impl Render for Desktop {
         let palette = self.palette;
         self.prepare_auto_start(cx);
         self.prepare_overview(cx);
+        self.monitor_environment_health(cx);
         let screen = ScreenContext {
             locale: self.locale,
             palette,
@@ -739,6 +748,13 @@ fn route_inventory_changed(
     let networks_changed = || !Arc::ptr_eq(&before.networks(), &after.networks());
     let projects_changed = || !Arc::ptr_eq(&before.compose_projects(), &after.compose_projects());
 
+    if route == Route::Overview {
+        return before.has_docker_inventory() != after.has_docker_inventory()
+            || containers_changed()
+            || images_changed()
+            || volumes_changed()
+            || networks_changed();
+    }
     if palette_open || route == Route::Reports {
         return containers_changed()
             || images_changed()
@@ -761,6 +777,24 @@ mod state_tests {
     use marsa_client::docker::{DockerInventory, VolumeSummary};
 
     use super::*;
+
+    #[test]
+    fn a_loaded_empty_inventory_invalidates_overview_with_the_palette_open() {
+        let empty = AppState::default();
+        let loaded = AppState::index_resources(DockerInventory::default());
+        assert!(route_inventory_changed(
+            Route::Overview,
+            true,
+            &empty,
+            &loaded
+        ));
+        assert!(!route_inventory_changed(
+            Route::Overview,
+            true,
+            &loaded,
+            &loaded
+        ));
+    }
 
     #[test]
     fn unrelated_inventory_does_not_invalidate_the_current_route() {
@@ -805,6 +839,7 @@ mod state_tests {
         assert_eq!(redraw_count(Route::Images, false), 0);
         assert_eq!(redraw_count(Route::Containers, false), 0);
         assert_eq!(redraw_count(Route::Volumes, false), 1);
+        assert_eq!(redraw_count(Route::Overview, false), 1);
         assert_eq!(redraw_count(Route::Images, true), 1);
     }
 }

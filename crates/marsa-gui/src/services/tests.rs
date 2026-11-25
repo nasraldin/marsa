@@ -83,7 +83,7 @@ struct Fake {
     closes: mpsc::Sender<&'static str>,
     log_count: usize,
     events: Mutex<Option<Receiver<DaemonEvent>>>,
-    snapshots: Option<Mutex<Receiver<ResourceSnapshot>>>,
+    snapshots: Option<Mutex<Option<Receiver<ResourceSnapshot>>>>,
     reads: Option<mpsc::Sender<bool>>,
 }
 
@@ -113,12 +113,13 @@ impl Clients for Fake {
         if let Some(reads) = &self.reads {
             reads.send(prefer_cache).unwrap();
         }
-        Ok(self
-            .snapshots
-            .as_ref()
-            .map_or_else(ResourceSnapshot::default, |snapshots| {
-                snapshots.lock().unwrap().try_next().unwrap()
-            }))
+        let Some(snapshots) = &self.snapshots else {
+            return Ok(ResourceSnapshot::default());
+        };
+        let mut receiver = snapshots.lock().unwrap().take().unwrap();
+        let snapshot = receiver.next().await.unwrap();
+        *snapshots.lock().unwrap() = Some(receiver);
+        Ok(snapshot)
     }
 
     async fn inspect(&self, _id: &ContainerId) -> Result<ContainerDetails, ServiceError> {
@@ -235,7 +236,7 @@ fn reads_cached_then_live_inventory_and_refetches_on_daemon_invalidation() {
             closes,
             log_count: 0,
             events: Mutex::new(Some(events)),
-            snapshots: Some(Mutex::new(snapshots)),
+            snapshots: Some(Mutex::new(Some(snapshots))),
             reads: Some(read),
         },
         true,
@@ -270,19 +271,16 @@ fn reads_cached_then_live_inventory_and_refetches_on_daemon_invalidation() {
         ..Default::default()
     };
     assert!(new_snapshot.try_send(inventory("cached")));
-    assert!(new_snapshot.try_send(inventory("live")));
     assert!(event_tx.try_send(event(Body::Snapshot(DaemonSnapshot {
         engine: Some(status(EngineState::Ready)),
         ..Default::default()
     }))));
     assert!(reads.recv_timeout(WAIT).unwrap());
     assert!(!reads.recv_timeout(WAIT).unwrap());
-    // Watch projections can legitimately coalesce the cached frame with the first live frame.
-    let mut first = rendered.recv_timeout(WAIT).unwrap();
-    if first == ["cached"] {
-        first = rendered.recv_timeout(WAIT).unwrap();
-    }
-    assert_eq!(first, ["live"]);
+    assert_eq!(rendered.recv_timeout(WAIT).unwrap(), ["cached"]);
+    assert!(new_snapshot.try_send(inventory("live")));
+    assert_eq!(rendered.recv_timeout(WAIT).unwrap(), ["live"]);
+    assert!(reads.recv_timeout(Duration::from_millis(40)).is_err());
 
     assert!(new_snapshot.try_send(inventory("changed")));
     assert!(event_tx.try_send(event(Body::DockerInventoryChanged(Default::default()))));

@@ -1,6 +1,7 @@
 //! Typed access to Marsa and authenticated external Docker engines.
 
 mod actions;
+mod cleanup;
 mod contexts;
 pub(crate) mod deploy_secrets;
 mod environment_report;
@@ -66,7 +67,7 @@ pub use images::{
 pub use overview::{
     ContainerCounts, ContainerUtilization, DiskBreakdown, EngineVersion, OverviewClient,
     OverviewSample, OverviewUtilization, container_needs_update, image_tag_index,
-    normalize_image_ref,
+    local_image_updates, normalize_image_ref,
 };
 use resources::ComposeLabels;
 pub use resources::{
@@ -251,6 +252,9 @@ pub enum ContainerAction {
 /// Errors returned by the Docker socket and typed response decoders.
 #[derive(Debug, Error)]
 pub enum DockerError {
+    /// The requested Docker event history length is unsupported.
+    #[error("invalid Docker event history length")]
+    InvalidActivityHours,
     /// A route must be addressed by the complete container ID.
     #[error("expected a complete Docker container ID")]
     InvalidId,
@@ -272,6 +276,9 @@ pub enum DockerError {
     /// The registry did not provide an image for the configured guest platform.
     #[error("image has no matching Linux ARM64 manifest")]
     ImagePlatform,
+    /// The reported Docker inventory could not support an exact cleanup preview.
+    #[error("Docker cleanup preview is unavailable")]
+    CleanupPreview(#[source] Box<tonic::Status>),
     /// Docker reported failure while pulling an image.
     #[error("Docker image pull failed")]
     ImagePull,

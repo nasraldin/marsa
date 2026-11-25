@@ -2,13 +2,13 @@
 
 mod usage_history;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use marsa_client::{
     api::EngineState,
     docker::{
-        ContainerId, ContainerUtilization, DiskBreakdown, ExternalEndpoint, OverviewClient,
-        OverviewSample, OverviewUtilization,
+        ContainerCounts, ContainerId, ContainerUtilization, DiskBreakdown, ExternalEndpoint,
+        OverviewClient, OverviewSample, OverviewUtilization, local_image_updates,
     },
 };
 use marsa_ui::{
@@ -34,7 +34,8 @@ use crate::{
         external_inventory::Environment,
         system::environment_icon_path,
     },
-    services::EngineAction,
+    services::{EngineAction, Services},
+    store::AppState,
 };
 
 use super::{Desktop, Route, status};
@@ -46,7 +47,7 @@ const DISK_RETRY: Duration = Duration::from_secs(15);
 
 #[derive(Clone, PartialEq, Eq)]
 enum Target {
-    Marsa,
+    Marsa(u64),
     External(Box<ExternalEndpoint>),
     Checking(Environment),
 }
@@ -54,42 +55,99 @@ enum Target {
 #[derive(Default)]
 pub(super) struct Overview {
     target: Option<Target>,
+    check_image_updates: bool,
     task: Option<Task<()>>,
     disk_task: Option<Task<()>>,
+    version_task: Option<Task<()>>,
+    image_task: Option<Task<()>>,
+    managed_updates: usize,
     sample: Option<OverviewSample>,
     usage_history: UsageHistory,
     disk: Option<DiskBreakdown>,
     disk_pending: bool,
 }
 
+impl Overview {
+    pub(super) fn sync_inventory(&mut self, state: &AppState) {
+        if self.target != Some(Target::Marsa(state.docker_epoch())) || !state.has_docker_inventory()
+        {
+            return;
+        }
+        let mut counts = ContainerCounts::from_rows(state.containers().values());
+        counts.updates = self.managed_updates;
+        let sample = self.sample.get_or_insert_default();
+        if sample.utilization.is_none() {
+            sample.utilization = Some(OverviewUtilization {
+                running: counts.running,
+                usage: Vec::new(),
+            });
+        }
+        sample.containers = Some(counts);
+        sample.stacks = Some(state.compose_projects().len());
+        sample.images = Some(state.images().len());
+        sample.volumes = Some(state.volumes().len());
+        sample.networks = Some(state.networks().len());
+    }
+
+    fn stop_tasks(&mut self) {
+        self.task = None;
+        self.disk_task = None;
+        self.version_task = None;
+        self.image_task = None;
+    }
+}
+
 impl Desktop {
     pub(super) fn prepare_overview(&mut self, cx: &mut Context<Self>) {
         if self.route != Route::Overview || self.onboarding.is_some() {
-            if self.overview.task.take().is_some() && self.overview.sample.is_some() {
+            if self.overview.task.is_some() && self.overview.sample.is_some() {
                 self.overview.usage_history.record(None);
             }
-            self.overview.disk_task = None;
+            self.overview.stop_tasks();
             return;
         }
         let selection = self.environment.read(cx);
         let target = if selection.includes_marsa() {
             matches!(self.engine(), Some(EngineState::Ready | EngineState::Idle))
-                .then_some(Target::Marsa)
+                .then_some(Target::Marsa(self.state.docker_epoch()))
         } else {
             Some(self.active_workspace(cx).map_or_else(
                 || Target::Checking(selection.clone()),
                 |workspace| Target::External(Box::new(workspace.endpoint.clone())),
             ))
         };
-        if self.overview.target != target {
+        let check_image_updates = self.system.read(cx).monitoring().check_image_updates;
+        let checks_changed = self.overview.check_image_updates != check_image_updates;
+        let managed = matches!(target, Some(Target::Marsa(_)));
+        if self.overview.target != target || (!managed && checks_changed) {
             self.overview = Overview {
-                disk_pending: matches!(target, Some(Target::Marsa | Target::External(_))),
+                disk_pending: matches!(target, Some(Target::Marsa(_) | Target::External(_))),
                 target: target.clone(),
+                check_image_updates,
                 ..Overview::default()
             };
-        } else if self.overview.task.is_some() {
+        } else if checks_changed {
+            self.overview.check_image_updates = check_image_updates;
+            self.overview.image_task = None;
+            self.overview.managed_updates = 0;
+            if let Some(sample) = &mut self.overview.sample {
+                sample.updates_checked = false;
+                sample.outdated_images.clear();
+                if let Some(counts) = &mut sample.containers {
+                    counts.updates = 0;
+                }
+            }
+            if check_image_updates
+                && self.overview.task.is_some()
+                && let Some((target, services)) = target.clone().zip(self.services.clone())
+            {
+                self.observe_managed_image_updates(target, services, cx);
+            }
+        }
+        if self.overview.task.is_some() {
             return;
         }
+        self.overview.sync_inventory(&self.state);
         let Some((target, services)) = target.zip(self.services.clone()) else {
             self.overview.disk_pending = false;
             return;
@@ -100,15 +158,26 @@ impl Desktop {
             let storage_services = services.clone();
             let storage_executor = executor.clone();
             self.overview.disk_task = Some(cx.spawn(async move |this, cx| {
+                if matches!(&storage_target, Target::Marsa(_)) {
+                    let mut request = storage_services.request(|client| async move {
+                        Ok(OverviewClient::Marsa(client).disk_cached().await)
+                    });
+                    if let Some(Ok(Some(cached))) = request.result().await
+                        && this
+                            .update(cx, |this, cx| {
+                                this.publish_overview_disk(&storage_target, Some(cached), cx)
+                            })
+                            .ok()
+                            != Some(true)
+                    {
+                        return;
+                    }
+                }
                 loop {
                     let disk = match &storage_target {
-                        Target::Marsa => {
+                        Target::Marsa(_) => {
                             let mut request = storage_services.request(|client| async move {
-                                let client = OverviewClient::Marsa(client);
-                                let cached = client.disk_cached().await;
-                                // Always follow with a live scan so reclaimable figures stay current.
-                                let live = client.disk().await;
-                                Ok(live.or(cached))
+                                Ok(OverviewClient::Marsa(client).disk().await)
                             });
                             request.result().await.and_then(Result::ok).flatten()
                         }
@@ -118,7 +187,7 @@ impl Desktop {
                                 storage_services.pending(async move { Ok(client.disk().await) });
                             request.result().await.and_then(Result::ok).flatten()
                         }
-                        Target::Checking(_) => break,
+                        Target::Checking(_) => return,
                     };
                     let interval = if disk.is_some() {
                         DISK_INTERVAL
@@ -127,46 +196,33 @@ impl Desktop {
                     };
                     if this
                         .update(cx, |this, cx| {
-                            if this.overview.target.as_ref() != Some(&storage_target) {
-                                return false;
-                            }
-                            this.overview.disk = disk;
-                            this.overview.disk_pending = false;
-                            cx.notify();
-                            true
+                            this.publish_overview_disk(&storage_target, disk, cx)
                         })
                         .ok()
                         != Some(true)
                     {
-                        break;
+                        return;
                     }
                     storage_executor.timer(interval).await;
                 }
             }));
         }
+        if matches!(target, Target::Marsa(_)) {
+            self.observe_managed_overview(target, services, cx);
+            return;
+        }
         self.overview.task = Some(cx.spawn(async move |this, cx| {
             loop {
                 let sample = match &target {
-                    Target::Marsa => {
-                        let mut request = services.request(|client| async move {
-                            let client = OverviewClient::Marsa(client);
-                            // First frame from the daemon inventory cache (D-034 / M7-41).
-                            let cached = client.sample_cached().await;
-                            if observed(&cached) {
-                                Ok(cached)
-                            } else {
-                                Ok(client.sample().await)
-                            }
+                    Target::External(endpoint) => {
+                        let client = OverviewClient::external(endpoint);
+                        let mut request = services.pending(async move {
+                            Ok(client.sample_with_image_checks(check_image_updates).await)
                         });
                         request.result().await.and_then(Result::ok)
                     }
-                    Target::External(endpoint) => {
-                        let client = OverviewClient::external(endpoint);
-                        let mut request =
-                            services.pending(async move { Ok(client.sample().await) });
-                        request.result().await.and_then(Result::ok)
-                    }
                     Target::Checking(_) => None,
+                    Target::Marsa(_) => return,
                 };
                 if this
                     .update(cx, |this, cx| {
@@ -174,8 +230,7 @@ impl Desktop {
                             return false;
                         }
                         let sample = sample.unwrap_or_default();
-                        let connected = observed(&sample);
-                        if !connected && !matches!(target, Target::Marsa) {
+                        if !observed(&sample) {
                             this.system
                                 .update(cx, |system, cx| system.refresh_external_inventory(cx));
                         }
@@ -189,32 +244,184 @@ impl Desktop {
                     .ok()
                     != Some(true)
                 {
-                    break;
+                    return;
                 }
-                // After a cache hit, immediately pull live utilization once.
-                if matches!(target, Target::Marsa) {
-                    let mut live = services.request(|client| async move {
-                        Ok(OverviewClient::Marsa(client).sample().await)
+                executor.timer(SAMPLE_INTERVAL).await;
+            }
+        }));
+    }
+
+    fn observe_managed_overview(
+        &mut self,
+        target: Target,
+        services: Arc<Services>,
+        cx: &mut Context<Self>,
+    ) {
+        let version_services = Arc::clone(&services);
+        let version_target = target.clone();
+        self.overview.version_task = Some(cx.spawn(async move |this, cx| {
+            for prefer_cache in [true, false] {
+                let mut request = version_services.request(move |client| async move {
+                    Ok(OverviewClient::Marsa(client)
+                        .engine_version(prefer_cache)
+                        .await)
+                });
+                if let Some(Ok(Some(version))) = request.result().await
+                    && this
+                        .update(cx, |desktop, cx| {
+                            if desktop.overview.target.as_ref() != Some(&version_target) {
+                                return false;
+                            }
+                            desktop.overview.sample.get_or_insert_default().version = Some(version);
+                            cx.notify();
+                            true
+                        })
+                        .ok()
+                        != Some(true)
+                {
+                    return;
+                }
+            }
+        }));
+
+        if self.overview.check_image_updates {
+            self.observe_managed_image_updates(target.clone(), Arc::clone(&services), cx);
+        }
+
+        let executor = cx.background_executor().clone();
+        self.overview.task = Some(cx.spawn(async move |this, cx| {
+            let mut loaded = services.store().select(AppState::has_docker_inventory);
+            while !loaded.current() {
+                if loaded.changed().await.is_none() {
+                    return;
+                }
+            }
+            loop {
+                let rows = services
+                    .store()
+                    .select(|state| state.has_docker_inventory().then(|| state.containers()))
+                    .current()
+                    .clone();
+                if let Some(rows) = rows {
+                    let mut request = services.request(move |client| async move {
+                        Ok(OverviewClient::Marsa(client)
+                            .container_utilization(rows.values())
+                            .await)
                     });
-                    if let Some(Ok(sample)) = live.result().await
+                    let utilization = request.result().await.and_then(Result::ok);
+                    if this
+                        .update(cx, |desktop, cx| {
+                            let overview = &mut desktop.overview;
+                            if overview.target.as_ref() != Some(&target) {
+                                return false;
+                            }
+                            overview.usage_history.record(utilization.as_ref());
+                            overview.sample.get_or_insert_default().utilization = utilization;
+                            cx.notify();
+                            true
+                        })
+                        .ok()
+                        != Some(true)
+                    {
+                        return;
+                    }
+                }
+                executor.timer(SAMPLE_INTERVAL).await;
+            }
+        }));
+    }
+
+    fn observe_managed_image_updates(
+        &mut self,
+        target: Target,
+        services: Arc<Services>,
+        cx: &mut Context<Self>,
+    ) {
+        self.overview.image_task = Some(cx.spawn(async move |this, cx| {
+            let inventory = |state: &AppState| {
+                state
+                    .has_docker_inventory()
+                    .then(|| (state.docker_epoch(), state.containers(), state.images()))
+            };
+            let mut selection = services.store().select(inventory);
+            loop {
+                if let Some((epoch, containers, images)) = selection.current() {
+                    let (epoch, old_containers, old_images) = (*epoch, containers, images);
+                    let (containers, images) = (Arc::clone(containers), Arc::clone(images));
+                    let mut request = services.pending(async move {
+                        let containers = containers.values().cloned().collect::<Vec<_>>();
+                        let images = images.values().cloned().collect::<Vec<_>>();
+                        Ok(local_image_updates(&containers, &images))
+                    });
+                    if let Some(Ok((count, outdated))) = request.result().await
                         && this
-                            .update(cx, |this, cx| {
-                                if this.overview.target.as_ref() != Some(&target) {
+                            .update(cx, |desktop, cx| {
+                                let overview = &mut desktop.overview;
+                                if overview.target.as_ref() != Some(&target)
+                                    || !overview.check_image_updates
+                                {
                                     return false;
                                 }
-                                this.overview.sample = Some(sample);
+                                // The service can publish a newer snapshot while this
+                                // background comparison is still in flight.
+                                let current = services.store().select(inventory);
+                                if !current.current().as_ref().is_some_and(
+                                    |(current_epoch, containers, images)| {
+                                        *current_epoch == epoch
+                                            && containers == old_containers
+                                            && images == old_images
+                                    },
+                                ) {
+                                    return true;
+                                }
+                                overview.managed_updates = count;
+                                let sample = overview.sample.get_or_insert_default();
+                                if let Some(counts) = &mut sample.containers {
+                                    counts.updates = count;
+                                }
+                                sample.updates_checked = true;
+                                sample.outdated_images = outdated;
                                 cx.notify();
                                 true
                             })
                             .ok()
                             != Some(true)
                     {
-                        break;
+                        return;
                     }
                 }
-                executor.timer(SAMPLE_INTERVAL).await;
+                if selection.changed().await.is_none() {
+                    return;
+                }
             }
         }));
+    }
+
+    fn refresh_overview(&mut self, cx: &mut Context<Self>) {
+        self.overview.stop_tasks();
+        if matches!(self.overview.target, Some(Target::Marsa(_)))
+            && let Some(services) = self.services.clone()
+        {
+            cx.spawn(async move |_, _| {
+                let _ = services.refresh().result().await;
+            })
+            .detach();
+        }
+    }
+
+    fn publish_overview_disk(
+        &mut self,
+        target: &Target,
+        disk: Option<DiskBreakdown>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.overview.target.as_ref() != Some(target) {
+            return false;
+        }
+        self.overview.disk = disk;
+        self.overview.disk_pending = false;
+        cx.notify();
+        true
     }
 
     pub(super) fn overview_screen(
@@ -362,8 +569,7 @@ impl Desktop {
                                 .icon(IconName::RefreshCw)
                                 .label(gui::GUI_DESKTOP_REFRESH.text(locale))
                                 .on_click(cx.listener(|desktop, _, window, cx| {
-                                    desktop.overview.task = None;
-                                    desktop.overview.disk_task = None;
+                                    desktop.refresh_overview(cx);
                                     if !desktop.environment.read(cx).includes_marsa() {
                                         desktop.system.update(cx, |system, cx| {
                                             system.refresh_lima_selection(window, cx)
@@ -394,8 +600,7 @@ impl Desktop {
             .accessibility_label(gui::GUI_DESKTOP_REFRESH.text(locale))
             .tooltip(gui::GUI_DESKTOP_REFRESH.text(locale))
             .on_click(cx.listener(|desktop, _, window, cx| {
-                desktop.overview.task = None;
-                desktop.overview.disk_task = None;
+                desktop.refresh_overview(cx);
                 if !desktop.environment.read(cx).includes_marsa() {
                     desktop
                         .system
@@ -495,16 +700,16 @@ impl Desktop {
             .child(context_status_body(
                 screen,
                 data,
-                data.is_none(),
+                data.is_none_or(|data| local && data.containers.is_none()),
                 status_state,
                 status_label,
                 cx,
             ));
         let wide = window.viewport_size().width >= px(if self.collapsed { 900. } else { 1100. });
-        let loading = data.is_none()
+        let loading = data.is_none_or(|data| local && data.containers.is_none())
             && matches!(
                 self.overview.target,
-                Some(Target::Marsa | Target::External(_))
+                Some(Target::Marsa(_) | Target::External(_))
             );
         // Explicit 2×2 grid so cards never overflow the content column.
         let cards = align(div().flex().flex_col().gap_3().w_full(), locale)
@@ -799,7 +1004,9 @@ fn context_status_body(
         ),
         (
             StatusFilter::Updates,
-            count.map(|count| count.updates),
+            count
+                .filter(|_| data.is_some_and(|data| data.updates_checked))
+                .map(|count| count.updates),
             "icons/arrow-up-from-line.svg",
             ColorToken::TextMuted,
         ),
@@ -1419,5 +1626,47 @@ mod tests {
             );
         }
         assert!(overview_power_action(Some(EngineState::Starting)).is_none());
+    }
+}
+
+#[cfg(test)]
+mod inventory_tests {
+    use super::*;
+    use marsa_client::docker::{DockerInventory, VolumeSummary};
+
+    #[test]
+    fn cached_and_invalidated_counts_preserve_live_measurements() {
+        let mut overview = Overview {
+            target: Some(Target::Marsa(0)),
+            ..Overview::default()
+        };
+        overview.sync_inventory(&AppState::default());
+        assert!(overview.sample.is_none());
+
+        overview.sync_inventory(&AppState::index_resources(DockerInventory::default()));
+        let cached = overview.sample.as_mut().unwrap();
+        assert_eq!(cached.containers.as_ref().unwrap().total, 0);
+        assert_eq!(cached.volumes, Some(0));
+        cached.utilization.as_mut().unwrap().running = 7;
+        cached.updates_checked = true;
+
+        let mut inventory = DockerInventory::default();
+        inventory.volumes.push(VolumeSummary {
+            name: "observed-volume".into(),
+            driver: "local".into(),
+            scope: "local".into(),
+            created_at: None,
+        });
+        let changed = AppState::index_resources(inventory);
+        overview.sync_inventory(&changed);
+        let current = overview.sample.as_ref().unwrap();
+        assert_eq!(current.volumes, Some(1));
+        assert_eq!(current.utilization.as_ref().unwrap().running, 7);
+        assert!(current.updates_checked);
+
+        overview.target = Some(Target::Marsa(1));
+        overview.sample = None;
+        overview.sync_inventory(&changed);
+        assert!(overview.sample.is_none());
     }
 }

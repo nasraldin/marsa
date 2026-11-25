@@ -190,8 +190,10 @@ never enters the Marsa engine's mutation or selection paths.
   - After cleanup and explicit reclaim, report the observed host allocation change. M9-14 connects automatic reclaim.
 
 The desktop route exposes storage usage, candidate identities, the engine's
-apply capability and explicit reclaim. Resume apply when M5-12 can bind
-eligibility and identity to the deletion itself.
+apply capability and explicit reclaim. M7-21 routes the Images cleanup
+shortcut to that review and previews external environments without a
+destructive apply. Resume apply when M5-12 can bind eligibility and identity
+to the deletion itself.
 
 ---
 
@@ -330,14 +332,49 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 
 ### M7-21 Observe and maintain each environment
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [13 Testing](../13-testing-and-benchmarks.md)
-- **Do:** Surface container health, engine metrics, disk accounting, and events for the selected environment. Provide per-environment update and cleanup settings, collection and retention, and notifications and reports.
+- **Do:** Surface container health, engine metrics, disk accounting, and events for the selected environment. Provide per-environment image update checks, cleanup review preferences, activity collection and retained-history lookback, health notifications, and inventory reports.
 - **Deliver:** Environment dashboard metrics, activity, and maintenance controls.
 - **Accept when:**
   - The dashboard and activity views are fed by the selected engine. They identify unavailable measurements and can recover from a disconnect.
   - A maintenance request targets the confirmed engine, previews destructive effects, and reports its outcome.
+
+Managed activity uses the passive owner API, and external observations
+stay pinned to the selected connection while they load or retry. Overview
+loads live measurements after its cached first frame. The external disk
+review shows available usage, candidate identities and the selected
+endpoint. The [Moby 29.10.0 Engine API schema](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml)
+documents the finite Activity query and verbose disk usage categories.
+The signed Apple silicon test observed a real Docker container event,
+previewed exact disposable storage identities and verified the resources
+remained. Two isolated external engines verified Activity switching,
+unavailable measurements and automatic recovery. Images opens the
+selected engine's cleanup review, and the fixture logged zero mutation
+requests. The native keyboard check opened Disk with Command–6 and closed
+the review with Escape. The review was checked in
+[English light](../spikes/M7-21-environment-observation/en-light.png),
+[English dark](../spikes/M7-21-environment-observation/en-dark.png),
+[Arabic light](../spikes/M7-21-environment-observation/ar-light.png), and
+[Arabic dark](../spikes/M7-21-environment-observation/ar-dark.png).
+
+Per-environment settings control Activity, retained history, registry checks,
+unused volume visibility, and opt-in local health alerts for the selected
+engine while the window is open. Docker keeps the in-memory event history.
+Two external fixtures kept distinct settings after restart. Alpha requested
+one hour of history and hid unused volume candidates while retaining volume
+accounting. Beta issued no event requests after activity collection was
+disabled. Tests cover alert event validation and deduplication. The settings
+were verified in
+[English light](../spikes/M7-21-environment-observation/settings-en-light.png),
+[English dark](../spikes/M7-21-environment-observation/settings-en-dark.png),
+[Arabic light](../spikes/M7-21-environment-observation/settings-ar-light.png), and
+[Arabic dark](../spikes/M7-21-environment-observation/settings-ar-dark.png).
+
+Cleanup apply reports that exact deletion is unsupported. M5-12 and M7-11
+own the conditional deletion requirement. Verified Marsa release updates
+use the app-wide updater.
 
 ### M7-22 Configure deploy-time secret providers
 
@@ -716,19 +753,37 @@ English and Arabic copy cover the history card, disk card, resources label, and 
 
 ### M7-48 Drive Overview inventory from Docker invalidations
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M6-07, M7-41
 - **Docs:** [08 Data flow](../08-gui.md#data-flow), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
-- **Do:** Bind the managed Overview resource counts to the normalized store. Keep live utilization, registry update checks, and disk measurements on their own schedules so the utilization timer does not repeatedly reload collection JSON.
+- **Do:** Bind the managed Overview resource counts to the normalized store. Keep live utilization and disk measurements independent of inventory refresh. Recompute built-in image indicators after container or image changes and preserve external registry checks.
 - **Deliver:** Managed Overview selectors and tests separating collection invalidation from live measurements.
 - **Accept when:**
   - Docker changes update the managed Overview counts without a periodic Docker inventory query.
   - Utilization history, disk measurements, and update indicators continue to refresh.
   - The cached first frame and external engine behavior from M7-41 are preserved.
 
+**Qualification.** The service fixture held the initial live request open
+until the cache had reached the store. An inventory invalidation triggered
+one new read. A socket fixture verified that two subsequent utilization
+samples requested only per-container stats. The managed projection retained
+live measurements when the inventory counts changed, and the same socket
+fixture covered the external dashboard's direct inventory and disk paths.
+The existing built-in owner API supports local tag comparisons. The external
+API path also compares registry digests through Docker's distribution route.
+M7-52 tracks passive registry lookups for the built-in engine.
+
+Native GPUI snapshots show a cached volume count of 1 and its update to 2
+after replacing the normalized store snapshot. The fixture uses synthetic
+inventory and keeps the engine disconnected.
+[English light](../screenshots/m7-48/en-light.png) ·
+[English dark](../screenshots/m7-48/en-dark.png) ·
+[Arabic light](../screenshots/m7-48/ar-light.png) ·
+[Arabic dark](../screenshots/m7-48/ar-dark.png).
+
 ### M7-49 Open Images details with the keyboard
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-46
 - **Docs:** [08 Screens](../08-gui.md#screens)
 - **Do:** Give the Images table and list a focusable control that opens the existing image details modal. The current row opens details from a pointer click.
@@ -737,3 +792,25 @@ English and Arabic copy cover the history card, disk card, resources label, and 
   - Tab reaches a localized details control in both views. Return and Space open the focused image's details.
   - Closing the modal restores focus to its trigger. Row selection, pointer opening, and Run, Push, and Remove remain independently operable.
   - Verify English and Arabic in light and dark mode.
+
+Hidden macOS windows verified Tab, Return, Space and focus restoration after
+Escape in the Images table and list. The fixture verified pointer opening from
+the row and the details button, independent selection and Run, Push and Remove
+dialogs, and access with Actions hidden. The fixture recorded only read
+requests. Native snapshots show the focused control and opened modal in
+[English light](../spikes/M7-49-image-details-keyboard/en-light.png),
+[English dark](../spikes/M7-49-image-details-keyboard/en-dark.png),
+[Arabic light](../spikes/M7-49-image-details-keyboard/ar-light.png), and
+[Arabic dark](../spikes/M7-49-image-details-keyboard/ar-dark.png).
+
+### M7-52 Check registry image digests for the built-in engine
+
+- **Status:** todo
+- **Depends on:** M7-48
+- **Docs:** [08 Screens](../08-gui.md#screens), [D-034](../15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)
+- **Do:** Define owner authorization for managed registry traffic. Add a typed, bounded lookup through the passive owner API for an already-running Docker engine and compare the results against the current normalized inventory on an independent schedule.
+- **Deliver:** Managed registry digest checks, localized Settings text reflecting their authorization, and a request-path regression test.
+- **Accept when:**
+  - Registry lookups require the agreed owner authorization. Existing settings with image checks enabled by default do not silently authorize managed registry traffic.
+  - A registry check uses validated image references, starts no VM, makes no inventory collection requests, and applies neither stale results nor results from a different engine.
+  - Tests cover an authorized distribution request and absent requests when authorization is off or the engine is stopped.

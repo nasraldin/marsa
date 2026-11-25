@@ -22,7 +22,7 @@ const CACHE_API_MINOR: u32 = 14;
 const SAMPLE_LIMIT: usize = 48;
 const SAMPLE_CONCURRENCY: usize = 8;
 const SAMPLE_BUDGET: Duration = Duration::from_secs(8);
-const DISK_TIMEOUT: Duration = Duration::from_secs(40);
+pub(super) const DISK_TIMEOUT: Duration = Duration::from_secs(40);
 pub(super) const DISK_PATH: &str = "/system/df?verbose=true";
 pub(super) const VERSION_PATH: &str = "/version";
 pub(super) const STATS_PATH: &str = "stats?stream=false";
@@ -47,6 +47,7 @@ impl MarsaClient {
             section: section.into(),
             container_id: container.map_or_else(String::new, |id| id.as_str().to_owned()),
             prefer_cache,
+            activity_hours: None,
         });
         request.set_timeout(if prefer_cache {
             Duration::from_secs(2)
@@ -81,15 +82,24 @@ impl OverviewClient {
 
     /// Read the inventory and live container measurements.
     pub async fn sample(&self) -> OverviewSample {
-        self.sample_with_cache(false).await
+        self.sample_with_image_checks(true).await
+    }
+
+    /// Read live observations, optionally comparing installed image tags with registry digests.
+    pub async fn sample_with_image_checks(&self, check: bool) -> OverviewSample {
+        self.sample_with_cache(false, check).await
     }
 
     /// Prefer the daemon inventory cache for a fast first frame (Marsa only).
     pub async fn sample_cached(&self) -> OverviewSample {
-        self.sample_with_cache(true).await
+        self.sample_with_cache(true, false).await
     }
 
-    async fn sample_with_cache(&self, prefer_cache: bool) -> OverviewSample {
+    async fn sample_with_cache(
+        &self,
+        prefer_cache: bool,
+        check_image_updates: bool,
+    ) -> OverviewSample {
         let containers = async {
             let rows: Vec<ContainerSummary> =
                 self.read(Section::Containers, None, prefer_cache).await?;
@@ -104,7 +114,7 @@ impl OverviewClient {
                     usage: Vec::new(),
                 }
             } else {
-                self.utilization(&rows).await
+                self.container_utilization(&rows).await
             };
             Some((rows, stacks, utilization))
         };
@@ -114,23 +124,19 @@ impl OverviewClient {
         let version = self.read::<EngineVersion>(Section::Version, None, prefer_cache);
         let (containers, images, volumes, networks, version) =
             tokio::join!(containers, images, volumes, networks, version);
+        let updates_checked = check_image_updates && containers.is_some() && images.is_some();
         let (containers, stacks, utilization, outdated_images) = match containers {
             Some((rows, stacks, utilization)) => {
-                let (updates, outdated_images) = if prefer_cache {
-                    // First paint skips registry probes; live refresh fills Updates.
-                    (0, BTreeSet::new())
-                } else {
-                    match images.as_ref() {
-                        Some(images) => {
-                            let remotes = self.remote_tag_digests(&rows).await;
-                            (
-                                outdated_updates(&rows, images, &remotes),
-                                outdated_image_refs(&rows, images, &remotes),
-                            )
-                        }
-                        None => (0, BTreeSet::new()),
-                    }
-                };
+                let (updates, outdated_images) =
+                    if let Some(images) = images.as_ref().filter(|_| check_image_updates) {
+                        let remotes = self.remote_tag_digests(&rows).await;
+                        (
+                            outdated_updates(&rows, images, &remotes),
+                            outdated_image_refs(&rows, images, &remotes),
+                        )
+                    } else {
+                        (0, BTreeSet::new())
+                    };
                 let mut counts = ContainerCounts::from_rows(&rows);
                 counts.updates = updates;
                 (
@@ -150,8 +156,16 @@ impl OverviewClient {
             networks: networks.map(|rows| rows.len()),
             version: version.and_then(EngineVersion::checked),
             utilization,
+            updates_checked,
             outdated_images,
         }
+    }
+
+    /// Read engine identity separately from inventory and live measurements.
+    pub async fn engine_version(&self, prefer_cache: bool) -> Option<EngineVersion> {
+        self.read::<EngineVersion>(Section::Version, None, prefer_cache)
+            .await
+            .and_then(EngineVersion::checked)
     }
 
     /// Measure storage separately because the engine may need to scan its filesystem.
@@ -254,8 +268,12 @@ impl OverviewClient {
         Some(digest)
     }
 
-    async fn utilization(&self, rows: &[ContainerSummary]) -> OverviewUtilization {
-        let mut rows = rows.iter().filter(|row| row.state == "running");
+    /// Read live measurements for running containers from an already-observed listing.
+    pub async fn container_utilization<'a>(
+        &self,
+        rows: impl IntoIterator<Item = &'a ContainerSummary, IntoIter: Clone + Send> + Send,
+    ) -> OverviewUtilization {
+        let mut rows = rows.into_iter().filter(|row| row.state == "running");
         let running = rows.clone().count();
         let mut samples = JoinSet::new();
         let mut usage = Vec::new();
@@ -340,7 +358,7 @@ impl OverviewClient {
                     Section::ContainerStats => {
                         format!("/containers/{}/{STATS_PATH}", container?.as_str())
                     }
-                    Section::Unspecified => return None,
+                    Section::Activity | Section::Unspecified => return None,
                 };
                 client
                     .snapshot_with_timeout(&path, section_timeout(section))
@@ -377,6 +395,8 @@ pub struct OverviewSample {
     pub version: Option<EngineVersion>,
     /// CPU and memory measurement availability and results.
     pub utilization: Option<OverviewUtilization>,
+    /// Registry image checks were enabled and inventory was available for this sample.
+    pub updates_checked: bool,
     /// Normalized image refs with a newer local tag or registry digest.
     pub outdated_images: BTreeSet<String>,
 }
@@ -411,12 +431,11 @@ pub struct ContainerCounts {
 }
 
 impl ContainerCounts {
-    fn from_rows(rows: &[ContainerSummary]) -> Self {
-        let mut counts = Self {
-            total: rows.len(),
-            ..Self::default()
-        };
+    /// Count lifecycle and health states in an observed container listing.
+    pub fn from_rows<'a>(rows: impl IntoIterator<Item = &'a ContainerSummary>) -> Self {
+        let mut counts = Self::default();
         for row in rows {
+            counts.total += 1;
             match row.state.as_str() {
                 "running" => counts.running += 1,
                 "created" | "exited" | "dead" => counts.stopped += 1,
@@ -447,6 +466,24 @@ pub fn outdated_updates(
         .iter()
         .filter(|container| container_needs_update(container, images, &tags, remotes))
         .count()
+}
+
+/// Compare installed tags against container image IDs without making engine requests.
+pub fn local_image_updates(
+    containers: &[ContainerSummary],
+    images: &[ImageSummary],
+) -> (usize, BTreeSet<String>) {
+    let tags = image_tag_index(images);
+    let remotes = std::collections::BTreeMap::new();
+    let outdated = containers
+        .iter()
+        .filter(|container| container_needs_update(container, images, &tags, &remotes));
+    (
+        outdated.clone().count(),
+        outdated
+            .filter_map(|container| normalize_image_ref(&container.image))
+            .collect(),
+    )
 }
 
 /// Lower values are probed first when resolving registry digests.
@@ -528,6 +565,10 @@ mod outdated_tests {
         assert_eq!(
             outdated_updates(&containers, &images, &Default::default()),
             1
+        );
+        assert_eq!(
+            local_image_updates(&containers, &images),
+            (1, BTreeSet::from(["nginx:latest".to_owned()]))
         );
     }
 
@@ -971,6 +1012,9 @@ mod tests {
                 r#"{"Descriptor":{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"sha256:c2b0fc55e3ed299133f6caf63a764deb118ee402ea761548c3f8fd01d04fca06","size":1609}}"#.into(),
             ),
         ]);
+        let distribution_requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed_requests = distribution_requests.clone();
+        let (sent, received) = std::sync::mpsc::channel();
         let server = tokio::spawn(async move {
             let mut replies = JoinSet::new();
             let routes = std::sync::Arc::new(routes);
@@ -982,6 +1026,8 @@ mod tests {
                     break;
                 };
                 let routes = routes.clone();
+                let observed_requests = observed_requests.clone();
+                let sent = sent.clone();
                 replies.spawn(async move {
                     let mut request = Vec::new();
                     while !request.ends_with(b"\r\n\r\n") {
@@ -989,6 +1035,10 @@ mod tests {
                     }
                     let request = String::from_utf8(request).unwrap();
                     let path = request.lines().next().unwrap().strip_prefix("GET ").unwrap().strip_suffix(" HTTP/1.1").unwrap();
+                    sent.send(path.to_owned()).unwrap();
+                    if path.starts_with("/distribution/") {
+                        observed_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
                     let body = routes.get(path).map(String::as_str).unwrap_or("{}");
                     let status = if routes.contains_key(path) {
                         "200 OK"
@@ -1042,6 +1092,25 @@ mod tests {
         assert_eq!(usage.name, "web");
         assert_eq!(usage.cpu_percent, Some(40.));
         assert_eq!(usage.memory_bytes, Some(3072));
+        assert!(sample.updates_checked);
+        let without_checks = client.sample_with_image_checks(false).await;
+        assert!(without_checks.containers.is_some());
+        assert!(!without_checks.updates_checked);
+        assert!(without_checks.outdated_images.is_empty());
+        assert_eq!(
+            distribution_requests.load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+        received.try_iter().for_each(drop);
+        for _ in 0..2 {
+            let repeated = client.container_utilization([&reported]).await;
+            assert_eq!(repeated.running, 1);
+            assert_eq!(repeated.usage[0].memory_bytes, Some(3072));
+        }
+        assert_eq!(
+            received.try_iter().collect::<Vec<_>>(),
+            vec![format!("/containers/{}/stats?stream=false", "a".repeat(64)); 2]
+        );
         tokio::time::timeout(Duration::from_secs(1), server)
             .await
             .unwrap()

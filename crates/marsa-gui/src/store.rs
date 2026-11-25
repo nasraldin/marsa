@@ -13,6 +13,7 @@ use marsa_client::{
 pub struct AppState {
     daemon: Option<DaemonSnapshot>,
     docker_revision: u64,
+    docker_loaded: bool,
     containers: Arc<BTreeMap<ContainerId, ContainerSummary>>,
     images: Arc<BTreeMap<String, ImageSummary>>,
     volumes: Arc<BTreeMap<String, VolumeSummary>>,
@@ -53,12 +54,23 @@ impl AppState {
         Self {
             daemon: None,
             docker_revision: 0,
+            docker_loaded: true,
             containers,
             compose_projects: projects,
             images,
             volumes,
             networks,
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn has_docker_inventory(&self) -> bool {
+        self.docker_loaded
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn docker_epoch(&self) -> u64 {
+        self.docker_revision
     }
 
     #[cfg(target_os = "macos")]
@@ -201,12 +213,18 @@ fn clear_inventory(state: &mut AppState) -> bool {
 }
 
 fn apply_inventory(state: &mut AppState, resources: AppState) -> bool {
+    let loaded_changed = replace(&mut state.docker_loaded, resources.docker_loaded);
     let containers_changed = replace(&mut state.containers, resources.containers);
     let projects_changed = replace(&mut state.compose_projects, resources.compose_projects);
     let images_changed = replace(&mut state.images, resources.images);
     let volumes_changed = replace(&mut state.volumes, resources.volumes);
     let networks_changed = replace(&mut state.networks, resources.networks);
-    containers_changed || projects_changed || images_changed || volumes_changed || networks_changed
+    loaded_changed
+        || containers_changed
+        || projects_changed
+        || images_changed
+        || volumes_changed
+        || networks_changed
 }
 
 fn container_index(rows: Vec<ContainerSummary>) -> Arc<BTreeMap<ContainerId, ContainerSummary>> {

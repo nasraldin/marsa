@@ -180,6 +180,9 @@ size estimates. The total adds the displayed estimates and can differ from
 actual space recovered because resources share storage. Use `disk reclaim`
 for an observed change in macOS disk usage.
 A missing category or size is surfaced as unavailable in the preview.
+The desktop can review a selected external engine through its authenticated
+read-only Docker inventory. The dialog identifies the reviewed target, and
+no broad image prune request is available from the desktop.
 
 M5-12 owns confirmed apply. Docker 29.10.0 accepts mutable names in
 [container lookup](https://github.com/moby/moby/blob/06db1734267bf7770914b417bff6556d835bf8cc/daemon/container.go#L37-L58)

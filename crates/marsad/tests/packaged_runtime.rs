@@ -480,6 +480,7 @@ async fn assert_inventory_invalidation(
             section: DockerOverviewSection::Volumes.into(),
             container_id: String::new(),
             prefer_cache: false,
+            activity_hours: None,
         })
         .await
         .unwrap()

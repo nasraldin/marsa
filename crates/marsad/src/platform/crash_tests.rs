@@ -189,6 +189,7 @@ async fn crash_fixture() {
         api,
         uid,
         Signals::register().unwrap(),
+        None,
     );
     let (result, ()) = tokio::join!(server, drive(supervisor, target));
     result.unwrap();

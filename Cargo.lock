@@ -2745,6 +2745,7 @@ dependencies = [
 name = "marsa-gui"
 version = "0.1.0"
 dependencies = [
+ "gpui-pre-macos",
  "marsa-client",
  "marsa-ui",
  "proc-macro2",
@@ -2792,6 +2793,8 @@ dependencies = [
  "marsa-core",
  "prost",
  "prost-build",
+ "serde",
+ "serde_json",
  "thiserror",
  "tonic",
  "tonic-prost",
@@ -2876,6 +2879,7 @@ dependencies = [
  "hyper-util",
  "marsa-core",
  "marsa-dockerproxy",
+ "marsa-l10n",
  "marsa-net",
  "marsa-proto",
  "marsa-share",
@@ -2884,7 +2888,10 @@ dependencies = [
  "marsa-vm-vz",
  "nix",
  "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
  "objc2-foundation",
+ "objc2-security",
  "objc2-service-management",
  "rustix",
  "serde",
@@ -3277,6 +3284,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
 dependencies = [
  "bitflags 2.13.2",
+ "block2",
  "dispatch2",
  "objc2",
 ]
