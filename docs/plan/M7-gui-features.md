@@ -438,7 +438,7 @@ The signed Compose client created the reviewed file in a disposable directory, d
 
 ### M7-25 Desktop log preferences
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** in progress
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings)
 - **Do:** Configure live log buffer size and time zone through the revisioned desktop settings. Retain bounded engine timestamps for the latest container and Compose output.
