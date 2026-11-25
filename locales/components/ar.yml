@@ -52,6 +52,8 @@ gpui_component:
   Dialog:
     ok: موافق
     cancel: إلغاء
+  Notification:
+    close: إغلاق الإشعار
   Command:
     placeholder: اكتب أمرًا أو ابحث…
     empty: لا توجد نتائج.

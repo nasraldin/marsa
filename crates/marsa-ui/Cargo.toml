@@ -37,3 +37,7 @@ harness = false
 [[test]]
 name = "typography_native"
 harness = false
+
+[[test]]
+name = "component_render"
+harness = false

@@ -1,10 +1,13 @@
 //! Probe, validate, and resize the guest's whole virtio block device.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read};
+use std::io;
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Instant;
 
 use nix::fcntl::OFlag;
 use nix::sys::stat::{major, minor};
@@ -13,14 +16,23 @@ use super::MOUNT_TARGETS;
 
 /// Whole virtio data disk presented after the root device.
 pub(super) const DEVICE_PATH: &str = "/dev/vdb";
+const BLANK_SCAN_CHUNK: usize = 1024 * 1024;
+const BLANK_SCAN_WORKERS: usize = 4;
+const SECTOR_BYTES: u64 = 512;
 const SYSFS_DEVICE: &str = "/sys/block/vdb";
 
 /// Ensure ext4 is ready to mount and report whether its capacity can grow.
 pub(super) fn prepare(verify_existing: impl FnOnce() -> io::Result<()>) -> io::Result<bool> {
+    let probe_started = Instant::now();
+    eprintln!("marsa-init: data disk probe started");
     let (device, bytes) = open_device()?;
     let probe = disk_tool("/sbin/blkid")
         .args(["-p", "-o", "export", DEVICE_PATH])
         .output()?;
+    eprintln!(
+        "marsa-init: data disk probe completed duration_ms={}",
+        probe_started.elapsed().as_millis()
+    );
     match probe.status.code() {
         Some(0) if has_plain_ext4(&probe.stdout) => {
             verify_existing()?;
@@ -29,21 +41,29 @@ pub(super) fn prepare(verify_existing: impl FnOnce() -> io::Result<()>) -> io::R
                 .status()?;
             check_e2fsck_status(status.code())?;
         }
-        Some(2) if is_blank(&device, bytes)? => {
+        Some(2) => {
+            let scan_started = Instant::now();
+            eprintln!("marsa-init: data disk blank scan started bytes={bytes}");
+            let blank = is_blank(bytes, |buffer, offset| device.read_exact_at(buffer, offset))?;
+            eprintln!(
+                "marsa-init: data disk blank scan completed duration_ms={} blank={blank}",
+                scan_started.elapsed().as_millis()
+            );
+            if !blank {
+                return Err(unrecognized_disk(probe.status));
+            }
+            let format_started = Instant::now();
+            eprintln!("marsa-init: data disk format started");
             require_success(
                 "mkfs.ext4",
                 disk_tool("/sbin/mkfs.ext4").arg(DEVICE_PATH).status()?,
             )?;
+            eprintln!(
+                "marsa-init: data disk format completed duration_ms={}",
+                format_started.elapsed().as_millis()
+            );
         }
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "{DEVICE_PATH} is neither blank nor an unpartitioned ext4 filesystem (blkid {})",
-                    probe.status
-                ),
-            ));
-        }
+        _ => return Err(unrecognized_disk(probe.status)),
     }
     let mut superblock = [0; 1024];
     device.read_exact_at(&mut superblock, 1024)?;
@@ -95,7 +115,7 @@ fn open_device() -> io::Result<(File, u64)> {
         .parse::<u64>()
         .ok()
         // Linux reports the size of a block device in 512-byte sectors.
-        .and_then(|sectors| sectors.checked_mul(512))
+        .and_then(|sectors| sectors.checked_mul(SECTOR_BYTES))
         .filter(|bytes| *bytes != 0)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid data disk capacity"))?;
     let file = OpenOptions::new()
@@ -142,18 +162,66 @@ fn has_plain_ext4(tags: &[u8]) -> bool {
     filesystem == Some(b"ext4")
 }
 
-fn is_blank(mut device: impl Read, mut bytes: u64) -> io::Result<bool> {
-    // A probe without a recognized signature can still contain user data.
-    let mut buffer = vec![0; 1024 * 1024];
-    while bytes != 0 {
-        let chunk = bytes.min(buffer.len() as u64) as usize;
-        device.read_exact(&mut buffer[..chunk])?;
-        if buffer[..chunk].iter().any(|byte| *byte != 0) {
-            return Ok(false);
+fn unrecognized_disk(status: ExitStatus) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!(
+            "{DEVICE_PATH} is neither blank nor an unpartitioned ext4 filesystem (blkid {status})"
+        ),
+    )
+}
+
+fn is_blank(
+    bytes: u64,
+    read: impl Fn(&mut [u8], u64) -> io::Result<()> + Sync,
+) -> io::Result<bool> {
+    // Keep only a fixed number of outstanding reads. Each worker owns a
+    // contiguous range and the last one includes the final sector.
+    let stride = bytes / BLANK_SCAN_WORKERS as u64 / SECTOR_BYTES * SECTOR_BYTES;
+    let nonblank = AtomicBool::new(false);
+    thread::scope(|scope| {
+        let mut scans = Vec::with_capacity(BLANK_SCAN_WORKERS);
+        for index in 0..BLANK_SCAN_WORKERS {
+            let start = stride * index as u64;
+            let end = if index + 1 == BLANK_SCAN_WORKERS {
+                bytes
+            } else {
+                start + stride
+            };
+            let nonblank = &nonblank;
+            let read = &read;
+            scans.push(
+                thread::Builder::new()
+                    .spawn_scoped(scope, move || scan_range(start, end, nonblank, read))?,
+            );
         }
-        bytes -= chunk as u64;
+        for scan in scans {
+            scan.join()
+                .map_err(|_| io::Error::other("data disk scan worker failed"))??;
+        }
+        Ok(!nonblank.load(Ordering::Relaxed))
+    })
+}
+
+fn scan_range(
+    mut offset: u64,
+    end: u64,
+    nonblank: &AtomicBool,
+    read: impl Fn(&mut [u8], u64) -> io::Result<()>,
+) -> io::Result<()> {
+    // A probe without a recognized signature can still contain user data.
+    let mut buffer = vec![0; BLANK_SCAN_CHUNK];
+    while offset < end && !nonblank.load(Ordering::Relaxed) {
+        let chunk = (end - offset).min(buffer.len() as u64) as usize;
+        read(&mut buffer[..chunk], offset)?;
+        // Reduction can be vectorized without skipping bytes or relying on
+        // a checksum. OR is zero exactly when every byte is zero.
+        if buffer[..chunk].iter().fold(0, |bits, byte| bits | byte) != 0 {
+            nonblank.store(true, Ordering::Relaxed);
+        }
+        offset += chunk as u64;
     }
-    Ok(true)
+    Ok(())
 }
 
 fn check_e2fsck_status(status: Option<i32>) -> io::Result<()> {
@@ -200,19 +268,35 @@ fn needs_growth(superblock: &[u8; 1024], bytes: u64) -> io::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
+
+    fn scan_bytes(disk: &[u8], capacity: u64) -> io::Result<bool> {
+        is_blank(capacity, |buffer, offset| {
+            (&disk[offset as usize..]).read_exact(buffer)
+        })
+    }
 
     #[test]
     fn rejects_unrecognized_data_beyond_the_first_megabyte() {
         let mut disk = vec![0; 2 * 1024 * 1024];
-        assert!(is_blank(disk.as_slice(), disk.len() as u64).unwrap());
+        assert!(scan_bytes(&disk, disk.len() as u64).unwrap());
         disk[1024 * 1024 + 17] = 1;
-        assert!(!is_blank(disk.as_slice(), disk.len() as u64).unwrap());
+        assert!(!scan_bytes(&disk, disk.len() as u64).unwrap());
+    }
+
+    #[test]
+    fn rejects_unrecognized_data_at_the_end_of_a_partial_scan_chunk() {
+        let mut disk = vec![0; BLANK_SCAN_CHUNK * BLANK_SCAN_WORKERS + 512];
+        let last_byte = disk.len() - 1;
+        assert!(scan_bytes(&disk, disk.len() as u64).unwrap());
+        disk[last_byte] = 1;
+        assert!(!scan_bytes(&disk, disk.len() as u64).unwrap());
     }
 
     #[test]
     fn rejects_a_short_disk_read() {
         assert_eq!(
-            is_blank(&[0; 4][..], 8).unwrap_err().kind(),
+            scan_bytes(&[0; 4], 8).unwrap_err().kind(),
             io::ErrorKind::UnexpectedEof
         );
     }

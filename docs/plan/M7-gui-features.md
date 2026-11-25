@@ -438,7 +438,7 @@ The signed Compose client created the reviewed file in a disposable directory, d
 
 ### M7-25 Desktop log preferences
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** done
 - **Depends on:** M7-19
 - **Docs:** [08 Screens](../08-gui.md#screens), [03 Settings](../03-host-daemon.md#settings)
 - **Do:** Configure live log buffer size and time zone through the revisioned desktop settings. Retain bounded engine timestamps for the latest container and Compose output.
@@ -448,7 +448,28 @@ The signed Compose client created the reviewed file in a disposable directory, d
   - Container logs and combined Compose logs use the selected limits and time zone, without increasing existing resource bounds.
   - Log lines without usable engine timestamps remain readable.
 
-Settings and viewer tests cover persisted choices, bounded buffers, and missing timestamps. The same Docker log records were checked in Dubai and New York, including the daylight saving transition rules. The Mac locked before the final four-variant desktop checks.
+The signed native desktop qualification used a private owner daemon and a
+disposable two-service Compose project on Lima Docker Engine 29.9.2 with
+Compose 5.8.0. In each locale and appearance, a revisioned Settings save
+changed open viewers from Medium and UTC to Compact and local time. The
+container viewer retained 500 of 701 lines. Combined logs retained 64 of
+128 lines, including output from both services. The same Docker timestamps
+displayed in UTC and with the New York offset selected for the fixture.
+The daemon reported that a restart was unnecessary. Container identities
+and start times stayed fixed through Settings saves and the subsequent
+desktop and daemon relaunch, which restored Compact and local time.
+
+Signed renders verified clean container timestamps after consolidating
+direction isolation in the ANSI renderer. Tests cover the byte bounds,
+preserving text when timestamps are absent or malformed, and displaying
+the same engine timestamp in UTC and local time.
+
+[English light](../screenshots/m7-25/en-light-settings.png) ·
+[English dark](../screenshots/m7-25/en-dark-settings.png) ·
+[Arabic light](../screenshots/m7-25/ar-light-settings.png) ·
+[Arabic dark](../screenshots/m7-25/ar-dark-settings.png) ·
+[Container logs](../screenshots/m7-25/container-local.png) ·
+[Combined Compose logs](../screenshots/m7-25/compose-local.png).
 
 ### M7-26 Show the installed release and its dependencies
 
