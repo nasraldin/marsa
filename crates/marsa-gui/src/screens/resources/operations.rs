@@ -576,9 +576,19 @@ pub(super) fn image_metadata(
         ),
         (
             message(screen.locale, gui::GUI_DESKTOP_CREATED),
-            image.created.clone().unwrap_or_else(|| {
-                message(screen.locale, gui::GUI_DESKTOP_UNAVAILABLE).to_string()
-            }),
+            image
+                .created
+                .as_deref()
+                .and_then(|value| {
+                    marsa_ui::locale_format::rfc3339_utc(
+                        screen.locale,
+                        screen.display.time_format,
+                        value,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    message(screen.locale, gui::GUI_DESKTOP_UNAVAILABLE).to_string()
+                }),
         ),
     ];
     Some(

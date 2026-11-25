@@ -16,6 +16,7 @@ use marsa_ui::{
         ParentElement as _, PathBuilder, Styled as _, Task, Window, canvas, div, point, px,
     },
     gpui_component::{IconName, button::Button, scroll::ScrollableElement as _},
+    locale_format::{self, SizeFormat},
 };
 
 use crate::{
@@ -73,13 +74,7 @@ impl StatsState {
         let clock = sample
             .read
             .as_deref()
-            .and_then(|time| time.split_once('T'))
-            .and_then(|(_, clock)| clock.get(..5))
-            .filter(|clock| {
-                clock
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || byte == b':')
-            })
+            .filter(|value| value.len() <= 35)
             .map(str::to_owned);
         self.samples.push_back(Measurement {
             received: now,
@@ -213,7 +208,7 @@ pub(super) fn render(
                     ColorToken::ChartCpu,
                     samples,
                     |sample| sample.cpu,
-                    |value| format!("{value:.1}%"),
+                    |value| Some(format!("{value:.1}%")),
                 ))
                 .child(metric(
                     screen,
@@ -222,7 +217,13 @@ pub(super) fn render(
                     ColorToken::ChartMemory,
                     samples,
                     |sample| sample.memory,
-                    |value| bytes(value, false),
+                    |value| {
+                        Some(locale_format::bytes(
+                            screen.locale,
+                            SizeFormat::Binary,
+                            value as u64,
+                        ))
+                    },
                 )),
         )
         .child(
@@ -234,7 +235,7 @@ pub(super) fn render(
                     ColorToken::ChartNetwork,
                     samples,
                     |sample| sample.network_rate,
-                    |value| bytes(value, true),
+                    |value| locale_format::bytes_per_second(screen.locale, value),
                 ))
                 .child(metric(
                     screen,
@@ -243,7 +244,7 @@ pub(super) fn render(
                     ColorToken::ChartDisk,
                     samples,
                     |sample| sample.disk_rate,
-                    |value| bytes(value, true),
+                    |value| locale_format::bytes_per_second(screen.locale, value),
                 )),
         );
     div()
@@ -262,21 +263,23 @@ fn metric(
     token: ColorToken,
     data: &VecDeque<Measurement>,
     value: fn(&Measurement) -> Option<f64>,
-    format_value: impl FnOnce(f64) -> String,
+    format_value: impl FnOnce(f64) -> Option<String>,
 ) -> Div {
     let current = data
         .back()
         .and_then(value)
-        .map(format_value)
+        .and_then(format_value)
         .unwrap_or_else(|| "—".into());
-    let first = data
-        .front()
-        .and_then(|sample| sample.clock.as_deref())
-        .unwrap_or("—");
-    let last = data
-        .back()
-        .and_then(|sample| sample.clock.as_deref())
-        .unwrap_or("—");
+    let clock = |sample: Option<&Measurement>| {
+        sample
+            .and_then(|sample| sample.clock.as_deref())
+            .and_then(|value| {
+                locale_format::rfc3339_clock_utc(screen.locale, screen.display.time_format, value)
+            })
+            .unwrap_or_else(|| "—".into())
+    };
+    let first = clock(data.front());
+    let last = clock(data.back());
     let mut points = Vec::with_capacity(data.len());
     if let (Some(first), Some(last)) = (data.front(), data.back()) {
         let total = last.received.duration_since(first.received).as_secs_f64();
@@ -311,8 +314,8 @@ fn metric(
                 .text_size(ui_size(11.))
                 .font_family("IBM Plex Mono")
                 .text_color(color(screen.palette, ColorToken::TextMuted))
-                .child(isolate_technical_text(first))
-                .child(isolate_technical_text(last)),
+                .child(isolate_technical_text(&first))
+                .child(isolate_technical_text(&last)),
         )
 }
 
@@ -350,18 +353,4 @@ fn chart(palette: Palette, token: ColorToken, values: Vec<(f32, f64)>) -> impl I
     )
     .w_full()
     .h(px(72.))
-}
-
-fn bytes(bytes: f64, rate: bool) -> String {
-    let (value, unit) = if bytes >= 1024. * 1024. * 1024. {
-        (bytes / (1024. * 1024. * 1024.), "GiB")
-    } else if bytes >= 1024. * 1024. {
-        (bytes / (1024. * 1024.), "MiB")
-    } else if bytes >= 1024. {
-        (bytes / 1024., "KiB")
-    } else {
-        (bytes, "B")
-    };
-    let suffix = if rate { "/s" } else { "" };
-    format!("{value:.1} {unit}{suffix}")
 }

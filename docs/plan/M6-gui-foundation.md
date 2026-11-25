@@ -127,8 +127,9 @@ interpolation placeholder each failed the check. Native GPUI tests switched
 English to Arabic and back in one application, updating Fluent and component
 labels and reversing logical row order. Unit tests cover Gregorian date
 order, UTC conversion, both hour cycles and SI and IEC size boundaries.
-The four snapshots use native GPUI dialogs and the shared date and size
-formatters. Escape dismissed the dialog in each variant.
+The four snapshots use native GPUI dialogs, the Settings clock choices,
+and the shared date, chart clock, size and transfer-rate formatters. Escape
+dismissed the dialog in each variant.
 
 [English light](../screenshots/m6-04/en-light.png) ·
 [English dark](../screenshots/m6-04/en-dark.png) ·

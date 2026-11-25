@@ -27,10 +27,26 @@ pub fn date_time_utc(locale: Locale, format: TimeFormat, unix_seconds: i64) -> O
 
 /// Format a Docker RFC 3339 date as a human-readable UTC date and clock time.
 pub fn rfc3339_utc(locale: Locale, format: TimeFormat, value: &str) -> Option<String> {
-    let instant = OffsetDateTime::parse(value, &Rfc3339)
-        .ok()?
-        .checked_to_offset(UtcOffset::UTC)?;
+    let instant = parse_rfc3339_utc(value)?;
     Some(format_date_time(locale, format, instant))
+}
+
+/// Format an RFC 3339 timestamp as a UTC clock label at minute precision.
+pub fn rfc3339_clock_utc(locale: Locale, format: TimeFormat, value: &str) -> Option<String> {
+    let instant = parse_rfc3339_utc(value)?;
+    Some(clock(
+        locale,
+        format,
+        instant.hour(),
+        instant.minute(),
+        None,
+    ))
+}
+
+fn parse_rfc3339_utc(value: &str) -> Option<OffsetDateTime> {
+    OffsetDateTime::parse(value, &Rfc3339)
+        .ok()?
+        .checked_to_offset(UtcOffset::UTC)
 }
 
 fn format_date_time(locale: Locale, format: TimeFormat, instant: OffsetDateTime) -> String {
@@ -41,7 +57,7 @@ fn format_date_time(locale: Locale, format: TimeFormat, instant: OffsetDateTime)
         format,
         instant.hour(),
         instant.minute(),
-        instant.second(),
+        Some(instant.second()),
     );
     match locale {
         Locale::EnglishUs => format!("{month} {day}, {year}, {clock} UTC"),
@@ -55,7 +71,7 @@ pub fn time_utc(locale: Locale, format: TimeFormat, unix_millis: i64) -> String 
     let hour = (seconds / 3_600) as u8;
     let minute = (seconds / 60 % 60) as u8;
     let second = (seconds % 60) as u8;
-    format!("{} UTC", clock(locale, format, hour, minute, second))
+    format!("{} UTC", clock(locale, format, hour, minute, Some(second)))
 }
 
 /// Return the locale's labels for the two halves of a 12-hour clock.
@@ -66,16 +82,23 @@ pub fn day_periods(locale: Locale) -> (&'static str, &'static str) {
     )
 }
 
-fn clock(locale: Locale, format: TimeFormat, hour: u8, minute: u8, second: u8) -> String {
-    match format {
-        TimeFormat::TwentyFourHour => format!("{hour:02}:{minute:02}:{second:02}"),
+fn clock(locale: Locale, format: TimeFormat, hour: u8, minute: u8, second: Option<u8>) -> String {
+    use std::fmt::Write as _;
+    let (hour, period) = match format {
+        TimeFormat::TwentyFourHour => (hour, None),
         TimeFormat::TwelveHour => {
             let (am, pm) = day_periods(locale);
-            let period = if hour < 12 { am } else { pm };
-            let hour = (hour + 11) % 12 + 1;
-            format!("{hour:02}:{minute:02}:{second:02} {period}")
+            ((hour + 11) % 12 + 1, Some(if hour < 12 { am } else { pm }))
         }
+    };
+    let mut text = format!("{hour:02}:{minute:02}");
+    if let Some(second) = second {
+        let _ = write!(text, ":{second:02}");
     }
+    if let Some(period) = period {
+        let _ = write!(text, " {period}");
+    }
+    text
 }
 
 /// Select the unit scale and precision appropriate to the displayed measurement.
@@ -121,11 +144,29 @@ pub fn bytes(locale: Locale, format: SizeFormat, bytes: u64) -> String {
             format!("{value:.precision$} {}", units[index].text(locale))
         }
         SizeFormat::Binary => {
-            let units = ["KiB", "MiB", "GiB", "TiB"];
             let precision = usize::from(!bytes.is_multiple_of(unit));
-            format!("{value:.precision$} {}", units[index])
+            format!("{value:.precision$} {}", binary_unit(locale, index + 1))
         }
     }
+}
+
+/// Format a finite, nonnegative byte rate in IEC units per second.
+pub fn bytes_per_second(locale: Locale, rate: f64) -> Option<String> {
+    if !rate.is_finite() || rate < 0. {
+        return None;
+    }
+    let units = [1., 1_024., 1_048_576., 1_073_741_824., 1_099_511_627_776.];
+    let exponent = units.iter().rposition(|&unit| rate >= unit).unwrap_or(0);
+    let value = rate / units[exponent];
+    let suffix = gui::GUI_SIZE_PER_SECOND.text(locale);
+    Some(format!(
+        "{value:.1} {}{suffix}",
+        binary_unit(locale, exponent)
+    ))
+}
+
+fn binary_unit(locale: Locale, exponent: usize) -> &'static str {
+    [gui::GUI_DESKTOP_B.text(locale), "KiB", "MiB", "GiB", "TiB"][exponent]
 }
 
 #[cfg(test)]
@@ -153,6 +194,42 @@ mod tests {
         assert_eq!(time_utc(EnglishUs, TwentyFourHour, -1), "23:59:59 UTC");
         assert!(date_time_utc(EnglishUs, TwentyFourHour, i64::MAX).is_none());
         assert!(rfc3339_utc(Arabic, TwelveHour, "invalid").is_none());
+    }
+
+    #[test]
+    fn settings_and_stats_clocks_use_western_digits() {
+        assert_eq!(gui::GUI_SETTINGS_TIME_FORMAT_TWELVE.text(Arabic), "12 ساعة");
+        assert_eq!(
+            gui::GUI_SETTINGS_TIME_FORMAT_TWENTY_FOUR.text(Arabic),
+            "24 ساعة"
+        );
+        let sample = "2024-02-29T17:30:45+02:00";
+        assert_eq!(
+            rfc3339_clock_utc(Arabic, TwelveHour, sample).as_deref(),
+            Some("03:30 م")
+        );
+        assert_eq!(
+            rfc3339_clock_utc(EnglishUs, TwentyFourHour, sample).as_deref(),
+            Some("15:30")
+        );
+        assert!(rfc3339_clock_utc(Arabic, TwelveHour, "invalid").is_none());
+    }
+
+    #[test]
+    fn byte_rates_localize_units_and_keep_fractional_precision() {
+        assert_eq!(
+            bytes_per_second(Arabic, 4.25).as_deref(),
+            Some("4.2 بايت/ث")
+        );
+        assert_eq!(
+            bytes_per_second(EnglishUs, 1_536.).as_deref(),
+            Some("1.5 KiB/s")
+        );
+        assert_eq!(
+            bytes_per_second(Arabic, 1_536.).as_deref(),
+            Some("1.5 KiB/ث")
+        );
+        assert!(bytes_per_second(Arabic, f64::NAN).is_none());
     }
 
     #[test]

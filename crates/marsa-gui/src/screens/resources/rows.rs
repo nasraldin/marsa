@@ -546,7 +546,14 @@ pub(super) fn snapshot_rows(
                             message(screen.locale, gui::GUI_DESKTOP_CREATED),
                             volume
                                 .created_at
-                                .clone()
+                                .as_deref()
+                                .and_then(|value| {
+                                    locale_format::rfc3339_utc(
+                                        screen.locale,
+                                        screen.display.time_format,
+                                        value,
+                                    )
+                                })
                                 .unwrap_or_else(|| missing.to_owned()),
                         ),
                         (
