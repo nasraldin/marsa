@@ -7,6 +7,10 @@ use serde::Deserialize;
 /// Supported host API revision for anonymous, authorized registry digest requests.
 pub const REGISTRY_DIGEST_API_MINOR: u32 = 17;
 
+// The daemon may need a registry challenge, a token and a manifest in one lookup.
+/// Maximum time budget for one passive managed registry request.
+pub const REGISTRY_DIGEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+
 /// Build the Docker distribution route for a bounded named tag.
 ///
 /// The accepted grammar excludes image IDs, digests, schemes, traversal, percent escapes

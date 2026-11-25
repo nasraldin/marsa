@@ -240,7 +240,7 @@ fn managed_registry_lookups_require_separate_persisted_consent() {
         Settings::from_toml("[ui.environment_monitoring.marsa]\ncheck_image_updates = true\n")
             .unwrap();
     let legacy_toml = legacy.to_toml().unwrap();
-    assert!(!legacy_toml.contains("check_managed_registry_updates = true"));
+    assert!(!legacy_toml.contains("check_managed_registry_updates"));
 
     let opted_in = Settings::from_toml(
         "[ui.environment_monitoring.marsa]\ncheck_image_updates = true\ncheck_managed_registry_updates = true\n",

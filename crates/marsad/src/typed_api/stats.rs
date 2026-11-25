@@ -6,7 +6,7 @@ use marsa_proto::{
     guest::v1::VmStats,
     host::{
         DOCKER_INVENTORY_LIMIT, docker_activity_query,
-        docker_registry::{DistributionInspect, registry_digest_path},
+        docker_registry::{DistributionInspect, REGISTRY_DIGEST_TIMEOUT, registry_digest_path},
         v1::{
             DockerOverviewRequest, DockerOverviewResponse, DockerOverviewSection,
             DockerRegistryDigestRequest, DockerRegistryDigestResponse, VmStatsRequest,
@@ -209,7 +209,7 @@ impl Stats for TypedApi {
             .map_err(|_| Status::resource_exhausted("too many pending built-in registry checks"))?;
         let not_running = || Status::failed_precondition("registry checks require a running VM");
         let supervisor = self.supervisor.as_ref().ok_or_else(not_running)?;
-        let json = timeout(Duration::from_secs(5), async {
+        let json = timeout(REGISTRY_DIGEST_TIMEOUT, async {
             let stream = supervisor.connect_running_docker().await?;
             docker_http::get(stream, &format!("/v1.57{path}"), 64 * 1024).await
         })

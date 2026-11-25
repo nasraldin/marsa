@@ -4,7 +4,10 @@ use std::{collections::BTreeSet, time::Duration};
 
 use marsa_proto::host::{
     DOCKER_INVENTORY_RESPONSE_LIMIT,
-    docker_registry::{DistributionInspect, REGISTRY_DIGEST_API_MINOR, valid_registry_digest},
+    docker_registry::{
+        DistributionInspect, REGISTRY_DIGEST_API_MINOR, REGISTRY_DIGEST_TIMEOUT,
+        valid_registry_digest,
+    },
     v1::{DockerOverviewRequest, DockerOverviewSection as Section, DockerRegistryDigestRequest},
 };
 use serde::{Deserialize, de::DeserializeOwned};
@@ -273,7 +276,7 @@ impl OverviewClient {
                 let mut request = tonic::Request::new(DockerRegistryDigestRequest {
                     reference: reference.to_owned(),
                 });
-                request.set_timeout(Duration::from_secs(6));
+                request.set_timeout(REGISTRY_DIGEST_TIMEOUT + Duration::from_secs(1));
                 let response = client
                     .stats()
                     .max_decoding_message_size(512)
