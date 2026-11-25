@@ -1,5 +1,7 @@
 //! Owner-managed Git sources and a deliberate checkout action.
 
+mod credentials;
+
 use std::{future::Future, path::PathBuf};
 
 use marsa_client::git_sources::{
@@ -39,9 +41,26 @@ struct Editor {
 
 enum Outcome {
     Listed(Vec<GitRepository>),
-    Changed(Vec<GitRepository>, TextKey),
+    Changed(Vec<GitRepository>, TextKey, ColorToken),
     Tested,
     CheckedOut(PathBuf),
+}
+
+impl Outcome {
+    async fn change<T>(
+        store: &GitRepositoryStore,
+        result: Result<T, GitSourceError>,
+        success: TextKey,
+    ) -> Result<Self, GitSourceError> {
+        let (key, color) = match result {
+            Ok(_) => (success, ColorToken::TextPrimary),
+            Err(
+                error @ (GitSourceError::CredentialChanged | GitSourceError::CredentialCleanup),
+            ) => (error_key(&error), ColorToken::StatusWarning),
+            Err(error) => return Err(error),
+        };
+        Ok(Self::Changed(store.list().await?, key, color))
+    }
 }
 
 impl Editor {
@@ -119,10 +138,10 @@ impl SystemView {
                         panel.entries = Some(entries);
                         None
                     }
-                    Some(Ok(Ok(Outcome::Changed(entries, key)))) => {
+                    Some(Ok(Ok(Outcome::Changed(entries, key, color)))) => {
                         panel.entries = Some(entries);
                         panel.editor = None;
-                        Some((key, ColorToken::TextPrimary))
+                        Some((key, color))
                     }
                     Some(Ok(Ok(Outcome::Tested))) => {
                         Some((gui::GUI_GIT_BRANCH_AVAILABLE, ColorToken::TextPrimary))
@@ -147,14 +166,30 @@ impl SystemView {
         let config = editor.config(cx);
         let id = editor.id.clone();
         if test {
-            self.test_git_source(config, cx);
+            let saved = self
+                .git_sources
+                .entries
+                .as_deref()
+                .and_then(|entries| {
+                    entries.iter().find(|entry| {
+                        id.as_ref() == Some(&entry.id)
+                            && config.url == entry.config.url
+                            && config.branch == entry.config.branch
+                    })
+                })
+                .cloned();
+            if let Some(saved) = saved {
+                self.test_saved_git_source(saved, cx);
+            } else {
+                self.test_git_source(config, cx);
+            }
             return;
         }
         self.git_source_task(
             async move {
                 let store = GitRepositoryStore::discover()?;
-                store.save(id.as_deref(), config).await?;
-                Ok(Outcome::Changed(store.list().await?, gui::GUI_GIT_SAVED))
+                let result = store.save(id.as_deref(), config).await;
+                Outcome::change(&store, result, gui::GUI_GIT_SAVED).await
             },
             cx,
         );
@@ -170,9 +205,19 @@ impl SystemView {
         );
     }
 
+    fn test_saved_git_source(&mut self, source: GitRepository, cx: &mut Context<Self>) {
+        self.git_source_task(
+            async move {
+                source.test().await?;
+                Ok(Outcome::Tested)
+            },
+            cx,
+        );
+    }
+
     fn checkout_git_source(
         &mut self,
-        config: GitRepositoryConfig,
+        source: GitRepository,
         locale: marsa_ui::Locale,
         cx: &mut Context<Self>,
     ) {
@@ -191,7 +236,7 @@ impl SystemView {
             };
             let _ = this.update(cx, |this, cx| {
                 this.git_source_task(
-                    async move { Ok(Outcome::CheckedOut(config.checkout(&path).await?)) },
+                    async move { Ok(Outcome::CheckedOut(source.checkout(&path).await?)) },
                     cx,
                 )
             });
@@ -348,8 +393,11 @@ impl SystemView {
     ) -> Div {
         let locale = screen.locale;
         let edit = repo.clone();
-        let selected = repo.config.clone();
-        let test = repo.config.clone();
+        let selected = repo.clone();
+        let test = repo.clone();
+        let credentials = repo.clone();
+        let remove_credentials = repo.clone();
+        let palette = screen.palette;
         let id = repo.id.clone();
         let button = |action: &'static str, title: TextKey| {
             Button::new((
@@ -396,9 +444,9 @@ impl SystemView {
                             },
                         )),
                     )
-                    .child(button("git-test", gui::GUI_GIT_TEST).on_click(
-                        cx.listener(move |this, _, _, cx| this.test_git_source(test.clone(), cx)),
-                    ))
+                    .child(button("git-test", gui::GUI_GIT_TEST).on_click(cx.listener(
+                        move |this, _, _, cx| this.test_saved_git_source(test.clone(), cx),
+                    )))
                     .child(
                         button("git-edit", gui::GUI_ENVIRONMENT_EDIT).on_click(cx.listener(
                             move |this, _, window, cx| {
@@ -409,6 +457,31 @@ impl SystemView {
                             },
                         )),
                     )
+                    .child(
+                        button("git-credentials", gui::GUI_GIT_CREDENTIALS).on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.open_git_credentials(
+                                    credentials.clone(),
+                                    locale,
+                                    palette,
+                                    window,
+                                    cx,
+                                );
+                            },
+                        )),
+                    )
+                    .children(repo.has_https_credential().then(|| {
+                        button("git-remove-credential", gui::GUI_GIT_CREDENTIAL_REMOVE).on_click(
+                            cx.listener(move |this, _, window, cx| {
+                                this.confirm_remove_git_credential(
+                                    remove_credentials.clone(),
+                                    locale,
+                                    window,
+                                    cx,
+                                );
+                            }),
+                        )
+                    }))
                     .child(
                         button("git-remove", gui::GUI_DESKTOP_REMOVE).on_click(cx.listener(
                             move |_, _, window, cx| {
@@ -433,11 +506,13 @@ impl SystemView {
                                             this.git_source_task(
                                                 async move {
                                                     let store = GitRepositoryStore::discover()?;
-                                                    store.remove(&id).await?;
-                                                    Ok(Outcome::Changed(
-                                                        store.list().await?,
+                                                    let result = store.remove(&id).await;
+                                                    Outcome::change(
+                                                        &store,
+                                                        result,
                                                         gui::GUI_GIT_REMOVED,
-                                                    ))
+                                                    )
+                                                    .await
                                                 },
                                                 cx,
                                             )
@@ -459,6 +534,10 @@ fn error_key(error: &GitSourceError) -> TextKey {
         GitSourceError::Timeout => gui::GUI_GIT_TIMEOUT,
         GitSourceError::Git => gui::GUI_GIT_FAILED,
         GitSourceError::BranchMissing => gui::GUI_GIT_BRANCH_MISSING,
+        GitSourceError::CredentialInvalid => gui::GUI_GIT_CREDENTIAL_INVALID,
+        GitSourceError::CredentialUnavailable => gui::GUI_GIT_CREDENTIAL_UNAVAILABLE,
+        GitSourceError::CredentialChanged => gui::GUI_GIT_CREDENTIAL_CHANGED,
+        GitSourceError::CredentialCleanup => gui::GUI_GIT_CREDENTIAL_CLEANUP,
         GitSourceError::NotFound | GitSourceError::Store(_) => gui::GUI_GIT_STORE_FAILED,
     }
 }

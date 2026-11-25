@@ -11,19 +11,19 @@ use tokio::{
 
 const KEYCHAIN_NOT_FOUND: &[u8] = b"credentials not found in native keychain";
 const DEADLINE: Duration = Duration::from_secs(15);
-const CREDENTIAL_LIMIT: usize = 8 * 1024;
+pub(crate) const CREDENTIAL_LIMIT: usize = 8 * 1024;
 const LIST_LIMIT: usize = 1024 * 1024;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
-pub(in crate::docker) struct Credential {
+pub(crate) struct Credential {
     #[serde(rename = "ServerURL")]
-    pub(in crate::docker) server_url: String,
-    pub(in crate::docker) username: String,
-    pub(in crate::docker) secret: String,
+    pub(crate) server_url: String,
+    pub(crate) username: String,
+    pub(crate) secret: String,
 }
 
-pub(in crate::docker) async fn get(path: &Path, key: &str) -> io::Result<Option<Credential>> {
+pub(crate) async fn get(path: &Path, key: &str) -> io::Result<Option<Credential>> {
     let Some(output) = run(path, "get", key.as_bytes(), CREDENTIAL_LIMIT).await? else {
         return Ok(None);
     };
@@ -34,14 +34,14 @@ pub(in crate::docker) async fn get(path: &Path, key: &str) -> io::Result<Option<
     Ok(Some(value))
 }
 
-pub(in crate::docker) async fn list(path: &Path) -> io::Result<BTreeMap<String, String>> {
+pub(crate) async fn list(path: &Path) -> io::Result<BTreeMap<String, String>> {
     let output = run(path, "list", &[], LIST_LIMIT)
         .await?
         .ok_or_else(failure)?;
     serde_json::from_slice(&output).map_err(|_| failure())
 }
 
-pub(in crate::docker) async fn store(path: &Path, credential: &Credential) -> io::Result<()> {
+pub(crate) async fn store(path: &Path, credential: &Credential) -> io::Result<()> {
     let input = serde_json::to_vec(credential).map_err(|_| failure())?;
     run(path, "store", &input, CREDENTIAL_LIMIT)
         .await?
@@ -49,7 +49,7 @@ pub(in crate::docker) async fn store(path: &Path, credential: &Credential) -> io
     Ok(())
 }
 
-pub(in crate::docker) async fn erase(path: &Path, key: &str) -> io::Result<()> {
+pub(crate) async fn erase(path: &Path, key: &str) -> io::Result<()> {
     run(path, "erase", key.as_bytes(), CREDENTIAL_LIMIT).await?;
     Ok(())
 }

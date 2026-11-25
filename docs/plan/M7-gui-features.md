@@ -560,7 +560,7 @@ source evidence and allowed connection paths.
 
 An ad hoc signed native desktop fixture used a real daemon and the operating system's Apple Git 2.54.0 (Apple Git-157). In all four variants, the fixture saved and edited a repository, recovered the same entry after relaunch, and verified both cancellation and confirmed removal across restarts. It accepted the public Docker Compose examples repository's `master` branch over HTTPS and rejected a missing branch. A direct Git control failed under the supplied ambient URL rewrite and transport settings. Marsa used trusted Git and completed the checkout with those same overrides present, bypassing the Git executable injected into `PATH`.
 
-The fixture supplied the chosen folder and removal response at the native callbacks. The resulting checkout matched the tested branch and revision, preserved existing sentinel files, and had owner-only permissions even under a more broadly readable parent. The repository store was owner-only. A distinct action opened the Deploy Stack dialog for the selected Lima engine. The fixture skipped Finder reveal and stopped before submitting a deployment. Authenticated HTTPS and SSH are tracked in M7-30.
+The fixture supplied the chosen folder and removal response at the native callbacks. The resulting checkout matched the tested branch and revision, preserved existing sentinel files, and had owner-only permissions even under a more broadly readable parent. The repository store was owner-only. A distinct action opened the Deploy Stack dialog for the selected Lima engine. The fixture skipped Finder reveal and stopped before submitting a deployment. M7-30 covers authenticated HTTPS, and M7-53 tracks SSH.
 
 [English light](../screenshots/m7-28/en-light.png) ·
 [English dark](../screenshots/m7-28/en-dark.png) ·
@@ -597,14 +597,32 @@ set. Confirmation removed it, and the fixture cleaned up only its named
 container, volume and bind directory. Local mounts still go through the
 existing host allowlist.
 
-### M7-30 Authenticate Git sources
+### M7-30 Authenticate HTTPS Git sources
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-28
-- **Docs:** [11 Security](../11-security.md)
-- **Do:** Add HTTPS username and password or token credentials in macOS Keychain and SSH using verified host keys and an explicit private key reference.
-- **Deliver:** A Git credentials view and authenticated branch test and checkout.
-- **Accept when:** Tests and checkout use only the credential associated with the selected repository. No secret is written to settings or sent to Compose.
+- **Docs:** [11 Git sources](../11-security.md#git-sources)
+- **Do:** Save an optional HTTPS username and password or token in the macOS Keychain. Give the trusted system Git client the credential for the selected saved HTTPS source.
+- **Deliver:** Localized Git credentials controls and authenticated branch tests and checkouts.
+- **Accept when:** Tests and checkout use only the credential associated with the selected repository. Git uses the existing pinned HTTPS and redirect rules. Secrets stay out of settings and Compose. Removing or changing a saved source revokes its former credential association.
+
+Authenticated SSH uses a different host-key and identity policy and is tracked in M7-53.
+
+Verified the Settings dialog and its Save button in four signed native views.
+The fixture supplied dummy values at the input controls and verified that the
+secret stayed out of desktop settings. A signed client build using the pinned
+Keychain helper verified persistence, authenticated branch lookup, and an exact
+shallow checkout against a local smart Git HTTPS server. The fixture trusted its
+local certificate for that process. The server recorded authentication only on
+the selected repository. Changing the URL revoked the old association. Credential
+rotation refused an older removal confirmation and drained the private cleanup
+journal. A disposable Apple Git control used the fixture's `.netrc`, and the
+signed client refused that ambient credential, a stale repository reference,
+and the redirect. A saved URL with a trailing slash authenticated successfully.
+[English light](../screenshots/m7-30/en-light.png),
+[English dark](../screenshots/m7-30/en-dark.png),
+[Arabic light](../screenshots/m7-30/ar-light.png),
+[Arabic dark](../screenshots/m7-30/ar-dark.png).
 
 ### M7-31 Download container files
 
@@ -958,7 +976,6 @@ requests. Native snapshots show the focused control and opened modal in
   - A registry check uses validated image references, starts no VM, makes no inventory collection requests, and applies neither stale results nor results from a different engine.
   - Tests cover an authorized distribution request and absent requests when authorization is off or the engine is stopped.
 
-
 **Qualification.** The owner RPC tests verified the exact distribution route,
 rejection without the saved opt-in, and rejection on a stopped engine without
 starting it. The desktop test discards results from another engine epoch or
@@ -977,3 +994,14 @@ Signed Settings rendered both saved switch states in every variant.
 [English dark](../screenshots/m7-52/en-dark.png) ·
 [Arabic light](../screenshots/m7-52/ar-light.png) ·
 [Arabic dark](../screenshots/m7-52/ar-dark.png).
+
+### M7-53 Authenticate Git sources over SSH
+
+- **Status:** todo
+- **Depends on:** M7-30
+- **Docs:** [11 Git sources](../11-security.md#git-sources), [11 SSH agent access](../11-security.md#ssh-agent-access)
+- **Do:** Add explicitly configured SSH sources with a verified host key and a selected private key reference. Pin the connection to the configured host, port, user and key policy for branch testing and checkout.
+- **Deliver:** Localized SSH repository controls and signed qualification against a verified SSH fixture.
+- **Accept when:**
+  - Test and checkout authenticate only to the saved host and use only its selected key. Unknown or changed host keys fail before Git sends repository data.
+  - Ambient SSH configuration or agents cannot change the destination or selected identity. The private key contents stay out of settings and Compose.
