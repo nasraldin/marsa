@@ -218,7 +218,10 @@ impl DockerClient {
 
 // Verify that the end markers follow complete entries. File data can itself
 // end in zero blocks, so the final bytes alone cannot prove completeness.
-fn validate_tar(file: &mut std::fs::File, length: u64) -> io::Result<Option<Range<u64>>> {
+pub(super) fn validate_tar(
+    file: &mut std::fs::File,
+    length: u64,
+) -> io::Result<Option<Range<u64>>> {
     use std::io::{Read as _, Seek as _};
 
     let invalid = || io::Error::from(io::ErrorKind::InvalidData);

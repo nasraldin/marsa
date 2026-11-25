@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package marsa.guest.v1;
+
+// The same bounded sequence is relayed between the owner and the guest.
+message VolumeReadRequest {
+  oneof body {
+    bool probe = 1;
+    PrepareVolumeRead prepare = 2;
+    bool start = 3;
+  }
+}
+
+message PrepareVolumeRead {
+  string name = 1;
+  string created_at = 2;
+  string path = 3;
+  bool prefer_single_file = 4;
+}
+
+enum VolumeReadFormat {
+  VOLUME_READ_FORMAT_UNSPECIFIED = 0;
+  VOLUME_READ_FORMAT_TAR = 1;
+  VOLUME_READ_FORMAT_SINGLE_FILE = 2;
+}
+
+enum VolumeReadFailure {
+  VOLUME_READ_FAILURE_UNSPECIFIED = 0;
+  VOLUME_READ_FAILURE_UNSUPPORTED = 1;
+  VOLUME_READ_FAILURE_CHANGED = 2;
+  VOLUME_READ_FAILURE_INVALID_PATH = 3;
+  VOLUME_READ_FAILURE_LIMIT = 4;
+  VOLUME_READ_FAILURE_IO = 5;
+}
+
+message VolumeReadReply {
+  oneof body {
+    bool capable = 1;
+    VolumeReadFormat format = 2;
+    bytes data = 3;
+    bool complete = 4;
+    VolumeReadFailure failure = 5;
+  }
+}

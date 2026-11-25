@@ -38,6 +38,8 @@ use tokio::{
 use crate::{ClientError, docker_socket_path, platform};
 
 mod container_files;
+mod volume_files;
+pub use volume_files::{VolumeDownload, VolumeDownloadError};
 mod inventory;
 mod lima;
 mod overview;

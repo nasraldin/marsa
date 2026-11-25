@@ -1,0 +1,195 @@
+//! Qualify confined reads against real Docker in a disposable signed VZ guest.
+
+use super::*;
+use marsa_client::{
+    DaemonEndpoint,
+    docker::{ContainerFileFormat, DockerClient, VolumeDownloadError},
+};
+
+#[tokio::test]
+#[ignore = "requires signed Apple silicon virtualization, production guest artifacts, and Docker CLI"]
+async fn packaged_volume_downloads_stay_in_the_selected_volume() {
+    assert!(!nix::unistd::geteuid().is_root());
+    let scratch = tempfile::tempdir_in("/tmp").unwrap();
+    let home = scratch.path().join("home");
+    fs::create_dir(&home).unwrap();
+    let paths = MarsaPaths::from_home(&home).unwrap();
+    fs::create_dir(paths.root()).unwrap();
+    fs::set_permissions(paths.root(), fs::Permissions::from_mode(0o700)).unwrap();
+    let mut settings = Settings::default();
+    settings.vm.memory = Some(1024 * MIB);
+    settings.vm.idle_stop = false;
+    let mut config = fs::File::create(paths.config_file()).unwrap();
+    config
+        .set_permissions(fs::Permissions::from_mode(0o600))
+        .unwrap();
+    config
+        .write_all(settings.to_toml().unwrap().as_bytes())
+        .unwrap();
+    drop(config);
+
+    let (daemon, _) = stage_bundle(scratch.path());
+    let logs = scratch.path().join("daemon.log");
+    let mut process = Daemon(
+        Command::new(daemon)
+            .env("HOME", &home)
+            .stdout(fs::File::create(&logs).unwrap())
+            .stderr(fs::File::options().append(true).open(&logs).unwrap())
+            .spawn()
+            .unwrap(),
+    );
+    let channel = connect(&mut process.0, &paths.daemon_socket(), &logs).await;
+    let client = DaemonEndpoint::at(paths.daemon_socket())
+        .connect()
+        .await
+        .unwrap();
+    assert!(matches!(
+        client.check_volume_provider().await,
+        Err(VolumeDownloadError::Unavailable)
+    ));
+    let mut engine = EngineClient::new(channel);
+    let ready = timeout(BOOT, engine.start(action(1)))
+        .await
+        .unwrap()
+        .unwrap_or_else(|error| {
+            panic!(
+                "{error}\n{}\n{}",
+                fs::read_to_string(&logs).unwrap(),
+                fs::read_to_string(paths.console_log()).unwrap_or_default()
+            )
+        })
+        .into_inner();
+    assert_eq!(ready.state(), EngineState::Ready);
+    client.check_volume_provider().await.unwrap();
+
+    let suffix = scratch
+        .path()
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_lowercase();
+    let volume = format!("marsa-m751{suffix}");
+    let image = format!("marsa-m751{suffix}:local");
+    let container = format!("marsa-m751{suffix}-seed");
+    let root = scratch.path().join("image");
+    fs::create_dir_all(root.join("seed")).unwrap();
+    fs::write(root.join("seed/file.txt"), b"scoped fixture").unwrap();
+    std::os::unix::fs::symlink("/etc/passwd", root.join("seed/escape")).unwrap();
+    let archive = scratch.path().join("seed.tar");
+    checked(
+        Command::new("/usr/bin/tar")
+            .arg("-cf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&root)
+            .arg("seed"),
+    );
+    let docker_config = scratch.path().join("docker");
+    fs::create_dir(&docker_config).unwrap();
+    let host = format!("unix://{}", paths.docker_socket().display());
+    let docker = |args: &[&str]| {
+        let mut command = Command::new("docker");
+        for (key, _) in
+            env::vars_os().filter(|(key, _)| key.to_string_lossy().starts_with("DOCKER_"))
+        {
+            command.env_remove(key);
+        }
+        checked(
+            command
+                .arg("--config")
+                .arg(&docker_config)
+                .args(["--host", &host])
+                .args(args),
+        );
+    };
+    docker(&[
+        "import",
+        "--change",
+        "VOLUME /seed",
+        archive.to_str().unwrap(),
+        &image,
+    ]);
+    docker(&["volume", "create", &volume]);
+    let mount = format!("type=volume,source={volume},target=/seed");
+    docker(&[
+        "create",
+        "--pull",
+        "never",
+        "--network",
+        "none",
+        "--name",
+        &container,
+        "--mount",
+        &mount,
+        &image,
+        "/not-executed",
+    ]);
+
+    let inventory = DockerClient::at(paths.docker_socket());
+    let selected = inventory
+        .volumes()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.name == volume)
+        .unwrap();
+    for (single_file, expected, filename) in [
+        (true, ContainerFileFormat::SingleFile, "scoped.txt"),
+        (false, ContainerFileFormat::Tar, "scoped.tar"),
+    ] {
+        let prepared = client
+            .prepare_volume_download(&selected, "/file.txt".into(), single_file)
+            .await
+            .unwrap();
+        assert!(prepared.format() == expected);
+        let destination = scratch.path().join(filename);
+        prepared.save(&destination).await.unwrap();
+        if single_file {
+            assert_eq!(fs::read(destination).unwrap(), b"scoped fixture");
+        } else {
+            let mut tar = tar::Archive::new(fs::File::open(destination).unwrap());
+            let mut entries = tar.entries().unwrap();
+            let mut entry = entries.next().unwrap().unwrap();
+            assert_eq!(entry.path().unwrap(), Path::new("file.txt"));
+            let mut output = Vec::new();
+            entry.read_to_end(&mut output).unwrap();
+            assert_eq!(output, b"scoped fixture");
+            assert!(entries.next().is_none());
+        }
+    }
+    assert!(matches!(
+        client
+            .prepare_volume_download(&selected, "/escape".into(), true)
+            .await,
+        Err(VolumeDownloadError::InvalidPath)
+    ));
+    let directory = client
+        .prepare_volume_download(&selected, "/".into(), true)
+        .await
+        .unwrap();
+    assert!(directory.format() == ContainerFileFormat::Tar);
+    let destination = scratch.path().join("blocked.tar");
+    assert!(directory.save(&destination).await.is_err());
+    assert!(!destination.exists());
+
+    let replacement = client
+        .prepare_volume_download(&selected, "/file.txt".into(), true)
+        .await
+        .unwrap();
+    docker(&["rm", &container]);
+    docker(&["volume", "rm", &volume]);
+    docker(&["volume", "create", &volume]);
+    let destination = scratch.path().join("replaced.txt");
+    assert!(matches!(
+        replacement.save(&destination).await,
+        Err(VolumeDownloadError::Changed)
+    ));
+    assert!(!destination.exists());
+    docker(&["volume", "rm", &volume]);
+    docker(&["image", "rm", &image]);
+    assert_eq!(
+        engine.stop(action(2)).await.unwrap().into_inner().state(),
+        EngineState::Stopped
+    );
+}

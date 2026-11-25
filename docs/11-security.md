@@ -144,6 +144,20 @@ in an owner-only file keyed by the engine. A confirmed cache cleanup operates
 on the desktop's fixed scanner database directories, keeps the scan locks in
 place, and never sends a cleanup request to Docker.
 
+### Confined named-volume downloads
+
+The owner-only download endpoint targets the running built-in VM on a
+dedicated host-CID-only connection. The guest validates that the selected
+volume is ordinary, local and option-free, confirms its Docker creation
+timestamp and fixed data path, and pins its directory and target descriptors.
+Linux `openat2` disallows symlinks and mount crossings below the managed data
+mount. Regular files must have one link. Directory traversal is bounded by
+entry count, depth, path size and total output. The guest rechecks the pinned
+identities and Docker metadata before reporting success. The Mac stages the
+bounded data stream and publishes to the owner's new destination only after
+success and stream termination.
+[Docker local volume layout](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/volume/local/local.go) · [Linux path resolution](https://man7.org/linux/man-pages/man2/openat2.2.html)
+
 ## Registry credentials
 
 - `docker login` stores credentials through `docker-credential-osxkeychain` in the macOS Keychain when that helper is on the Docker CLI's `PATH`. The authenticated opt-in adds `credsStore = osxkeychain` to the configured Docker client file only after the caller obtains consent. Existing `credsStore` and `credHelpers` entries remain untouched. If Docker already holds credentials in the file, log out before enabling Keychain and log in again afterwards. [Docker login](https://docs.docker.com/reference/cli/docker/login/), [pinned helper source](https://github.com/docker/docker-credential-helpers/blob/v0.9.13/osxkeychain/osxkeychain.go).

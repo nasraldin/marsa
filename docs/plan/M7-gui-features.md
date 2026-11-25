@@ -955,7 +955,7 @@ requests. Native snapshots show the focused control and opened modal in
 
 ### M7-51 Download files from a supported volume
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-31
 - **Docs:** [07 File sharing and storage](../07-file-sharing-and-storage.md), [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Define and implement a read-only provider that confines reads to the selected volume on the selected engine. The existing container archive API resolves paths against a container filesystem and provides no volume-scoped confinement guarantee.

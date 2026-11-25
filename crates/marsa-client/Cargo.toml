@@ -35,5 +35,4 @@ tokio-rustls = { version = "=0.26.6", default-features = false, features = ["rin
 tonic = "=0.14.9"
 tower = { version = "=0.5.3", features = ["util"] }
 
-[target.'cfg(unix)'.dev-dependencies]
 tokio-stream = { version = "=0.1.19", features = ["net"] }

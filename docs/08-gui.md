@@ -394,10 +394,12 @@ latest available resource counts. Review the report in Marsa and copy it to
 the clipboard.
 
 Settings → Logs & files configures retention and timestamp display for container
-and stack logs. Its download format applies to the Files tab of a container.
-Enter an absolute path inside that container and choose a new destination on
-your Mac. Directories use TAR. In single-file mode, the app writes only the
-selected file's bytes.
+and stack logs. Its download format applies to the Files tab of a container
+and to supported built-in volumes. Within the selected container or volume,
+enter a path starting with `/` and choose a new destination on your Mac.
+Directories use TAR. In single-file mode, the app writes the selected file's
+bytes. The Volumes route explains when the engine or volume cannot provide
+a confined download. See [Volume file downloads](07-file-sharing-and-storage.md#volume-file-downloads).
 
 The Compose workspace can deploy an existing YAML file or start a new stack from
 the template saved in Settings. Review the initial YAML before choosing the

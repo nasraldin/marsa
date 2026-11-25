@@ -4,6 +4,9 @@ mod bind_authorization;
 mod frame;
 mod network_facts;
 mod validation;
+mod volume_files;
+
+pub use volume_files::*;
 
 pub use bind_authorization::{
     BIND_AUTHORIZATION_PORT, BIND_AUTHORIZATION_VERSION, MAX_BIND_AUTHORIZATION_FRAME_BYTES,

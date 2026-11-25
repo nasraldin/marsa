@@ -34,7 +34,7 @@ pub(super) enum Command {
     MaintenanceKeep(u64, Reply),
     MaintenanceStop(u64, Reply),
     EnsureReady(Reply),
-    ConnectDocker(oneshot::Sender<io::Result<VsockStream>>),
+    ConnectService(u32, oneshot::Sender<io::Result<VsockStream>>),
     Network(NetworkMode, oneshot::Sender<NetworkObservation>),
     Stop(Reply),
     Restart(Reply),

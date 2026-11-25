@@ -81,6 +81,13 @@ defaults to 24 hours. The daemon contacts only an already-running guest
 and bounds the newline-delimited Engine response. It does not persist
 activity in the inventory cache.
 
+Host API minor 17 adds the owner-only `VolumeFiles.Read` stream. A client
+can probe the running built-in guest or prepare a named volume with its
+Docker creation timestamp and a canonical volume-relative path. The guest
+reports the output format before the client sends `start` after destination
+selection. The client requires successful completion and stream termination
+before publishing its staged destination.
+
 `Disk.Reclaim` requests discard of unused blocks from the current ready
 guest's data disk. It returns the guest's submitted discard bytes and the
 observed decrease in allocated bytes on the same host image. A stopped
@@ -167,6 +174,13 @@ Queries carry only the explicit absolute bind sources and a request ID.
 Version 1.0 requires matching sequential IDs and a valid allow or deny response.
 The guest denies these binds if the policy channel cannot answer. Boot-mounted
 virtiofs roots remain the host isolation boundary.
+
+The guest volume read channel uses dedicated host-initiated vsock port 5004.
+It uses the same four-byte length prefix as the control channel, with a bounded
+payload and at most 64 KiB of file bytes per frame. One selection is permitted
+per connection. The guest holds the same selection across preparation and
+transfer and sends a final success after physical and engine identity
+checks. Older guests lack this capability and cannot serve a download.
 
 1. After connecting, the guest sends `Hello` with request ID zero. The image
    version, component versions and boot timings describe the running image.
