@@ -6,6 +6,8 @@ mod color;
 #[cfg(target_os = "macos")]
 mod components;
 pub mod scale;
+#[cfg(test)]
+mod tests;
 pub mod typography;
 
 pub use color::{ColorToken, DIALOG_ELEVATION, Elevation, Rgb, accent_swatch};
