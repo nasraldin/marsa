@@ -707,7 +707,13 @@ fn age_cell(screen: &ScreenContext<'_>, entry: &ResourceRow) -> Div {
     let absolute = entry
         .image
         .as_ref()
-        .and_then(|meta| super::rows::format_created_timestamp(meta.created))
+        .and_then(|meta| {
+            marsa_ui::locale_format::date_time_utc(
+                screen.locale,
+                screen.display.time_format,
+                meta.created,
+            )
+        })
         .unwrap_or_else(|| relative.clone());
     let key = SharedString::from(entry.key().to_owned());
     // Ghost button tooltip above the cell; custom child keeps the date start-aligned.

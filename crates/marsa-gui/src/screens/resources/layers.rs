@@ -14,26 +14,29 @@ use marsa_ui::{
         button::{Button, ButtonVariants as _},
     },
     gui_keys as gui,
+    locale_format::{self, SizeFormat},
+    preferences::TimeFormat,
     tokens::{
         scale::{Radius, Space},
         typography::ui_size,
     },
 };
 
-use crate::screens::common::{color, message, row};
+use crate::screens::common::{ScreenContext, color, message, row};
 
 use super::ResourcesView;
 
 /// Layer stack body for the image details modal.
 pub(super) fn render_layers_section(
-    locale: Locale,
-    palette: Palette,
+    screen: &ScreenContext<'_>,
     image_id: &str,
     layers: Option<&[ImageHistoryLayer]>,
     failed: bool,
     expanded: &BTreeSet<usize>,
     view: &marsa_ui::gpui::Entity<ResourcesView>,
 ) -> impl IntoElement {
+    let locale = screen.locale;
+    let palette = screen.palette;
     let short_id =
         marsa_ui::direction::isolate_technical_text(image_id.get(..12).unwrap_or(image_id));
     let content = if failed {
@@ -75,6 +78,7 @@ pub(super) fn render_layers_section(
                         layer_row(
                             locale,
                             palette,
+                            screen.display.time_format,
                             number,
                             index,
                             layer,
@@ -129,7 +133,7 @@ fn summary_card(
                         .child(div().text_size(ui_size(12.)).child(format!(
                             "{}: {}",
                             gui::GUI_DESKTOP_TOTAL_SIZE.text(locale),
-                            format_bytes(locale, total_size)
+                            locale_format::bytes(locale, SizeFormat::DecimalDetail, total_size)
                         ))),
                 )
                 .child(
@@ -146,6 +150,7 @@ fn summary_card(
 fn layer_row(
     locale: Locale,
     palette: Palette,
+    time_format: TimeFormat,
     number: usize,
     index: usize,
     layer: &ImageHistoryLayer,
@@ -227,7 +232,14 @@ fn layer_row(
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(color(palette, badge_text))
                                         .truncate()
-                                        .child(format!("{} {opcode}", format_bytes(locale, size))),
+                                        .child(format!(
+                                            "{} {opcode}",
+                                            locale_format::bytes(
+                                                locale,
+                                                SizeFormat::DecimalDetail,
+                                                size
+                                            )
+                                        )),
                                 ),
                         ),
                 )
@@ -237,7 +249,11 @@ fn layer_row(
                         .flex_shrink_0()
                         .text_size(ui_size(12.))
                         .text_color(color(palette, ColorToken::TextMuted))
-                        .child(format_bytes(locale, size)),
+                        .child(locale_format::bytes(
+                            locale,
+                            SizeFormat::DecimalDetail,
+                            size,
+                        )),
                 )
                 .child(
                     div()
@@ -268,13 +284,20 @@ fn layer_row(
 
     let mut card = div().flex().flex_col().gap_2().w_full().child(header);
     if expanded {
-        card = card.child(layer_details(locale, palette, layer, size));
+        card = card.child(layer_details(locale, palette, time_format, layer, size));
     }
     card
 }
 
-fn layer_details(locale: Locale, palette: Palette, layer: &ImageHistoryLayer, size: u64) -> Div {
-    let created = format_layer_created(layer.created);
+fn layer_details(
+    locale: Locale,
+    palette: Palette,
+    time_format: TimeFormat,
+    layer: &ImageHistoryLayer,
+    size: u64,
+) -> Div {
+    let created = locale_format::date_time_utc(locale, time_format, layer.created)
+        .unwrap_or_else(|| message(locale, gui::GUI_DESKTOP_UNAVAILABLE).to_string());
     let comment = if layer.comment.trim().is_empty() {
         message(locale, gui::GUI_DESKTOP_NONE).to_string()
     } else {
@@ -308,7 +331,7 @@ fn layer_details(locale: Locale, palette: Palette, layer: &ImageHistoryLayer, si
                     locale,
                     palette,
                     gui::GUI_DESKTOP_SIZE.text(locale),
-                    format_bytes(locale, size),
+                    locale_format::bytes(locale, SizeFormat::DecimalDetail, size),
                 ))
                 .child(command_block(locale, palette, command))
                 .child(detail_line(
@@ -412,56 +435,4 @@ fn opcode_colors(opcode: &str) -> (ColorToken, ColorToken) {
         _ => return (BgSubtle, TextPrimary),
     };
     (fill, TextOnAccent)
-}
-
-fn format_layer_created(created: i64) -> String {
-    let Ok(total) = u64::try_from(created) else {
-        return created.to_string();
-    };
-    let Ok(days) = i32::try_from(total / 86_400) else {
-        return created.to_string();
-    };
-    let tod = total % 86_400;
-    let hour = tod / 3_600;
-    let minute = (tod % 3_600) / 60;
-    let (year, month, day) = unix_days_to_ymd(days);
-    format!("{day:02}.{month:02}.{year:04} {hour:02}:{minute:02}")
-}
-
-fn unix_days_to_ymd(days: i32) -> (i32, u32, u32) {
-    let z = days.wrapping_add(719_468);
-    let era = if z >= 0 { z } else { z.wrapping_sub(146_096) } / 146_097;
-    let doe = z.wrapping_sub(era * 146_097) as u32;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i32 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m, d)
-}
-
-fn format_bytes(locale: Locale, bytes: u64) -> String {
-    if bytes >= 1_000_000_000 {
-        format!(
-            "{:.2} {}",
-            bytes as f64 / 1_000_000_000.,
-            gui::GUI_DESKTOP_GB.text(locale)
-        )
-    } else if bytes >= 1_000_000 {
-        format!(
-            "{:.2} {}",
-            bytes as f64 / 1_000_000.,
-            gui::GUI_DESKTOP_MB.text(locale)
-        )
-    } else if bytes >= 1_000 {
-        format!(
-            "{:.0} {}",
-            bytes as f64 / 1_000.,
-            gui::GUI_DESKTOP_KB.text(locale)
-        )
-    } else {
-        format!("{bytes} {}", gui::GUI_DESKTOP_B.text(locale))
-    }
 }
