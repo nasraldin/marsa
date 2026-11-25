@@ -82,6 +82,13 @@ flowchart TB
 
 ### Data flow
 
+The managed Overview reads resource counts from the same normalized store as
+the other screens. Its utilization timer measures the retained running
+containers without fetching inventory again. Cache-first engine identity,
+disk measurements, and image update checks have independent work. Managed
+image checks compare installed tags whenever containers or images change.
+External engines retain their direct observations.
+
 ```mermaid
 sequenceDiagram
     participant D as marsad and dockerd

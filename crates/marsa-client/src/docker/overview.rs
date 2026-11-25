@@ -114,7 +114,7 @@ impl OverviewClient {
                     usage: Vec::new(),
                 }
             } else {
-                self.utilization(&rows).await
+                self.container_utilization(&rows).await
             };
             Some((rows, stacks, utilization))
         };
@@ -159,6 +159,13 @@ impl OverviewClient {
             updates_checked,
             outdated_images,
         }
+    }
+
+    /// Read engine identity separately from inventory and live measurements.
+    pub async fn engine_version(&self, prefer_cache: bool) -> Option<EngineVersion> {
+        self.read::<EngineVersion>(Section::Version, None, prefer_cache)
+            .await
+            .and_then(EngineVersion::checked)
     }
 
     /// Measure storage separately because the engine may need to scan its filesystem.
@@ -261,8 +268,12 @@ impl OverviewClient {
         Some(digest)
     }
 
-    async fn utilization(&self, rows: &[ContainerSummary]) -> OverviewUtilization {
-        let mut rows = rows.iter().filter(|row| row.state == "running");
+    /// Read live measurements for running containers from an already-observed listing.
+    pub async fn container_utilization<'a>(
+        &self,
+        rows: impl IntoIterator<Item = &'a ContainerSummary, IntoIter: Clone + Send> + Send,
+    ) -> OverviewUtilization {
+        let mut rows = rows.into_iter().filter(|row| row.state == "running");
         let running = rows.clone().count();
         let mut samples = JoinSet::new();
         let mut usage = Vec::new();
@@ -420,12 +431,11 @@ pub struct ContainerCounts {
 }
 
 impl ContainerCounts {
-    fn from_rows(rows: &[ContainerSummary]) -> Self {
-        let mut counts = Self {
-            total: rows.len(),
-            ..Self::default()
-        };
+    /// Count lifecycle and health states in an observed container listing.
+    pub fn from_rows<'a>(rows: impl IntoIterator<Item = &'a ContainerSummary>) -> Self {
+        let mut counts = Self::default();
         for row in rows {
+            counts.total += 1;
             match row.state.as_str() {
                 "running" => counts.running += 1,
                 "created" | "exited" | "dead" => counts.stopped += 1,
@@ -456,6 +466,24 @@ pub fn outdated_updates(
         .iter()
         .filter(|container| container_needs_update(container, images, &tags, remotes))
         .count()
+}
+
+/// Compare installed tags against container image IDs without making engine requests.
+pub fn local_image_updates(
+    containers: &[ContainerSummary],
+    images: &[ImageSummary],
+) -> (usize, BTreeSet<String>) {
+    let tags = image_tag_index(images);
+    let remotes = std::collections::BTreeMap::new();
+    let outdated = containers
+        .iter()
+        .filter(|container| container_needs_update(container, images, &tags, &remotes));
+    (
+        outdated.clone().count(),
+        outdated
+            .filter_map(|container| normalize_image_ref(&container.image))
+            .collect(),
+    )
 }
 
 /// Lower values are probed first when resolving registry digests.
@@ -537,6 +565,10 @@ mod outdated_tests {
         assert_eq!(
             outdated_updates(&containers, &images, &Default::default()),
             1
+        );
+        assert_eq!(
+            local_image_updates(&containers, &images),
+            (1, BTreeSet::from(["nginx:latest".to_owned()]))
         );
     }
 
@@ -982,6 +1014,7 @@ mod tests {
         ]);
         let distribution_requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let observed_requests = distribution_requests.clone();
+        let (sent, received) = std::sync::mpsc::channel();
         let server = tokio::spawn(async move {
             let mut replies = JoinSet::new();
             let routes = std::sync::Arc::new(routes);
@@ -994,6 +1027,7 @@ mod tests {
                 };
                 let routes = routes.clone();
                 let observed_requests = observed_requests.clone();
+                let sent = sent.clone();
                 replies.spawn(async move {
                     let mut request = Vec::new();
                     while !request.ends_with(b"\r\n\r\n") {
@@ -1001,6 +1035,7 @@ mod tests {
                     }
                     let request = String::from_utf8(request).unwrap();
                     let path = request.lines().next().unwrap().strip_prefix("GET ").unwrap().strip_suffix(" HTTP/1.1").unwrap();
+                    sent.send(path.to_owned()).unwrap();
                     if path.starts_with("/distribution/") {
                         observed_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
@@ -1065,6 +1100,16 @@ mod tests {
         assert_eq!(
             distribution_requests.load(std::sync::atomic::Ordering::Relaxed),
             1
+        );
+        received.try_iter().for_each(drop);
+        for _ in 0..2 {
+            let repeated = client.container_utilization([&reported]).await;
+            assert_eq!(repeated.running, 1);
+            assert_eq!(repeated.usage[0].memory_bytes, Some(3072));
+        }
+        assert_eq!(
+            received.try_iter().collect::<Vec<_>>(),
+            vec![format!("/containers/{}/stats?stream=false", "a".repeat(64)); 2]
         );
         tokio::time::timeout(Duration::from_secs(1), server)
             .await
