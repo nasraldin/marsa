@@ -124,12 +124,12 @@ struct NewContainer {
 pub enum ImageRun {
     /// The new container started.
     Started(ContainerId),
-    /// Creation succeeded, but the engine rejected starting it.
+    /// Creation succeeded without a running container.
     Created {
         /// Identifier retained in Docker for retry or explicit removal.
         id: ContainerId,
-        /// The error from the start request.
-        start_error: DockerError,
+        /// Present when a start was attempted and rejected; `None` when create-only.
+        start_error: Option<DockerError>,
     },
 }
 
@@ -194,11 +194,11 @@ impl DockerClient {
         image: &ImageId,
         name: Option<&ResourceName>,
     ) -> Result<ImageRun, DockerError> {
-        self.create_and_start(name, json!({"Image": image.as_str()}))
+        self.create_and_start(name, json!({"Image": image.as_str()}), true)
             .await
     }
 
-    /// Create and start a container with reviewed typed options.
+    /// Create a container with reviewed typed options, optionally starting it.
     ///
     /// Marsa's own bind mount allowlist is enforced by the engine's authorization path.
     /// External engines require an explicit review of host bind sources before submission.
@@ -208,6 +208,7 @@ impl DockerClient {
         name: Option<&ResourceName>,
         options: &ContainerCreateOptions,
         review: ContainerMountReview,
+        start: bool,
     ) -> Result<ImageRun, DockerError> {
         options.validate()?;
         if matches!(self.scope, DockerScope::External { .. })
@@ -216,7 +217,7 @@ impl DockerClient {
         {
             return Err(DockerError::ExternalBindReviewRequired);
         }
-        self.create_and_start(name, configured_payload(image, options))
+        self.create_and_start(name, configured_payload(image, options), start)
             .await
     }
 
@@ -224,17 +225,24 @@ impl DockerClient {
         &self,
         name: Option<&ResourceName>,
         payload: Value,
+        start: bool,
     ) -> Result<ImageRun, DockerError> {
         let path = name.map_or_else(
             || "/containers/create".to_owned(),
             |name| format!("/containers/create?name={}", name.as_str()),
         );
         let created: NewContainer = self.post_json(&path, payload).await?;
+        if !start {
+            return Ok(ImageRun::Created {
+                id: created.id,
+                start_error: None,
+            });
+        }
         match self.act(&created.id, ContainerAction::Start).await {
             Ok(()) => Ok(ImageRun::Started(created.id)),
             Err(start_error) => Ok(ImageRun::Created {
                 id: created.id,
-                start_error,
+                start_error: Some(start_error),
             }),
         }
     }
@@ -259,6 +267,12 @@ fn configured_payload(image: &ImageId, options: &ContainerCreateOptions) -> Valu
     };
     if let Some(restart) = restart {
         host.insert("RestartPolicy".into(), json!({"Name": restart}));
+    }
+    if !options.command.is_empty() {
+        payload.insert("Cmd".into(), json!(options.command));
+    }
+    if !options.entrypoint.is_empty() {
+        payload.insert("Entrypoint".into(), json!(options.entrypoint));
     }
     if !options.env.is_empty() {
         payload.insert(
@@ -345,7 +359,13 @@ mod configured_tests {
         };
         assert!(matches!(
             docker
-                .run_image_configured(&image, None, &options, ContainerMountReview::Unreviewed)
+                .run_image_configured(
+                    &image,
+                    None,
+                    &options,
+                    ContainerMountReview::Unreviewed,
+                    true
+                )
                 .await,
             Err(DockerError::ExternalBindReviewRequired)
         ));
@@ -355,7 +375,8 @@ mod configured_tests {
                     &image,
                     None,
                     &options,
-                    ContainerMountReview::ApprovedExternalHostPaths
+                    ContainerMountReview::ApprovedExternalHostPaths,
+                    true
                 )
                 .await,
             Err(DockerError::Socket(_))
@@ -368,6 +389,8 @@ mod configured_tests {
         let options = ContainerCreateOptions {
             network: ConfigNetwork::Bridge,
             restart: ConfigRestartPolicy::UnlessStopped,
+            command: vec!["/bin/sh".into(), "-c".into(), "echo hi".into()],
+            entrypoint: vec!["/entrypoint.sh".into()],
             env: vec![ConfigKeyValue {
                 key: "MODE".to_owned(),
                 value: "test=one".to_owned(),
@@ -400,6 +423,8 @@ mod configured_tests {
             configured_payload(&image, &options),
             json!({
                 "Image": image.as_str(),
+                "Cmd": ["/bin/sh", "-c", "echo hi"],
+                "Entrypoint": ["/entrypoint.sh"],
                 "Env": ["MODE=test=one"],
                 "Labels": {"org.example.group": "web"},
                 "ExposedPorts": {"80/tcp": {}},

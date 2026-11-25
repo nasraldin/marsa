@@ -49,6 +49,10 @@ pub struct ContainerCreateOptions {
     pub network: ConfigNetwork,
     /// Container restart policy applied by Docker.
     pub restart: ConfigRestartPolicy,
+    /// Optional command argv replacing the image default (`Cmd`).
+    pub command: Vec<String>,
+    /// Optional entrypoint argv replacing the image default.
+    pub entrypoint: Vec<String>,
     /// Explicit environment assignments.
     pub env: Vec<ConfigKeyValue>,
     /// Explicit Docker labels, outside reserved namespaces.
@@ -66,6 +70,13 @@ impl ContainerCreateOptions {
             || self.labels.len() > MAX_CONFIG_ROWS
             || self.ports.len() > MAX_CONFIG_ROWS
             || self.mounts.len() > MAX_CONFIG_MOUNTS
+            || self.command.len() > MAX_CONFIG_ROWS
+            || self.entrypoint.len() > MAX_CONFIG_ROWS
+            || self
+                .command
+                .iter()
+                .chain(self.entrypoint.iter())
+                .any(|part| part.is_empty() || part.len() > 4096 || part.contains('\0'))
         {
             return Err(ContainerConfigError::Capacity);
         }

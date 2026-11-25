@@ -55,8 +55,8 @@ pub use transfer::NetworkId;
 pub use marsa_proto::host::container_config;
 
 pub use actions::{
-    CreatedNetwork, ImageDetails, ImageId, ImageRemoval, NetworkRemoval, ResourceName,
-    VolumeRemoval,
+    CreatedNetwork, ImageDetails, ImageHistoryLayer, ImageId, ImageRemoval, NetworkRemoval,
+    ResourceName, VolumeRemoval,
 };
 pub use images::{
     ContainerMountReview, ImagePull, ImageReference, ImageRun, PullCounters, PullProgress,

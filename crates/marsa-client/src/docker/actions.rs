@@ -1,7 +1,9 @@
 //! Fixed routes for desktop image, volume and network actions.
 
+use std::collections::BTreeMap;
+
 use hyper::Method;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::json;
 
 use super::{DockerClient, DockerError, RemovalMode, VolumeSummary, null_to_default};
@@ -130,6 +132,59 @@ pub struct ImageDetails {
     pub os: String,
     /// Total reported image size in bytes.
     pub size: u64,
+    /// Optional author string from the image metadata.
+    #[serde(default)]
+    pub author: Option<String>,
+    /// Container configuration baked into the image.
+    #[serde(default)]
+    pub config: Option<ImageConfig>,
+    /// Root filesystem layer descriptors.
+    #[serde(default, rename = "RootFS")]
+    pub root_fs: Option<ImageRootFs>,
+}
+
+/// Image `Config` fields used by the details modal.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "PascalCase")]
+pub struct ImageConfig {
+    /// Default command.
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub cmd: Vec<String>,
+    /// Default entrypoint.
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub entrypoint: Vec<String>,
+    /// Environment assignments (`KEY=value`).
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub env: Vec<String>,
+    /// Image labels.
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub labels: BTreeMap<String, String>,
+    /// Working directory inside the container.
+    #[serde(default)]
+    pub working_dir: Option<String>,
+    /// Default user.
+    #[serde(default)]
+    pub user: Option<String>,
+    /// Exposed port specs (`80/tcp`, …).
+    #[serde(default, deserialize_with = "exposed_port_keys")]
+    pub exposed_ports: Vec<String>,
+}
+
+/// RootFS section from image inspect.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "PascalCase")]
+pub struct ImageRootFs {
+    /// Layer digests reported by the engine.
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub layers: Vec<String>,
+}
+
+fn exposed_port_keys<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let map: Option<BTreeMap<String, serde::de::IgnoredAny>> = Option::deserialize(deserializer)?;
+    Ok(map.unwrap_or_default().into_keys().collect())
 }
 
 /// Identity of a newly created Docker network.
@@ -138,6 +193,26 @@ pub struct CreatedNetwork {
     /// Identifier assigned by the engine.
     #[serde(rename = "Id")]
     pub id: String,
+}
+
+/// One layer from `GET /images/{name}/history`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ImageHistoryLayer {
+    /// Layer or image content ID.
+    pub id: String,
+    /// Unix creation timestamp.
+    pub created: i64,
+    /// Dockerfile instruction or build step that produced the layer.
+    pub created_by: String,
+    /// Tags pointing at this layer, when any.
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub tags: Vec<String>,
+    /// Incremental size contributed by this layer, in bytes.
+    pub size: i64,
+    /// Optional engine comment (for example BuildKit metadata).
+    #[serde(default)]
+    pub comment: String,
 }
 
 impl DockerClient {
@@ -150,6 +225,12 @@ impl DockerClient {
             return Err(DockerError::ResourceIdentity);
         }
         Ok(details)
+    }
+
+    /// Read the build history / layer stack for an image.
+    pub async fn image_history(&self, id: &ImageId) -> Result<Vec<ImageHistoryLayer>, DockerError> {
+        self.snapshot(&format!("/images/{}/history", id.as_str()))
+            .await
     }
 
     /// Create a bridge network on the local engine.
@@ -193,5 +274,72 @@ impl DockerClient {
         );
         self.request(Method::DELETE, &path).await?;
         Ok(())
+    }
+
+    /// Prune unused images.
+    ///
+    /// When `dangling` is true, only untagged intermediate layers are removed.
+    /// When false, every image not used by a container is removed (including tags).
+    pub async fn prune_images(&self, dangling: bool) -> Result<(), DockerError> {
+        let filters = if dangling {
+            PRUNE_DANGLING_FILTERS
+        } else {
+            PRUNE_UNUSED_FILTERS
+        };
+        self.request(Method::POST, &format!("/images/prune?filters={filters}"))
+            .await?;
+        Ok(())
+    }
+}
+
+/// `{"dangling":["true"]}` percent-encoded for the Docker filters query.
+const PRUNE_DANGLING_FILTERS: &str = "%7B%22dangling%22%3A%5B%22true%22%5D%7D";
+/// `{"dangling":["false"]}` percent-encoded for the Docker filters query.
+const PRUNE_UNUSED_FILTERS: &str = "%7B%22dangling%22%3A%5B%22false%22%5D%7D";
+
+#[cfg(test)]
+mod tests {
+    use super::{PRUNE_DANGLING_FILTERS, PRUNE_UNUSED_FILTERS};
+
+    #[test]
+    fn prune_filter_query_values_match_docker_json() {
+        assert_eq!(
+            percent_decode(PRUNE_DANGLING_FILTERS),
+            r#"{"dangling":["true"]}"#
+        );
+        assert_eq!(
+            percent_decode(PRUNE_UNUSED_FILTERS),
+            r#"{"dangling":["false"]}"#
+        );
+    }
+
+    fn percent_decode(value: &str) -> String {
+        let bytes = value.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'%' if index + 2 < bytes.len() => {
+                    let hi = hex(bytes[index + 1]);
+                    let lo = hex(bytes[index + 2]);
+                    out.push((hi << 4) | lo);
+                    index += 3;
+                }
+                byte => {
+                    out.push(byte);
+                    index += 1;
+                }
+            }
+        }
+        String::from_utf8(out).expect("filters are ascii json")
+    }
+
+    fn hex(byte: u8) -> u8 {
+        match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'A'..=b'F' => byte - b'A' + 10,
+            b'a'..=b'f' => byte - b'a' + 10,
+            _ => panic!("invalid percent encoding"),
+        }
     }
 }

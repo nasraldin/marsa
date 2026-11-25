@@ -277,6 +277,18 @@ impl Services {
         self.pending(async move { Ok(docker.inspect_image(&id).await?) })
     }
 
+    /// Read the layer history for an existing image.
+    pub fn image_history(
+        &self,
+        id: ImageId,
+        endpoint: Option<ExternalEndpoint>,
+    ) -> Pending<Vec<marsa_client::docker::ImageHistoryLayer>> {
+        let docker = endpoint
+            .map(|endpoint| endpoint.management_client())
+            .unwrap_or_else(|| self.session.backend.docker.clone());
+        self.pending(async move { Ok(docker.image_history(&id).await?) })
+    }
+
     /// Run the explicitly selected Compose project and stream bounded output.
     pub fn compose(
         &self,
