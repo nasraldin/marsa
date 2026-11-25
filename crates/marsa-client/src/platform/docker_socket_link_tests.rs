@@ -64,3 +64,42 @@ fn link_to_a_similar_path_with_a_trailing_newline_is_foreign() {
     assert!(!change("remove", &link, &expected));
     assert_eq!(fs::read_link(&link).unwrap(), foreign);
 }
+
+#[tokio::test]
+async fn applescript_preserves_literal_path_arguments() {
+    let fixture = tempfile::tempdir_in("/tmp").unwrap();
+    let link = fixture.path().join("docker.sock");
+    let target = fixture.path().join("owner's $(ignored) socket");
+    let script = ADMIN_SCRIPT.replace(" with administrator privileges", "");
+
+    for action in ["install", "remove"] {
+        let output = admin_command(&script, action, &link, &target)
+            .output()
+            .await
+            .unwrap();
+        assert!(output.status.success(), "{:?}", output.stderr);
+        assert_eq!(output.stdout, b"completed\n");
+        if action == "install" {
+            assert_eq!(fs::read_link(&link).unwrap(), target);
+        }
+    }
+    assert_eq!(fs::read_dir(fixture.path()).unwrap().count(), 0);
+}
+
+#[tokio::test]
+async fn install_requires_a_private_directory_and_real_owner_socket() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = tempfile::tempdir_in("/tmp").unwrap();
+    let target = fixture.path().join("owner.sock");
+    fs::set_permissions(fixture.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(!private_socket(&target).await.unwrap());
+    let _socket = UnixListener::bind(&target).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(private_socket(&target).await.unwrap());
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o640)).unwrap();
+    assert!(!private_socket(&target).await.unwrap());
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(fixture.path(), fs::Permissions::from_mode(0o750)).unwrap();
+    assert!(!private_socket(&target).await.unwrap());
+}

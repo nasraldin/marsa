@@ -1278,3 +1278,15 @@ gui-desktop-copy-command = Copy command
 gui-overview-live = Live
 gui-overview-machine = Machine
 gui-overview-engine-type = Engine
+
+gui-docker-socket-title = Legacy Docker socket
+gui-docker-socket-description = Give tools that use the system Docker socket access to your local Marsa engine. macOS asks for administrator approval.
+gui-docker-socket-install = Install socket link
+gui-docker-socket-remove = Remove socket link
+gui-docker-socket-install-confirm = Create the system Docker socket link to your private Marsa socket? An existing entry for another engine stays in place.
+gui-docker-socket-remove-confirm = Remove the system Docker socket link for Marsa? Tools using the link will lose access to Marsa.
+gui-docker-socket-installed = The system Docker socket now points to Marsa.
+gui-docker-socket-removed = The Marsa system Docker socket link is removed.
+gui-docker-socket-occupied = Another entry already uses the system Docker socket path.
+gui-docker-socket-target-unavailable = Start the local Marsa engine and try again.
+gui-docker-socket-failed = macOS could not change the system Docker socket link.

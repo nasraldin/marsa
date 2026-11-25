@@ -1278,3 +1278,15 @@ gui-desktop-copy-command = نسخ الأمر
 gui-overview-live = مباشر
 gui-overview-machine = الجهاز
 gui-overview-engine-type = المحرّك
+
+gui-docker-socket-title = مقبس دوكر القديم
+gui-docker-socket-description = أتح للأدوات التي تستخدم مقبس دوكر الخاص بالنظام الوصول إلى محرك مرسى المحلي. سيطلب macOS موافقة مسؤول.
+gui-docker-socket-install = تثبيت رابط المقبس
+gui-docker-socket-remove = إزالة رابط المقبس
+gui-docker-socket-install-confirm = هل تريد إنشاء رابط من مقبس دوكر الخاص بالنظام إلى مقبس مرسى الخاص بك؟ سيبقى أي إدخال موجود لمحرك آخر في مكانه.
+gui-docker-socket-remove-confirm = هل تريد إزالة رابط مقبس دوكر الخاص بالنظام لمرسى؟ ستفقد الأدوات التي تستخدم الرابط إمكانية الوصول إلى مرسى.
+gui-docker-socket-installed = يشير مقبس دوكر الخاص بالنظام الآن إلى مرسى.
+gui-docker-socket-removed = أُزيل رابط مقبس دوكر الخاص بالنظام لمرسى.
+gui-docker-socket-occupied = هناك إدخال آخر يستخدم بالفعل مسار مقبس دوكر الخاص بالنظام.
+gui-docker-socket-target-unavailable = شغّل محرك مرسى المحلي وحاول مجددًا.
+gui-docker-socket-failed = تعذّر على macOS تغيير رابط مقبس دوكر الخاص بالنظام.
