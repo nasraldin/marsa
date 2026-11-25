@@ -2,13 +2,26 @@
 
 use marsa_ui::{
     ColorToken, Locale, Palette,
-    gpui::{Context, Div, ElementId, ParentElement as _, Styled as _, div, px, relative, svg},
-    gpui_component::{Disableable as _, IconName, button::Button},
+    gpui::{
+        AnyElement, Context, Div, ElementId, IntoElement as _, ParentElement as _, Styled as _,
+        div, px, relative, svg,
+    },
+    gpui_component::{Disableable as _, button::Button},
     gui_keys as gui,
     preferences::Theme,
 };
 
 use super::common::{color, row};
+
+/// Selected-state mark used by setup and Settings appearance choices.
+pub(crate) fn selection_check(palette: Palette) -> AnyElement {
+    svg()
+        .path("icons/circle-check.svg")
+        .size(px(18.))
+        .flex_shrink_0()
+        .text_color(color(palette, ColorToken::StatusRunning))
+        .into_any_element()
+}
 
 /// Render the localized visual theme choices with their current selection.
 pub(crate) fn theme_picker<T: 'static>(
@@ -76,7 +89,7 @@ pub(crate) fn theme_picker<T: 'static>(
                                         )
                                         .child(name),
                                 )
-                                .children(active.then_some(IconName::Check)),
+                                .children(active.then(|| selection_check(palette))),
                         ),
                 )
                 .on_click(cx.listener(move |view, _, _, cx| {

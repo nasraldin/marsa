@@ -174,23 +174,59 @@ impl Desktop {
         self.setup_task = Some(cx.spawn(async move |desktop, cx| {
             let result = dialog.await;
             let _ = desktop.update(cx, |desktop, cx| {
-                if let Some(setup) = &mut desktop.onboarding {
-                    setup.pending = false;
-                    match result {
-                        Ok(Ok(Some(paths))) => {
-                            if let Some(path) = paths.first().and_then(|path| path.to_str()) {
-                                setup.folders.insert(path.to_owned());
-                            } else {
-                                setup.failed = true;
-                            }
+                if desktop.onboarding.is_none() {
+                    return;
+                }
+                match result {
+                    Ok(Ok(Some(paths))) => {
+                        if let Some(setup) = &mut desktop.onboarding {
+                            setup.pending = false;
                         }
-                        Ok(Ok(None)) => {}
-                        _ => setup.failed = true,
+                        desktop.add_setup_folders(&paths, cx);
                     }
-                    cx.notify();
+                    Ok(Ok(None)) => {
+                        if let Some(setup) = &mut desktop.onboarding {
+                            setup.pending = false;
+                        }
+                        cx.notify();
+                    }
+                    _ => {
+                        if let Some(setup) = &mut desktop.onboarding {
+                            setup.pending = false;
+                            setup.failed = true;
+                        }
+                        cx.notify();
+                    }
                 }
             });
         }));
+        cx.notify();
+    }
+
+    fn add_setup_folders(&mut self, paths: &[std::path::PathBuf], cx: &mut Context<Self>) {
+        let Some(setup) = &mut self.onboarding else {
+            return;
+        };
+        if setup.pending {
+            return;
+        }
+        let mut added = false;
+        for path in paths {
+            if setup.folders.len() >= MAX_FOLDERS {
+                break;
+            }
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(value) = path.to_str() else {
+                setup.failed = true;
+                continue;
+            };
+            added |= setup.folders.insert(value.to_owned());
+        }
+        if added {
+            setup.failed = false;
+        }
         cx.notify();
     }
 
@@ -252,11 +288,12 @@ impl Desktop {
                     .map(|share| share.host_path)
                     .collect::<BTreeSet<_>>();
                 for path in folders.difference(&existing) {
+                    // Daemon share grants are read/write only (read_only is unimplemented).
                     shares
                         .add(AddShareRequest {
                             request_id: new_request_id()?,
                             host_path: path.clone(),
-                            read_only: true,
+                            read_only: false,
                             approval_id: None,
                             persist: true,
                         })

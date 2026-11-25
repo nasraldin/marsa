@@ -43,10 +43,11 @@ use objc2_app_kit::{
     NSButton, NSColor, NSDragOperation, NSDraggingContext, NSDraggingImageComponent,
     NSDraggingImageComponentIconKey, NSDraggingItem, NSEventModifierFlags, NSEventType,
     NSPasteboardWriting, NSRequestUserAttentionType, NSScreen, NSTrackingArea,
-    NSTrackingAreaOptions, NSView, NSViewLayerContentsRedrawPolicy, NSVisualEffectBlendingMode,
-    NSVisualEffectMaterial, NSVisualEffectState, NSWindow, NSWindowAnimationBehavior,
-    NSWindowButton, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowOrderingMode,
-    NSWindowStyleMask, NSWindowTitleVisibility, NSWorkspace,
+    NSTrackingAreaOptions, NSUserInterfaceLayoutDirection, NSView,
+    NSViewLayerContentsRedrawPolicy, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
+    NSVisualEffectState, NSWindow, NSWindowAnimationBehavior, NSWindowButton,
+    NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowOrderingMode, NSWindowStyleMask,
+    NSWindowTitleVisibility, NSWorkspace,
 };
 use objc2_core_graphics::CGColor;
 use objc2_foundation::{
@@ -746,8 +747,14 @@ impl MacWindowState {
                 );
                 let container_height =
                     button_height + traffic_light_position.y + traffic_light_position.y;
+                let window_width = Pixels::from(self.native_window().frame().size.width);
 
+                // Span the full titlebar so RTL (trailing) placement keeps hover
+                // glyphs and tracking areas inside the container. Force LTR on
+                // the native controls so AppKit does not mirror close/min/zoom.
                 let mut titlebar_frame = titlebar_container.frame();
+                titlebar_frame.origin.x = 0.;
+                titlebar_frame.size.width = window_width.to_f64();
                 titlebar_frame.size.height = container_height.to_f64();
                 titlebar_frame.origin.y = (window_height - container_height).to_f64();
 
@@ -755,6 +762,21 @@ impl MacWindowState {
                 let zoom_x = minimize_x + button_width + button_padding;
 
                 titlebar_container.setFrame(titlebar_frame);
+                titlebar_container.setClipsToBounds(false);
+                titlebar_container.setUserInterfaceLayoutDirection(
+                    NSUserInterfaceLayoutDirection::LeftToRight,
+                );
+                if let Some(button_container) = unsafe { buttons.close.superview() } {
+                    button_container.setClipsToBounds(false);
+                    button_container.setUserInterfaceLayoutDirection(
+                        NSUserInterfaceLayoutDirection::LeftToRight,
+                    );
+                }
+                for button in [&buttons.close, &buttons.minimize, &buttons.zoom] {
+                    button.setUserInterfaceLayoutDirection(
+                        NSUserInterfaceLayoutDirection::LeftToRight,
+                    );
+                }
                 buttons.close.setFrameOrigin(NSPoint::new(
                     traffic_light_position.x.to_f64(),
                     traffic_light_position.y.to_f64(),

@@ -596,3 +596,16 @@ English and Arabic copy cover the history card, disk card, resources label, and 
   - External engines keep their existing direct path (no GUI SQLite).
 
 - **Evidence:** `OverviewClient::sample_cached` / `disk_cached` use host API minor 14. The desktop Overview loop paints from the cache when present, then immediately refreshes live utilization and disk.
+
+### M7-42 Polish first-run setup selection, sharing, and RTL traffic lights
+
+- **Status:** in progress
+- **Depends on:** M7-38, M7-39
+- **Docs:** [08 Screens](../08-gui.md#screens), [08 Direction layer](../08-gui.md#direction-layer)
+- **Do:** Keep native traffic-light hover glyphs readable in Arabic by spanning the titlebar and forcing LTR on the controls. Use a green circle-check for selected language and appearance choices. Restyle the sharing step as a dashed drop zone with browse and folder cards.
+- **Deliver:** Setup UI polish, English and Arabic copy, GPUI traffic-light container fix.
+- **Accept when:**
+  - Hovering close, minimize, and zoom in Arabic shows the same glyphs as English.
+  - Selected language and appearance rows show a green circle-check.
+  - Sharing offers a dashed drop/browse zone and lists chosen folders as removable cards.
+  - Verify English/Arabic and light/dark.
