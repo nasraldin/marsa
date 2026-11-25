@@ -1,4 +1,4 @@
-//! Saved HTTPS Git references for owner-selected project sources.
+//! Saved Git references for owner-selected project sources.
 
 use std::{
     collections::HashSet,
@@ -18,6 +18,9 @@ use crate::{docker_socket_path, platform, request_id};
 
 mod credential_cleanup;
 mod https_credentials;
+mod ssh;
+
+pub use ssh::{GitSshAuthentication, git_ssh_host_key_fingerprint, review_git_ssh_identity};
 
 use credential_cleanup::Journal;
 
@@ -25,7 +28,7 @@ const STORE: &str = "git-repositories.json";
 const STORE_LIMIT: usize = 256 * 1024;
 const MAX_REPOSITORIES: usize = 128;
 
-/// The editable name, HTTPS URL and branch of one saved Git source.
+/// The editable name, transport and branch of one saved Git source.
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitRepositoryConfig {
@@ -35,6 +38,9 @@ pub struct GitRepositoryConfig {
     pub url: String,
     /// The branch name, without the refs/heads prefix.
     pub branch: String,
+    /// Explicit SSH host key, file reference, and reviewed identity fingerprint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<GitSshAuthentication>,
 }
 
 /// One saved Git reference with a stable identifier.
@@ -72,7 +78,7 @@ impl GitRepository {
 #[derive(Debug, thiserror::Error)]
 pub enum GitSourceError {
     /// The source name, URL, or branch did not pass validation.
-    #[error("expected a name, HTTPS repository URL, and Git branch")]
+    #[error("expected a name, supported repository URL, and Git branch")]
     Invalid,
     /// The selected repository is no longer saved.
     #[error("the saved Git repository could not be found")]
@@ -104,6 +110,27 @@ pub enum GitSourceError {
     /// The association changed and an obsolete Keychain value still needs cleanup.
     #[error("the Git credential changed but the previous Keychain entry remains")]
     CredentialCleanup,
+    /// The provided host key cannot establish the required pinned SSH trust.
+    #[error("expected a supported, independently verified SSH public host key")]
+    SshHostKey,
+    /// The selected private file could not be read securely or used noninteractively.
+    #[error("choose an owner-only private SSH key that does not require a passphrase prompt")]
+    SshIdentity,
+    /// The selected private file no longer holds the reviewed key.
+    #[error("the private SSH key changed; choose it again to review the new identity")]
+    SshIdentityChanged,
+    /// SSH could not verify the pinned host or authenticate with the selected identity.
+    #[error("SSH could not verify the saved host key or authenticate with the selected key")]
+    SshConnection,
+}
+
+enum Remote {
+    Https {
+        _broker: Option<https_credentials::Broker>,
+    },
+    Ssh {
+        _session: ssh::Session,
+    },
 }
 
 impl GitRepositoryConfig {
@@ -114,10 +141,40 @@ impl GitRepositoryConfig {
             && !self.name.chars().any(|ch| {
                 ch.is_control() || matches!(ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
             });
-        if safe_name && valid_url(&self.url) && valid_branch(&self.branch) {
-            Ok(())
+        if !safe_name || !valid_branch(&self.branch) {
+            return Err(GitSourceError::Invalid);
+        }
+        match &self.ssh {
+            None if valid_url(&self.url) => Ok(()),
+            None if ssh::Address::parse(&self.url).is_some() => Err(GitSourceError::SshIdentity),
+            Some(authentication) if ssh::Address::parse(&self.url).is_some() => {
+                authentication.validate()
+            }
+            _ => Err(GitSourceError::Invalid),
+        }
+    }
+
+    async fn remote(
+        &self,
+        command: &mut Command,
+        repository: Option<&GitRepository>,
+    ) -> Result<Remote, GitSourceError> {
+        if let Some(authentication) = &self.ssh {
+            let session = ssh::attach(command, &self.url, authentication).await?;
+            Ok(Remote::Ssh { _session: session })
         } else {
-            Err(GitSourceError::Invalid)
+            let credential = https_credentials::attach(command, repository).await?;
+            Ok(Remote::Https {
+                _broker: credential,
+            })
+        }
+    }
+
+    fn connection_failure(&self) -> GitSourceError {
+        if self.ssh.is_some() {
+            GitSourceError::SshConnection
+        } else {
+            GitSourceError::Git
         }
     }
 
@@ -131,14 +188,14 @@ impl GitRepositoryConfig {
         let workspace = private_git_directory().await?;
         let home = private_git_directory().await?;
         let mut command = git(workspace.path(), home.path()).await?;
-        let _credentials = https_credentials::attach(&mut command, repository).await?;
+        let _remote = self.remote(&mut command, repository).await?;
         command
             .args(["ls-remote", "--exit-code", "--refs", "--", &self.url])
             .arg(format!("refs/heads/{}", self.branch));
         match run_git(&mut command, Duration::from_secs(20)).await? {
             status if status.success() => Ok(()),
             status if status.code() == Some(2) => Err(GitSourceError::BranchMissing),
-            _ => Err(GitSourceError::Git),
+            _ => Err(self.connection_failure()),
         }
     }
 
@@ -176,7 +233,7 @@ impl GitRepositoryConfig {
         .map_err(|_| GitSourceError::Destination)?;
         let home = private_git_directory().await?;
         let mut command = git(workspace.path(), home.path()).await?;
-        let _credentials = https_credentials::attach(&mut command, repository).await?;
+        let _remote = self.remote(&mut command, repository).await?;
         command.args([
             "clone",
             "--template=",
@@ -190,14 +247,13 @@ impl GitRepositoryConfig {
             &self.url,
             ".",
         ]);
-        if run_git(&mut command, Duration::from_secs(120))
+        if !run_git(&mut command, Duration::from_secs(120))
             .await?
             .success()
         {
-            Ok(workspace.keep())
-        } else {
-            Err(GitSourceError::Git)
+            return Err(self.connection_failure());
         }
+        Ok(workspace.keep())
     }
 }
 
@@ -257,10 +313,26 @@ fn valid_branch(value: &str) -> bool {
 }
 
 async fn private_git_directory() -> Result<tempfile::TempDir, GitSourceError> {
-    tokio::task::spawn_blocking(|| {
+    private_git_directory_in(&GitRepositoryStore::discover()?.0).await
+}
+
+async fn private_git_directory_in(directory: &Path) -> Result<tempfile::TempDir, GitSourceError> {
+    // The state root is excluded from guest shares. It may not exist yet for
+    // a first-use profile, even though the owner has already chosen a source.
+    match fs::DirBuilder::new().mode(0o700).create(directory).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(GitSourceError::Store(error)),
+    }
+    platform::check_user_docker_directory(directory)
+        .await
+        .map_err(GitSourceError::Store)?;
+    let directory = directory.to_owned();
+    tokio::task::spawn_blocking(move || {
         tempfile::Builder::new()
+            .prefix("git-operation-")
             .permissions(Permissions::from_mode(0o700))
-            .tempdir()
+            .tempdir_in(directory)
     })
     .await
     .map_err(|_| GitSourceError::Git)?
@@ -358,10 +430,9 @@ impl GitRepositoryStore {
         if entries.len() > MAX_REPOSITORIES
             || entries.iter().any(|item| {
                 !valid_identifier(&item.id)
-                    || item
-                        .credential_revision
-                        .as_deref()
-                        .is_some_and(|revision| !valid_identifier(revision))
+                    || item.credential_revision.as_deref().is_some_and(|revision| {
+                        !valid_identifier(revision) || item.config.ssh.is_some()
+                    })
                     || !ids.insert(&item.id)
                     || item.config.validate().is_err()
             })
@@ -379,6 +450,7 @@ impl GitRepositoryStore {
                 entry.id == selected.id
                     && entry.config.url == selected.config.url
                     && entry.config.branch == selected.config.branch
+                    && entry.config.ssh == selected.config.ssh
             })
             .ok_or(GitSourceError::NotFound)
     }
@@ -441,7 +513,7 @@ impl GitRepositoryStore {
         username: String,
         secret: String,
     ) -> Result<(), GitSourceError> {
-        if !https_credentials::valid_values(&username, &secret) {
+        if reviewed.config.ssh.is_some() || !https_credentials::valid_values(&username, &secret) {
             return Err(GitSourceError::CredentialInvalid);
         }
         let lock = self.lock().await?;
@@ -587,8 +659,11 @@ mod tests {
 
     #[tokio::test]
     async fn git_uses_an_empty_home_outside_the_checkout() {
-        let checkout = private_git_directory().await.unwrap();
-        let home = private_git_directory().await.unwrap();
+        let owner = tempfile::tempdir().unwrap();
+        let state = owner.path().join(".marsa");
+        let checkout = private_git_directory_in(&state).await.unwrap();
+        let home = private_git_directory_in(&state).await.unwrap();
+        assert_eq!(home.path().parent(), Some(state.as_path()));
         fs::write(checkout.path().join(".netrc"), "macros in the checkout")
             .await
             .unwrap();
