@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Verify packaged uninstall in a disposable, logged-in macOS environment."""
 
+from __future__ import annotations
+
 import argparse
 import os
 from pathlib import Path
@@ -92,7 +94,9 @@ def verify(daemon: Path, docker: Path) -> None:
         binary = stage_app(app, daemon, docker, home)
         docker_config = home / ".docker"
         socket = home / ".marsa/run/docker.sock"
-        environment = dict(os.environ, HOME=str(home), DOCKER_CONFIG=str(docker_config))
+        environment = dict(
+            os.environ, HOME=str(home), DOCKER_CONFIG=str(docker_config), LC_ALL="en_US.UTF-8"
+        )
         environment.pop("DOCKER_CONTEXT", None)
         environment.pop("DOCKER_HOST", None)
 
@@ -102,12 +106,22 @@ def verify(daemon: Path, docker: Path) -> None:
         def contexts():
             return set(run(docker, "context", "ls", "--format", "{{.Name}}").splitlines())
 
+        assert shutil.which("marsa", path=environment["PATH"]) is None
         assert run(binary, "login", "status") == "disabled"
         try:
             assert run(binary, "login", "enable") == "enabled"
             wait_until(lambda: socket.is_socket() and launchd_has_job(job), "daemon did not start")
             run(docker, "context", "create", "marsa", "--description", "Marsa", "--docker", f"host=unix://{socket}")
             run(docker, "context", "create", "retained-fixture", "--docker", "host=ssh://fixture.invalid")
+            run(docker, "context", "use", "marsa")
+            refusal = subprocess.run(
+                [binary, "uninstall"], input="UNINSTALL MARSA\n", env=environment,
+                capture_output=True, text=True, timeout=12,
+            )
+            assert refusal.returncode and "different context" in refusal.stderr
+            assert socket.is_socket() and launchd_has_job(job)
+            assert "marsa" in contexts()
+
             run(docker, "context", "use", "retained-fixture")
             previous_contexts = contexts()
             assert "marsa" in previous_contexts
@@ -135,6 +149,7 @@ def verify(daemon: Path, docker: Path) -> None:
             assert not (home / ".marsa").exists()
             shutil.rmtree(app)
             assert not app.exists()
+            assert shutil.which("marsa", path=environment["PATH"]) is None
         finally:
             if app.exists():
                 run(binary, "login", "disable")

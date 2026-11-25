@@ -115,13 +115,29 @@ remain in M3-04 under [D-028](../15-decisions.md#d-028-qualify-native-ipv4-indep
 
 ### M9-08 Clean uninstall
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M4-04, M9-18
 - **Docs:** [12 Uninstall](../12-build-release-update.md#uninstall), Q-08
 - **Do:** Implement and document the uninstall procedure, including the matching removal of optional Docker integration installed by M4-04. Verify the procedure on a clean machine.
 - **Deliver:** uninstall script or command and a clean-machine test.
 - **Accept when:**
   - After uninstall, no Marsa file, launch agent, Docker context, symlink or PATH entry remains (verified by the test).
+
+**Qualification.** The [clean uninstall smoke test](../../packaging/macos/smoke-uninstall.py)
+used the packaged daemon executable and pinned Docker CLI 29.10.0 on a
+disposable macOS 26.6.2 Tart guest. It registered a real Service Management
+login agent, checked that an active Marsa context prevented removal, then
+verified that the configured agent, private state, app-specific cache,
+matching context, and direct-install app were removed. It preserved the
+selected foreign context and Docker configuration. A second run was
+idempotent. The clean direct install left no command on PATH. Homebrew owns
+the command link for cask installs.
+
+The full daemon suite passed on the supported macOS 27.2.1 host. The signed
+login smoke test there also verified a restart and unregistration.
+M4-04 qualified Settings-based system socket removal on that host, including
+preservation of other targets. Uninstall tests cover an installed or dangling
+Marsa link that still requires removal.
 
 ### M9-17 Confirm and reset daemon settings
 
