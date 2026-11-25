@@ -506,3 +506,20 @@ light, and Arabic dark. The checks reached later rows in all five workspaces
 and the logs at the bottom of a 24-service stack detail. They also covered the
 Containers keyboard shortcut, sidebar return to list, live healthy and
 unhealthy filters, and the Overview stop confirmation.
+
+### M7-36 Show the selected Lima VM on Machine
+
+- **Status:** done
+- **Depends on:** M7-19, M7-20
+- **Docs:** [08 Screens](../08-gui.md#screens)
+- **Do:** Present the active owner-managed Lima instance on Machine with its resource allocation, supported network settings, and lifecycle controls.
+- **Accept when:**
+  - Machine shows the selected Lima instance and its CPU, memory, disk capacity, and supported loopback setting even when Docker is stopped.
+  - Start, graceful stop, restart, and stopped-only settings edits use the exact verified Lima instance. Stop and restart require confirmation.
+  - Switching away cannot send a pending confirmation or resource edit to the newly selected environment. Other providers keep their existing connection summary.
+  - Check the Machine page in English light, English dark, Arabic light, and Arabic dark.
+
+Verified the native Machine page in all four language and theme combinations. The
+disposable Lima integration test covered graceful stop, allocation changes,
+startup, and restart. The Machine page started the same VM and named it in
+the restart confirmation.

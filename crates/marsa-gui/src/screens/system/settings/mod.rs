@@ -44,7 +44,7 @@ use crate::screens::common::{ScreenContext, align, color, copy, panel, row};
 use super::{Notice, SystemView, machine::title_text, notifications::Kind};
 
 pub(crate) use external_docker::icon_path as environment_icon_path;
-pub(super) use external_docker::{EnvironmentSettings, Observations};
+pub(super) use external_docker::{EnvironmentSettings, Observations, VmEditor};
 pub(super) use git_sources::GitSources;
 pub(super) use registries::RegistrySettings;
 pub(super) use resources::ResourceInputs;

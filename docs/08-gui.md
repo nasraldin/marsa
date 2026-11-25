@@ -254,10 +254,13 @@ to connect. [Hawser connection requirements](11-security.md#the-docker-socket).
 
 On macOS, a matching owner-managed Lima Docker VM exposes CPU, memory, and
 primary disk capacity in Resources, and supported host loopback access in
-Network. Start and stop the verified Lima VM from its row or the editor's
-Resources and Network pages. Stop asks for confirmation and requests a
-graceful shutdown. After stopping, the editor reloads the allocation so you
-can apply changes and start the VM again. Lima takes the saved allocation on
+Network. The Machine page for the selected Lima environment shows its
+configured CPU count, guest memory, primary disk capacity, and supported
+loopback setting even while Docker is stopped. Start, stop, or restart Lima
+from Machine. Stop and restart confirm the exact VM name and use graceful
+shutdown. The Environments list and editor also offer start and stop.
+After stopping, the resource form reloads the allocation so you can apply
+changes and start the VM again. Lima takes the saved allocation on
 the next start and only grows the primary disk. Deleting a saved connection
 removes that record and keeps its VM and Docker resources.
 

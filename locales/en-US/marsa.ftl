@@ -653,6 +653,7 @@ gui-desktop-bind-share-once = Share once
 ## Machine, storage and activity screens
 
 gui-system-machine-confirm-stop = Stop the Linux machine?
+gui-system-machine-environment-description = View and manage the machine for the selected environment.
 gui-system-machine-confirm-restart = Restart the Linux machine?
 gui-system-machine-stop-explanation = Running containers will stop and active terminal sessions will disconnect.
 gui-system-machine-restart-explanation = Running containers will be interrupted and active terminal sessions will disconnect.
@@ -998,6 +999,7 @@ gui-environment-lima-lifecycle-stop = Stop Lima VM
 gui-environment-lima-lifecycle-confirm = Stopping this VM interrupts its running containers. Lima will request a graceful shutdown.
 gui-environment-lima-lifecycle-started = Lima VM started.
 gui-environment-lima-lifecycle-stopped = Lima VM stopped.
+gui-environment-lima-lifecycle-restarted = Lima VM restarted.
 gui-environment-lima-lifecycle-failed = Could not change the Lima VM state. Refresh and check its status. VMs that require elevated host access are managed through Lima.
 gui-environment-lima-stopped = This Lima VM is stopped. Saved settings take effect on the next start.
 gui-environment-lima-unknown-state = Lima did not report a stopped state. Check the instance in Lima and refresh before making changes.
