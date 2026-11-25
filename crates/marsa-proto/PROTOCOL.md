@@ -63,6 +63,11 @@ Host API minor 13 adds the owner-only `Stats.DockerOverview` snapshot.
 The caller selects a fixed scope of Docker reads and receives bounded Engine
 JSON. The request requires an already-running VM and does not activate it.
 
+Host API minor 14 extends `Stats.DockerOverview` with `prefer_cache` and
+`observed_at_unix_millis`. The daemon keeps last-known inventory sections on
+disk and may return them without contacting Docker. Container stats remain
+live-only. See D-034.
+
 `Disk.Reclaim` requests discard of unused blocks from the current ready
 guest's data disk. It returns the guest's submitted discard bytes and the
 observed decrease in allocated bytes on the same host image. A stopped

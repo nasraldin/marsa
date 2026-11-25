@@ -57,11 +57,16 @@ message DockerOverviewRequest {
   DockerOverviewSection section = 1;
   // Only valid for container stats, which require the full lowercase hex ID.
   string container_id = 2;
+  // When true (host API minor 14+), return the daemon's last cached snapshot
+  // for this section if one exists. Container stats are never cached.
+  bool prefer_cache = 3;
 }
 
 message DockerOverviewResponse {
   // Bounded Docker JSON for the requested section.
   bytes json = 1;
+  // When the payload came from the daemon inventory cache (host API minor 14+).
+  int64 observed_at_unix_millis = 2;
 }
 
 message DiskUsageRequest {}

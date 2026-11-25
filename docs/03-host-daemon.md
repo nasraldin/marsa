@@ -13,6 +13,7 @@
 | File sharing | Enforces the shared-folder allowlist and attaches folders to the VM |
 | Guest control | Talks to `marsa-agent` over vsock: time, ports, certificates, stats, shutdown |
 | Settings | Persists configuration and applies it |
+| Docker inventory cache | Keeps last-known overview sections on disk and refreshes them while the engine is ready ([D-034](15-decisions.md#d-034-cache-docker-inventory-in-the-daemon)) |
 | Events | Publishes a single event stream that every client subscribes to |
 | Updates | Checks, verifies and applies signed updates |
 | Diagnostics | Collects logs and state into a support bundle |

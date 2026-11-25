@@ -11,6 +11,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-001 | Reuse the Docker engine unmodified | Accepted |
 | D-002 | Rust for all host code | Accepted |
 | D-003 | Headless daemon; GUI is an optional client | Accepted |
+| D-034 | Cache Docker inventory in the daemon | Accepted |
 | D-004 | GPUI for the GUI, gated by a right-to-left spike | Superseded by D-023 |
 | D-005 | Tauri 2 as the GUI fallback | Superseded by D-023 |
 | D-006 | macOS on Apple silicon first | Accepted |
@@ -269,3 +270,10 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** The owner clarified that Arabic support applies to the desktop interface.
 - **Consequence:** CLI help, messages, confirmation prompts and completion descriptions use English under every shell locale. Do not expose a CLI language override. Preserve machine response contracts and user-supplied Unicode data.
 - **Date and task:** 2026-11-22, M5-07.
+
+## D-034 Cache Docker inventory in the daemon
+
+- **Decision:** `marsad` owns a durable Docker inventory cache under `~/.marsa/state/`. Owner clients (GUI, CLI, MCP) read the last snapshot first and never keep a private inventory database. Background refresh and live Docker reads update the cache; per-container live stats stay uncached. Version 1 stores sections in an owner-only JSON file; SQLite remains the preferred durable format once the workspace dependency graph accepts it.
+- **Why:** D-003 makes the headless daemon the system of record. Overview launch was doing a cold, multi-call Docker fan-out on every open, which contradicts the GUI start-up rule (first frame from a snapshot, no client polling). A daemon cache keeps the CLI and MCP as capable as the GUI. Bundled `rusqlite` currently conflicts with the vendored `hashbrown` used by Prost.
+- **Consequence:** Host API minor 14 adds `prefer_cache` and `observed_at_unix_millis` on `Stats.DockerOverview`. External engines remain client-side until a later task. A follow-up may swap the JSON file for SQLite without changing the API.
+- **Date and task:** 2026-11-25, M4-26.
