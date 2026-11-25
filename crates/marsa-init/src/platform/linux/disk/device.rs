@@ -5,6 +5,7 @@ use std::io::{self, Read};
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
+use std::time::Instant;
 
 use nix::fcntl::OFlag;
 use nix::sys::stat::{major, minor};
@@ -13,14 +14,21 @@ use super::MOUNT_TARGETS;
 
 /// Whole virtio data disk presented after the root device.
 pub(super) const DEVICE_PATH: &str = "/dev/vdb";
+const BLANK_SCAN_CHUNK: usize = 4 * 1024 * 1024;
 const SYSFS_DEVICE: &str = "/sys/block/vdb";
 
 /// Ensure ext4 is ready to mount and report whether its capacity can grow.
 pub(super) fn prepare(verify_existing: impl FnOnce() -> io::Result<()>) -> io::Result<bool> {
+    let probe_started = Instant::now();
+    eprintln!("marsa-init: data disk probe started");
     let (device, bytes) = open_device()?;
     let probe = disk_tool("/sbin/blkid")
         .args(["-p", "-o", "export", DEVICE_PATH])
         .output()?;
+    eprintln!(
+        "marsa-init: data disk probe completed duration_ms={}",
+        probe_started.elapsed().as_millis()
+    );
     match probe.status.code() {
         Some(0) if has_plain_ext4(&probe.stdout) => {
             verify_existing()?;
@@ -29,21 +37,29 @@ pub(super) fn prepare(verify_existing: impl FnOnce() -> io::Result<()>) -> io::R
                 .status()?;
             check_e2fsck_status(status.code())?;
         }
-        Some(2) if is_blank(&device, bytes)? => {
+        Some(2) => {
+            let scan_started = Instant::now();
+            eprintln!("marsa-init: data disk blank scan started bytes={bytes}");
+            let blank = is_blank(&device, bytes)?;
+            eprintln!(
+                "marsa-init: data disk blank scan completed duration_ms={} blank={blank}",
+                scan_started.elapsed().as_millis()
+            );
+            if !blank {
+                return Err(unrecognized_disk(probe.status));
+            }
+            let format_started = Instant::now();
+            eprintln!("marsa-init: data disk format started");
             require_success(
                 "mkfs.ext4",
                 disk_tool("/sbin/mkfs.ext4").arg(DEVICE_PATH).status()?,
             )?;
+            eprintln!(
+                "marsa-init: data disk format completed duration_ms={}",
+                format_started.elapsed().as_millis()
+            );
         }
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "{DEVICE_PATH} is neither blank nor an unpartitioned ext4 filesystem (blkid {})",
-                    probe.status
-                ),
-            ));
-        }
+        _ => return Err(unrecognized_disk(probe.status)),
     }
     let mut superblock = [0; 1024];
     device.read_exact_at(&mut superblock, 1024)?;
@@ -142,13 +158,24 @@ fn has_plain_ext4(tags: &[u8]) -> bool {
     filesystem == Some(b"ext4")
 }
 
+fn unrecognized_disk(status: ExitStatus) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!(
+            "{DEVICE_PATH} is neither blank nor an unpartitioned ext4 filesystem (blkid {status})"
+        ),
+    )
+}
+
 fn is_blank(mut device: impl Read, mut bytes: u64) -> io::Result<bool> {
     // A probe without a recognized signature can still contain user data.
-    let mut buffer = vec![0; 1024 * 1024];
+    // Compare whole slices so the target can use its optimized byte comparison.
+    let mut buffer = vec![0; BLANK_SCAN_CHUNK];
+    let zeros = vec![0; BLANK_SCAN_CHUNK];
     while bytes != 0 {
         let chunk = bytes.min(buffer.len() as u64) as usize;
         device.read_exact(&mut buffer[..chunk])?;
-        if buffer[..chunk].iter().any(|byte| *byte != 0) {
+        if buffer[..chunk] != zeros[..chunk] {
             return Ok(false);
         }
         bytes -= chunk as u64;
@@ -206,6 +233,15 @@ mod tests {
         let mut disk = vec![0; 2 * 1024 * 1024];
         assert!(is_blank(disk.as_slice(), disk.len() as u64).unwrap());
         disk[1024 * 1024 + 17] = 1;
+        assert!(!is_blank(disk.as_slice(), disk.len() as u64).unwrap());
+    }
+
+    #[test]
+    fn rejects_unrecognized_data_at_the_end_of_a_partial_scan_chunk() {
+        let mut disk = vec![0; BLANK_SCAN_CHUNK + 513];
+        let last_byte = disk.len() - 1;
+        assert!(is_blank(disk.as_slice(), disk.len() as u64).unwrap());
+        disk[last_byte] = 1;
         assert!(!is_blank(disk.as_slice(), disk.len() as u64).unwrap());
     }
 
