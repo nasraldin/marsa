@@ -1,7 +1,7 @@
 //! Resolve GPUI Component control states from the Figma semantic palette.
 
 use gpui::{App, Hsla, px};
-use gpui_component::Theme;
+use gpui_component::{Theme, ThemeMode};
 use marsa_core::settings::DisplaySettings;
 use marsa_l10n::Locale;
 
@@ -15,6 +15,14 @@ impl Palette {
     pub fn apply_to_components(self, locale: Locale, display: DisplaySettings, cx: &mut App) {
         use ColorToken::*;
 
+        if Theme::global(cx).is_dark() != self.is_dark() {
+            let mode = if self.is_dark() {
+                ThemeMode::Dark
+            } else {
+                ThemeMode::Light
+            };
+            Theme::change(mode, None, cx);
+        }
         Theme::set_scrollbar_mode(gpui_component::scroll::ScrollbarMode::Always, cx);
 
         let c = |token| -> Hsla { self.color(token).into() };

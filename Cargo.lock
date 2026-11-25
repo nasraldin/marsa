@@ -2817,6 +2817,7 @@ dependencies = [
  "gpui-pre-macos",
  "marsa-core",
  "marsa-l10n",
+ "proc-macro2",
  "sys-locale",
  "vt100",
 ]

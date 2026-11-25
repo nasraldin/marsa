@@ -47,7 +47,7 @@ Arabic editing and VoiceOver integration.
 
 ### M6-02 Design tokens, themes and fonts
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M6-01, M6-13
 - **Docs:** [08 Design tokens](../08-gui.md#design-tokens), [08 Themes](../08-gui.md#themes)
 - **Do:** Define semantic tokens for colour, typography, spacing, radius, elevation and motion, each with light and dark values. Implement live theme switching and following the system appearance. Register and use the verified bundled font assets from M6-13. Add a contrast test for text and status colours in both themes.
@@ -56,6 +56,15 @@ Arabic editing and VoiceOver integration.
   - Switching the system appearance changes the app live when the setting is `system`.
   - The contrast test passes WCAG AA for every text and status token pair.
   - No colour literal exists outside the token definitions (lint or test).
+
+On macOS 27.2.1 the native workspace opened in English light and dark
+and Arabic light and dark. A disposable process changed AppKit window
+appearance from dark to light and back while the window stayed open.
+Marsa remained in System mode and both the workspace and GPUI component
+palettes followed each change. The bundled IBM Plex fonts were active in
+both languages. Token tests cover text, badges, status roles, and chart
+contrast. A Rust token check rejects authored colour literals in desktop
+source while permitting sRGB values received from terminal output.
 
 ### M6-13 Qualify and stage the Figma typography assets
 

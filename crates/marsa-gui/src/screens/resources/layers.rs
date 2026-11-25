@@ -152,7 +152,7 @@ fn layer_row(
 ) -> Div {
     let size = layer.size.max(0) as u64;
     let opcode = layer_opcode(&layer.created_by);
-    let badge_color = opcode_color(opcode.as_ref());
+    let (badge_color, badge_text) = opcode_colors(opcode.as_ref());
     let fraction = if total_size == 0 {
         0.
     } else {
@@ -223,7 +223,7 @@ fn layer_row(
                                     div()
                                         .text_size(ui_size(11.))
                                         .font_weight(FontWeight::MEDIUM)
-                                        .text_color(color(palette, ColorToken::TextOnAccent))
+                                        .text_color(color(palette, badge_text))
                                         .truncate()
                                         .child(format!("{} {opcode}", format_bytes(locale, size))),
                                 ),
@@ -398,16 +398,18 @@ fn display_command(created_by: &str) -> String {
         .to_owned()
 }
 
-fn opcode_color(opcode: &str) -> ColorToken {
-    match opcode {
-        "ADD" => ColorToken::StatusWarning,
-        "CMD" => ColorToken::StatusRunning,
-        "RUN" => ColorToken::AccentDefault,
-        "COPY" => ColorToken::StatusStarting,
-        "USER" => ColorToken::AccentHover,
-        "ENTRYPOINT" => ColorToken::AccentPressed,
-        _ => ColorToken::BorderControl,
-    }
+fn opcode_colors(opcode: &str) -> (ColorToken, ColorToken) {
+    use ColorToken::*;
+    let fill = match opcode {
+        "ADD" => StatusWarning,
+        "CMD" => StatusRunning,
+        "RUN" => AccentDefault,
+        "COPY" => StatusStarting,
+        "USER" => AccentHover,
+        "ENTRYPOINT" => AccentPressed,
+        _ => return (BgSubtle, TextPrimary),
+    };
+    (fill, TextOnAccent)
 }
 
 fn format_layer_created(created: i64) -> String {

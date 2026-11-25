@@ -120,7 +120,6 @@ impl Desktop {
             self.locale = setup.initial_locale;
             self.appearance_preference = setup.initial_appearance;
             marsa_ui::direction::set_locale(self.locale, cx);
-            self.apply_setup_theme(setup.initial_appearance, cx);
             cx.notify();
         }
     }
@@ -138,18 +137,7 @@ impl Desktop {
         if let Some(setup) = &mut self.onboarding {
             setup.appearance = appearance;
             self.appearance_preference = appearance;
-            self.apply_setup_theme(appearance, cx);
             cx.notify();
-        }
-    }
-
-    fn apply_setup_theme(&mut self, appearance: Theme, cx: &mut Context<Self>) {
-        use marsa_ui::gpui_component::{Theme as ComponentTheme, ThemeMode};
-        self.themed_palette = None;
-        match appearance {
-            Theme::System => ComponentTheme::sync_system_appearance(None, cx),
-            Theme::Light => ComponentTheme::change(ThemeMode::Light, None, cx),
-            Theme::Dark => ComponentTheme::change(ThemeMode::Dark, None, cx),
         }
     }
 

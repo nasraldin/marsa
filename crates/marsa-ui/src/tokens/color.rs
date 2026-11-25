@@ -9,6 +9,11 @@ use super::Palette;
 pub struct Rgb(u32);
 
 impl Rgb {
+    /// Decode sRGB channel values supplied by a protocol such as terminal SGR.
+    pub const fn from_channels(red: u8, green: u8, blue: u8) -> Self {
+        Self(u32::from_be_bytes([0, red, green, blue]))
+    }
+
     /// Red, green and blue bytes in sRGB order.
     pub const fn srgb(self) -> [u8; 3] {
         let [_, red, green, blue] = self.0.to_be_bytes();
@@ -108,6 +113,14 @@ pub enum ColorToken {
     ChartNetwork,
     /// `chart/disk`
     ChartDisk,
+    /// Image storage in the disk usage chart.
+    DiskImages,
+    /// Container storage in the disk usage chart.
+    DiskContainers,
+    /// Volume storage in the disk usage chart.
+    DiskVolumes,
+    /// Build cache storage in the disk usage chart.
+    DiskBuildCache,
     /// `overlay/scrim`
     OverlayScrim,
     /// `brand/blue`
@@ -237,6 +250,10 @@ impl Palette {
             ColorToken::ChartMemory => (0x62449c, 0xc6b3f3),
             ColorToken::ChartNetwork => (0x146769, 0x80cdc8),
             ColorToken::ChartDisk => (0x89460e, 0xefb480),
+            ColorToken::DiskImages => (0x278fe0, 0x3da9fc),
+            ColorToken::DiskContainers => (0x1d9a59, 0x2ecc71),
+            ColorToken::DiskVolumes => (0xbf7913, 0xf5a623),
+            ColorToken::DiskBuildCache => (0x9b67ff, 0x9b67ff),
             ColorToken::OverlayScrim => (0x172039, 0x070a11),
             ColorToken::BrandBlue => (0x088dec, 0x088dec),
             ColorToken::BrandOrange => (0xff8a1f, 0xff8a1f),
