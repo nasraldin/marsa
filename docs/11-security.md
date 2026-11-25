@@ -110,8 +110,12 @@ layer. The engine administrator and the granted workload can read the
 materialized file. Keychain removal leaves existing container copies in
 place, and exporting or committing a container can include those files.
 Marsa limits the protected path to standard `/run/secrets/<name>` targets
-and refuses conflicting mounts.
-[Pinned Compose runtime implementation](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/secrets.go).
+and refuses conflicting mounts, host providers, jobs and model runners.
+Compose writes secret files immediately before engine start. A failed copy
+prevents that container from starting, and a deploy retry can populate an
+existing stopped container.
+[Pinned Compose runtime implementation](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/secrets.go)
+· [Pinned start executor](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/executor_ops.go).
 
 ## Registry credentials
 

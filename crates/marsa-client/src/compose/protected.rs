@@ -173,7 +173,13 @@ struct Plan {
 
 impl Plan {
     fn from_json(mut model: Value) -> Result<Self, ComposeError> {
-        if model.get("include").is_some() {
+        let fields = model.as_object().ok_or(ComposeError::ProtectedModel)?;
+        if fields.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "name" | "services" | "secrets" | "configs" | "volumes" | "networks"
+            )
+        }) {
             return Err(ComposeError::ProtectedModel);
         }
         let definitions = model
@@ -333,6 +339,11 @@ mod tests {
         config["services"]["app"]["volumes"] =
             json!([{"type": "bind", "source": "/tmp", "target": "/run"}]);
         assert!(Plan::from_json(config).is_err());
+        for field in ["include", "jobs", "models", "x-embedded"] {
+            let mut config = model();
+            config[field] = json!({});
+            assert!(Plan::from_json(config).is_err(), "{field}");
+        }
     }
     #[tokio::test]
     #[ignore = "requires the pinned Compose and Docker CLI and a disposable Unix-socket engine project"]
