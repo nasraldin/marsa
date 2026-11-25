@@ -567,3 +567,19 @@ and keyboard selection from the language menu.
 Native checks dragged the Arabic Settings track and reached the final row of
 a 38-volume table with its header fixed. Headless tests cover mirrored paint,
 hit testing, dragging, and the two-axis corner.
+
+### M7-40 Chart the Overview status, usage, and disk cards
+
+- **Status:** done
+- **Depends on:** M7-37
+- **Docs:** [08 GUI](../08-gui.md)
+- **Do:** Keep top running containers. Redesign the containers and Docker disk cards as proportional bar charts, add a CPU and memory history card from live samples, and order Overview as inventory → container status → live usage → disk → top consumers.
+- **Deliver:** Overview chart layout, engine-level usage history, English and Arabic copy.
+- **Accept when:**
+  - Container lifecycle and health rows show share bars and open the matching filter.
+  - CPU and memory history updates from Overview samples without changing top consumers.
+  - Disk shows a total, stacked share bar, and per-category bars on the same scale.
+  - Verify English/Arabic and light/dark.
+
+Headless coverage for engine history and the Overview chart layout is in place.
+English and Arabic copy cover the history card and healthy banner.

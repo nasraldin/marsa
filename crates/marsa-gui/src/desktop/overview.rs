@@ -436,25 +436,23 @@ impl Desktop {
             }),
         );
         let wide = window.viewport_size().width >= px(if self.collapsed { 800. } else { 1000. });
-        let columns = if wide {
-            row(locale).items_stretch()
-        } else {
-            div().flex().flex_col()
-        };
         let loading = data.is_none()
             && matches!(
                 self.overview.target,
                 Some(Target::Marsa | Target::External(_))
             );
+        // Order: inventory → container status → live usage → disk → top consumers.
         align(div().flex().flex_col().gap_4(), locale)
             .child(identity)
             .child(resources)
-            .child(
-                columns
-                    .gap_4()
-                    .child(container_card(screen, data, loading, cx))
-                    .child(self.disk_card(screen, cx)),
-            )
+            .child(container_card(screen, data, loading, cx))
+            .child(usage_card(
+                screen,
+                data.and_then(|data| data.utilization.as_ref()),
+                &self.overview.usage_history,
+                loading,
+            ))
+            .child(self.disk_card(screen, cx))
             .child(top_containers(
                 screen,
                 data.and_then(|data| data.utilization.as_ref()),
@@ -487,7 +485,7 @@ impl Desktop {
             (
                 Route::Containers.name(locale),
                 disk.and_then(|disk| disk.containers),
-                ColorToken::ChartMemory,
+                ColorToken::StatusRunning,
             ),
             (
                 Route::Volumes.name(locale),
@@ -500,57 +498,112 @@ impl Desktop {
                 ColorToken::ChartDisk,
             ),
         ];
-        let max = categories.iter().filter_map(|(_, value, _)| *value).max();
+        let total = categories
+            .iter()
+            .filter_map(|(_, value, _)| *value)
+            .fold(0u64, u64::saturating_add);
         panel(screen)
-            .flex_1()
-            .min_w_0()
+            .w_full()
             .child(
                 row(locale)
+                    .items_center()
                     .justify_between()
-                    .gap_2()
-                    .child(heading(
-                        screen,
-                        gui::GUI_DESKTOP_OVERVIEW_DOCKER_DISK.text(locale),
-                    ))
+                    .gap_3()
                     .child(
-                        Button::new("overview-open-disk")
-                            .ghost()
-                            .label(gui::GUI_OVERVIEW_VIEW_DISK.text(locale))
-                            .on_click(
-                                cx.listener(|desktop, _, _, cx| desktop.navigate(Route::Disk, cx)),
+                        row(locale)
+                            .items_center()
+                            .gap_2()
+                            .child(icon(screen, "icons/hard-drive.svg", ColorToken::TextMuted))
+                            .child(heading(
+                                screen,
+                                gui::GUI_DESKTOP_OVERVIEW_DOCKER_DISK.text(locale),
+                            )),
+                    )
+                    .child(
+                        row(locale)
+                            .items_center()
+                            .gap_3()
+                            .child(screen.typography(Role::Title).apply(div()).child(
+                                if total > 0 {
+                                    technical(&disk_bytes(total))
+                                } else {
+                                    technical("—")
+                                },
+                            ))
+                            .child(
+                                Button::new("overview-open-disk")
+                                    .ghost()
+                                    .label(gui::GUI_OVERVIEW_VIEW_DISK.text(locale))
+                                    .on_click(cx.listener(|desktop, _, _, cx| {
+                                        desktop.navigate(Route::Disk, cx)
+                                    })),
                             ),
                     ),
             )
             .child(quiet(screen).child(if self.overview.disk_pending {
                 gui::GUI_OVERVIEW_MEASURING.text(locale)
-            } else if max.is_some() {
+            } else if total > 0 {
                 gui::GUI_OVERVIEW_DISK_ACCOUNTING.text(locale)
             } else {
                 gui::GUI_SYSTEM_DISK_BREAKDOWN_UNAVAILABLE.text(locale)
             }))
+            .children((total > 0).then(|| {
+                row(locale)
+                    .h(px(10.))
+                    .w_full()
+                    .rounded_full()
+                    .overflow_hidden()
+                    .bg(color(screen.palette, ColorToken::BgSubtle))
+                    .children(categories.iter().filter_map(|(_, value, token)| {
+                        let value = (*value)?;
+                        let fraction = if total == 0 {
+                            0.
+                        } else {
+                            value as f64 / total as f64
+                        };
+                        (fraction > 0.).then(|| {
+                            div()
+                                .h_full()
+                                .flex_grow(fraction as f32)
+                                .bg(color(screen.palette, *token))
+                        })
+                    }))
+            }))
             .children(categories.map(|(label, value, token)| {
+                let fraction = value
+                    .filter(|_| total > 0)
+                    .map(|value| (value as f64 / total as f64) as f32)
+                    .unwrap_or(0.);
                 div()
                     .flex()
                     .flex_col()
                     .gap_1()
                     .child(
                         row(locale)
+                            .items_center()
                             .justify_between()
                             .gap_2()
-                            .child(div().text_sm().child(label))
+                            .child(
+                                row(locale)
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .size(px(8.))
+                                            .flex_shrink_0()
+                                            .rounded_full()
+                                            .bg(color(screen.palette, token)),
+                                    )
+                                    .child(div().text_sm().child(label)),
+                            )
                             .child(mono(screen).child(value.map_or_else(
                                 || technical("—"),
                                 |bytes| technical(&disk_bytes(bytes)),
                             ))),
                     )
-                    .children(value.zip(max).map(|(value, max)| {
-                        let fraction = if max == 0 {
-                            0.
-                        } else {
-                            (value as f64 / max as f64) as f32
-                        };
+                    .child(
                         row(locale)
-                            .h(px(5.))
+                            .h(px(6.))
                             .rounded_full()
                             .overflow_hidden()
                             .bg(color(screen.palette, ColorToken::BgSubtle))
@@ -559,8 +612,8 @@ impl Desktop {
                                     .h_full()
                                     .w(relative(fraction))
                                     .bg(color(screen.palette, token)),
-                            )
-                    }))
+                            ),
+                    )
             }))
     }
 }
@@ -644,14 +697,24 @@ fn container_card(
             ColorToken::StatusStopped,
         ),
     ];
+    let total = count.map(|count| count.total).unwrap_or(0);
+    let all_healthy = count.is_some_and(|count| {
+        count.total > 0 && count.unhealthy == 0 && count.health_starting == 0 && count.healthy > 0
+    });
     panel(screen)
-        .flex_1()
-        .min_w_0()
+        .w_full()
         .child(
             row(locale)
+                .items_center()
                 .justify_between()
                 .gap_2()
-                .child(heading(screen, Route::Containers.name(locale)))
+                .child(
+                    row(locale)
+                        .items_center()
+                        .gap_2()
+                        .child(icon(screen, "icons/box.svg", ColorToken::TextMuted))
+                        .child(heading(screen, Route::Containers.name(locale))),
+                )
                 .child(
                     screen
                         .typography(Role::Title)
@@ -662,10 +725,11 @@ fn container_card(
         .children(count.filter(|count| count.total > 0).map(|count| {
             row(locale)
                 .gap(px(2.))
-                .h(px(6.))
+                .h(px(10.))
                 .w_full()
                 .rounded_full()
                 .overflow_hidden()
+                .bg(color(screen.palette, ColorToken::BgSubtle))
                 .children(states.iter().filter_map(|(_, value, token)| {
                     let value = value.filter(|value| *value > 0)?;
                     Some(
@@ -677,15 +741,13 @@ fn container_card(
                 }))
         }))
         .children(loading.then(|| quiet(screen).child(gui::GUI_OVERVIEW_MEASURING.text(locale))))
-        .child(
-            row(locale).gap_3().flex_wrap().children(
-                states
-                    .into_iter()
-                    .filter(|(label, value, _)| {
-                        *label != StatusFilter::Other || value.is_some_and(|value| value > 0)
-                    })
-                    .map(|(filter, value, token)| count_badge(screen, filter, value, token, cx)),
-            ),
+        .children(
+            states
+                .into_iter()
+                .filter(|(filter, value, _)| {
+                    *filter != StatusFilter::Other || value.is_some_and(|value| value > 0)
+                })
+                .map(|(filter, value, token)| status_bar(screen, filter, value, total, token, cx)),
         )
         .child(
             div()
@@ -696,45 +758,189 @@ fn container_card(
                 .border_t_1()
                 .border_color(color(screen.palette, ColorToken::BorderSubtle))
                 .child(heading(screen, gui::GUI_OVERVIEW_HEALTH.text(locale)))
-                .child(row(locale).gap_3().flex_wrap().children(
-                    health.map(|(filter, value, token)| {
-                        count_badge(screen, filter, value, token, cx)
-                    }),
-                )),
+                .children(all_healthy.then(|| {
+                    row(locale)
+                        .items_center()
+                        .gap_2()
+                        .px_3()
+                        .py_2()
+                        .rounded(px(8.))
+                        .bg(color(screen.palette, ColorToken::StatusRunningBg))
+                        .child(icon(screen, "icons/check.svg", ColorToken::StatusRunning))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(color(screen.palette, ColorToken::StatusRunning))
+                                .child(gui::GUI_OVERVIEW_ALL_HEALTHY.text(locale)),
+                        )
+                }))
+                .children((!all_healthy).then(|| {
+                    div().flex().flex_col().gap_2().children(health.map(
+                        |(filter, value, token)| {
+                            status_bar(screen, filter, value, total, token, cx)
+                        },
+                    ))
+                })),
         )
 }
 
-fn count_badge(
+fn status_bar(
     screen: &ScreenContext<'_>,
     filter: StatusFilter,
     value: Option<usize>,
+    total: usize,
     token: ColorToken,
     cx: &Context<Desktop>,
 ) -> Button {
-    let label = filter.label(screen.locale);
+    let locale = screen.locale;
+    let label = filter.label(locale);
+    let amount = value.unwrap_or(0);
+    let fraction = if total == 0 {
+        0.
+    } else {
+        amount as f64 / total as f64
+    };
     Button::new(("overview-container-filter", filter as usize))
-        .outline()
-        .h(px(28.))
-        .px_2()
+        .ghost()
+        .w_full()
+        .h_auto()
+        .px_0()
+        .py_1()
         .disabled(value.is_none())
         .accessibility_label(format!("{label} {}", number(value)))
         .child(
-            row(screen.locale)
-                .items_center()
-                .gap_2()
+            div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap_1()
                 .child(
-                    div()
-                        .size(px(6.))
-                        .flex_shrink_0()
-                        .rounded_full()
-                        .bg(color(screen.palette, token)),
+                    row(locale)
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .child(
+                            row(locale)
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .size(px(8.))
+                                        .flex_shrink_0()
+                                        .rounded_full()
+                                        .bg(color(screen.palette, token)),
+                                )
+                                .child(quiet(screen).child(label)),
+                        )
+                        .child(mono(screen).child(number(value))),
                 )
-                .child(quiet(screen).child(label))
-                .child(mono(screen).child(number(value))),
+                .child(
+                    row(locale)
+                        .h(px(6.))
+                        .rounded_full()
+                        .overflow_hidden()
+                        .bg(color(screen.palette, ColorToken::BgSubtle))
+                        .child(
+                            div()
+                                .h_full()
+                                .w(relative(fraction as f32))
+                                .bg(color(screen.palette, token)),
+                        ),
+                ),
         )
         .on_click(cx.listener(move |desktop, _, window, cx| {
             desktop.open_container_filter(filter, window, cx);
         }))
+}
+
+fn usage_card(
+    screen: &ScreenContext<'_>,
+    data: Option<&OverviewUtilization>,
+    history: &UsageHistory,
+    loading: bool,
+) -> Div {
+    let locale = screen.locale;
+    let cpu = history.latest_engine(Metric::Cpu);
+    let memory = history.latest_engine(Metric::Memory);
+    panel(screen)
+        .w_full()
+        .child(
+            row(locale)
+                .items_center()
+                .gap_2()
+                .child(icon(screen, "icons/cpu.svg", ColorToken::TextMuted))
+                .child(heading(
+                    screen,
+                    gui::GUI_OVERVIEW_CPU_MEMORY_HISTORY.text(locale),
+                ))
+                .children(data.map(|data| {
+                    quiet(screen).child(format!(
+                        "{} {}",
+                        gui::GUI_OVERVIEW_SAMPLED.text(locale),
+                        technical(&format!("{}/{}", data.usage.len(), data.running))
+                    ))
+                })),
+        )
+        .children(loading.then(|| quiet(screen).child(gui::GUI_OVERVIEW_MEASURING.text(locale))))
+        .child(metric_history(
+            screen,
+            gui::GUI_OVERVIEW_CPU.text(locale),
+            "icons/cpu.svg",
+            Metric::Cpu,
+            cpu.map(|value| format!("{value:.1}%")),
+            history,
+        ))
+        .child(metric_history(
+            screen,
+            gui::GUI_SYSTEM_MACHINE_MEMORY.text(locale),
+            "icons/memory-stick.svg",
+            Metric::Memory,
+            memory.map(|bytes| disk_bytes(bytes as u64)),
+            history,
+        ))
+}
+
+fn metric_history(
+    screen: &ScreenContext<'_>,
+    label: &'static str,
+    glyph: &'static str,
+    metric: Metric,
+    value: Option<String>,
+    history: &UsageHistory,
+) -> Div {
+    let locale = screen.locale;
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            row(locale)
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(
+                    row(locale)
+                        .items_center()
+                        .gap_2()
+                        .child(icon(screen, glyph, metric.color()))
+                        .child(div().text_sm().child(label)),
+                )
+                .child(
+                    screen
+                        .typography(Role::Title)
+                        .apply(div())
+                        .child(value.map_or_else(|| technical("—"), |value| technical(&value))),
+                ),
+        )
+        .child(
+            div()
+                .w_full()
+                .px_2()
+                .py_2()
+                .rounded(px(8.))
+                .bg(color(screen.palette, ColorToken::BgSubtle))
+                .child(history.engine_sparkline(screen, metric)),
+        )
 }
 
 fn top_containers(

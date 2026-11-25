@@ -10,7 +10,7 @@ use marsa_ui::{
 
 use crate::screens::common::{ScreenContext, color, row};
 
-const SAMPLE_COUNT: usize = 12;
+const SAMPLE_COUNT: usize = 24;
 
 #[derive(Clone, Copy)]
 pub(super) enum Metric {
@@ -19,7 +19,7 @@ pub(super) enum Metric {
 }
 
 impl Metric {
-    fn color(self) -> ColorToken {
+    pub(super) fn color(self) -> ColorToken {
         match self {
             Self::Cpu => ColorToken::ChartCpu,
             Self::Memory => ColorToken::ChartMemory,
@@ -34,28 +34,44 @@ struct Values {
 }
 
 #[derive(Default)]
-pub(super) struct UsageHistory(VecDeque<BTreeMap<ContainerId, Values>>);
+pub(super) struct UsageHistory {
+    containers: VecDeque<BTreeMap<ContainerId, Values>>,
+    engine: VecDeque<Values>,
+}
 
 impl UsageHistory {
     pub(super) fn record(&mut self, sample: Option<&OverviewUtilization>) {
-        if self.0.len() == SAMPLE_COUNT {
-            self.0.pop_front();
+        if self.containers.len() == SAMPLE_COUNT {
+            self.containers.pop_front();
         }
-        self.0.push_back(
-            sample
-                .into_iter()
-                .flat_map(|sample| &sample.usage)
-                .map(|usage| {
-                    (
-                        usage.id.clone(),
-                        Values {
-                            cpu: usage.cpu_percent,
-                            memory: usage.memory_bytes,
-                        },
-                    )
-                })
-                .collect(),
-        );
+        if self.engine.len() == SAMPLE_COUNT {
+            self.engine.pop_front();
+        }
+        let mut cpu_total = None;
+        let mut memory_total = None;
+        let mut rows = BTreeMap::new();
+        if let Some(sample) = sample {
+            for usage in &sample.usage {
+                if let Some(cpu) = usage.cpu_percent {
+                    *cpu_total.get_or_insert(0.) += cpu;
+                }
+                if let Some(memory) = usage.memory_bytes {
+                    *memory_total.get_or_insert(0) += memory;
+                }
+                rows.insert(
+                    usage.id.clone(),
+                    Values {
+                        cpu: usage.cpu_percent,
+                        memory: usage.memory_bytes,
+                    },
+                );
+            }
+        }
+        self.containers.push_back(rows);
+        self.engine.push_back(Values {
+            cpu: cpu_total,
+            memory: memory_total,
+        });
     }
 
     fn values<'a>(
@@ -63,7 +79,7 @@ impl UsageHistory {
         id: &'a ContainerId,
         metric: Metric,
     ) -> impl Iterator<Item = Option<f64>> + 'a {
-        self.0.iter().map(move |sample| {
+        self.containers.iter().map(move |sample| {
             let values = sample.get(id)?;
             match metric {
                 Metric::Cpu => values.cpu,
@@ -72,25 +88,71 @@ impl UsageHistory {
         })
     }
 
-    pub(super) fn bars(&self, screen: &ScreenContext<'_>, id: &ContainerId, metric: Metric) -> Div {
-        let maximum = self.values(id, metric).flatten().fold(0., f64::max).max(1.);
-        row(screen.locale)
-            .items_end()
-            .justify_end()
-            .gap(px(2.))
-            .w(px(70.))
-            .h(px(18.))
-            .flex_shrink_0()
-            .children(self.values(id, metric).map(|value| {
-                let bar = div().w(px(4.)).flex_shrink_0().rounded(px(1.));
-                if let Some(value) = value {
-                    bar.h(px((18. * value / maximum).clamp(1., 18.) as f32))
-                        .bg(color(screen.palette, metric.color()))
-                } else {
-                    bar
-                }
-            }))
+    fn engine_values(&self, metric: Metric) -> impl Iterator<Item = Option<f64>> + '_ {
+        self.engine.iter().map(move |sample| match metric {
+            Metric::Cpu => sample.cpu,
+            Metric::Memory => sample.memory.map(|bytes| bytes as f64),
+        })
     }
+
+    pub(super) fn latest_engine(&self, metric: Metric) -> Option<f64> {
+        self.engine.iter().rev().find_map(|sample| match metric {
+            Metric::Cpu => sample.cpu,
+            Metric::Memory => sample.memory.map(|bytes| bytes as f64),
+        })
+    }
+
+    pub(super) fn bars(&self, screen: &ScreenContext<'_>, id: &ContainerId, metric: Metric) -> Div {
+        sparkline(
+            screen,
+            self.values(id, metric),
+            metric.color(),
+            px(70.),
+            px(18.),
+            px(4.),
+        )
+    }
+
+    pub(super) fn engine_sparkline(&self, screen: &ScreenContext<'_>, metric: Metric) -> Div {
+        sparkline(
+            screen,
+            self.engine_values(metric),
+            metric.color(),
+            px(220.),
+            px(36.),
+            px(5.),
+        )
+    }
+}
+
+fn sparkline(
+    screen: &ScreenContext<'_>,
+    values: impl Iterator<Item = Option<f64>>,
+    token: ColorToken,
+    width: marsa_ui::gpui::Pixels,
+    height: marsa_ui::gpui::Pixels,
+    bar_width: marsa_ui::gpui::Pixels,
+) -> Div {
+    let samples: Vec<_> = values.collect();
+    let maximum = samples.iter().copied().flatten().fold(0., f64::max).max(1.);
+    let height_px = f64::from(height);
+    row(screen.locale)
+        .items_end()
+        .justify_end()
+        .gap(px(2.))
+        .w(width)
+        .h(height)
+        .flex_shrink_0()
+        .children(samples.into_iter().map(|value| {
+            let bar = div().w(bar_width).flex_shrink_0().rounded(px(1.));
+            if let Some(value) = value {
+                bar.h(px((height_px * value / maximum).clamp(2., height_px) as f32))
+                    .bg(color(screen.palette, token))
+            } else {
+                bar.h(px(2.))
+                    .bg(color(screen.palette, ColorToken::BorderSubtle))
+            }
+        }))
 }
 
 #[cfg(test)]
@@ -107,7 +169,7 @@ mod tests {
                 id: id.clone(),
                 name: "fixture".into(),
                 cpu_percent: Some(value),
-                memory_bytes: None,
+                memory_bytes: Some((value as u64) * 1024),
             }],
         };
         let mut history = UsageHistory::default();
@@ -119,10 +181,15 @@ mod tests {
         assert_eq!(cpu.len(), SAMPLE_COUNT);
         assert_eq!(cpu[0], Some(1.));
         assert_eq!(cpu.last(), Some(&None));
+        // Keep the last measured engine total while a sample is missing.
+        assert_eq!(history.latest_engine(Metric::Cpu), Some(23.));
+        history.record(Some(&sample(4.)));
+        assert_eq!(history.latest_engine(Metric::Cpu), Some(4.));
+        assert_eq!(history.latest_engine(Metric::Memory), Some(4096.));
         assert!(
             history
                 .values(&id, Metric::Memory)
-                .all(|value| value.is_none())
+                .any(|value| value == Some(4096.))
         );
     }
 }

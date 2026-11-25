@@ -289,19 +289,20 @@ requests the events retained from the previous 24 hours and displays the resourc
 action and time. [Docker Engine event history](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/events/events.go#L12-L32),
 [Docker Engine date filtering](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L274-L305).
 
-Overview shows the selected environment's lifecycle and health totals, resource
-counts, independently ranked CPU and memory samples, and Docker disk accounting.
-Select a lifecycle or health count to open the matching Containers filter.
-The CPU and memory rankings show the last 12 collected samples for the selected
-engine. Sampling runs while Overview is visible and reports its coverage.
-A missing category or sample stays unavailable. The disk bars compare reported category
-sizes on a common scale because shared data can appear in more than one
-category. The built-in environment uses the owner API to query an already
-running guest without starting it. When the desktop opens on the built-in
-environment after setup, it requests a start once if the daemon reports a
-stopped engine. The Overview card shows an icon-only Start or Stop button for
-the selected built-in engine or verified local Lima VM. The button uses the
-same stop confirmation as Machine.
+Overview shows the selected environment's inventory, container lifecycle and
+health as bar charts, live CPU and memory history for running containers,
+Docker disk accounting as proportional bars, and the top consumers list.
+Select a lifecycle or health row to open the matching Containers filter.
+Live usage and top-consumer sparklines keep the last 24 samples for the
+selected engine while Overview is visible. A missing category or sample stays
+unavailable. Disk bars use the sum of reported category sizes as the shared
+scale; shared underlying storage can still appear in more than one category.
+The built-in environment uses the owner API to query an already running guest
+without starting it. When the desktop opens on the built-in environment after
+setup, it requests a start once if the daemon reports a stopped engine. The
+Overview card shows an icon-only Start or Stop button for the selected
+built-in engine or verified local Lima VM. The button uses the same stop
+confirmation as Machine.
 [Moby 29.10.0 Engine API](https://github.com/moby/moby/blob/docker-v29.10.0/api/swagger.yaml),
 [Moby disk accounting compatibility](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/server/router/system/system_routes.go#L207-L248).
 
