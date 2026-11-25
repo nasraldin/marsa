@@ -90,6 +90,7 @@ pub(crate) struct SystemView {
     daemon_notice_dismissed: bool,
     notice_timeout: Option<Task<()>>,
     command: Option<Task<()>>,
+    docker_socket_link_task: Option<Task<()>>,
     settings_load: Option<Task<()>>,
     route_load: Option<Task<()>>,
     revision: Option<u64>,
@@ -100,6 +101,11 @@ enum Notice {
     Working,
     Failed,
     InvalidSettings,
+    DockerSocketInstalled,
+    DockerSocketRemoved,
+    DockerSocketOccupied,
+    DockerSocketTargetUnavailable,
+    DockerSocketFailed,
     Saved,
     AppliedNextStart,
     DiagnosticsSaved,
@@ -160,6 +166,7 @@ impl SystemView {
             daemon_notice_dismissed: false,
             notice_timeout: None,
             command: None,
+            docker_socket_link_task: None,
             settings_load: None,
             route_load: None,
             revision: None,
@@ -513,6 +520,13 @@ impl Notice {
                 Tone::Warning,
             ),
             Self::Saved => (gui::GUI_DESKTOP_SETTINGS_SAVED, Tone::Success),
+            Self::DockerSocketInstalled => (gui::GUI_DOCKER_SOCKET_INSTALLED, Tone::Success),
+            Self::DockerSocketRemoved => (gui::GUI_DOCKER_SOCKET_REMOVED, Tone::Success),
+            Self::DockerSocketOccupied => (gui::GUI_DOCKER_SOCKET_OCCUPIED, Tone::Warning),
+            Self::DockerSocketTargetUnavailable => {
+                (gui::GUI_DOCKER_SOCKET_TARGET_UNAVAILABLE, Tone::Warning)
+            }
+            Self::DockerSocketFailed => (gui::GUI_DOCKER_SOCKET_FAILED, Tone::Error),
             Self::AppliedNextStart => (
                 gui::GUI_DESKTOP_SETTINGS_SAVED_RESOURCE_CHANGES_APPLY_AT_THE_NEXT_START,
                 Tone::Success,
@@ -535,7 +549,11 @@ impl Notice {
     fn transient(self) -> bool {
         matches!(
             self,
-            Self::Saved | Self::AppliedNextStart | Self::DiagnosticsSaved
+            Self::Saved
+                | Self::AppliedNextStart
+                | Self::DiagnosticsSaved
+                | Self::DockerSocketInstalled
+                | Self::DockerSocketRemoved
         )
     }
 }

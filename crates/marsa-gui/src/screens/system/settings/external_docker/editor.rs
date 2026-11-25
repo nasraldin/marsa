@@ -847,6 +847,10 @@ impl SystemView {
                     matches!(editor.target, EditorTarget::Builtin)
                         .then(|| self.docker_cli_integration(screen, cx)),
                 )
+                .children(
+                    matches!(editor.target, EditorTarget::Builtin)
+                        .then(|| self.docker_socket_integration(screen, cx)),
+                )
                 .children(save_discovered_socket.map(|socket| {
                     row(screen.locale).child(
                         Button::new("save-discovered-socket")
