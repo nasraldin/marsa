@@ -5,16 +5,20 @@ use std::collections::{BTreeMap, VecDeque};
 use marsa_client::docker::{ContainerId, OverviewUtilization};
 use marsa_ui::{
     ColorToken,
+    direction::{LogicalStyle as _, technical_row},
     gpui::{
-        App, Div, InteractiveElement as _, IntoElement, ParentElement as _, PathBuilder,
+        App, Div, InteractiveElement as _, IntoElement, ParentElement as _, PathBuilder, Pixels,
         StatefulInteractiveElement as _, Styled as _, canvas, div, point, px,
     },
     gpui_component::tooltip::Tooltip,
 };
 
-use crate::screens::common::{ScreenContext, color, disk_bytes, row};
+use crate::screens::common::{ScreenContext, color, disk_bytes};
 
 const SAMPLE_COUNT: usize = 24;
+const SPARKLINE_WIDTH: Pixels = px(70.);
+const SPARKLINE_HEIGHT: Pixels = px(18.);
+const SPARKLINE_GAP: Pixels = px(2.);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Metric {
@@ -107,14 +111,7 @@ impl UsageHistory {
     }
 
     pub(super) fn bars(&self, screen: &ScreenContext<'_>, id: &ContainerId, metric: Metric) -> Div {
-        sparkline(
-            screen,
-            self.values(id, metric),
-            metric.color(),
-            px(70.),
-            px(18.),
-            px(4.),
-        )
+        sparkline(screen, self.values(id, metric), metric.color())
     }
 
     /// Thin line chart scaled to host capacity, with per-sample hover tooltips.
@@ -217,7 +214,7 @@ impl UsageHistory {
                 .size_full(),
             )
             .child(
-                row(screen.locale)
+                technical_row()
                     .absolute()
                     .inset_0()
                     .children(tips.into_iter().map(|(index, tip)| {
@@ -234,24 +231,28 @@ impl UsageHistory {
     }
 }
 
+fn sparkline_bar_width(samples: usize) -> Pixels {
+    let available = SPARKLINE_WIDTH - SPARKLINE_GAP * samples.saturating_sub(1);
+    px(4.).min(available * (1. / samples.max(1) as f32))
+}
+
 fn sparkline(
     screen: &ScreenContext<'_>,
     values: impl Iterator<Item = Option<f64>>,
     token: ColorToken,
-    width: marsa_ui::gpui::Pixels,
-    height: marsa_ui::gpui::Pixels,
-    bar_width: marsa_ui::gpui::Pixels,
 ) -> Div {
     let samples: Vec<_> = values.collect();
+    let bar_width = sparkline_bar_width(samples.len());
     let maximum = samples.iter().copied().flatten().fold(0., f64::max).max(1.);
-    let height_px = f64::from(height);
-    row(screen.locale)
+    let height_px = f64::from(SPARKLINE_HEIGHT);
+    technical_row()
         .items_end()
-        .justify_end()
-        .gap(px(2.))
-        .w(width)
-        .h(height)
+        .justify_row_end()
+        .gap(SPARKLINE_GAP)
+        .w(SPARKLINE_WIDTH)
+        .h(SPARKLINE_HEIGHT)
         .flex_shrink_0()
+        .overflow_hidden()
         .children(samples.into_iter().map(|value| {
             let bar = div().w(bar_width).flex_shrink_0().rounded(px(1.));
             if let Some(value) = value {
@@ -268,6 +269,20 @@ fn sparkline(
 mod tests {
     use super::*;
     use marsa_client::docker::ContainerUtilization;
+
+    #[test]
+    fn sparkline_fits_each_history_length() {
+        assert_eq!(sparkline_bar_width(1), px(4.));
+        for samples in 1..=SAMPLE_COUNT {
+            let width = sparkline_bar_width(samples);
+            let with_gaps = width * samples + SPARKLINE_GAP * (samples - 1);
+            assert!(width >= px(1.), "{samples} samples: {width:?}");
+            assert!(
+                with_gaps <= SPARKLINE_WIDTH,
+                "{samples} samples: {with_gaps:?}"
+            );
+        }
+    }
 
     #[test]
     fn history_keeps_recent_samples_and_preserves_missing_measurements() {

@@ -13,6 +13,7 @@ use marsa_client::{
 };
 use marsa_ui::{
     ColorToken,
+    direction::align_column_to_end,
     gpui::{
         App, Context, Div, Hsla, IntoElement, ParentElement as _, PathBuilder, Styled as _, Task,
         Window, canvas, div, point, px, relative, rgb, svg,
@@ -1146,12 +1147,7 @@ fn metric_history(
                 .child(quiet(screen).pt_1().child(label))
                 .child(
                     // Keep percent + capacity stacked on the trailing edge.
-                    div()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap_0()
-                        .items_end()
+                    align_column_to_end(div().min_w_0().flex().flex_col().gap_0(), locale)
                         .child(
                             screen
                                 .typography(Role::Title)

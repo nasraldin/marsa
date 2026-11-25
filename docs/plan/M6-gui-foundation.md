@@ -71,7 +71,7 @@ Arabic editing and VoiceOver integration.
 
 ### M6-03 Direction layer
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M6-01
 - **Docs:** [08 Direction layer](../08-gui.md#direction-layer), D-015
 - **Do:** Implement the start and end layout API wrapping the framework's styling, automatic row reversal, the directional-icon mirroring registry, and a left-to-right isolation helper for technical text. Add a lint or test that fails the build if screen code uses left or right layout properties directly.
@@ -80,6 +80,17 @@ Arabic editing and VoiceOver integration.
   - The same layout code renders mirrored when the direction changes, with no per-screen branching.
   - The lint catches a deliberate left or right usage in a test fixture.
   - Technical text inside an Arabic row renders left-to-right.
+
+The native direction test draws the same GPUI row on macOS in all four
+language and appearance combinations. Its first and second cell centers
+are 143 and 303 points in English, and 257 and 97 points in Arabic. CoreText
+glyph checks verify that the path and command option read left to right
+inside the Arabic sentence. The GUI build guard rejects a fixture with
+physical padding, inset, alignment, corner and popover styles. The
+production workspace was checked in all four variants on macOS 27.2.1.
+The expanded sidebar toggle mirrors to the content edge and clears
+the window controls. Command-K and Escape open and dismiss the palette
+in both languages.
 
 ### M6-04 GUI translations and locale formatting
 

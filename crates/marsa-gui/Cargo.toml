@@ -14,3 +14,9 @@ marsa-ui = { path = "../marsa-ui" }
 
 [lints]
 workspace = true
+
+[build-dependencies]
+proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
+
+[dev-dependencies]
+proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }

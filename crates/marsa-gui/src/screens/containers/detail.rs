@@ -6,7 +6,7 @@ use crate::screens::common::message;
 use marsa_client::docker::{ContainerAction, ContainerDetails, ContainerSummary};
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
-    ColorToken, Locale,
+    ColorToken,
     direction::{LogicalStyle as _, isolate_technical_text, row},
     gpui::{
         AnyElement, App, Context, Div, FontWeight, InteractiveElement as _, IntoElement,
@@ -177,10 +177,7 @@ pub(super) fn render(
                     .ghost()
                     .small()
                     .compact()
-                    .icon(match screen.locale {
-                        Locale::Arabic => IconName::ChevronRight,
-                        Locale::EnglishUs => IconName::ChevronLeft,
-                    })
+                    .icon(IconName::ChevronLeft)
                     .label(message(screen.locale, gui::GUI_DESKTOP_CONTAINERS))
                     .on_click(cx.listener(|view, _, _, cx| view.close_detail(cx))),
             ),

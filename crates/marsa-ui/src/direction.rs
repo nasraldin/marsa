@@ -3,8 +3,8 @@
 use std::fmt::Write as _;
 
 use gpui::{
-    AbsoluteLength, App, DefiniteLength, Div, Length, SharedString, Styled, TextAlign, Window, div,
-    point, px,
+    AbsoluteLength, Anchor, App, DefiniteLength, Div, Length, SharedString, Styled, TextAlign,
+    Window, div, point, px,
 };
 use gpui_base::{LayoutDirection, LogicalStyledExt};
 use marsa_l10n::Locale;
@@ -43,6 +43,33 @@ pub fn row_for(locale: Locale) -> Div {
         Locale::Arabic => row.flex_row_reverse(),
     }
 }
+
+/// Create a fixed left-to-right row for ordered technical data such as a chart axis.
+pub fn technical_row() -> Div {
+    div().flex().flex_row()
+}
+
+/// Align the children of a column to its logical start.
+pub fn align_column_to_start(element: Div, locale: Locale) -> Div {
+    match locale {
+        Locale::EnglishUs => element.items_start(),
+        Locale::Arabic => element.items_end(),
+    }
+}
+
+/// Align the children of a column to its logical end.
+pub fn align_column_to_end(element: Div, locale: Locale) -> Div {
+    match locale {
+        Locale::EnglishUs => element.items_end(),
+        Locale::Arabic => element.items_start(),
+    }
+}
+
+/// Top-start anchor for a component popover. GPUI Kit resolves it for the current direction.
+pub const POPOVER_TOP_START: Anchor = Anchor::TopLeft;
+
+/// Bottom-start anchor for a component popover. GPUI Kit resolves it for the current direction.
+pub const POPOVER_BOTTOM_START: Anchor = Anchor::BottomLeft;
 
 /// Align element text to the inline start for the specified language.
 pub fn align_to_start(element: Div, locale: Locale) -> Div {
@@ -83,14 +110,13 @@ pub fn position_window_controls(window: &Window, locale: Locale, compact: bool) 
     window.set_traffic_light_position(point(inset, px(TRAFFIC_LIGHT_Y)));
 }
 
-/// Return the sidebar toggle glyph for the current reading direction and state.
-pub fn sidebar_toggle(locale: Locale, compact: bool) -> gpui_component::IconName {
+/// Return the sidebar toggle glyph for the component resolver to mirror.
+pub fn sidebar_toggle(compact: bool) -> gpui_component::IconName {
     use gpui_component::IconName;
-    match (locale, compact) {
-        (Locale::EnglishUs, true) => IconName::PanelLeftOpen,
-        (Locale::EnglishUs, false) => IconName::PanelLeftClose,
-        (Locale::Arabic, true) => IconName::PanelRightOpen,
-        (Locale::Arabic, false) => IconName::PanelRightClose,
+    if compact {
+        IconName::PanelLeftOpen
+    } else {
+        IconName::PanelLeftClose
     }
 }
 
@@ -244,4 +270,53 @@ pub fn isolate_technical_text(value: &str) -> SharedString {
         display.push(PDI);
     }
     display.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_base::logical_anchor;
+
+    #[test]
+    fn component_popover_anchors_are_mirrored_once() {
+        for (direction, top, bottom) in [
+            (LayoutDirection::Ltr, Anchor::TopLeft, Anchor::BottomLeft),
+            (LayoutDirection::Rtl, Anchor::TopRight, Anchor::BottomRight),
+        ] {
+            assert_eq!(logical_anchor(POPOVER_TOP_START, direction), top);
+            assert_eq!(logical_anchor(POPOVER_BOTTOM_START, direction), bottom);
+        }
+    }
+
+    #[test]
+    fn column_end_alignment_follows_the_locale() {
+        use gpui::AlignItems;
+
+        for (locale, expected) in [
+            (Locale::EnglishUs, AlignItems::FlexEnd),
+            (Locale::Arabic, AlignItems::FlexStart),
+        ] {
+            let mut column = align_column_to_end(div().flex().flex_col(), locale);
+            assert_eq!(column.style().align_items, Some(expected));
+        }
+    }
+
+    #[test]
+    fn starts_a_fresh_isolate_after_a_paragraph_break() {
+        let value = "/work/app\r\n\u{2029}repo:3";
+        assert_eq!(
+            isolate_technical_text(value).as_ref(),
+            "\u{2066}/work/app\u{2069}\r\n\u{2029}\u{2066}repo:3\u{2069}",
+        );
+        assert_eq!(isolate_technical_text("").as_ref(), "");
+    }
+
+    #[test]
+    fn escapes_direction_controls_inside_a_value() {
+        let value = "--name=\u{2069}\u{202e}abc\u{061c}";
+        assert_eq!(
+            isolate_technical_text(value).as_ref(),
+            "\u{2066}--name=\\u{2069}\\u{202e}abc\\u{61c}\u{2069}",
+        );
+    }
 }

@@ -5,6 +5,7 @@ use marsa_client::api::NetworkMode as ActiveNetworkMode;
 use marsa_ui::gui_keys as gui;
 use marsa_ui::{
     ColorToken,
+    direction::LogicalStyle as _,
     gpui::{AppContext, Context, Div, Entity, ParentElement, Styled, Window, div},
     gpui_component::{
         Disableable, Selectable,
@@ -225,7 +226,7 @@ impl SystemView {
                     ),
             )
             .child(
-                row(locale).justify_end().gap_2().child(
+                row(locale).justify_row_end().gap_2().child(
                     Button::new("save-machine-resources")
                         .primary()
                         .disabled(self.busy())
@@ -373,7 +374,7 @@ impl SystemView {
                             )),
                     )
                     .child(
-                        row(locale).justify_end().child(
+                        row(locale).justify_row_end().child(
                             Button::new("save-network-overrides")
                                 .primary()
                                 .disabled(self.busy())

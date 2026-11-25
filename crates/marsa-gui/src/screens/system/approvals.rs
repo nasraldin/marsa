@@ -5,6 +5,7 @@ use marsa_client::api::{
 };
 use marsa_ui::{
     ColorToken, Locale, Palette, TextKey,
+    direction::LogicalStyle as _,
     gpui::{
         AppContext, Context, Div, ParentElement, PromptButton, PromptLevel, Styled, Window, div, px,
     },
@@ -335,7 +336,7 @@ impl SystemView {
                             row(locale)
                                 .gap_2()
                                 .flex_wrap()
-                                .justify_end()
+                                .justify_row_end()
                                 .children(can_grant.then(|| {
                                     Button::new("save-reviewed-agent-grant")
                                         .outline()
