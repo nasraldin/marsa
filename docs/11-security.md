@@ -235,13 +235,15 @@ Marsa starts the system OpenSSH client with an isolated configuration that
 pins the destination, user, port, host key and selected identity. OpenSSH
 checks the host key before repository traffic. The client uses no ambient
 SSH configuration, agent, macOS Keychain identities, certificates, proxy,
-forwarding or alternate authentication. For each operation, the selected
-owner-private key is opened without following the final symlink, staged in
-an owner-only directory under the protected Marsa state root and checked
-against its saved public fingerprint before connecting. The temporary
-directory is removed when the operation ends. Only the public source URL is
-recorded as the checkout's Git origin. Private key bytes are never put in
-settings, Git arguments or Compose.
+forwarding or alternate authentication. Marsa opens the selected owner-private
+key without following the final symlink and loads it through standard input
+into a private operation-owned agent with a 150-second key lifetime. The
+agent holds a single key. Marsa verifies its public fingerprint before
+connecting and closes the agent's lifetime pipe when the operation ends.
+The socket and public SSH configuration live in an owner-only directory
+under the protected state root. Only the public source URL is recorded
+as the checkout's Git origin. Private key bytes stay in memory during
+the operation and are never put in settings, Git arguments or Compose.
 [Pinned OpenSSH client configuration](https://github.com/openssh/openssh-portable/blob/V_10_5_P1/ssh_config.5) ·
 [Pinned Git SSH invocation](https://github.com/git/git/blob/v2.54.0/connect.c).
 

@@ -18,6 +18,7 @@ use crate::{docker_socket_path, platform, request_id};
 
 mod credential_cleanup;
 mod https_credentials;
+mod refs;
 mod ssh;
 
 pub use ssh::{GitSshAuthentication, git_ssh_host_key_fingerprint, review_git_ssh_identity};
@@ -192,11 +193,12 @@ impl GitRepositoryConfig {
         command
             .args(["ls-remote", "--exit-code", "--refs", "--", &self.url])
             .arg(format!("refs/heads/{}", self.branch));
-        match run_git(&mut command, Duration::from_secs(20)).await? {
-            status if status.success() => Ok(()),
-            status if status.code() == Some(2) => Err(GitSourceError::BranchMissing),
-            _ => Err(self.connection_failure()),
-        }
+        refs::advertised(&mut command, &self.branch)
+            .await
+            .map_err(|error| match error {
+                GitSourceError::Git => self.connection_failure(),
+                other => other,
+            })
     }
 
     /// Clone the selected branch to a fresh private child of the chosen folder.
@@ -233,7 +235,7 @@ impl GitRepositoryConfig {
         .map_err(|_| GitSourceError::Destination)?;
         let home = private_git_directory().await?;
         let mut command = git(workspace.path(), home.path()).await?;
-        let _remote = self.remote(&mut command, repository).await?;
+        let remote = self.remote(&mut command, repository).await?;
         command.args([
             "clone",
             "--template=",
@@ -253,6 +255,8 @@ impl GitRepositoryConfig {
         {
             return Err(self.connection_failure());
         }
+        drop(remote);
+        refs::checked_out(workspace.path(), &self.branch).await?;
         Ok(workspace.keep())
     }
 }
@@ -656,6 +660,28 @@ fn credential_keys(entries: &[GitRepository]) -> HashSet<String> {
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn protected_git_state_rejects_symlinked_and_writable_roots() {
+        let owner = tempfile::tempdir().unwrap();
+        let outside = owner.path().join("other");
+        let state = owner.path().join(".marsa");
+        fs::create_dir(&outside).await.unwrap();
+        std::os::unix::fs::symlink(&outside, &state).unwrap();
+        assert!(private_git_directory_in(&state).await.is_err());
+        assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
+        fs::remove_file(&state).await.unwrap();
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&state)
+            .await
+            .unwrap();
+        fs::set_permissions(&state, Permissions::from_mode(0o777))
+            .await
+            .unwrap();
+        assert!(private_git_directory_in(&state).await.is_err());
+        assert!(std::fs::read_dir(&state).unwrap().next().is_none());
+    }
 
     #[tokio::test]
     async fn git_uses_an_empty_home_outside_the_checkout() {

@@ -1017,3 +1017,12 @@ Signed Settings rendered both saved switch states in every variant.
 - **Accept when:**
   - Test and checkout authenticate only to the saved host and use only its selected key. Unknown or changed host keys fail before Git sends repository data.
   - Ambient SSH configuration or agents cannot change the destination or selected identity. The private key contents stay out of settings and Compose.
+
+### M7-54 Isolate HTTPS Git checkout from its destination during authentication
+
+- **Status:** todo
+- **Depends on:** M7-30, M7-53
+- **Docs:** [11 Git sources](../11-security.md#git-sources)
+- **Do:** Keep HTTPS checkout data in protected staging for the authenticated Git operation and publish the verified checkout after closing credential access. Define behavior for a destination on another filesystem.
+- **Deliver:** HTTPS checkout staging isolated from destination-local configuration and an exact no-clobber publication test.
+- **Accept when:** Git never uses configuration from the chosen destination while its HTTPS credential is available. Interruption, an invalid checkout, and an existing destination preserve owner content.

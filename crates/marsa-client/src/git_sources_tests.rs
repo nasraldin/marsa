@@ -154,6 +154,8 @@ fn ssh_sources_require_explicit_safe_addresses_and_pins() {
         identity_fingerprint: "SHA256:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE".into(),
     });
     assert!(source.validate().is_ok());
+    source.url = "ssh://git@[::1]:2222/team/repo.git".into();
+    assert!(source.validate().is_ok());
     for url in [
         "ssh://example.invalid/repo",
         "ssh://user:password@example.invalid/repo",
@@ -266,6 +268,27 @@ async fn authenticated_ssh_uses_the_saved_transport_and_rejects_changes() {
     std::os::unix::fs::symlink(&fixture.identity_file, &ssh_key).unwrap();
     assert!(matches!(
         review_git_ssh_identity(&ssh_key).await,
+        Err(GitSourceError::SshIdentity)
+    ));
+    let encrypted = directory.path().join("encrypted fixture");
+    assert!(
+        Command::new("/usr/bin/ssh-keygen")
+            .env_clear()
+            .args([
+                "-q",
+                "-t",
+                "ed25519",
+                "-N",
+                "disposable fixture passphrase",
+                "-f"
+            ])
+            .arg(&encrypted)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(matches!(
+        review_git_ssh_identity(&encrypted).await,
         Err(GitSourceError::SshIdentity)
     ));
 }
