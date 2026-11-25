@@ -13,8 +13,13 @@ use tokio::{
     process::{Child, ChildStderr, ChildStdout, Command},
 };
 
-use crate::{ClientError, docker::ExternalEndpoint, docker_socket_path, platform};
+use crate::{
+    ClientError,
+    docker::{DockerClient, ExternalEndpoint},
+    docker_socket_path, platform,
+};
 
+mod protected;
 mod relay;
 
 const MAX_OUTPUT_LINE: usize = 64 * 1024;
@@ -53,6 +58,7 @@ pub struct ComposeCommand {
     project: String,
     operation: ComposeOperation,
     remove_volumes: bool,
+    keychain: bool,
 }
 
 impl ComposeCommand {
@@ -81,6 +87,7 @@ impl ComposeCommand {
             project,
             operation,
             remove_volumes: false,
+            keychain: false,
         })
     }
 
@@ -124,6 +131,15 @@ impl ComposeCommand {
         Ok(command)
     }
 
+    /// Opt an approved deployment into the dedicated Keychain secret route.
+    pub fn with_keychain(mut self) -> Result<Self, ComposeError> {
+        if self.operation != ComposeOperation::Up {
+            return Err(ComposeError::ProtectedModel);
+        }
+        self.keychain = true;
+        Ok(self)
+    }
+
     /// Launch the verified bundled process and retain its output until this stream drops.
     pub async fn start(self) -> Result<ComposeStream, ComposeError> {
         self.start_on(None).await
@@ -155,6 +171,16 @@ impl ComposeCommand {
             .parent()
             .and_then(std::path::Path::parent)
             .ok_or(ComposeError::File)?;
+        let keychain_engine = self
+            .keychain
+            .then(|| {
+                endpoint
+                    .as_ref()
+                    .map(ExternalEndpoint::management_client)
+                    .map_or_else(DockerClient::discover, Ok)
+                    .map_err(|_| ComposeError::ProtectedModel)
+            })
+            .transpose()?;
         let relay = endpoint
             .map(relay::Relay::start)
             .transpose()
@@ -171,6 +197,17 @@ impl ComposeCommand {
             socket
         };
         let socket = socket.to_str().ok_or(ComposeError::EndpointPath)?;
+        if let Some(engine) = keychain_engine {
+            return protected::start(
+                &binary,
+                &project_file,
+                &self.project,
+                socket,
+                relay,
+                &engine,
+            )
+            .await;
+        }
         let inherited_path = std::env::var_os("PATH");
         let path = std::env::join_paths(
             std::iter::once(bin_directory.to_path_buf())
@@ -229,6 +266,7 @@ impl ComposeCommand {
         Ok(ComposeStream {
             child,
             _relay: relay,
+            _private_directory: None,
             stdout: Some(stdout),
             stderr: Some(stderr),
             out_buffer: Vec::new(),
@@ -278,6 +316,7 @@ pub struct ComposeOutput {
 pub struct ComposeStream {
     child: Child,
     _relay: Option<relay::Relay>,
+    _private_directory: Option<tempfile::TempDir>,
     stdout: Option<BufReader<ChildStdout>>,
     stderr: Option<BufReader<ChildStderr>>,
     out_buffer: Vec<u8>,
@@ -351,6 +390,12 @@ async fn bounded_output<R: AsyncBufRead + Unpin>(
 /// Errors reported while launching or reading the bundled Compose process.
 #[derive(Debug, Error)]
 pub enum ComposeError {
+    /// The normalized project cannot be deployed with saved Keychain credentials.
+    #[error("this Compose model does not support protected deploy secrets")]
+    ProtectedModel,
+    /// The requested secret could not be resolved from the signed Keychain provider.
+    #[error(transparent)]
+    DeploySecret(#[from] crate::docker::DeploySecretError),
     /// The project file is not an absolute path to a YAML file.
     #[error("expected a local Compose YAML file")]
     File,

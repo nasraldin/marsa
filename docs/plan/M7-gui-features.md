@@ -341,13 +341,39 @@ Verified the engine identity fields against the [Moby 29.10.0 Engine API schema]
 
 ### M7-22 Configure deploy-time secret providers
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-20
 - **Docs:** [08 Screens](../08-gui.md#screens), [11 Security](../11-security.md)
 - **Do:** Manage supported deploy-time secret providers.
 - **Deliver:** Settings connected to Compose deployment.
 - **Accept when:**
   - Deployment resolves secrets without exposing stored credentials in logs or inspection output.
+
+**Upstream behavior.** Compose 5.8.0 loads environment variables before it
+interpolates a project. It reads an environment-backed runtime secret from
+the finished project's environment and copies its bytes through the Docker
+archive API into the container. A file-backed secret uses a bind mount.
+The ordinary Compose invocation cannot receive a saved credential as a
+regular interpolation variable.
+[Pinned secret implementation](https://github.com/docker/compose/blob/v5.8.0/pkg/compose/secrets.go)
+· [Pinned Compose loader](https://github.com/docker/compose/blob/v5.8.0/cmd/compose/compose.go).
+
+**Qualification.** Pinned Keychain helper 0.9.13 stored, read, rotated and
+removed a synthetic credential in an isolated namespace. Compose 5.8.0 and
+Docker CLI 29.10.0 exercised the protected route against a disposable project
+on Lima Docker Engine 29.9.2. The granted container received the right file,
+the other container received none, and neither inspection, logs, interpolation,
+nor the unchanged project file exposed the credential. Rotation recreated
+only the granted container. A local image declaring a volume was rejected
+before Keychain resolution.
+
+Native GPUI captures on macOS show the Settings entry, the empty masked
+editor and the deployment option in all four variants. Tab and Space enabled
+the option, and Escape dismissed the editor in each variant.
+[English light](../screenshots/m7-22/en-light.png) ·
+[English dark](../screenshots/m7-22/en-dark.png) ·
+[Arabic light](../screenshots/m7-22/ar-light.png) ·
+[Arabic dark](../screenshots/m7-22/ar-dark.png).
 
 ### M7-23 Configure scanning, jobs, and downloads
 

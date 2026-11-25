@@ -2,9 +2,11 @@
 
 mod actions;
 mod contexts;
+pub(crate) mod deploy_secrets;
 mod environment_report;
 mod hawser;
 mod images;
+pub use deploy_secrets::{DeploySecretError, DeploySecretStore};
 mod managed;
 mod registry;
 mod resources;

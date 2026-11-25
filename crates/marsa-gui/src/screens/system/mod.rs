@@ -41,7 +41,9 @@ use crate::{
 };
 
 pub(crate) use notifications::{NotificationDestination, Notifications, notification_destination};
-use settings::{EnvironmentSettings, GitSources, RegistrySettings, ResourceInputs, VmEditor};
+use settings::{
+    DeploySecrets, EnvironmentSettings, GitSources, RegistrySettings, ResourceInputs, VmEditor,
+};
 
 pub(crate) struct OpenRoute(pub(crate) Route);
 
@@ -66,6 +68,7 @@ pub(crate) struct SystemView {
     environment_observations: settings::Observations,
     git_sources: GitSources,
     registry_settings: RegistrySettings,
+    deploy_secrets: DeploySecrets,
     resource_inputs: ResourceInputs,
     version: Option<VersionResponse>,
     about_assets: Option<AboutAssets>,
@@ -135,6 +138,7 @@ impl SystemView {
             environment_observations: settings::Observations::default(),
             git_sources: GitSources::default(),
             registry_settings: RegistrySettings::default(),
+            deploy_secrets: DeploySecrets::default(),
             resource_inputs: ResourceInputs::new(window, cx),
             version: None,
             about_assets: None,
