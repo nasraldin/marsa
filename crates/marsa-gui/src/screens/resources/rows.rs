@@ -19,10 +19,22 @@ use marsa_ui::{
 
 use crate::screens::common::{ScreenContext, copy, label};
 
+use crate::screens::table::{UsageBucket, preferred_in_use_tag};
+
 use super::{
     ResourceKind, ResourceSource, ResourcesView, forms::FormKind, logical_row, resource_icon, text,
     tone,
 };
+
+/// Aggregated Tags / usage fields for one Images table row.
+#[derive(Clone, Debug)]
+pub(super) struct ImageMeta {
+    pub tag_count: usize,
+    pub in_use_tag: Option<String>,
+    pub usage: UsageBucket,
+    pub created: i64,
+    pub size: u64,
+}
 
 pub(super) struct Columns(Vec<(SharedString, f32)>);
 
@@ -64,17 +76,19 @@ impl Columns {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct ResourceRow {
     pub id: String,
     key: String,
-    cells: Vec<String>,
+    pub(super) cells: Vec<String>,
     pub details: Vec<(SharedString, String)>,
     status: Option<(ColorToken, ColorToken)>,
-    action_target: String,
+    pub(super) action_target: String,
     source: Option<ResourceSource>,
-    users: Vec<String>,
+    pub(super) users: Vec<String>,
     references: Option<u64>,
     pub members: Vec<(marsa_client::docker::ContainerId, String)>,
+    pub(super) image: Option<ImageMeta>,
 }
 
 impl ResourceRow {
@@ -404,71 +418,80 @@ pub(super) fn snapshot_rows(
             .state
             .images()
             .values()
-            .flat_map(|image| {
+            .map(|image| {
                 let users = containers
                     .values()
-                    .filter(|container| container.image_id == image.id)
+                    .filter(|container| image_ids_match(&container.image_id, &image.id))
                     .map(container_name)
                     .collect::<Vec<_>>();
-                let usage = if users.is_empty() {
-                    gui::GUI_DESKTOP_UNUSED.text(screen.locale)
-                } else {
-                    gui::GUI_DESKTOP_IN_USE.text(screen.locale)
-                };
-                let status = if users.is_empty() {
-                    (ColorToken::StatusStopped, ColorToken::StatusStoppedBg)
-                } else {
-                    (ColorToken::StatusRunning, ColorToken::StatusRunningBg)
-                };
-                let refs = if image.repo_tags.is_empty() {
-                    vec![None]
-                } else {
-                    image
-                        .repo_tags
-                        .iter()
-                        .map(|tag| (tag != "<none>:<none>").then_some(tag.as_str()))
-                        .collect()
-                };
-                refs.into_iter()
-                    .map(|reference| {
-                        let (repository, tag) = split_reference(reference);
-                        let repository = repository
-                            .unwrap_or_else(|| gui::GUI_DESKTOP_UNTAGGED.text(screen.locale));
-                        let size = format_bytes(screen.locale, image.size);
-                        let age = format_age(screen.locale, image.created)
-                            .unwrap_or_else(|| missing.to_owned());
-                        let reference = reference.unwrap_or(&image.id);
-                        ResourceRow {
-                            id: image.id.to_owned(),
-                            key: format!("{}:{reference}", image.id),
-                            cells: vec![
-                                repository.to_owned(),
-                                tag.unwrap_or(missing).to_owned(),
-                                size.clone(),
-                                age.clone(),
-                                usage.to_owned(),
-                            ],
-                            details: vec![
-                                (
-                                    message(screen.locale, gui::GUI_DESKTOP_REFERENCE),
-                                    reference.to_owned(),
-                                ),
-                                (message(screen.locale, gui::GUI_DESKTOP_SIZE), size),
-                                (message(screen.locale, gui::GUI_DESKTOP_AGE), age),
-                                (
-                                    message(screen.locale, gui::GUI_DESKTOP_CONTAINERS),
-                                    joined(screen.locale, &users),
-                                ),
-                            ],
-                            status: Some(status),
-                            source: None,
-                            action_target: reference.to_owned(),
-                            users: users.clone(),
-                            references: None,
-                            members: Vec::new(),
-                        }
+                let tags = image
+                    .repo_tags
+                    .iter()
+                    .filter(|tag| tag.as_str() != "<none>:<none>")
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let tag_used = tags
+                    .iter()
+                    .map(|tag| {
+                        containers.values().any(|container| {
+                            image_ids_match(&container.image_id, &image.id)
+                                && references_tag(&container.image, tag)
+                        })
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>();
+                let usage = UsageBucket::classify(!users.is_empty(), &tag_used);
+                let in_use_tag = preferred_in_use_tag(&tags, &tag_used).map(str::to_owned);
+                let (repository, _) = split_reference(
+                    in_use_tag
+                        .as_deref()
+                        .or_else(|| tags.first().map(String::as_str)),
+                );
+                let repository =
+                    repository.unwrap_or_else(|| gui::GUI_DESKTOP_UNTAGGED.text(screen.locale));
+                let size = format_bytes(screen.locale, image.size);
+                let age =
+                    format_age(screen.locale, image.created).unwrap_or_else(|| missing.to_owned());
+                let action_target = in_use_tag
+                    .clone()
+                    .or_else(|| tags.first().cloned())
+                    .unwrap_or_else(|| image.id.clone());
+                let status = usage.tone();
+                ResourceRow {
+                    id: image.id.to_owned(),
+                    key: image.id.to_owned(),
+                    cells: vec![
+                        repository.to_owned(),
+                        tags.len().to_string(),
+                        size.clone(),
+                        age.clone(),
+                        usage.label(screen.locale).to_string(),
+                    ],
+                    details: vec![
+                        (
+                            message(screen.locale, gui::GUI_DESKTOP_REFERENCE),
+                            action_target.clone(),
+                        ),
+                        (message(screen.locale, gui::GUI_DESKTOP_SIZE), size),
+                        (message(screen.locale, gui::GUI_DESKTOP_AGE), age),
+                        (
+                            message(screen.locale, gui::GUI_DESKTOP_CONTAINERS),
+                            joined(screen.locale, &users),
+                        ),
+                    ],
+                    status: Some(status),
+                    source: None,
+                    action_target,
+                    users,
+                    references: None,
+                    members: Vec::new(),
+                    image: Some(ImageMeta {
+                        tag_count: tags.len(),
+                        in_use_tag,
+                        usage,
+                        created: image.created,
+                        size: image.size,
+                    }),
+                }
             })
             .collect(),
         ResourceKind::Volumes => screen
@@ -536,6 +559,7 @@ pub(super) fn snapshot_rows(
                     users,
                     references: usage.and_then(|usage| usage.references),
                     members: Vec::new(),
+                    image: None,
                 }
             })
             .collect(),
@@ -599,6 +623,7 @@ pub(super) fn snapshot_rows(
                     users,
                     references: None,
                     members: Vec::new(),
+                    image: None,
                 }
             })
             .collect(),
@@ -660,10 +685,27 @@ pub(super) fn snapshot_rows(
                             )
                         })
                         .collect(),
+                    image: None,
                 }
             })
             .collect(),
     }
+}
+
+fn image_ids_match(left: &str, right: &str) -> bool {
+    fn strip(value: &str) -> &str {
+        value.strip_prefix("sha256:").unwrap_or(value)
+    }
+    strip(left) == strip(right)
+}
+
+fn references_tag(container_image: &str, tag: &str) -> bool {
+    container_image == tag
+        || container_image
+            .strip_prefix("docker.io/")
+            .unwrap_or(container_image)
+            == tag
+        || tag.strip_prefix("docker.io/").unwrap_or(tag) == container_image
 }
 
 fn container_name(container: &marsa_client::docker::ContainerSummary) -> String {
@@ -723,6 +765,35 @@ fn format_bytes(locale: Locale, bytes: u64) -> String {
     }
 }
 
+/// Absolute UTC timestamp for Age-cell tooltips (`YYYY-MM-DD HH:MM:SS UTC`).
+pub(super) fn format_created_timestamp(created: i64) -> Option<String> {
+    let total = u64::try_from(created).ok()?;
+    let days = i32::try_from(total / 86_400).ok()?;
+    let tod = total % 86_400;
+    let hour = tod / 3_600;
+    let minute = (tod % 3_600) / 60;
+    let second = tod % 60;
+    let (year, month, day) = unix_days_to_ymd(days);
+    Some(format!(
+        "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02} UTC"
+    ))
+}
+
+/// Civil Gregorian date from days since the Unix epoch (Howard Hinnant).
+fn unix_days_to_ymd(days: i32) -> (i32, u32, u32) {
+    let z = days.wrapping_add(719_468);
+    let era = if z >= 0 { z } else { z.wrapping_sub(146_096) } / 146_097;
+    let doe = z.wrapping_sub(era * 146_097) as u32;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i32 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
 fn format_age(locale: Locale, created: i64) -> Option<String> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
     let age = now.checked_sub(u64::try_from(created).ok()?)?;
@@ -743,6 +814,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn created_timestamp_formats_utc() {
+        assert_eq!(
+            format_created_timestamp(0).as_deref(),
+            Some("1970-01-01 00:00:00 UTC")
+        );
+        assert_eq!(
+            format_created_timestamp(1_704_067_200).as_deref(),
+            Some("2024-01-01 00:00:00 UTC")
+        );
+    }
+
+    #[test]
+    fn image_rows_aggregate_one_row_per_image_id() {
+        assert_eq!(
+            UsageBucket::classify(true, &[true, false]),
+            UsageBucket::SomeUnused
+        );
+        assert_eq!(
+            preferred_in_use_tag(&["nginx:latest".into(), "nginx:1".into()], &[true, false]),
+            Some("nginx:latest")
+        );
+        assert!(image_ids_match("sha256:abc", "abc"));
+        assert!(references_tag("nginx:latest", "nginx:latest"));
+    }
+
+    #[test]
     fn external_row_cannot_select_or_act_on_a_marsa_resource_with_the_same_name() {
         let row = ResourceRow {
             id: "database".into(),
@@ -755,6 +852,7 @@ mod tests {
             references: None,
             members: Vec::new(),
             source: None,
+            image: None,
         };
         assert!(row.selected("database"));
         assert!(!row.actions(ResourceKind::Volumes).is_empty());

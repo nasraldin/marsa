@@ -2,10 +2,14 @@
 
 mod compose;
 mod forms;
+mod image_detail;
+mod images;
+mod layers;
 mod logs;
 mod operations;
 mod pull;
 mod rows;
+mod run;
 
 use crate::screens::common::message;
 use marsa_ui::gui_keys as gui;
@@ -117,10 +121,12 @@ pub(crate) struct ResourcesView {
     volume_scan: Option<Task<()>>,
     volume_scanning: bool,
     volume_scan_failed: bool,
+    images: images::ImagesTableState,
+    image_detail: Option<image_detail::ImageDetailState>,
 }
 
 #[derive(Clone)]
-struct ResourceSource {
+pub(super) struct ResourceSource {
     endpoint: ExternalEndpoint,
     badge: marsa_ui::gpui::SharedString,
     key: String,
@@ -170,6 +176,8 @@ impl ResourcesView {
             volume_scan: None,
             volume_scanning: false,
             volume_scan_failed: false,
+            images: images::ImagesTableState::default(),
+            image_detail: None,
         }
     }
 
@@ -226,11 +234,14 @@ impl ResourcesView {
         self.inspect = None;
         self.inspection_failed = false;
         self.inspection_task = None;
+        self.image_detail = None;
     }
 
     /// Stop viewing resource details when leaving the route.
     pub(crate) fn leave(&mut self) {
         self.close_details();
+        self.pull = None;
+        self.images.selected.clear();
         self.volume_scan = None;
         self.volume_scanning = false;
     }
@@ -245,7 +256,7 @@ impl ResourcesView {
         self.form = draft;
     }
 
-    fn open_form(
+    pub(super) fn open_form(
         &mut self,
         action: (FormKind, Option<ResourceSource>),
         appearance: (Locale, Palette, marsa_ui::preferences::DisplaySettings),
@@ -254,6 +265,14 @@ impl ResourcesView {
         cx: &mut Context<Self>,
     ) {
         let (kind, source) = action;
+        if matches!(kind, FormKind::Pull) {
+            self.open_pull(source, appearance, service, window, cx);
+            return;
+        }
+        if matches!(kind, FormKind::Run { .. }) {
+            self.open_run_container(kind, source, appearance, service, window, cx);
+            return;
+        }
         let (locale, palette, display) = appearance;
         let title = kind.title(locale);
         let width = if matches!(kind, FormKind::CreateStack { .. }) {
@@ -318,7 +337,9 @@ pub(crate) fn render(
         .items_center()
         .gap(px(Space::S8.pixels()))
         .flex_wrap();
-    if let Some(action) = kind.main_action() {
+    if kind != ResourceKind::Images
+        && let Some(action) = kind.main_action()
+    {
         actions = actions.child(primary_action(
             screen,
             view,
@@ -348,13 +369,7 @@ pub(crate) fn render(
             ));
     }
     if kind == ResourceKind::Images {
-        actions = actions.child(primary_action(
-            screen,
-            view,
-            FormKind::ImportImage,
-            active_source.clone(),
-            available,
-        ));
+        actions = images::action_rail(screen, view, data, active_source.clone(), available);
     }
 
     if kind == ResourceKind::Volumes {
@@ -414,10 +429,14 @@ pub(crate) fn render(
                 .iter()
                 .find(|row| row.selected(key) && row.endpoint() == data.selected_endpoint.as_ref())
         });
-    let rows = resources
-        .iter()
-        .filter(|row| row.matches(&filter))
-        .collect::<Vec<_>>();
+    let rows = if kind == ResourceKind::Images {
+        images::filter_and_sort(&resources, &filter, data.images.usage, data.images.sort)
+    } else {
+        resources
+            .iter()
+            .filter(|row| row.matches(&filter))
+            .collect::<Vec<_>>()
+    };
     let mut content = div()
         .flex_1()
         .min_h_0()
@@ -436,12 +455,6 @@ pub(crate) fn render(
     });
 
     let feedback = match kind {
-        ResourceKind::Images => pull::render(
-            screen,
-            view,
-            data.pull.as_ref(),
-            data.busy == Some(ResourceKind::Images),
-        ),
         ResourceKind::Compose => compose::render_output(screen, data),
         ResourceKind::Volumes if data.volume_scan_failed => Some(
             text(
@@ -497,36 +510,6 @@ pub(crate) fn render(
             );
     }
 
-    let count = if filter.is_empty() {
-        rows.len().to_string()
-    } else {
-        format!("{} / {}", rows.len(), resources.len())
-    };
-    content = content.child(
-        logical_row(screen.locale)
-            .flex_shrink_0()
-            .justify_between()
-            .items_center()
-            .flex_wrap()
-            .gap(px(Space::S12.pixels()))
-            .child(
-                logical_row(screen.locale)
-                    .gap(px(Space::S8.pixels()))
-                    .child(
-                        div().w(px(224.)).child(
-                            resource_input(&data.filter)
-                                .cleanable(true)
-                                .prefix(IconName::Search)
-                                .aria_label(gui::GUI_DESKTOP_FILTER_RESOURCES.text(screen.locale)),
-                        ),
-                    )
-                    .children((!resources.is_empty()).then(|| {
-                        text(screen, Role::Small, count)
-                            .text_color(tone(screen, ColorToken::TextMuted))
-                    })),
-            )
-            .child(actions),
-    );
     if incomplete_external {
         content = content.child(
             text(
@@ -545,7 +528,78 @@ pub(crate) fn render(
             .state
             .engine()
             .is_some_and(|engine| matches!(engine.state(), EngineState::Ready | EngineState::Idle));
-    if rows.is_empty() {
+    // Only label rows with a source badge when more than one environment is
+    // visible — the active context is already chosen in the environment menu.
+    let show_sources = selected_workspaces.len() + usize::from(context.includes_marsa()) > 1;
+    if kind == ResourceKind::Images {
+        content = content.child(images::render_table(
+            screen,
+            view,
+            data,
+            &rows,
+            actions,
+            show_sources,
+        ));
+        if rows.is_empty() {
+            let filtered = (!filter.is_empty()
+                || data.images.usage != crate::screens::table::UsageFilter::All)
+                && !resources.is_empty();
+            let instruction = if !available || (incomplete_external && !has_local_inventory) {
+                gui::GUI_ENVIRONMENT_OFFLINE
+            } else if !has_local_inventory && active_source.is_none() {
+                gui::GUI_DESKTOP_RESOURCES_ARE_AVAILABLE_WHEN_THE_ENGINE_IS_RUNNING
+            } else if filtered {
+                gui::GUI_DESKTOP_NO_MATCHING_RESOURCES
+            } else {
+                kind.empty_message()
+            };
+            content = content.child(
+                crate::screens::common::panel(screen)
+                    .items_center()
+                    .text_center()
+                    .py(px(Space::S32.pixels()))
+                    .child(resource_icon(screen, kind))
+                    .child(
+                        screen
+                            .typography(Role::Lead)
+                            .apply(div())
+                            .child(instruction.text(screen.locale)),
+                    ),
+            );
+        }
+    } else if rows.is_empty() {
+        let count = if filter.is_empty() {
+            rows.len().to_string()
+        } else {
+            format!("{} / {}", rows.len(), resources.len())
+        };
+        content = content.child(
+            logical_row(screen.locale)
+                .flex_shrink_0()
+                .justify_between()
+                .items_center()
+                .flex_wrap()
+                .gap(px(Space::S12.pixels()))
+                .child(
+                    logical_row(screen.locale)
+                        .gap(px(Space::S8.pixels()))
+                        .child(
+                            div().w(px(224.)).child(
+                                resource_input(&data.filter)
+                                    .cleanable(true)
+                                    .prefix(IconName::Search)
+                                    .aria_label(
+                                        gui::GUI_DESKTOP_FILTER_RESOURCES.text(screen.locale),
+                                    ),
+                            ),
+                        )
+                        .children((!resources.is_empty()).then(|| {
+                            text(screen, Role::Small, count)
+                                .text_color(tone(screen, ColorToken::TextMuted))
+                        })),
+                )
+                .child(actions),
+        );
         let filtered = !filter.is_empty() && !resources.is_empty();
         let instruction = if !available || (incomplete_external && !has_local_inventory) {
             gui::GUI_ENVIRONMENT_OFFLINE
@@ -578,14 +632,40 @@ pub(crate) fn render(
         }));
         content = content.child(empty);
     } else {
-        content = content.child(table(
-            screen,
-            kind,
-            &columns,
-            &rows,
-            view,
-            !external.is_empty(),
-        ));
+        let count = if filter.is_empty() {
+            rows.len().to_string()
+        } else {
+            format!("{} / {}", rows.len(), resources.len())
+        };
+        content = content
+            .child(
+                logical_row(screen.locale)
+                    .flex_shrink_0()
+                    .justify_between()
+                    .items_center()
+                    .flex_wrap()
+                    .gap(px(Space::S12.pixels()))
+                    .child(
+                        logical_row(screen.locale)
+                            .gap(px(Space::S8.pixels()))
+                            .child(
+                                div().w(px(224.)).child(
+                                    resource_input(&data.filter)
+                                        .cleanable(true)
+                                        .prefix(IconName::Search)
+                                        .aria_label(
+                                            gui::GUI_DESKTOP_FILTER_RESOURCES.text(screen.locale),
+                                        ),
+                                ),
+                            )
+                            .children((!resources.is_empty()).then(|| {
+                                text(screen, Role::Small, count)
+                                    .text_color(tone(screen, ColorToken::TextMuted))
+                            })),
+                    )
+                    .child(actions),
+            )
+            .child(table(screen, kind, &columns, &rows, view, show_sources));
     }
 
     content

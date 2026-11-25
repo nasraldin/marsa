@@ -28,9 +28,64 @@ use super::{
     rows::ResourceRow, text, tone,
 };
 
+/// What succeeded — drives the toast copy instead of a generic "completed".
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SuccessKind {
+    ImagePulled,
+    ImageRemoved,
+    ImagesRemoved,
+    ImagesPruned,
+    ImageImported,
+    ImageExported,
+    ImagePushed,
+    ImageTagged,
+    ContainerStarted,
+    ContainerCreated,
+    VolumeCreated,
+    VolumeRemoved,
+    NetworkCreated,
+    NetworkRemoved,
+    ContainerAttached,
+    ContainerDetached,
+    ComposeUp,
+    ComposeRestart,
+    ComposeDown,
+    ComposeCreated,
+}
+
+impl SuccessKind {
+    fn message(self, locale: Locale) -> marsa_ui::gpui::SharedString {
+        message(
+            locale,
+            match self {
+                Self::ImagePulled => gui::GUI_DESKTOP_TOAST_IMAGE_PULLED,
+                Self::ImageRemoved => gui::GUI_DESKTOP_TOAST_IMAGE_REMOVED,
+                Self::ImagesRemoved => gui::GUI_DESKTOP_TOAST_IMAGES_REMOVED,
+                Self::ImagesPruned => gui::GUI_DESKTOP_TOAST_IMAGES_PRUNED,
+                Self::ImageImported => gui::GUI_DESKTOP_TOAST_IMAGE_IMPORTED,
+                Self::ImageExported => gui::GUI_DESKTOP_TOAST_IMAGE_EXPORTED,
+                Self::ImagePushed => gui::GUI_DESKTOP_TOAST_IMAGE_PUSHED,
+                Self::ImageTagged => gui::GUI_DESKTOP_TOAST_IMAGE_TAGGED,
+                Self::ContainerStarted => gui::GUI_DESKTOP_TOAST_CONTAINER_STARTED,
+                Self::ContainerCreated => gui::GUI_DESKTOP_TOAST_CONTAINER_CREATED,
+                Self::VolumeCreated => gui::GUI_DESKTOP_TOAST_VOLUME_CREATED,
+                Self::VolumeRemoved => gui::GUI_DESKTOP_TOAST_VOLUME_REMOVED,
+                Self::NetworkCreated => gui::GUI_DESKTOP_TOAST_NETWORK_CREATED,
+                Self::NetworkRemoved => gui::GUI_DESKTOP_TOAST_NETWORK_REMOVED,
+                Self::ContainerAttached => gui::GUI_DESKTOP_TOAST_CONTAINER_ATTACHED,
+                Self::ContainerDetached => gui::GUI_DESKTOP_TOAST_CONTAINER_DETACHED,
+                Self::ComposeUp => gui::GUI_DESKTOP_TOAST_COMPOSE_UP,
+                Self::ComposeRestart => gui::GUI_DESKTOP_TOAST_COMPOSE_RESTART,
+                Self::ComposeDown => gui::GUI_DESKTOP_TOAST_COMPOSE_DOWN,
+                Self::ComposeCreated => gui::GUI_DESKTOP_TOAST_COMPOSE_CREATED,
+            },
+        )
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum Outcome {
-    Success,
+    Success(SuccessKind),
     Rejected,
     Unavailable,
     ImageCreated,
@@ -39,6 +94,26 @@ pub(super) enum Outcome {
     ComposeFileKept,
     UnsupportedImagePlatform,
     Cancelled,
+}
+
+impl Outcome {
+    pub(super) fn is_success(self) -> bool {
+        matches!(self, Self::Success(_))
+    }
+
+    fn toast_key(self) -> usize {
+        match self {
+            Self::Success(kind) => 100 + kind as usize,
+            Self::Rejected => 1,
+            Self::Unavailable => 2,
+            Self::ImageCreated => 3,
+            Self::ComposeFileExists => 4,
+            Self::ComposeFileWriteFailed => 5,
+            Self::ComposeFileKept => 6,
+            Self::UnsupportedImagePlatform => 7,
+            Self::Cancelled => 8,
+        }
+    }
 }
 
 impl ResourcesView {
@@ -129,6 +204,11 @@ impl ResourcesView {
         if self.busy.is_some() {
             return;
         }
+        let success = match action {
+            ContainerAction::Start | ContainerAction::Unpause => SuccessKind::ComposeUp,
+            ContainerAction::Stop | ContainerAction::Pause => SuccessKind::ComposeDown,
+            ContainerAction::Restart => SuccessKind::ComposeRestart,
+        };
         let mut operation = service.pending(async move {
             let mut failed = false;
             for id in members {
@@ -140,7 +220,7 @@ impl ResourcesView {
         self.outcome = None;
         self.operation = Some(cx.spawn(async move |view, cx| {
             let outcome = if matches!(operation.result().await, Some(Ok(true))) {
-                Outcome::Success
+                Outcome::Success(success)
             } else {
                 Outcome::Rejected
             };
@@ -167,10 +247,6 @@ impl ResourcesView {
         }
         let (request, endpoint) = request;
         let request = match request {
-            ResourceRequest::Pull(reference) => {
-                self.pull(reference, endpoint, service, cx);
-                return;
-            }
             ResourceRequest::CreateStack { project, yaml } => {
                 self.run_compose(
                     project,
@@ -263,7 +339,7 @@ impl ResourcesView {
             };
             let _ = view.update(cx, |view, cx| {
                 view.busy = None;
-                if kind == ResourceKind::Volumes && matches!(outcome, Outcome::Success) {
+                if kind == ResourceKind::Volumes && outcome.is_success() {
                     view.volume_usage.clear();
                     view.external_volume_usage.clear();
                 }
@@ -287,7 +363,7 @@ async fn dispatch(
     let docker = service.resource_docker(endpoint);
     service
         .pending(async move {
-            match request {
+            let kind = match request {
                 ResourceRequest::Run { id, name } => {
                     let name = name.map(ResourceName::parse).transpose()?;
                     return Ok(
@@ -295,7 +371,7 @@ async fn dispatch(
                             .run_image(&ImageId::parse(id)?, name.as_ref())
                             .await?
                         {
-                            ImageRun::Started(_) => Outcome::Success,
+                            ImageRun::Started(_) => Outcome::Success(SuccessKind::ContainerStarted),
                             ImageRun::Created { .. } => Outcome::ImageCreated,
                         },
                     );
@@ -308,18 +384,21 @@ async fn dispatch(
                     docker
                         .push_image(&ImageReference::parse(reference)?)
                         .await?;
+                    SuccessKind::ImagePushed
                 }
                 ResourceRequest::ImportImage => {
                     let Some(file) = file else {
                         return Ok(Outcome::Cancelled);
                     };
                     docker.import_image(&file).await?;
+                    SuccessKind::ImageImported
                 }
                 ResourceRequest::ExportImage(id) => {
                     let Some(file) = file else {
                         return Ok(Outcome::Cancelled);
                     };
                     docker.export_image(&ImageId::parse(id)?, &file).await?;
+                    SuccessKind::ImageExported
                 }
                 ResourceRequest::NetworkMembership {
                     network,
@@ -329,28 +408,35 @@ async fn dispatch(
                     let network = NetworkId::parse(network)?;
                     if attach {
                         docker.connect_network(&network, &container).await?;
+                        SuccessKind::ContainerAttached
                     } else {
                         docker.disconnect_network(&network, &container).await?;
+                        SuccessKind::ContainerDetached
                     }
                 }
                 ResourceRequest::TagImage { id, destination } => {
                     docker.tag_image(&ImageId::parse(id)?, &destination).await?;
+                    SuccessKind::ImageTagged
                 }
                 ResourceRequest::CreateVolume(name) => {
                     docker.create_volume(&ResourceName::parse(name)?).await?;
+                    SuccessKind::VolumeCreated
                 }
                 ResourceRequest::CreateNetwork(name) => {
                     docker.create_network(&ResourceName::parse(name)?).await?;
+                    SuccessKind::NetworkCreated
                 }
                 ResourceRequest::RemoveVolume { name, typed } => {
                     docker
                         .remove_volume(VolumeRemoval::confirm(ResourceName::parse(name)?, &typed)?)
                         .await?;
+                    SuccessKind::VolumeRemoved
                 }
                 ResourceRequest::RemoveNetwork(id) => {
                     docker
                         .remove_network(NetworkRemoval::confirmed(id)?)
                         .await?;
+                    SuccessKind::NetworkRemoved
                 }
                 ResourceRequest::RemoveImage { id, force } => {
                     let mode = if force {
@@ -361,10 +447,28 @@ async fn dispatch(
                     docker
                         .remove_image(ImageRemoval::confirmed(ImageId::parse(id)?, mode))
                         .await?;
+                    SuccessKind::ImageRemoved
+                }
+                ResourceRequest::RemoveImages { ids, force } => {
+                    let mode = if force {
+                        RemovalMode::Force
+                    } else {
+                        RemovalMode::StoppedOnly
+                    };
+                    for id in ids {
+                        docker
+                            .remove_image(ImageRemoval::confirmed(ImageId::parse(id)?, mode))
+                            .await?;
+                    }
+                    SuccessKind::ImagesRemoved
+                }
+                ResourceRequest::PruneImages { dangling } => {
+                    docker.prune_images(dangling).await?;
+                    SuccessKind::ImagesPruned
                 }
                 _ => return Ok(Outcome::Unavailable),
-            }
-            Ok(Outcome::Success)
+            };
+            Ok(Outcome::Success(kind))
         })
         .result()
         .await
@@ -379,10 +483,7 @@ impl ResourcesView {
     ) -> Option<AnyElement> {
         let (_, outcome) = self.outcome?;
         let (message, tone) = match outcome {
-            Outcome::Success => (
-                message(screen.locale, gui::GUI_DESKTOP_OPERATION_COMPLETED),
-                Tone::Success,
-            ),
+            Outcome::Success(kind) => (kind.message(screen.locale), Tone::Success),
             Outcome::Rejected => (
                 message(
                     screen.locale,
@@ -431,11 +532,12 @@ impl ResourcesView {
         let dismiss =
             toast::dismiss_button("dismiss-resource-toast", screen.locale, screen.palette)
                 .on_click(cx.listener(|view, _, _, cx| {
+                    cx.stop_propagation();
                     view.outcome = None;
                     cx.refresh_windows();
                 }));
         Some(toast::render(
-            ("resource-toast", outcome as usize),
+            ("resource-toast", outcome.toast_key()),
             screen.locale,
             screen.palette,
             tone,

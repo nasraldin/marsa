@@ -19,7 +19,11 @@ use crate::{
     services::Services,
 };
 
-use super::{ResourceKind, ResourcesView, operations::Outcome, text, tone};
+use super::{
+    ResourceKind, ResourcesView,
+    operations::{Outcome, SuccessKind},
+    text, tone,
+};
 
 const MAX_OUTPUT_LINES: usize = 256;
 const MAX_OUTPUT_BYTES: usize = 2048;
@@ -47,6 +51,14 @@ impl ResourcesView {
         let (invocation, endpoint) = action;
         let external = endpoint.is_some();
         let creating = matches!(invocation, Invocation::Create(_));
+        let success = match &invocation {
+            Invocation::Create(_) => SuccessKind::ComposeCreated,
+            Invocation::Standard(ComposeOperation::Up) => SuccessKind::ComposeUp,
+            Invocation::Standard(ComposeOperation::Restart) => SuccessKind::ComposeRestart,
+            Invocation::Standard(ComposeOperation::Down) | Invocation::RemoveVolumes(_) => {
+                SuccessKind::ComposeDown
+            }
+        };
         let prompt = if creating {
             gui::GUI_COMPOSE_CHOOSE_PROJECT_FOLDER
         } else {
@@ -160,7 +172,7 @@ impl ResourcesView {
             if !external {
                 let _ = service.refresh().result().await;
             }
-            finish(&view, cx, Some(Outcome::Success));
+            finish(&view, cx, Some(Outcome::Success(success)));
             if external {
                 let _ = view.update(cx, |_, cx| cx.emit(super::ExternalResourcesChanged));
             }
