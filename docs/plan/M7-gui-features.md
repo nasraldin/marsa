@@ -452,7 +452,7 @@ Settings and viewer tests cover persisted choices, bounded buffers, and missing 
 
 ### M7-26 Show the installed release and its dependencies
 
-- **Status:** blocked (signed desktop visual qualification pending)
+- **Status:** in progress
 - **Depends on:** M10-12
 - **Docs:** [08 Screens](../08-gui.md#screens), [12 App bundle layout](../12-build-release-update.md#app-bundle-layout)
 - **Do:** Extend the existing About screen with bilingual notes for the installed build, bundled Docker tool versions, live daemon and guest versions, and Finder access to bundled inventories and notices.
