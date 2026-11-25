@@ -1472,3 +1472,4 @@ gui-volume-download-invalid-path = This path could not be read safely within the
 gui-volume-download-limit = The selected files exceed the volume download limit.
 gui-volume-download-failed = The volume download was interrupted.
 gui-volume-download-destination = The download could not be saved. Choose a new destination.
+gui-volume-download-same-filesystem = Choose a folder on the same storage volume as Marsa’s data.

@@ -3,7 +3,7 @@
 use std::{
     error::Error as StdError,
     io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -288,6 +288,10 @@ impl MarsaClient {
     /// The highest compatible API minor revision understood by both sides.
     pub fn api_minor(&self) -> u32 {
         API_MINOR.min(self.version.api_minor)
+    }
+
+    pub(crate) fn owner_socket(&self) -> &Path {
+        &self.daemon.socket
     }
 
     service_clients! {

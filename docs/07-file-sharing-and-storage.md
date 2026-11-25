@@ -120,9 +120,10 @@ files with a single link and directories on the volume's own mount. A selection
 containing symlinks, mount crossings or special files is rejected. Reads use
 the live contents and abort if an observed identity or stability check fails.
 Marsa pins the volume before asking for a path. It stages the download in
-a private directory inside the chosen destination folder. Publication requires
-successful completion and the same destination folder and staged file. Existing
-destination files are preserved.
+the protected owner runtime directory, which is excluded from guest shares.
+Choose a destination on the same host filesystem as Marsa's data. Publication
+requires successful completion and the same destination folder and staged
+file. Existing destination files are preserved.
 
 ## Data disk
 

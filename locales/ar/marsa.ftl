@@ -1472,3 +1472,4 @@ gui-volume-download-invalid-path = تعذّرت قراءة هذا المسار �
 gui-volume-download-limit = تتجاوز الملفات المحدّدة حد التنزيل من وحدة التخزين.
 gui-volume-download-failed = انقطع التنزيل من وحدة التخزين.
 gui-volume-download-destination = تعذّر حفظ التنزيل. اختر وجهة جديدة.
+gui-volume-download-same-filesystem = اختر مجلدًا على وحدة التخزين نفسها التي تحتوي على بيانات Marsa.

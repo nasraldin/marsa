@@ -316,6 +316,11 @@ fn error_label(error: &VolumeDownloadError) -> TextKey {
         VolumeDownloadError::InvalidPath => gui::GUI_VOLUME_DOWNLOAD_INVALID_PATH,
         VolumeDownloadError::Limit => gui::GUI_VOLUME_DOWNLOAD_LIMIT,
         VolumeDownloadError::Transfer => gui::GUI_VOLUME_DOWNLOAD_FAILED,
+        VolumeDownloadError::Destination(error)
+            if error.kind() == std::io::ErrorKind::CrossesDevices =>
+        {
+            gui::GUI_VOLUME_DOWNLOAD_SAME_FILESYSTEM
+        }
         VolumeDownloadError::Destination(_) => gui::GUI_VOLUME_DOWNLOAD_DESTINATION,
     }
 }

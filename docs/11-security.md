@@ -155,7 +155,8 @@ Linux `openat2` disallows symlinks and mount crossings below the managed data
 mount. Regular files must have one link. Directory traversal is bounded by
 entry count, depth, path size and total output. The guest rechecks the pinned
 identities and Docker metadata before reporting success. The Mac stages the
-bounded data stream in a private directory held by descriptor. It checks the
+bounded data stream inside the protected owner runtime, outside guest folder
+grants. It holds the staging directory by descriptor and checks the
 destination folder and staged inode and publishes without overwriting an
 existing name only after success and stream termination.
 [Docker local volume layout](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/volume/local/local.go) · [Linux path resolution](https://man7.org/linux/man-pages/man2/openat2.2.html)

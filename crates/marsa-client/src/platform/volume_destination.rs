@@ -1,4 +1,4 @@
-//! Pin the chosen parent and stage a private file next to the new destination.
+//! Stage in the protected owner runtime before publishing to a pinned destination.
 
 use std::{
     ffi::{OsStr, OsString},
@@ -19,7 +19,7 @@ pub(crate) struct VolumeDestination {
 }
 
 impl VolumeDestination {
-    pub(crate) fn stage(destination: &Path) -> io::Result<(Self, File)> {
+    pub(crate) fn stage(destination: &Path, owner_runtime: &Path) -> io::Result<(Self, File)> {
         let name = destination
             .file_name()
             .filter(|_| destination.is_absolute())
@@ -30,7 +30,18 @@ impl VolumeDestination {
             .ok_or(io::ErrorKind::InvalidInput)?
             .to_owned();
         let parent = open_directory(&parent_path)?;
-        let temporary = StageDirectory::create(&parent)?;
+        // Marsa denies guest shares that contain or overlap the active state path.
+        let private = File::from(fs::open(
+            owner_runtime,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?);
+        let identity = fs::fstat(&private)?;
+        check_private(&identity)?;
+        if identity.st_dev != fs::fstat(&parent)?.st_dev {
+            return Err(io::ErrorKind::CrossesDevices.into());
+        }
+        let temporary = StageDirectory::create(&private)?;
         let original = File::from(fs::openat(
             &temporary.directory,
             STAGED_FILE,
@@ -103,9 +114,11 @@ impl StageDirectory {
                 OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
                 Mode::empty(),
             )?);
-            if !same_inode(&identity, &fs::fstat(&directory)?) {
+            let opened = fs::fstat(&directory)?;
+            if !same_inode(&identity, &opened) {
                 return Err(changed());
             }
+            check_private(&opened)?;
             Ok(directory)
         })();
         let directory = match directory {
@@ -137,6 +150,13 @@ impl Drop for VolumeDestination {
             remove_entry(&self.temporary.directory, STAGED_FILE.as_ref(), &original);
         }
     }
+}
+
+fn check_private(directory: &Stat) -> io::Result<()> {
+    if directory.st_uid != nix::unistd::geteuid().as_raw() || directory.st_mode & 0o077 != 0 {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(())
 }
 
 fn remove_directory(parent: &File, name: &str, identity: &Stat) {
@@ -205,11 +225,18 @@ mod tests {
     #[test]
     fn refuses_a_replaced_parent_and_removes_its_staging_from_the_original() {
         let scratch = tempfile::tempdir().unwrap();
+        let private = tempfile::Builder::new()
+            .permissions(
+                <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o700),
+            )
+            .tempdir()
+            .unwrap();
         let parent = scratch.path().join("parent");
         let moved = scratch.path().join("moved");
         fs::create_dir(&parent).unwrap();
         let destination = parent.join("result");
-        let (staging, mut content) = VolumeDestination::stage(&destination).unwrap();
+        let (staging, mut content) =
+            VolumeDestination::stage(&destination, private.path()).unwrap();
         content.write_all(b"original stage").unwrap();
         fs::rename(&parent, &moved).unwrap();
         fs::create_dir(&parent).unwrap();
@@ -220,6 +247,7 @@ mod tests {
         assert!(!moved.join("result").exists());
         drop(staging);
         assert_eq!(moved.read_dir().unwrap().count(), 0);
+        assert_eq!(private.path().read_dir().unwrap().count(), 0);
         assert_eq!(fs::read(substitute).unwrap(), b"replacement");
     }
 
@@ -227,10 +255,17 @@ mod tests {
     fn refuses_replacing_the_staged_inode_or_publishing_after_cancellation() {
         let scratch = tempfile::tempdir().unwrap();
         let destination = scratch.path().join("result");
-        let (staging, mut content) = VolumeDestination::stage(&destination).unwrap();
+        let private = tempfile::Builder::new()
+            .permissions(
+                <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o700),
+            )
+            .tempdir()
+            .unwrap();
+        let (staging, mut content) =
+            VolumeDestination::stage(&destination, private.path()).unwrap();
         content.write_all(b"original stage").unwrap();
         assert!(staging.publish(&AtomicBool::new(true)).is_err());
-        let substitute = scratch
+        let substitute = private
             .path()
             .join(&staging.temporary.name)
             .join(STAGED_FILE);
@@ -240,5 +275,23 @@ mod tests {
         drop(staging);
         assert!(!destination.exists());
         assert_eq!(fs::read(substitute).unwrap(), b"replacement");
+    }
+    #[test]
+    fn requires_the_private_owner_runtime_before_staging() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let private = tempfile::Builder::new()
+            .permissions(
+                <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o700),
+            )
+            .tempdir()
+            .unwrap();
+        let destination = private.path().join("result");
+        fs::set_permissions(private.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(matches!(
+            VolumeDestination::stage(&destination, private.path()),
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied
+        ));
+        assert_eq!(private.path().read_dir().unwrap().count(), 0);
     }
 }
