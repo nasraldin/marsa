@@ -51,9 +51,8 @@ impl OverviewClient {
 
     async fn sample_with_cache(&self, prefer_cache: bool) -> OverviewSample {
         let containers = async {
-            let rows: Vec<ContainerSummary> = self
-                .read(Section::Containers, None, prefer_cache)
-                .await?;
+            let rows: Vec<ContainerSummary> =
+                self.read(Section::Containers, None, prefer_cache).await?;
             let stacks = rows
                 .iter()
                 .filter_map(ContainerSummary::compose_project)
