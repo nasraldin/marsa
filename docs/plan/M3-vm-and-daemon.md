@@ -44,7 +44,7 @@ Design: [03 Host daemon](../03-host-daemon.md), [04 Virtualization on macOS](../
 
 ### M3-04 Qualify strict native IPv4 NAT
 
-- **Status:** blocked (external HTTPS over native NAT times out or DHCP fails on the Tier 2 Mac)
+- **Status:** in progress
 - **Depends on:** M3-03, M3-16
 - **Docs:** [04 Virtual hardware](../04-virtualization-macos.md#virtual-hardware), [06 Network modes](../06-networking.md#network-modes)
 - **Do:** Qualify the native VZ attachment with the strict IPv4 guest test on Apple silicon.
