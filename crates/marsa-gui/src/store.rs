@@ -12,6 +12,7 @@ use marsa_client::{
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AppState {
     daemon: Option<DaemonSnapshot>,
+    docker_revision: u64,
     containers: Arc<BTreeMap<ContainerId, ContainerSummary>>,
     images: Arc<BTreeMap<String, ImageSummary>>,
     volumes: Arc<BTreeMap<String, VolumeSummary>>,
@@ -19,13 +20,7 @@ pub struct AppState {
     compose_projects: Arc<BTreeMap<String, ComposeProject>>,
 }
 
-#[derive(Default)]
-pub(crate) struct ResourceSnapshot {
-    pub(crate) containers: Vec<ContainerSummary>,
-    pub(crate) images: Vec<ImageSummary>,
-    pub(crate) volumes: Vec<VolumeSummary>,
-    pub(crate) networks: Vec<NetworkSummary>,
-}
+pub(crate) use marsa_client::docker::DockerInventory as ResourceSnapshot;
 
 /// A Compose project discovered from the labels of existing containers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +52,7 @@ impl AppState {
         );
         Self {
             daemon: None,
+            docker_revision: 0,
             containers,
             compose_projects: projects,
             images,
@@ -139,16 +135,17 @@ impl Store {
         }
     }
 
-    pub(crate) fn apply(&self, event: DaemonEvent) {
+    pub(crate) fn apply(&self, event: DaemonEvent, clear_resources: bool) {
         let Some(body) = event.body else { return };
         self.0.update(|state| {
+            let cleared = clear_resources && clear_inventory(state);
             if let Body::Snapshot(snapshot) = body {
-                return replace(&mut state.daemon, Some(snapshot));
+                return replace(&mut state.daemon, Some(snapshot)) || cleared;
             }
             let Some(daemon) = &mut state.daemon else {
-                return false;
+                return cleared;
             };
-            match body {
+            let changed = match body {
                 Body::Snapshot(_) => false,
                 Body::Engine(engine) => replace(&mut daemon.engine, Some(engine)),
                 Body::Settings(settings) => {
@@ -165,48 +162,51 @@ impl Store {
                 }
                 // Host sleep, wake and network-change notices are transient:
                 // the engine state that follows them arrives as Body::Engine.
-                Body::Host(_) => false,
-            }
+                Body::Host(_) | Body::DockerInventoryChanged(_) => false,
+            };
+            changed || cleared
         });
     }
 
-    pub(crate) fn replace_docker(&self, snapshot: ResourceSnapshot) {
-        let AppState {
-            containers,
-            compose_projects: projects,
-            images,
-            volumes,
-            networks,
-            ..
-        } = AppState::index_resources(snapshot);
+    pub(crate) fn docker_revision(&self) -> u64 {
+        self.0.observe().read(|state| state.docker_revision)
+    }
+
+    pub(crate) fn replace_docker(&self, snapshot: ResourceSnapshot, revision: u64) {
+        let resources = AppState::index_resources(snapshot);
         self.0.update(|state| {
-            let containers_changed = replace(&mut state.containers, containers);
-            let projects_changed = replace(&mut state.compose_projects, projects);
-            let images_changed = replace(&mut state.images, images);
-            let volumes_changed = replace(&mut state.volumes, volumes);
-            let networks_changed = replace(&mut state.networks, networks);
-            containers_changed
-                || projects_changed
-                || images_changed
-                || volumes_changed
-                || networks_changed
+            if state.docker_revision != revision
+                || !state.engine().is_some_and(|engine| {
+                    use marsa_client::api::EngineState;
+                    matches!(engine.state(), EngineState::Ready | EngineState::Idle)
+                })
+            {
+                return false;
+            }
+            apply_inventory(state, resources)
         });
     }
 
     pub(crate) fn reset(&self) {
         self.0.update(|state| {
-            if state.daemon.is_none()
-                && state.containers.is_empty()
-                && state.images.is_empty()
-                && state.volumes.is_empty()
-                && state.networks.is_empty()
-            {
-                return false;
-            }
-            *state = AppState::default();
-            true
+            let was_connected = state.daemon.take().is_some();
+            clear_inventory(state) || was_connected
         });
     }
+}
+
+fn clear_inventory(state: &mut AppState) -> bool {
+    state.docker_revision = state.docker_revision.wrapping_add(1);
+    apply_inventory(state, AppState::default())
+}
+
+fn apply_inventory(state: &mut AppState, resources: AppState) -> bool {
+    let containers_changed = replace(&mut state.containers, resources.containers);
+    let projects_changed = replace(&mut state.compose_projects, resources.compose_projects);
+    let images_changed = replace(&mut state.images, resources.images);
+    let volumes_changed = replace(&mut state.volumes, resources.volumes);
+    let networks_changed = replace(&mut state.networks, resources.networks);
+    containers_changed || projects_changed || images_changed || volumes_changed || networks_changed
 }
 
 fn container_index(rows: Vec<ContainerSummary>) -> Arc<BTreeMap<ContainerId, ContainerSummary>> {
@@ -290,34 +290,43 @@ mod tests {
         });
         let timeout = std::time::Duration::from_secs(2);
         assert_eq!(recv.recv_timeout(timeout).unwrap(), None);
-        store.apply(DaemonEvent {
-            body: Some(Body::Snapshot(DaemonSnapshot {
-                engine: Some(EngineStatus {
-                    state: 2,
+        store.apply(
+            DaemonEvent {
+                body: Some(Body::Snapshot(DaemonSnapshot {
+                    engine: Some(EngineStatus {
+                        state: 2,
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
+                })),
                 ..Default::default()
-            })),
-            ..Default::default()
-        });
+            },
+            false,
+        );
         assert_eq!(recv.recv_timeout(timeout).unwrap(), Some(2));
-        store.apply(DaemonEvent {
-            body: Some(Body::Settings(marsa_client::api::SettingsChanged {
-                revision: 1,
-            })),
-            ..Default::default()
-        });
+        store.apply(
+            DaemonEvent {
+                body: Some(Body::Settings(marsa_client::api::SettingsChanged {
+                    revision: 1,
+                })),
+                ..Default::default()
+            },
+            false,
+        );
         assert!(
             recv.recv_timeout(std::time::Duration::from_millis(30))
                 .is_err()
         );
-        store.apply(DaemonEvent {
-            body: Some(Body::Engine(EngineStatus {
-                state: 3,
+        store.apply(
+            DaemonEvent {
+                body: Some(Body::Engine(EngineStatus {
+                    state: 3,
+                    ..Default::default()
+                })),
                 ..Default::default()
-            })),
-            ..Default::default()
-        });
+            },
+            false,
+        );
         assert_eq!(recv.recv_timeout(timeout).unwrap(), Some(3));
     }
 }

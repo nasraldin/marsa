@@ -13,6 +13,8 @@ use marsa_proto::host::v1::DockerOverviewSection;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub(super) const CACHE_SECTION_LIMIT: usize = 2 * 1024 * 1024;
+
 /// Sections the daemon may retain between Docker round-trips.
 const CACHEABLE: &[DockerOverviewSection] = &[
     DockerOverviewSection::Containers,
@@ -98,7 +100,7 @@ impl InventoryCache {
         observed_at_unix_millis: i64,
     ) -> Result<(), InventoryCacheError> {
         let key = section_key(section)?;
-        if json.len() > 2 * 1024 * 1024 {
+        if json.len() > CACHE_SECTION_LIMIT {
             return Err(InventoryCacheError::Io(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "overview section exceeds the 2 MiB cache limit",

@@ -68,6 +68,13 @@ Host API minor 14 extends `Stats.DockerOverview` with `prefer_cache` and
 disk and may return them without contacting Docker. Container stats remain
 live-only. See D-034.
 
+Host API minor 15 adds `DaemonEvent.docker_inventory_changed`. The daemon
+coalesces changes from the already-running engine and sends an invalidation
+on the same ordered stream as lifecycle events. It contains no Docker event
+payload. Fetch fresh container, image, volume or network sections using
+`Stats.DockerOverview`. Each of those live collection responses can carry
+up to 8 MiB of JSON. Cached sections retain their 2 MiB limit.
+
 `Disk.Reclaim` requests discard of unused blocks from the current ready
 guest's data disk. It returns the guest's submitted discard bytes and the
 observed decrease in allocated bytes on the same host image. A stopped

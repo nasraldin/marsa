@@ -127,12 +127,21 @@ Arabic editing and VoiceOver integration.
   - Views re-render only when their selected state changes (tested with counters).
   - Closing the window cancels every stream.
 
-The owner socket delivers ordered daemon snapshots and events. The desktop reads
-Docker collections on engine readiness and explicit refresh. A persistent
-subscription through the public Docker socket keeps its activity lease open
-and prevents idle shutdown. Live Docker collection invalidation needs a
-non-waking observer on the owner API before the event-driven acceptance is
-complete.
+The owner socket delivers an ordered daemon snapshot and events, including
+Docker inventory invalidations from a passive observer. The window refreshes
+the relevant store from the owner API and retains unchanged projections for
+selectors. A separate app-owned observer delivers approval and engine
+notifications when all windows are closed, as required by M7-12 and M7-13.
+
+- **Evidence:** Fake clients delivered 100,000 ordered lines under the
+  batch limits, coalesced stats, counted route-specific redraw decisions, and
+  dropped daemon, log, and stats streams when the window closed with live
+  handles. The fake guest observed Docker events while still reaching idle
+  shutdown. The signed Apple silicon packaged test on macOS 27.2.1 observed a
+  Docker volume creation on the owner stream and read the new volume through
+  the passive inventory API.
+- **Follow-up:** [M7-48](M7-gui-features.md#m7-48-drive-overview-inventory-from-docker-invalidations)
+  moves the Overview inventory projection off the live utilization timer.
 
 ### M6-08 Keyboard and accessibility foundation
 

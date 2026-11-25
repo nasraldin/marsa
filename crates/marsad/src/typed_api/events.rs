@@ -101,6 +101,13 @@ impl Bus {
         }))))
     }
 
+    pub(super) fn invalidate_docker_inventory(&self) {
+        let mut state = self.lock();
+        if state.binds_are_live() {
+            state.publish(Body::DockerInventoryChanged(Default::default()));
+        }
+    }
+
     pub(super) fn backend(&self, name: &str) {
         self.lock().engine.backend = name.into();
     }

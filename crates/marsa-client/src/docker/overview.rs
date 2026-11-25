@@ -2,15 +2,18 @@
 
 use std::{collections::BTreeSet, time::Duration};
 
-use marsa_proto::host::v1::{DockerOverviewRequest, DockerOverviewSection as Section};
+use marsa_proto::host::{
+    DOCKER_INVENTORY_RESPONSE_LIMIT,
+    v1::{DockerOverviewRequest, DockerOverviewSection as Section},
+};
 use serde::{Deserialize, de::DeserializeOwned};
 use tokio::{task::JoinSet, time::sleep};
 
-use crate::MarsaClient;
+use crate::{ClientError, MarsaClient};
 
 use super::{
-    ContainerId, ContainerSummary, DockerClient, ExternalEndpoint, ImageSummary, NetworkSummary,
-    StatsSample, VolumeSummary, environment_report::display_value,
+    ContainerId, ContainerSummary, DockerClient, DockerError, ExternalEndpoint, ImageSummary,
+    NetworkSummary, StatsSample, VolumeSummary, environment_report::display_value,
 };
 
 const OVERVIEW_API_MINOR: u32 = 13;
@@ -23,6 +26,43 @@ const DISK_TIMEOUT: Duration = Duration::from_secs(40);
 pub(super) const DISK_PATH: &str = "/system/df?verbose=true";
 pub(super) const VERSION_PATH: &str = "/version";
 pub(super) const STATS_PATH: &str = "stats?stream=false";
+
+fn section_timeout(section: Section) -> Duration {
+    if section == Section::Disk {
+        DISK_TIMEOUT
+    } else {
+        super::REQUEST_TIMEOUT
+    }
+}
+
+impl MarsaClient {
+    pub(super) async fn read_docker_snapshot<T: DeserializeOwned>(
+        &self,
+        section: Section,
+        container: Option<&ContainerId>,
+        prefer_cache: bool,
+    ) -> Result<T, DockerError> {
+        let prefer_cache = prefer_cache && self.api_minor() >= CACHE_API_MINOR;
+        let mut request = tonic::Request::new(DockerOverviewRequest {
+            section: section.into(),
+            container_id: container.map_or_else(String::new, |id| id.as_str().to_owned()),
+            prefer_cache,
+        });
+        request.set_timeout(if prefer_cache {
+            Duration::from_secs(2)
+        } else {
+            section_timeout(section)
+        });
+        let response = self
+            .stats()
+            .max_decoding_message_size(DOCKER_INVENTORY_RESPONSE_LIMIT)
+            .docker_overview(request)
+            .await
+            .map_err(ClientError::from)?
+            .into_inner();
+        Ok(serde_json::from_slice(&response.json)?)
+    }
+}
 
 /// Selects the authenticated transport used for a dashboard refresh.
 #[derive(Clone)]
@@ -283,33 +323,11 @@ impl OverviewClient {
         container: Option<&ContainerId>,
         prefer_cache: bool,
     ) -> Option<T> {
-        let deadline = if section == Section::Disk {
-            DISK_TIMEOUT
-        } else {
-            super::REQUEST_TIMEOUT
-        };
         match self {
-            Self::Marsa(client) if client.api_minor() >= OVERVIEW_API_MINOR => {
-                let use_cache = prefer_cache && client.api_minor() >= CACHE_API_MINOR;
-                let mut request = tonic::Request::new(DockerOverviewRequest {
-                    section: section.into(),
-                    container_id: container.map_or_else(String::new, |id| id.as_str().to_owned()),
-                    prefer_cache: use_cache,
-                });
-                // Cached hits should not wait on Docker round-trips.
-                request.set_timeout(if use_cache {
-                    Duration::from_secs(2)
-                } else {
-                    deadline
-                });
-                let response = client
-                    .stats()
-                    .docker_overview(request)
-                    .await
-                    .ok()?
-                    .into_inner();
-                serde_json::from_slice(&response.json).ok()
-            }
+            Self::Marsa(client) if client.api_minor() >= OVERVIEW_API_MINOR => client
+                .read_docker_snapshot(section, container, prefer_cache)
+                .await
+                .ok(),
             Self::Marsa(_) => None,
             Self::External(client) => {
                 let path = match section {
@@ -324,7 +342,10 @@ impl OverviewClient {
                     }
                     Section::Unspecified => return None,
                 };
-                client.snapshot_with_timeout(&path, deadline).await.ok()
+                client
+                    .snapshot_with_timeout(&path, section_timeout(section))
+                    .await
+                    .ok()
             }
         }
     }

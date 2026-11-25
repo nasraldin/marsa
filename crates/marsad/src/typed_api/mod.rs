@@ -11,6 +11,7 @@ mod engine;
 mod events;
 mod factory_reset;
 mod inventory_cache;
+mod inventory_events;
 mod meta;
 mod network;
 mod proxy_activation;
@@ -321,6 +322,7 @@ impl TypedApi {
         stop: impl Future<Output = ()>,
     ) -> Result<(), tonic::transport::Error> {
         self.spawn_inventory_refresh();
+        self.spawn_inventory_observer();
         Server::builder()
             .timeout(Duration::from_secs(180))
             .add_service(
@@ -356,7 +358,11 @@ impl TypedApi {
                     .max_encoding_message_size(CONTROL_LIMIT),
             )
             .add_service(EventsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
-            .add_service(StatsServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
+            .add_service(
+                StatsServer::new(self.clone())
+                    .max_decoding_message_size(CONTROL_LIMIT)
+                    .max_encoding_message_size(marsa_proto::host::DOCKER_INVENTORY_RESPONSE_LIMIT),
+            )
             .add_service(NetworkServer::new(self.clone()).max_decoding_message_size(CONTROL_LIMIT))
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
                 stop.await;

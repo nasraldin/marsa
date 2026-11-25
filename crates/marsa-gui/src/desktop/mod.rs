@@ -211,6 +211,14 @@ impl Desktop {
                     if this
                         .update(cx, |this, cx| {
                             let before = this.engine();
+                            let daemon_changed = this.state.daemon() != state.daemon();
+                            let inventory_changed = this.environment.read(cx).includes_marsa()
+                                && route_inventory_changed(
+                                    this.route,
+                                    this.palette_open,
+                                    &this.state,
+                                    state,
+                                );
                             this.state = state.clone();
                             if let Some(current) =
                                 this.engine().filter(|current| Some(*current) != before)
@@ -220,10 +228,14 @@ impl Desktop {
                                 }
                                 this.history.push_back(current);
                             }
-                            let observed = this.state.daemon().cloned();
-                            this.system
-                                .update(cx, |view, cx| view.observe(observed.as_ref(), cx));
-                            cx.notify();
+                            if daemon_changed {
+                                let observed = this.state.daemon().cloned();
+                                this.system
+                                    .update(cx, |view, cx| view.observe(observed.as_ref(), cx));
+                            }
+                            if daemon_changed || inventory_changed {
+                                cx.notify();
+                            }
                         })
                         .is_err()
                     {
@@ -707,4 +719,86 @@ fn palette_for(window: &Window, preference: Theme) -> Palette {
         _ => Appearance::Light,
     };
     Palette::resolve(preference, appearance)
+}
+
+fn route_inventory_changed(
+    route: Route,
+    palette_open: bool,
+    before: &AppState,
+    after: &AppState,
+) -> bool {
+    let containers_changed = || !Arc::ptr_eq(&before.containers(), &after.containers());
+    let images_changed = || !Arc::ptr_eq(&before.images(), &after.images());
+    let volumes_changed = || !Arc::ptr_eq(&before.volumes(), &after.volumes());
+    let networks_changed = || !Arc::ptr_eq(&before.networks(), &after.networks());
+    let projects_changed = || !Arc::ptr_eq(&before.compose_projects(), &after.compose_projects());
+
+    if palette_open || route == Route::Reports {
+        return containers_changed()
+            || images_changed()
+            || volumes_changed()
+            || networks_changed()
+            || projects_changed();
+    }
+    match route {
+        Route::Images => containers_changed() || images_changed(),
+        Route::Volumes => containers_changed() || volumes_changed(),
+        Route::Networks => containers_changed() || networks_changed(),
+        Route::Compose => containers_changed() || projects_changed(),
+        // Containers has its own narrower store subscription.
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod state_tests {
+    use marsa_client::docker::{DockerInventory, VolumeSummary};
+
+    use super::*;
+
+    #[test]
+    fn unrelated_inventory_does_not_invalidate_the_current_route() {
+        // Build state through the same store that keeps unchanged maps shared by views.
+        let store = crate::store::Store::default();
+        use marsa_client::api::{DaemonEvent, DaemonSnapshot, EngineStatus, daemon_event::Body};
+        store.apply(
+            DaemonEvent {
+                body: Some(Body::Snapshot(DaemonSnapshot {
+                    engine: Some(EngineStatus {
+                        state: EngineState::Ready.into(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+            false,
+        );
+        let before = store.select(Clone::clone).current().clone();
+        store.replace_docker(
+            DockerInventory {
+                volumes: vec![VolumeSummary {
+                    name: "fixture".into(),
+                    driver: "local".into(),
+                    scope: "local".into(),
+                    created_at: None,
+                }],
+                ..Default::default()
+            },
+            store.docker_revision(),
+        );
+        let after = store.select(Clone::clone).current().clone();
+        let redraw_count = |route, palette_open| {
+            usize::from(route_inventory_changed(
+                route,
+                palette_open,
+                &before,
+                &after,
+            ))
+        };
+        assert_eq!(redraw_count(Route::Images, false), 0);
+        assert_eq!(redraw_count(Route::Containers, false), 0);
+        assert_eq!(redraw_count(Route::Volumes, false), 1);
+        assert_eq!(redraw_count(Route::Images, true), 1);
+    }
 }

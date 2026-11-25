@@ -101,3 +101,70 @@ async fn prefer_cache_returns_last_snapshot_without_docker() {
         first.observed_at_unix_millis
     );
 }
+
+#[tokio::test]
+async fn docker_inventory_events_are_observed_without_preventing_idle_stop() {
+    let event = b"{\"Type\":\"container\",\"Action\":\"start\"}\n";
+    let headers =
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: application/json\r\n\r\n";
+    let mut body = format!("{:x}\r\n", event.len()).into_bytes();
+    body.extend_from_slice(event);
+    body.extend_from_slice(b"\r\n");
+    let fixture = Fixture::with_docker(
+        vec![AgentStep::Send(b"HR".to_vec())],
+        vec![
+            AgentStep::Expect(b"GET /v1.57/events".to_vec()),
+            AgentStep::Send(headers.to_vec()),
+            AgentStep::Wait(Duration::from_millis(400)),
+            AgentStep::Send(body),
+            AgentStep::Wait(Duration::from_secs(10)),
+        ],
+    )
+    .await;
+    let mut events = fixture.events().await;
+    let initial = next(&mut events).await;
+    assert!(matches!(initial.body, Some(Body::Snapshot(_))));
+    assert_eq!(
+        fixture.supervisor.snapshot().state,
+        marsad::supervisor::State::Stopped
+    );
+
+    let mut settings = SettingsClient::new(fixture.channel.clone());
+    let revision = settings
+        .get(GetSettingsRequest {})
+        .await
+        .unwrap()
+        .into_inner()
+        .revision;
+    settings
+        .update(UpdateSettingsRequest {
+            request_id: action(1).request_id,
+            expected_revision: revision,
+            settings_toml: "[vm]\nidle_timeout = 1\n".into(),
+        })
+        .await
+        .unwrap();
+    fixture.supervisor.ensure_ready().await.unwrap();
+
+    let changed = timeout(WAIT, async {
+        let mut cursor = initial.sequence;
+        let mut invalidations = 0;
+        loop {
+            let event = events.message().await.unwrap().unwrap();
+            assert_eq!(event.sequence, cursor + 1);
+            cursor = event.sequence;
+            if matches!(event.body, Some(Body::DockerInventoryChanged(_))) {
+                invalidations += 1;
+                if invalidations == 2 {
+                    return event;
+                }
+            }
+        }
+    })
+    .await
+    .expect("inventory invalidation");
+    fixture.supervisor.report_containers(0).await.unwrap();
+    let idle = next_state(&mut events, changed, EngineState::Idle).await;
+    let stopping = next_state(&mut events, idle, EngineState::Stopping).await;
+    next_state(&mut events, stopping, EngineState::Stopped).await;
+}
