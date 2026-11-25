@@ -95,6 +95,10 @@ async fn tests_and_checks_out_a_public_https_branch() {
         path.parent(),
         Some(root.path().canonicalize().unwrap().as_path())
     );
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
     assert!(path.join("README").is_file());
     let second = source.checkout(root.path()).await.unwrap();
     assert_ne!(path, second);
