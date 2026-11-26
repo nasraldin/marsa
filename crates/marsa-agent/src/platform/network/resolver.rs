@@ -172,6 +172,10 @@ mod tests {
     #[test]
     fn applies_aliases_and_keeps_security_options() {
         let request = ConfigureNetwork {
+            registries: Some(marsa_proto::guest::v1::RegistryConfig {
+                mirrors: vec!["https://mirror.test".into()],
+                insecure: vec!["registry.test:5000".into()],
+            }),
             native_dns: None,
             dns_servers: vec!["1.1.1.1".into()],
             search_domains: vec!["corp.example".into()],
@@ -199,6 +203,8 @@ mod tests {
         .unwrap();
         let daemon: Value = serde_json::from_slice(&daemon).unwrap();
         assert_eq!(daemon["live-restore"], false);
+        assert_eq!(daemon["registry-mirrors"], json!(["https://mirror.test"]));
+        assert_eq!(daemon["insecure-registries"], json!(["registry.test:5000"]));
         assert_eq!(daemon["seccomp-profile"], "builtin");
         assert_eq!(daemon["host-gateway-ips"], json!(["192.0.2.1"]));
         assert_eq!(daemon["proxies"]["http-proxy"], "http://proxy.example:3128");
