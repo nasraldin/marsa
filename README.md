@@ -16,7 +16,7 @@ Marsa (Arabic: مرسى, "harbour") is a fast, lightweight, open-source desktop 
 | Item | Decision |
 |---|---|
 | Platform | macOS on Apple silicon only |
-| Container images | linux/arm64 only (no Rosetta, no x86 emulation) |
+| Container images | Native linux/arm64 and translated linux/amd64 (M4-14 qualification in progress) |
 | Hypervisor | Apple Virtualization.framework (libkrun evaluated as a second backend) |
 | Guest | Alpine-based minimal root filesystem, read-only, with a separate data disk |
 | GUI | GPUI with gpui-component, gated by a right-to-left spike |

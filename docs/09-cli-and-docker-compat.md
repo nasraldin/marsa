@@ -130,6 +130,7 @@ Each line is an automated test in the conformance suite ([13](13-testing-and-ben
 
 | Area | Must work |
 |---|---|
+| Architecture | Native arm64 and translated amd64 builds and containers. Multi-platform images prefer arm64. |
 | Core | `run`, `exec`, `attach`, `logs -f`, `cp`, `stats`, `events`, `inspect` |
 | Build | `docker build`, `docker buildx build`, cache mounts, secrets, SSH forwarding |
 | Compose | `up`, `down`, `logs`, `watch`, profiles, healthchecks, depends_on |
@@ -143,10 +144,8 @@ Each line is an automated test in the conformance suite ([13](13-testing-and-ben
 
 | Difference | Reason |
 |---|---|
-| `--platform linux/amd64` fails with a clear message | x86 images are out of scope |
 | Bind mounts outside the shared-folder allowlist are refused with instructions | Security decision |
 | Ports published on `0.0.0.0` bind to loopback unless LAN access is enabled | [D-038](15-decisions.md#d-038-bind-published-ports-to-loopback-by-default) |
-| Multi-arch builds produce arm64 only unless a remote builder is used | No emulation |
 
 Each difference is documented for users and returned as an explicit error, never a silent failure.
 

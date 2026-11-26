@@ -15,7 +15,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-004 | GPUI for the GUI, gated by a right-to-left spike | Superseded by D-023 |
 | D-005 | Tauri 2 as the GUI fallback | Superseded by D-023 |
 | D-006 | macOS on Apple silicon first | Accepted |
-| D-007 | No Rosetta, no x86 images, no Intel Macs | Accepted |
+| D-007 | Original Apple silicon scope | Superseded for Linux workloads by D-039 |
 | D-008 | Virtualization.framework default; libkrun benchmarked | Accepted |
 | D-009 | One shared VM, not one VM per container | Accepted |
 | D-010 | Alpine-based minimal guest with read-only root | Accepted |
@@ -44,6 +44,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-036 | Offer the optional Docker socket link in Settings | Accepted |
 | D-037 | Offer opt-in crash reporting | Accepted |
 | D-038 | Bind published ports to loopback by default | Accepted |
+| D-039 | Automatically translate amd64 Linux workloads | Accepted |
 
 ---
 
@@ -306,3 +307,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 ## D-038 Bind published ports to loopback by default
 
 On 2026-11-26 the owner resolved Q-07. Marsa binds published ports on macOS to IPv4 and IPv6 loopback by default. LAN access requires explicit opt-in. This keeps development services private when the Mac changes networks. M4-09 implements and qualifies the host listeners.
+
+## D-039 Automatically translate amd64 Linux workloads
+
+On 2026-11-26 the owner approved local amd64 builds and container execution on Apple silicon, superseding the Linux workload restriction in D-007. The host and guest kernel remain arm64. Multi-platform images prefer native arm64. Marsa configures macOS 27’s included Intel Linux translator at guest boot so amd64 programs can execute during Dockerfile builds and inside containers without host administrator access or separate installation. A replacement default backend must pass the same workload tests. [Apple’s Linux VM integration](https://developer.apple.com/documentation/virtualization/running-intel-binaries-in-linux-vms)

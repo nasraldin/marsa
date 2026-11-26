@@ -22,7 +22,7 @@ A container desktop that starts in seconds, idles near zero, feels native, speak
 | The GUI is optional | The daemon runs headless. Closing the window leaves nothing running except the daemon and, if containers are running, the VM. |
 | One Rust daemon | All host logic lives in `marsad`. The GUI, CLI and MCP server are clients of the same typed API. |
 | Native virtualization only | Each OS uses its own hypervisor. No QEMU, no emulation. |
-| Modern platforms only | No legacy OS versions, no Intel Macs, no x86 emulation. |
+| Modern platforms only | No legacy OS versions, no Intel Macs. |
 | Bilingual desktop | The desktop supports English (US) and Modern Standard Arabic with mirrored layouts. The command-line interface uses English. |
 | Secure by default | Least privilege, explicit folder sharing, signed updates, and permission tiers for agents. |
 | Correct and complete | No demo-quality features. Each feature ships in every language and theme variant, with tests. |
@@ -45,7 +45,7 @@ A container desktop that starts in seconds, idles near zero, feels native, speak
 | Item | Status |
 |---|---|
 | Windows and Linux hosts | Planned after version 1. See [14 Future platforms](14-future-platforms.md). |
-| x86 (amd64) images on Apple silicon | **Decided:** not supported. No Rosetta, no QEMU emulation. |
+| x86 (amd64) images on Apple silicon | **Decided:** supported through macOS 27 Intel Linux translation (D-039). |
 | Intel Macs | **Decided:** not supported. |
 | Kubernetes | **Decided:** later. |
 | AI assistant inside the GUI | Later. The MCP server is in version 1; the in-app assistant is not. |

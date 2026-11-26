@@ -256,7 +256,7 @@ dedicated-account test exercises both parts on one Mac. [Reproduction](../../cra
 - **Deliver:** `tests/conformance/`, wired into Tier 2.
 - **Accept when:**
   - The suite passes on the virtualization runner.
-  - `--platform linux/amd64` fails with the documented message.
+  - An amd64 Dockerfile executes a build step and the resulting container runs on the packaged engine without manual translator setup. An amd64-only image runs by ordinary tag, multi-platform builds execute both variants, and arm64 remains the default for multi-platform images (D-039).
   - Results are published as a CI artifact per run.
 
 ### M4-15 Apply staged Docker engine configuration
