@@ -22,6 +22,8 @@ If you have no Docker command on your PATH, use the bundled client.
 /Applications/Marsa.app/Contents/Resources/bin/docker --context marsa run --rm hello-world
 ```
 
+On a fresh Docker profile, the bundled command uses Marsa’s socket when the default Docker socket is absent. Run your usual `docker build` and `docker run` with this command. It prefers arm64 when available and selects amd64 for an amd64-only registry index. Automatic build selection examines local Dockerfiles. For a Dockerfile passed on standard input, an archive or a remote build context that needs amd64, use `docker build --platform linux/amd64`. A saved Docker context or an explicit host selects the engine you configured.
+
 The corresponding Marsa command is at `/Applications/Marsa.app/Contents/MacOS/marsa`. Run it as `marsa` in the examples below if you have already put it on your PATH. Run `marsa env` to see the shell export for Marsa’s private Docker socket. If your shell sets `DOCKER_CONTEXT`, it takes precedence over `DOCKER_HOST`.
 
 The desktop shows resources from Marsa, detected local providers, and configured Docker contexts. Use **Filter by context** to show one engine, or choose **All contexts** for a combined inventory. The source badge identifies each row’s engine. Click the context card in the sidebar to open **Settings → Docker** and scan or choose an engine.
