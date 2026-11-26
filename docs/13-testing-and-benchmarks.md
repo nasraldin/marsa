@@ -20,7 +20,7 @@ flowchart TB
 | Static checks | Hosted runner | Every push |
 | Unit | Hosted runner | Every push |
 | Integration (fake backend) | Hosted runner | Every push |
-| System (real VM) | Apple silicon runner with virtualization | Pull requests labelled for it, and every commit on `main` |
+| System (real VM) | Apple silicon runner with virtualization | Manual dispatch on the protected default branch of the private validation repository |
 | End-to-end and soak | Dedicated Mac | Nightly and before releases |
 
 ## The fake backend
