@@ -36,6 +36,7 @@ fn all_commands_have_help() {
         &["network"],
         &["network", "status"],
         &["network", "mode"],
+        &["network", "apply"],
         &["logs"],
         &["diagnose"],
         &["update"],

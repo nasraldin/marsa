@@ -107,7 +107,7 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 - **Status:** done
 - **Depends on:** M5-02, M4-06
 - **Docs:** [07 The allowlist](../07-file-sharing-and-storage.md#the-allowlist), [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
-- **Do:** List current typed bind-approval events, show the exact requested directories, and submit once, always or deny by approval ID. Explain when a VM restart is needed. Provide English and Arabic display strings and stable JSON.
+- **Do:** List current typed bind-approval events, show the exact requested directories, and submit once, always or deny by approval ID. Explain when a VM restart is needed. Use English CLI messages and stable JSON under every shell locale (D-033).
 - **Deliver:** CLI commands and a signed integration test covering authorization from the real Docker CLI.
 - **Accept when:**
   - A request from `docker run -v` can be reviewed and granted from a separate terminal, and the mount works after explicit application.
@@ -119,7 +119,7 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 - **Depends on:** M5-02, M4-05
 - **Docs:** [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
 - **Do:** Implement `config get|set|list` and `share list|add|remove` through the authenticated typed client. Use the current revision for settings updates and expose the daemon's validation and restart results.
-- **Deliver:** command implementations and tests in English, Arabic, and JSON.
+- **Deliver:** command implementations and tests for English messages and stable JSON under English and Arabic shell locales (D-033).
 - **Accept when:**
   - The daemon's validation message explains an invalid setting.
   - Adding a protected path fails safely with an explanation.
@@ -130,7 +130,7 @@ A signed CLI and daemon in a disposable home also exercised the factory service 
 - **Status:** done
 - **Depends on:** M5-02, M4-18
 - **Docs:** [06 Mode selection](../06-networking.md#network-modes), [09 The marsa CLI](../09-cli-and-docker-compat.md#the-marsa-cli)
-- **Do:** Report configured and active network modes, connectivity reason, and current addresses from the authenticated read-only network RPC. Localize the human-readable output and keep JSON stable.
+- **Do:** Report configured and active network modes, connectivity reason, and current addresses from the authenticated read-only network RPC. Use English for human-readable output under every shell locale and keep JSON stable (D-033).
 - **Deliver:** `marsa network status` and a packaged verification.
 - **Accept when:**
   - A stopped daemon reports the configured mode without an active mode or stale addresses.

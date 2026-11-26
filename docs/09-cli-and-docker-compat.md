@@ -185,6 +185,7 @@ marsa disk cleanup [--dry-run]  Preview and run cleanup, then reclaim space
 marsa disk reclaim              Return freed space to macOS
 marsa network status            Show active networking and observed addresses
 marsa network mode [MODE]       Show or save the mode for the next start
+marsa network apply [--yes]     Preview staged networking or approve activation
 marsa logs [--follow]           Daemon and guest logs
 marsa diagnose                  Collect a diagnostics bundle
 marsa update check|apply        Updates
