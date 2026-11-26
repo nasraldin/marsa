@@ -59,6 +59,12 @@ M8-10 owns bind preparation and active host share policy checks. Operate tools r
 
 The official `rmcp` 3.11.0 server and stdio build failed the workspace dependency policy because its required `chrono` dependency is unmaintained. The bounded stdio transport uses the existing Tokio and Serde dependencies. [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html)
 
+The official Python MCP SDK 2.3.0 launched `marsa mcp` over stdio with
+a disposable project and user profile. Against the signed local daemon
+and a running BusyBox container, it discovered all nine tools and called
+each successfully, including logs, stats and inspection by full container
+and image ID. All nine responses carried the untrusted-data marker.
+
 ### M8-05 Operate tools
 
 - **Status:** todo
