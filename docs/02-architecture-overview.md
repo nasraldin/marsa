@@ -244,6 +244,7 @@ flowchart TD
     d --> dproxy
     d --> proto
     d --> core
+    d --> l10n
     client --> proto
     client --> l10n
     cli --> client
@@ -251,13 +252,15 @@ flowchart TD
     gui --> client
     gui --> ui
     ui --> core
+    ui --> l10n
     agent --> proto
+    agent --> core
     init --> core
 ```
 
 Rules the dependency graph enforces:
 
-- The GUI, CLI and MCP server depend only on `marsa-client`. They never link VM, network or proxy code.
+- The CLI and MCP server depend only on `marsa-client` among workspace crates. The GUI also uses `marsa-ui`. All three access the daemon through the client.
 - Guest crates (`marsa-agent`, `marsa-init`) never depend on host-only crates.
 - `marsa-vm` defines the trait. Backends depend on it, never the reverse.
 
