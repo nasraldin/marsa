@@ -13,8 +13,8 @@ This plan turns the design in [`docs/`](../README.md) into ordered, checkable ta
 | M4 | [Docker integration](M4-docker-integration.md) | The standard `docker` CLI and tools work against Marsa | 25 |
 | M5 | [CLI](M5-cli.md) | The `marsa` command-line tool | 12 |
 | M6 | [GUI foundation](M6-gui-foundation.md) | Design system, direction, i18n, themes and the app shell | 14 |
-| M7 | [GUI features](M7-gui-features.md) | Every "must have" screen, in four variants | 19 |
-| M8 | [MCP server](M8-mcp.md) | Agents can operate containers under permission tiers | 9 |
+| M7 | [GUI features](M7-gui-features.md) | Every "must have" screen, in four variants | 53 |
+| M8 | [MCP server](M8-mcp.md) | Agents can operate containers under permission tiers | 11 |
 | M9 | [Hardening](M9-hardening.md) | Security, reliability and recovery proven by tests | 19 |
 | M10 | [Release](M10-release.md) | Signed, notarized, auto-updating distribution | 15 |
 | M11 | [Performance](M11-performance.md) | Benchmarks, the `krun` backend and the default-backend decision | 6 |
