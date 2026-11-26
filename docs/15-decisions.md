@@ -45,6 +45,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-037 | Offer opt-in crash reporting | Accepted |
 | D-038 | Bind published ports to loopback by default | Accepted |
 | D-039 | Automatically translate amd64 Linux workloads | Accepted |
+| D-040 | Ship build-time SSH and plan user-controlled runtime forwarding | Accepted |
 
 ---
 
@@ -315,3 +316,9 @@ On 2026-11-26 the owner resolved Q-07. Marsa binds published ports on macOS to I
 On 2026-11-26 the owner approved local amd64 builds and container execution on Apple silicon, superseding the Linux workload restriction in D-007. The host and guest kernel remain arm64. Multi-platform images prefer native arm64. Marsa configures macOS 27’s included Intel Linux translator at guest boot so amd64 programs can execute during Dockerfile builds and inside containers without host administrator access or separate installation. A replacement default backend must pass the same workload tests. [Apple’s Linux VM integration](https://developer.apple.com/documentation/virtualization/running-intel-binaries-in-linux-vms)
 
 The owner also approved automatic platform selection in Marsa’s bundled Docker command. Docker and Buildx resolve an OCI index before invoking the translator. When an index offers only linux/amd64, the Marsa command selects that platform for the local engine. Explicit platform choices take precedence. The bundled upstream Docker client remains independently usable.
+
+## D-040 Ship build-time SSH and plan user-controlled runtime forwarding
+
+On 2026-11-26 the owner selected build-time SSH on request for the current release. M4-13 qualifies this workflow for private build dependencies. Ordinary containers start without access to the Mac’s agent.
+
+The future compatibility target is an independent runtime option for trusted development containers. A user should be able to choose an agent, review who can use it, grant access for a session and revoke it. Docker Desktop’s explicit socket mount in Docker CLI and Compose is the compatibility target. Podman compatibility will be reported for the specific client, engine and platform tested. M4-27 owns the trust-model decision before implementation, M4-17 owns implementation and M4-28 owns release qualification. This decision authorizes planning the option. Accepting a shared-VM administrator as trusted requires a separate owner decision. [Security design](11-security.md#container-agent-grant-boundary)

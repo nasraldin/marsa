@@ -158,7 +158,7 @@ Each difference is documented for users and returned as an explicit error, never
 
 For Docker builds, pass `docker build --ssh default` with `SSH_AUTH_SOCK` pointing to the intended host agent. A Dockerfile step requests access using `RUN --mount=type=ssh,required=true`. Buildx forwards agent requests through that build's session and BuildKit supplies the step's socket. The private key stays with the host agent. [Build secrets documentation](https://docs.docker.com/build/building/secrets/#ssh-mounts) · [Pinned BuildKit provider](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).
 
-M4-17 tracks opt-in forwarding for bind-mounted agent sockets in regular containers. It requires a separate authorization and transport design. See [SSH agent access](11-security.md#ssh-agent-access).
+Runtime forwarding is planned for developers who need Git or SSH inside a running container. Today those containers have no host-agent access. The planned Docker CLI and Compose workflow uses an explicit socket mount and `SSH_AUTH_SOCK`, with a separate Marsa grant the user can revoke. Build permission applies only to its build session. [D-040](15-decisions.md#d-040-ship-build-time-ssh-and-plan-user-controlled-runtime-forwarding) · [SSH agent access](11-security.md#ssh-agent-access)
 
 Qualify build SSH forwarding on Apple silicon with the [signed VM test fixture](03-host-daemon.md#docker-socket-proxy). The test downloads checksum-pinned Alpine packages on the Mac, installs them without guest egress, and serves a disposable Git repository on the VM's loopback. Only the test public key is sent to that server. A separate macOS agent holds the fixture private key.
 

@@ -28,6 +28,8 @@ The corresponding Marsa command is at `/Applications/Marsa.app/Contents/MacOS/ma
 
 The desktop shows resources from Marsa, detected local providers, and configured Docker contexts. Use **Filter by context** to show one engine, or choose **All contexts** for a combined inventory. The source badge identifies each row’s engine. Click the context card in the sidebar to open **Settings → Docker** and scan or choose an engine.
 
+For a build that needs a private Git dependency, select your Mac’s SSH agent with `docker build --ssh default .` and request it in the relevant Dockerfile step with `RUN --mount=type=ssh,required=true`. The private key stays with the agent. Forwarding the agent into a running development container is planned as a separate opt-in feature.
+
 External connections support user-owned Unix sockets, SSH with a known host, and mutually authenticated TLS. Configure remote credentials and host trust using Docker and OpenSSH. Contexts using plain TCP or skipping certificate verification appear unavailable. Marsa does not change the Docker CLI’s active context.
 
 Open a container to inspect it, view logs, use its terminal, or see live stats. The row menu has lifecycle actions and confirmed removal. **Group actions** expands or collapses the visible groups.

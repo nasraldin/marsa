@@ -292,9 +292,9 @@ On macOS 27.2.1 the packaged VZ test staged a registry mirror and DNS change on 
 ### M4-17 Explicit SSH agent access for containers
 
 - **Status:** blocked (stock Docker and VZ do not provide host-verifiable container identity)
-- **Depends on:** M4-06, M4-13, M4-24
+- **Depends on:** M4-06, M4-13, M4-24, M4-27
 - **Docs:** [09 SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding), [11 SSH agent access](../11-security.md#ssh-agent-access)
-- **Do:** Design explicit authorization for a named container to mount an SSH agent socket at a documented guest path. Enforce the grant on the host, restrict the approved agent operations, authenticate the guest transport, and revoke access on container exit, VM stop or user request. Qualify the VSock transport needed by that design.
+- **Do:** Implement the owner-approved design for explicit authorization for a named container to mount an SSH agent socket at a documented guest path. Enforce the grant on the host, restrict the approved agent operations, authenticate the guest transport, and revoke access on container exit, VM stop or user request. Qualify the VSock transport needed by that design.
 - **Deliver:** Container-scoped SSH forwarding in the host daemon and guest agent, with a documented opt-in and revocation flow.
 - **Accept when:**
   - An authorized container can use an explicitly chosen host agent with a disposable test key.
@@ -414,3 +414,27 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - Background refresh runs only while the engine is ready or idle and stops with the daemon.
 
 - **Evidence:** Unit tests round-trip the cache file across reopen. The typed-api overview fixture fills the cache with a live read, stops the guest Docker script, and still returns the same JSON and timestamp with `prefer_cache`.
+
+
+### M4-27 Design the optional runtime SSH grant
+
+- **Status:** todo
+- **Depends on:** M4-13, M4-24
+- **Docs:** [D-040](../15-decisions.md#d-040-ship-build-time-ssh-and-plan-user-controlled-runtime-forwarding), [Container agent grant boundary](../11-security.md#container-agent-grant-boundary)
+- **Do:** Compare an explicit grant in a trusted shared Docker VM with a separately isolated workload. Specify agent selection, allowed operations, lifetime, revocation, and the CLI and GUI controls to review and withdraw a grant. Specify how Docker CLI and Compose requests for `/run/host-services/ssh-auth.sock` map to that grant. Describe which Podman workflows can use the same interface.
+- **Deliver:** A compatibility matrix, proposed user workflow and owner-reviewed decision record.
+- **Accept when:**
+  - The design states exactly what the user grants, which administrators must be trusted, what the host can verify, and what happens on container replacement or daemon restart.
+  - The owner approves the trust boundary and the matching M4-17 acceptance criteria before production implementation. The default for regular containers stays off.
+
+### M4-28 Qualify runtime SSH compatibility and revocation
+
+- **Status:** todo
+- **Depends on:** M4-17, M4-27
+- **Docs:** [SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding), [Container agent grant boundary](../11-security.md#container-agent-grant-boundary)
+- **Do:** Exercise the approved workflow on a packaged Mac with a disposable agent and a private test repository. Test build-only, runtime-only and neither permission. Qualify the Docker CLI and Compose mount syntax and record Podman client, engine, OS and results for each claimed workflow.
+- **Deliver:** Repeatable packaged conformance tests and English and Arabic instructions for granting, inspecting and revoking access.
+- **Accept when:**
+  - A clean installation exposes no runtime agent. A build grant ends with its session. A runtime grant lets the chosen development container authenticate without storing key material in the container or image.
+  - Revoking the grant closes existing connections. Container removal, replacement, VM stop and daemon restart leave new requests denied until reauthorized. Other workloads receive only the access permitted by the approved threat model.
+  - The release compatibility matrix links each supported workflow to a passing test and identifies provider limitations.
