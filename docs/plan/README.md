@@ -19,6 +19,8 @@ This plan turns the design in [`docs/`](../README.md) into ordered, checkable ta
 | M10 | [Release](M10-release.md) | Signed, notarized, auto-updating distribution | 15 |
 | M11 | [Performance](M11-performance.md) | Benchmarks, the `krun` backend and the default-backend decision | 6 |
 
+The [Apple silicon acceptance report](../spikes/apple-silicon-reverification.md#local-acceptance-audit-after-the-packaged-conformance-run) records local verification and outstanding gates across all milestones.
+
 ## Milestone dependencies
 
 ```mermaid

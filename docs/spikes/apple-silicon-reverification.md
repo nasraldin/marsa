@@ -15,7 +15,7 @@ This run used a Mac15,11 with macOS 27.2.1, Xcode 27.2 and Rust 1.100.0. The loc
 | M0-07 | A disposable checkout added a GPL-3.0-only path dependency. The actual xtask check rejected its licence. Changing the licence to MIT made cargo-deny pass. The daily RustSec job uses a failure exit for new warnings. |
 | M0-08 | The checker verified links and task references and rendered 36 diagrams across 47 documents before this report was added. Its four tests included deliberately broken links, anchors, Mermaid and task references. |
 | M0-09 | All six classifier tests passed. The documentation-only revision of the PR ran documentation validation and skipped the three build jobs. Later mixed revisions scheduled those jobs. |
-| M0-10 | Checked decisions D-035 through D-037 against their implementation tasks. The plan index now also lists the outstanding name, signing, LAN-exposure and governance decisions. |
+| M0-10 | Checked decisions D-035 through D-037 against their implementation tasks. The plan index lists the outstanding name, signing and governance decisions. D-038 subsequently resolved the LAN-exposure decision. |
 
 ## Risk spikes
 
@@ -42,7 +42,7 @@ This run used a Mac15,11 with macOS 27.2.1, Xcode 27.2 and Rust 1.100.0. The loc
 
 ## Qualification still required
 
-G3 requires a second physical Apple silicon Mac with no developer tools or previous Marsa installation, together with the Q-04 custody decision. This development Mac has Xcode and an installed Marsa app. G4 still requires the full Docker, Compose and Testcontainers conformance suite. G5 requires production accessibility, four-variant review and Arabic sign-off. G6 includes independent security review. G7 includes clean installation, update, rollback and the owner's release decision. The [task files](../plan/README.md) identify the remaining implementation dependencies.
+G3 requires a second physical Apple silicon Mac with no developer tools or previous Marsa installation, together with the Q-04 custody decision. This development Mac has Xcode and an installed Marsa app. The full Docker, Compose, Testcontainers and Dev Containers suite passed locally in 219 seconds. The owner deferred the private Tier 2 runner and its published result for G4. G5 requires production accessibility, four-variant review and Arabic sign-off. G6 includes independent security review. G7 includes clean installation, update, rollback and the owner's release decision. The [task files](../plan/README.md) identify the remaining implementation dependencies.
 
 ## Packaged VM acceptance replay
 
@@ -71,3 +71,24 @@ G3 requires a second physical Apple silicon Mac with no developer tools or previ
 | M4-08 | The original guest failed the host-alias regression. After the fix a fresh native VM pulled BusyBox, answered TCP DNS and served host HTTP through all three aliases on both the default and a custom Docker bridge. A second physical Wi-Fi check on the fixed resolver preserved the container ID, public DNS, alias resolution and the host HTTP response. |
 | M4-09 | All three packaged forwarding tests passed in 129 seconds. Local and remote checks covered IPv4 and IPv6 TCP and UDP on both attachments. A separate macOS guest verified live opt-in and revocation on running containers, while explicitly local publications remained private. The firewall stayed enabled. Both occupied-port diagnostics and listener teardown passed. |
 | M4-19 | The Compose Watch fixture served updated content and delivered a Hugo LiveReload frame for an ordinary save and an atomic replacement. The original process survived and ignored and out-of-scope files remained absent. |
+
+
+## Local acceptance audit after the packaged conformance run
+
+| Milestone | Evidence and remaining acceptance work |
+|---|---|
+| M0–M2 | All 26 task records are complete. The foundation, spike and guest checks above describe the local runs. The current CI result is separate. |
+| M3 | Factory-setting boots exposed a guest kernel fault even when the CLI ultimately reached Ready. M3-19 is reopened. G3 still requires the signing custody decision and a clean second Mac. |
+| M4 | The packaged workflow verified the chosen DNS server from a new container after both activation and rollback. G4 awaits the deferred private runner. D-040 defers runtime SSH until its trust model is approved. |
+| M5 | In a fresh macOS profile, the CLI started the signed daemon’s VM, exported a working Docker endpoint and stopped the VM. JSON responses for stopped and running status, network, disk, settings, shares, logs, cleanup preview and diagnostics validated against the published schema. The daemon rejected an invalid CPU count and a protected share. Adding and removing an ordinary folder preserved the CPU setting. M5-12 still requires conditional deletion in the engine. |
+| M6 | The local desktop and UI suites exercised the image-details keyboard trigger and verified 100 committed component references. Production keyboard, IME and spoken VoiceOver qualification remains M6-08. |
+| M7 | The desktop pull wizard used a fresh packaged engine. The replay caught registry-host matching, layer accounting and image-removal identity issues in M7-45. Screen-specific checks and independent Arabic review still gate G5. |
+| M8 | The official Python SDK 2.3.0 launched the MCP bridge via the CLI and called all nine advertised tools against a running packaged engine. Local tests also covered the owner socket, grants and approval queue. The plan keeps operate, destroy and host-affecting tools outside the completed read-only scope. |
+| M9 | Local daemon tests covered admission, settings rollback, factory reset and audit. Prior packaged disk compatibility results are recorded above. The 72-hour soak and independent review remain outstanding. |
+| M10 | Local xtask tests exercised release-resource assembly, notices, signature policy and refusal of incomplete inputs. G7 still requires qualified signed release artifacts, update and rollback. |
+| M11 | The libkrun spike is the sole completed task. Its report records the share-isolation blocker. Comparative benchmarks and backend selection remain open. |
+
+The task files retain individual acceptance criteria. In particular, M7-17,
+M7-41 and M7-43 are recorded as done while their broader prerequisites
+M7-16, M7-05 and M7-06 remain in progress. Their individual results do
+not qualify those parent features or the M7 release gate.
