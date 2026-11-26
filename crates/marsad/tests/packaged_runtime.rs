@@ -37,6 +37,8 @@ use tower::service_fn;
 
 #[path = "packaged_runtime/bind_shares.rs"]
 mod bind_shares;
+#[path = "packaged_runtime/cold_boot.rs"]
+mod cold_boot;
 #[path = "packaged_runtime/compose_watch.rs"]
 mod compose_watch;
 #[path = "packaged_runtime/disk_schema.rs"]
