@@ -83,6 +83,20 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
     let socket = paths.root().join("control.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let mut settings = Settings::default();
+    // Exercise network-mode changes independently of the runner’s system proxy.
+    settings.network.proxy.follow_system = false;
+    let proxy_record = paths
+        .state_dir()
+        .join(crate::factory::PROXY_POLICY_FILENAME);
+    fs::write(
+        &proxy_record,
+        serde_json::to_vec(&serde_json::json!({
+            "version": 2, "http": null, "https": null, "draft": settings.network.proxy
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::set_permissions(proxy_record, fs::Permissions::from_mode(0o600)).unwrap();
     settings.network.mode = ConfigMode::Nat;
     settings.network.dns = vec!["192.0.2.53".parse().unwrap()];
     let control = client();
