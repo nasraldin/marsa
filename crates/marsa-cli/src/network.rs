@@ -74,7 +74,7 @@ pub(super) async fn apply(confirmed: bool) -> Result<Outcome, Failure> {
         };
         return Ok(Outcome::Data {
             text: format!("{}\n{}\n", command::label(impact), policy),
-            document: json!({"schema_version": 1, "kind": "network_activation_preview", "revision": revision, "policy": policy}),
+            document: json!({"schema_version": 1, "kind": "network_activation_preview", "revision": revision.to_string(), "policy": policy}),
         });
     }
     let result = client
