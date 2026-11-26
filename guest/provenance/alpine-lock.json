@@ -874,34 +874,39 @@
       {
         "file": "COPYING",
         "kind": "upstream-notice",
-        "member": "zstd-1.5.7/COPYING",
+        "member": "zstd-1.6.0/COPYING",
         "sha256": "f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505",
-        "source": "https://github.com/facebook/zstd/archive/v1.5.7.tar.gz"
+        "source": "https://github.com/facebook/zstd/archive/v1.6.0.tar.gz"
       },
       {
         "file": "LICENSE",
         "kind": "upstream-notice",
-        "member": "zstd-1.5.7/LICENSE",
+        "member": "zstd-1.6.0/LICENSE",
         "sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8",
-        "source": "https://github.com/facebook/zstd/archive/v1.5.7.tar.gz"
+        "source": "https://github.com/facebook/zstd/archive/v1.6.0.tar.gz"
       }
     ],
     "packages": [
       {
         "architecture": "aarch64",
-        "commit": "3c6e2ee2b16f403d53eab39c4426eb61f003c322",
+        "commit": "8875de0237da8c118a74218f07ab60adf722e419",
         "license": "BSD-3-Clause OR GPL-2.0-or-later",
         "name": "zstd-libs",
-        "version": "1.5.7-r2"
+        "version": "1.6.0-r1"
       }
     ],
-    "recipe_sha256": "635134417b866a71fc0684bfbc1f8b5ff660c3edcd68f1b0b1335f04963ef5c1",
+    "recipe_sha256": "418873670324cb2f912852991888a3b834d2cd3717050d9a861b1ce3ec9e28b4",
     "sources": [
       {
-        "mirror": "https://distfiles.alpinelinux.org/distfiles/v3.24/zstd-1.5.7.tar.gz",
-        "name": "zstd-1.5.7.tar.gz",
-        "sha512": "26e441267305f6e58080460f96ab98645219a90d290a533410b1b0b1d2f870721c95f8384e342ee647c5e968385a5b7e30c2d04340c37f59b3e6d86762c3260c",
-        "url": "https://github.com/facebook/zstd/archive/v1.5.7.tar.gz"
+        "mirror": "https://distfiles.alpinelinux.org/distfiles/v3.24/zstd-1.6.0.tar.gz",
+        "name": "zstd-1.6.0.tar.gz",
+        "sha512": "da2c039eae103c6c4d1be89601af5a097b46d1598d4b749fe10903b78c5eb797c820869eaa2ef4f4694e70d5f01a44621cd2a0a12050ef69b3e0e4b7e3fcc309",
+        "url": "https://github.com/facebook/zstd/archive/v1.6.0.tar.gz"
+      },
+      {
+        "name": "fix-32bit-multithread-tests_patch",
+        "sha512": "0dd23197fb6a4b4b64473e5a550e99dd4524117816cb084576c0e799d3dc947697e1966064c49c37e570c74b04691ac8c425610f087370ec0fca4db997dea97b",
+        "url": "https://gitlab.alpinelinux.org/alpine/aports/-/raw/8875de0237da8c118a74218f07ab60adf722e419/main/zstd/fix-32bit-multithread-tests_patch"
       }
     ]
   }
