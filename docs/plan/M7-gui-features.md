@@ -1041,7 +1041,7 @@ destinations on the same filesystem as Marsa's state.
 
 ### M7-54 Isolate HTTPS Git checkout from its destination during authentication
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M7-30, M7-53
 - **Docs:** [11 Git sources](../11-security.md#git-sources)
 - **Do:** Keep HTTPS credential access and checkout staging outside writable shares. Publish the verified checkout after closing credential access and define behavior for a destination on another filesystem.
