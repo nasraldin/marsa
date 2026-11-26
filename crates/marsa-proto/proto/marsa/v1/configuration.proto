@@ -205,6 +205,17 @@ message ListForwardedPortsRequest {}
 
 message ListForwardedPortsResponse {
   repeated ForwardedPort ports = 1;
+  repeated ForwardedPortFailure failures = 2;
+}
+
+// A requested binding that has no working host listener.
+message ForwardedPortFailure {
+  string host_address = 1;
+  uint32 host_port = 2;
+  PortTransport transport = 3;
+  string container_id = 4;
+  string message = 5;
+  optional string owner = 6;
 }
 
 message ForwardedPort {

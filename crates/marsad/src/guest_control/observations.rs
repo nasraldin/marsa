@@ -1,10 +1,17 @@
 //! Publish daemon observations only while their exact session is active.
 
-use std::sync::{Arc, Weak};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex, Weak},
+};
+
+use marsa_proto::guest::v1::{PortAction, PortEvent};
 
 use tokio::sync::{broadcast, watch};
 
-use super::{EVENT_CAPACITY, GuestEvent, session::Client};
+use super::{EVENT_CAPACITY, GuestControlError, GuestEvent, session::Client};
+
+type PortKey = (String, String, u32, u32, i32);
 
 type Observer = Arc<dyn Fn(&GuestEvent) + Send + Sync>;
 
@@ -37,6 +44,7 @@ impl EventBus {
             bus: self,
             active,
             source,
+            ports: Arc::default(),
         }
     }
 }
@@ -46,12 +54,64 @@ pub(super) struct SessionEvents {
     bus: EventBus,
     active: watch::Sender<Weak<Client>>,
     source: Weak<Client>,
+    ports: Arc<Mutex<BTreeMap<PortKey, PortEvent>>>,
 }
 
 impl SessionEvents {
-    pub(super) fn publish(&self, event: GuestEvent) {
-        self.publish_active(&event);
+    pub(super) fn publish(&self, event: GuestEvent) -> Result<(), GuestControlError> {
+        if let GuestEvent::Port(port) = &event {
+            // The guest starts its inventory scan before the supervisor verifies readiness.
+            // Serialize that scan with activation so existing containers are replayed exactly once.
+            let mut ports = self.ports.lock().unwrap_or_else(|error| error.into_inner());
+            let key = (
+                port.container_id.clone(),
+                port.bind_address.clone(),
+                port.published_port,
+                port.container_port,
+                port.transport,
+            );
+            if port.action() == PortAction::Opened {
+                if ports.len() >= super::MAX_PORT_BINDINGS && !ports.contains_key(&key) {
+                    return Err(GuestControlError::Sequence(
+                        "published port inventory exceeds host limit",
+                    ));
+                }
+                ports.insert(key, port.clone());
+            } else {
+                ports.remove(&key);
+            }
+            self.publish_active(&event);
+        } else {
+            self.publish_active(&event);
+        }
         let _ = self.bus.events.send(event);
+        Ok(())
+    }
+
+    pub(super) fn activate(&self) {
+        let ports = self.ports.lock().unwrap_or_else(|error| error.into_inner());
+        self.active.send_modify(|active| {
+            *active = self.source.clone();
+            if let Some(observer) = &self.bus.observer {
+                observer(&GuestEvent::PortsCleared);
+                for port in ports.values() {
+                    observer(&GuestEvent::Port(port.clone()));
+                }
+            }
+        });
+    }
+
+    pub(super) fn revoke(&self) {
+        self.active.send_if_modified(|active| {
+            if !active.ptr_eq(&self.source) {
+                return false;
+            }
+            *active = Weak::new();
+            if let Some(observer) = &self.bus.observer {
+                observer(&GuestEvent::PortsCleared);
+            }
+            true
+        });
     }
 
     pub(super) fn publish_active(&self, event: &GuestEvent) {

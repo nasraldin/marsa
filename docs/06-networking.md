@@ -168,7 +168,7 @@ sequenceDiagram
     A->>D: PortOpened(8080, tcp, bind 0.0.0.0)
     D->>D: Bind 127.0.0.1:8080 (or 0.0.0.0 if allowed by settings)
     B->>D: Connect to localhost:8080
-    D->>C: Forward to guest (direct TCP in nat mode, through the stack in userspace mode)
+    D->>C: Open a host-only vsock flow to the guest published port
     C-->>B: Response
     E->>A: Event: container stopped
     A->>D: PortClosed(8080, tcp)
@@ -183,6 +183,16 @@ Forwarder requirements:
 - When macOS denies a host bind, report its address and port. For a privileged host port, suggest a host port of 1024 or higher. For example, `-p 8080:80` keeps the container service on port 80.
 - Port conflicts produce a clear error naming the process that holds the port when it can be determined.
 - The forwarder is zero-copy where the platform allows and must not be the bottleneck in the network benchmark.
+
+The host opens each flow through the active VM’s vsock transport for either
+attachment. A guest address announcement cannot direct host connections to a
+third machine. The guest sends each flow to its own Docker-published port.
+This also works when guest NAT egress is unavailable. LAN opt-in applies to
+wildcard publications. Explicit localhost publications stay on localhost.
+An unsupported specific binding or an occupied port appears in
+`Network.ListForwardedPorts` with the affected address and port. Changing
+`network.allow_lan` reconciles existing publications and closes connections
+on a retired listener. [Relay protocol](../crates/marsa-proto/PROTOCOL.md#published-port-relay)
 
 ### macOS loopback port privilege
 

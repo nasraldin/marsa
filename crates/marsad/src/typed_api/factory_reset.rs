@@ -239,6 +239,7 @@ impl TypedApi {
         if let Some(proxy) = &self.proxy {
             proxy.replace_approved(super::proxy_policy::BootProxy::default());
         }
+        self.inner.ports.policy(settings.network.allow_lan).await;
         let idle_applied = if let Some(supervisor) = &self.supervisor {
             supervisor
                 .set_idle_policy(

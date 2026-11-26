@@ -436,6 +436,11 @@ impl Supervisor {
         })
     }
 
+    pub(crate) async fn connect_running_published_port(&self) -> io::Result<marsa_vm::VsockStream> {
+        self.connect_running_service(marsa_proto::guest::PUBLISHED_PORT_VSOCK)
+            .await
+    }
+
     async fn connect_running_service(&self, port: u32) -> io::Result<marsa_vm::VsockStream> {
         let (reply, result) = oneshot::channel();
         self.commands

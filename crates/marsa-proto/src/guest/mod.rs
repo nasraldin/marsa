@@ -32,6 +32,9 @@ pub mod v1 {
 /// Guest control listener port in the VM's vsock namespace.
 pub const CONTROL_PORT: u32 = 5_000;
 
+/// Host-only relay to guest loopback ports published by Docker.
+pub const PUBLISHED_PORT_VSOCK: u32 = 5_005;
+
 /// Host-only guest Docker API byte stream port.
 pub const DOCKER_API_PORT: u32 = 5_001;
 

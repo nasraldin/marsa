@@ -89,6 +89,12 @@ and format preference in `prepare`, then sends `start` after choosing the
 destination. The client requires successful completion and stream termination
 before publishing its staged destination.
 
+Host API minor 19 implements `Network.ListForwardedPorts`. Its `ports` list
+contains active host listeners. Each entry in `failures` describes a requested
+binding by address, port, transport and container ID, with a diagnostic and an
+optional local process name and PID. The events snapshot and stream expose the
+same inventory. Changing `network.allow_lan` applies to current publications.
+
 `Disk.Reclaim` requests discard of unused blocks from the current ready
 guest's data disk. It returns the guest's submitted discard bytes and the
 observed decrease in allocated bytes on the same host image. A stopped
@@ -224,6 +230,18 @@ returns `CommandResult`. It requires a successful `SetTime` and is idempotent.
 1.0 or omit the deferral flag retain the original `SetTime` startup behavior.
 Once Docker has been released, reconnecting cannot make that guest eligible for
 another deferred probe.
+
+### Published port relay
+
+AF_VSOCK port 5005 accepts connections from the host CID. Each stream carries
+one TCP connection or one UDP peer flow. The host sends five bytes: version
+1, IP protocol number (6 or 17), family (4 or 6), and the guest's published
+port as a nonzero big-endian u16. The guest connects to its own loopback
+address in that family. A zero reply accepts the stream. A nonzero reply
+or a closed connection fails the request. TCP then carries bytes in both
+directions. Each UDP datagram has a big-endian u16 length followed by its
+payload, including a zero-length payload. The Mac obtains the publication
+from the active guest control session and applies the owner's binding policy.
 
 ### Native NAT resolver policy (guest protocol 1.2)
 

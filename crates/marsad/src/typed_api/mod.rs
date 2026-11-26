@@ -12,6 +12,7 @@ pub use docker_discovery::{ContextRemoval, ContextRemovalError, prepare_context_
 mod engine;
 mod events;
 mod factory_reset;
+mod forwarding;
 mod inventory_cache;
 mod inventory_events;
 /// Daemon state and actions exposed to its macOS menu bar item.
@@ -87,6 +88,7 @@ struct Shared {
     paths: MarsaPaths,
     uid: u32,
     events: events::Bus,
+    ports: forwarding::Ports,
     agents: agents::State,
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
     proxy_requests: requests::Cache<
@@ -135,6 +137,7 @@ impl TypedApi {
                 inventory,
                 paths,
                 uid,
+                ports: forwarding::Ports::new(settings.network.allow_lan),
                 events: events::Bus::new(settings)?,
                 engine_requests: requests::Cache::new(),
                 proxy_requests: requests::Cache::new(),
@@ -258,12 +261,22 @@ impl TypedApi {
         + 'static,
     ) -> io::Result<Self> {
         let observations = self.inner.events.clone();
+        let owner = Arc::downgrade(&self.inner);
         let control = Arc::new(
             control
                 .observe_active(move |event| match event {
                     GuestEvent::Health(health) => engine::publish_health(&observations, health),
                     GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
-                    GuestEvent::Port(_) => (),
+                    GuestEvent::Port(port) => {
+                        if let Some(owner) = owner.upgrade() {
+                            owner.ports.event(port);
+                        }
+                    }
+                    GuestEvent::PortsCleared => {
+                        if let Some(owner) = owner.upgrade() {
+                            owner.ports.clear();
+                        }
+                    }
                 })
                 .authorize_binds(bind_policy::Policy::new(
                     self.inner.events.clone(),
@@ -273,6 +286,16 @@ impl TypedApi {
         let mut api = self
             .with_packaged_probe(capabilities, control.clone(), config, prepare)
             .await?;
+        if let Some(supervisor) = api.supervisor.clone() {
+            let connect: marsa_net::Connector = Arc::new(move || {
+                let supervisor = supervisor.clone();
+                Box::pin(async move {
+                    let stream = supervisor.connect_running_published_port().await?;
+                    Ok(Box::new(stream) as Box<dyn marsa_net::RelayStream>)
+                })
+            });
+            api.inner.ports.serve(connect, api.inner.events.clone());
+        }
         api.guest_control = Some(control);
         Ok(api)
     }

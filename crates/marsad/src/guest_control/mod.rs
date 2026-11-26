@@ -40,13 +40,15 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(35);
 const CONNECT_RETRY: Duration = Duration::from_millis(100);
 const EVENT_CAPACITY: usize = 64;
 /// Limit simultaneous guest publications, including binds rejected by the OS.
-pub(crate) const MAX_PORT_BINDINGS: usize = 256;
+pub(crate) const MAX_PORT_BINDINGS: usize = 1024;
 
 /// Validated messages sent independently of host requests.
 #[derive(Debug, Clone)]
 pub enum GuestEvent {
     /// An engine-published port changed.
     Port(PortEvent),
+    /// The active guest no longer owns any host listeners.
+    PortsCleared,
     /// The guest's Docker health changed.
     Health(EngineHealth),
     /// Periodic resource usage since the current guest boot.

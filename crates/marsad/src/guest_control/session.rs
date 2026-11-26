@@ -121,7 +121,6 @@ async fn response_before(
 
 pub(super) struct Session {
     pub(super) client: Arc<Client>,
-    active: watch::Sender<Weak<Client>>,
     shutdown: Option<oneshot::Sender<Request>>,
     health: watch::Receiver<Option<EngineHealthState>>,
     failure: watch::Receiver<Option<Arc<GuestControlError>>>,
@@ -158,7 +157,6 @@ impl Session {
         });
         Self {
             client,
-            active,
             shutdown: Some(shutdown),
             health,
             failure,
@@ -201,14 +199,7 @@ impl Session {
     }
 
     fn revoke(&self) {
-        let client = Arc::downgrade(&self.client);
-        self.active.send_if_modified(|active| {
-            if !active.ptr_eq(&client) {
-                return false;
-            }
-            *active = Weak::new();
-            true
-        });
+        self.events.revoke();
     }
 
     async fn verify_engine(
@@ -281,7 +272,7 @@ impl GuestSession for Session {
                 result.map_err(|_| GuestControlError::TimedOut("waiting for Docker readiness"))??;
             }
         }
-        self.active.send_replace(Arc::downgrade(&self.client));
+        self.events.activate();
         if let Some(state) = *self.health.borrow() {
             self.events
                 .publish_active(&GuestEvent::Health(EngineHealth {
@@ -451,7 +442,7 @@ fn accept(
         Some(GuestBody::Hello(_)) => return Err(GuestControlError::Sequence("unexpected Hello")),
         None => return Err(ProtocolError::InvalidField("body").into()),
     };
-    events.publish(event);
+    events.publish(event)?;
     Ok(())
 }
 
@@ -475,6 +466,44 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     #[test]
+    fn restores_only_current_bindings_and_revokes_on_disconnect() {
+        use marsa_proto::guest::v1::{PortAction, PortEvent, Transport};
+        let client = Arc::new(Client {
+            queue: mpsc::channel(1).0,
+            minor: 0,
+            next_id: AtomicU64::new(1),
+        });
+        let (active, _) = watch::channel(Weak::new());
+        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let output = received.clone();
+        let mut bus = EventBus::default();
+        bus.observer = Some(Arc::new(move |event| {
+            output.lock().unwrap().push(event.clone())
+        }));
+        let session = bus.session(active, Arc::downgrade(&client));
+        let port = |n, action| {
+            GuestEvent::Port(PortEvent {
+                published_port: n,
+                action: action as i32,
+                transport: Transport::Tcp.into(),
+                container_port: 80,
+                bind_address: "0.0.0.0".to_owned(),
+                container_id: "a".repeat(64),
+            })
+        };
+        session.publish(port(8080, PortAction::Opened)).unwrap();
+        session.publish(port(8081, PortAction::Opened)).unwrap();
+        session.publish(port(8080, PortAction::Closed)).unwrap();
+        assert!(received.lock().unwrap().is_empty());
+        session.activate();
+        session.revoke();
+        session.publish(port(8082, PortAction::Opened)).unwrap();
+        assert!(
+            matches!(&received.lock().unwrap()[..], [GuestEvent::PortsCleared, GuestEvent::Port(port), GuestEvent::PortsCleared] if port.published_port == 8081)
+        );
+    }
+
+    #[test]
     fn only_the_current_ready_session_can_publish_to_the_daemon() {
         let client = || {
             Arc::new(Client {
@@ -496,15 +525,15 @@ mod tests {
         let new = bus.session(active.clone(), Arc::downgrade(&second));
         let sample = || GuestEvent::Stats(Default::default());
 
-        old.publish(sample());
+        old.publish(sample()).unwrap();
         assert_eq!(delivered.load(Ordering::Relaxed), 0);
         active.send_replace(Arc::downgrade(&first));
-        old.publish(sample());
-        new.publish(sample());
+        old.publish(sample()).unwrap();
+        new.publish(sample()).unwrap();
         assert_eq!(delivered.load(Ordering::Relaxed), 1);
         active.send_replace(Arc::downgrade(&second));
-        old.publish(sample());
-        new.publish(sample());
+        old.publish(sample()).unwrap();
+        new.publish(sample()).unwrap();
         assert_eq!(delivered.load(Ordering::Relaxed), 2);
     }
 }

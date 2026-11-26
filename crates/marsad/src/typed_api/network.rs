@@ -88,9 +88,7 @@ impl Network for TypedApi {
         request: Request<ListForwardedPortsRequest>,
     ) -> Result<Response<ListForwardedPortsResponse>, Status> {
         self.authorize(request)?;
-        Err(Status::unimplemented(
-            "listing forwarded ports is unavailable",
-        ))
+        Ok(Response::new(self.inner.events.forwarded_ports()))
     }
 }
 

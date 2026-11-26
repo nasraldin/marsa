@@ -2787,6 +2787,8 @@ name = "marsa-net"
 version = "0.1.0"
 dependencies = [
  "marsa-core",
+ "socket2",
+ "tokio",
 ]
 
 [[package]]

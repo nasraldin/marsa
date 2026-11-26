@@ -7,7 +7,7 @@ pub mod docker_registry;
 pub const API_MAJOR: u32 = 1;
 
 /// The latest additive revision of the host API.
-pub const API_MINOR: u32 = 18;
+pub const API_MINOR: u32 = 19;
 
 /// First owner API revision that serves confined volume downloads.
 pub const VOLUME_FILES_API_MINOR: u32 = 18;

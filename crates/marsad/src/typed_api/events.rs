@@ -14,9 +14,9 @@ use marsa_core::settings::{NetworkMode, Settings, VmBackend};
 use marsa_proto::guest::v1::EgressStage;
 use marsa_proto::host::v1::{
     DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, HostEvent, HostEventKind,
-    ListPendingApprovalsResponse, NetworkMode as WireMode, NetworkStatus, PendingApproval,
-    SettingsChanged, SettingsSnapshot, SubscribeRequest, VmStatsSample, daemon_event::Body,
-    events_server::Events,
+    ListForwardedPortsResponse, ListPendingApprovalsResponse, NetworkMode as WireMode,
+    NetworkStatus, PendingApproval, SettingsChanged, SettingsSnapshot, SubscribeRequest,
+    VmStatsSample, daemon_event::Body, events_server::Events,
 };
 use marsa_vm::NetworkSpec;
 use tokio::{
@@ -44,6 +44,7 @@ struct StateAtCursor {
     sequence: u64,
     engine: EngineStatus,
     network: Option<NetworkStatus>,
+    ports: ListForwardedPortsResponse,
     startup: Settings,
     bind_prompts: bind_prompts::Pending,
     once_staged: Vec<PathBuf>,
@@ -90,6 +91,7 @@ impl Bus {
                 ..Default::default()
             },
             network: None,
+            ports: ListForwardedPortsResponse::default(),
             startup: settings.clone(),
             bind_prompts: bind_prompts::Pending::default(),
             once_staged: Vec::new(),
@@ -125,6 +127,18 @@ impl Bus {
 
     pub(super) fn configured_network_mode(&self) -> NetworkMode {
         self.lock().settings.network.mode
+    }
+
+    pub(super) fn forwarded_ports(&self) -> ListForwardedPortsResponse {
+        self.lock().ports.clone()
+    }
+
+    pub(super) fn ports(&self, ports: ListForwardedPortsResponse) {
+        let mut state = self.lock();
+        if state.ports != ports {
+            state.ports = ports.clone();
+            state.publish(Body::ForwardedPorts(ports));
+        }
     }
 
     pub(super) fn engine_status(&self) -> EngineStatus {
@@ -413,6 +427,7 @@ impl Bus {
             approvals: Some(state.approvals.list(Instant::now())),
             bind_approvals: Some(state.bind_prompts.list(BindInstant::now())),
             network: state.network.clone(),
+            forwarded_ports: Some(state.ports.clone()),
             ..Default::default()
         }));
         stream_from(Some(first), state.events.subscribe(), stop)
@@ -549,7 +564,9 @@ fn restart_changed(applied: &Settings, desired: &Settings) -> bool {
         || applied.disk.data_size_limit != desired.disk.data_size_limit
         || applied.disk.exclude_from_backup != desired.disk.exclude_from_backup
         || applied.shares != desired.shares
-        || applied.network != desired.network
+        || applied.network.mode != desired.network.mode
+        || applied.network.dns != desired.network.dns
+        || applied.network.proxy != desired.network.proxy
 }
 
 pub(super) fn mode(value: NetworkMode) -> WireMode {

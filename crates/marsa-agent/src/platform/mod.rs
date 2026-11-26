@@ -2,6 +2,7 @@
 
 mod authorization;
 mod bridge;
+mod forwarding;
 mod network;
 mod network_facts;
 mod operations;
@@ -116,6 +117,8 @@ pub(crate) fn run() -> io::Result<()> {
         .block_on(async {
             let listener = vsock::Listener::bind(CONTROL_PORT)?;
             let bridge = vsock::Listener::bind(DOCKER_API_PORT)?;
+            let publisher = vsock::Listener::bind(marsa_proto::guest::PUBLISHED_PORT_VSOCK)?;
+            tokio::spawn(forwarding::serve(publisher));
             let facts = vsock::Listener::bind(marsa_proto::guest::NETWORK_FACTS_PORT)?;
             let bind_listener = vsock::Listener::bind(BIND_AUTHORIZATION_PORT)?;
             // The optional provider must not take the Docker engine or control channel down.

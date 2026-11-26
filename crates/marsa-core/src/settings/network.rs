@@ -26,6 +26,8 @@ pub enum NetworkMode {
 pub struct NetworkSettings {
     /// Guest egress configuration to request.
     pub mode: NetworkMode,
+    /// Permit wildcard Docker publications to listen on LAN interfaces.
+    pub allow_lan: bool,
     /// Manual DNS server addresses. An empty list follows the host resolver.
     pub dns: Vec<IpAddr>,
     /// Host proxy overrides and container proxy injection policy.
