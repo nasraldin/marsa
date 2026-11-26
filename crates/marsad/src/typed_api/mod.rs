@@ -367,7 +367,17 @@ impl TypedApi {
                 .map_err(io::Error::other)?,
             );
             let selection = select_network(&effective, &mut spec, backend.capabilities());
-            let network_policy = native_dns::configuration(&effective.network, spec.network)?;
+            let mut network_policy = native_dns::configuration(&effective.network, spec.network)?;
+            if !effective.network.registry_mirrors.is_empty()
+                || !effective.network.insecure_registries.is_empty()
+            {
+                network_policy
+                    .get_or_insert_with(Default::default)
+                    .registries = Some(marsa_proto::guest::v1::RegistryConfig {
+                    mirrors: effective.network.registry_mirrors.clone(),
+                    insecure: effective.network.insecure_registries.clone(),
+                });
+            }
             let bus = settings.clone();
             Ok(Launch {
                 backend,

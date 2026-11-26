@@ -297,3 +297,22 @@ fn validates_native_resolver_routes_before_dispatch() {
     route.domain = "test/\nserver=other".into();
     assert!(decode_host(&envelope(route).encode_to_vec()).is_err());
 }
+
+#[test]
+fn registry_policy_is_checked_on_receipt() {
+    use marsa_proto::guest::v1::{ConfigureNetwork, RegistryConfig};
+    let message = HostEnvelope {
+        request_id: 1,
+        body: Some(host_envelope::Body::ConfigureNetwork(ConfigureNetwork {
+            registries: Some(RegistryConfig {
+                mirrors: vec!["https://user:secret@mirror.invalid".into()],
+                insecure: vec![],
+            }),
+            ..Default::default()
+        })),
+    };
+    assert!(matches!(
+        decode_host(&message.encode_to_vec()),
+        Err(ProtocolError::InvalidField("registries"))
+    ));
+}

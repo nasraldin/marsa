@@ -50,10 +50,13 @@ pub const NATIVE_DNS_MINOR: u32 = 2;
 /// First minor supporting the registry probe on a running engine.
 pub const LIVE_EGRESS_MINOR: u32 = 3;
 
+/// First minor accepting registry configuration before engine startup.
+pub const REGISTRY_MINOR: u32 = 4;
+
 /// Current guest control version advertised by this build.
 pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion {
     major: 1,
-    minor: LIVE_EGRESS_MINOR,
+    minor: REGISTRY_MINOR,
 };
 
 /// A rejected guest control frame or incompatible protocol version.

@@ -157,6 +157,13 @@ fn network(message: &ConfigureNetwork) -> Result<(), ProtocolError> {
     for value in &message.search_domains {
         domain(value, "search_domain")?;
     }
+    if let Some(registries) = &message.registries {
+        marsa_core::settings::NetworkSettings::validate_registries(
+            &registries.mirrors,
+            &registries.insecure,
+        )
+        .map_err(|_| ProtocolError::InvalidField("registries"))?;
+    }
     if let Some(native) = &message.native_dns {
         check(native.routes.len() <= 64, "dns_routes")?;
         for route in &native.routes {

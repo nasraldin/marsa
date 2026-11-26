@@ -581,6 +581,8 @@ pub(super) fn mode(value: NetworkMode) -> WireMode {
 
 pub(super) fn network_status(configured: NetworkMode, network: BootNetwork) -> NetworkStatus {
     let active = match network.active {
+        || applied.network.registry_mirrors != desired.network.registry_mirrors
+        || applied.network.insecure_registries != desired.network.insecure_registries
         NetworkSpec::Nat => WireMode::Nat,
         NetworkSpec::Userspace => WireMode::Userspace,
     };

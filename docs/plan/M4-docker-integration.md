@@ -200,7 +200,7 @@ M3-14 the VPN path, M4-08 the physical Wi-Fi handoff, and M4-09 the port matrix.
 
 ### M4-11 Proxy settings and CA certificate import
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M4-08, M4-21
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates)
 - **Do:** Read system proxy settings and manual overrides and use the approved activation from M4-21. Export the certificates the user trusts from the macOS keychain and push them before the engine starts and on change. Add settings for registry mirrors and insecure registries.

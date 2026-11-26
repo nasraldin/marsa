@@ -254,6 +254,13 @@ Corporate networks were identified in planning as a top reason Docker alternativ
 | Registry mirrors and insecure registries | Exposed in settings and written to the engine configuration |
 | Proxy for containers | Optional injection of proxy variables into containers, off by default |
 
+Set `network.registry_mirrors` to an ordered list of HTTP or HTTPS URLs.
+Set `network.insecure_registries` to the registry authorities or CIDRs for
+which the owner permits insecure transport. Both default to empty. A cold
+start passes these options to the upstream daemon on either attachment.
+Docker exposes the effective configuration in `docker info`.
+[Docker Engine 29.10.0 registry configuration](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/pkg/registry/config.go).
+
 Saving a manual proxy setting records a draft. Ordinary VM boots use the last approved
 proxy. While that proxy is active, a draft change to the attachment also remains pending.
 

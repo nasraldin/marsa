@@ -10,6 +10,14 @@ message ConfigureNetwork {
   repeated HostAlias host_aliases = 4;
   // Present only for the native NAT attachment. Empty rules use the default servers.
   NativeDns native_dns = 5;
+  // Absent during resolver-only refreshes. Present on cold boot with overrides.
+  RegistryConfig registries = 6;
+}
+
+// Docker daemon registry options from the owner configuration.
+message RegistryConfig {
+  repeated string mirrors = 1;
+  repeated string insecure = 2;
 }
 
 // Supplemental host resolver routes, independent of search suffix expansion.

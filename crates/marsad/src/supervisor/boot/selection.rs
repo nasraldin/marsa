@@ -97,11 +97,20 @@ pub(super) async fn select_and_start(
     };
     let now = Instant::now();
     let candidate_deadline = now + deadline.saturating_duration_since(now) / 2;
+    // Resolver routes belong to the native interface. Registry preferences
+    // belong to the engine and must survive selection of the fallback interface.
+    let alternate_policy = network_policy
+        .as_ref()
+        .and_then(|policy| policy.registries.as_ref())
+        .map(|registries| marsa_proto::guest::v1::ConfigureNetwork {
+            registries: Some(registries.clone()),
+            ..Default::default()
+        });
     let alternate = match attach(
         backend,
         probe,
         candidate,
-        None,
+        alternate_policy.as_ref(),
         candidate_deadline,
         cancel,
         progress,

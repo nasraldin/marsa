@@ -66,6 +66,18 @@ pub(super) fn daemon_config(
     let current: Map<String, Value> = serde_json::from_slice(original)
         .map_err(|_| invalid("invalid guest Docker configuration"))?;
     let mut updated = current.clone();
+    if let Some(registries) = &request.registries {
+        for (key, values) in [
+            ("registry-mirrors", &registries.mirrors),
+            ("insecure-registries", &registries.insecure),
+        ] {
+            if values.is_empty() {
+                updated.remove(key);
+            } else {
+                updated.insert(key.into(), json!(values));
+            }
+        }
+    }
     if let Some(proxy) = request.proxy.as_ref().map(docker_proxy).transpose()?
         && !proxy.is_empty()
     {
