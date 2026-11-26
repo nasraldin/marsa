@@ -43,6 +43,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-035 | The project owner reviews Arabic terminology | Accepted |
 | D-036 | Offer the optional Docker socket link in Settings | Accepted |
 | D-037 | Offer opt-in crash reporting | Accepted |
+| D-038 | Bind published ports to loopback by default | Accepted |
 
 ---
 
@@ -301,3 +302,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** The owner chose opt-in crash reporting for Q-10.
 - **Consequence:** The implementation documents report fields, the destination and retention before consent. Reports follow the [privacy rules](11-security.md#privacy) and the outbound-connection test covers the reporting path.
 - **Date and task:** 2026-11-25, M0-10.
+
+## D-038 Bind published ports to loopback by default
+
+On 2026-11-26 the owner resolved Q-07. Marsa binds published ports on macOS to IPv4 and IPv6 loopback by default. LAN access requires explicit opt-in. This keeps development services private when the Mac changes networks. M4-09 implements and qualifies the host listeners.

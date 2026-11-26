@@ -141,13 +141,13 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - A container reaches a service listening on the Mac through `host.docker.internal`.
   - Switching Wi-Fi networks restores resolution without a restart.
 
-On November 26, 2026, an explicitly selected native NAT VM pulled BusyBox 1.37.0. The running container resolved the public registry before and after the operator switched the Mac to a second Wi-Fi network. The host changed IPv4 subnets. The container kept its ID and start time and reported zero restarts. The default bridge container had no compatibility host entry, and its DNS gateway returned NXDOMAIN for `host.docker.internal`. An HTTP request to the alias failed at name resolution. An independent request to a temporary HTTP service bound to the Mac’s native NAT gateway address also timed out. Host-service access remains open.
+On November 26, 2026, an explicitly selected native NAT VM pulled BusyBox 1.37.0. The running container resolved the public registry before and after the operator switched the Mac to a second Wi-Fi network. The host changed IPv4 subnets. The container kept its ID and start time and reported zero restarts. The default bridge container had no compatibility host entry, and its DNS gateway returned NXDOMAIN for `host.docker.internal`. An HTTP request to the alias failed at name resolution. An independent request to a temporary HTTP service bound to the Mac’s native NAT gateway address also timed out. A repeat with the system TCP listener served the expected HTTP body by gateway IP. The hostname still requires implementation.
 
 ### M4-09 Port forwarder
 
 - **Status:** todo
 - **Depends on:** M4-08, M2-08, M4-23
-- **Docs:** [06 Published ports](../06-networking.md#published-ports), Q-07
+- **Docs:** [06 Published ports](../06-networking.md#published-ports), [D-038](../15-decisions.md#d-038-bind-published-ports-to-loopback-by-default)
 - **Do:** Implement `marsa-net`'s forwarder for TCP and UDP driven by agent port events: bind on loopback by default (LAN exposure behind a setting), IPv4 and IPv6 loopback, conflict detection with a clear error, teardown on close. Report denied host binds with the affected address and port.
 - **Deliver:** `crates/marsa-net` forwarder, `Network.ListForwardedPorts`.
 - **Accept when:**

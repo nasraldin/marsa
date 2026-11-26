@@ -179,7 +179,7 @@ Forwarder requirements:
 
 - TCP and UDP.
 - IPv4 and IPv6 loopback.
-- **Bind address policy (Proposed):** ports published on `0.0.0.0` are bound to `127.0.0.1` on the Mac by default, so containers are not exposed to the local network unless the user enables "allow LAN access". This is safer than Docker Desktop's default and must be stated clearly in the UI.
+- **Bind address policy (Decided).** By default, Marsa exposes published ports on the Mac through IPv4 and IPv6 loopback. The user must explicitly enable LAN access. [D-038](15-decisions.md#d-038-bind-published-ports-to-loopback-by-default)
 - When macOS denies a host bind, report its address and port. For a privileged host port, suggest a host port of 1024 or higher. For example, `-p 8080:80` keeps the container service on port 80.
 - Port conflicts produce a clear error naming the process that holds the port when it can be determined.
 - The forwarder is zero-copy where the platform allows and must not be the bottleneck in the network benchmark.

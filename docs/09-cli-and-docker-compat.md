@@ -145,7 +145,7 @@ Each line is an automated test in the conformance suite ([13](13-testing-and-ben
 |---|---|
 | `--platform linux/amd64` fails with a clear message | x86 images are out of scope |
 | Bind mounts outside the shared-folder allowlist are refused with instructions | Security decision |
-| Ports published on `0.0.0.0` bind to loopback unless LAN access is enabled | Security decision (proposed default) |
+| Ports published on `0.0.0.0` bind to loopback unless LAN access is enabled | [D-038](15-decisions.md#d-038-bind-published-ports-to-loopback-by-default) |
 | Multi-arch builds produce arm64 only unless a remote builder is used | No emulation |
 
 Each difference is documented for users and returned as an explicit error, never a silent failure.

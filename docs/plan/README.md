@@ -123,7 +123,6 @@ These open questions block specific tasks. See [16 Risks and open questions](../
 |---|---|
 | Q-03 Name clearance | M10-10 |
 | Q-04 Apple developer account and keys | M3-10, M10 |
-| Q-07 Default LAN exposure of published ports | M4-09 |
 | Q-09 Governance and contribution terms | First public release |
 
 ## After version 1
