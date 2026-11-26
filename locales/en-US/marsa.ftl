@@ -690,6 +690,7 @@ gui-desktop-proxy-recovery-required = The proxy change needs attention. Open Mac
 gui-window-quit = Quit Marsa
 gui-desktop-settings-language = Language
 gui-desktop-settings-appearance = Appearance
+gui-desktop-allow-lan-published-ports = Allow devices on the local network to access published ports
 gui-desktop-network-active-mode = Active network mode
 gui-desktop-network-no-active-mode = No active connection
 gui-desktop-network-restart-pending = The saved network mode takes effect when the engine next starts.

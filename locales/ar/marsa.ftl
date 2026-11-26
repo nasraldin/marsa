@@ -690,6 +690,7 @@ gui-desktop-proxy-recovery-required = يحتاج تغيير الوكيل إلى 
 gui-window-quit = إنهاء مرسى
 gui-desktop-settings-language = اللغة
 gui-desktop-settings-appearance = المظهر
+gui-desktop-allow-lan-published-ports = السماح للأجهزة على الشبكة المحلية بالوصول إلى المنافذ المنشورة
 gui-desktop-network-active-mode = وضع الشبكة النشط
 gui-desktop-network-no-active-mode = لا يوجد اتصال نشط
 gui-desktop-network-restart-pending = يسري وضع الشبكة المحفوظ عند بدء تشغيل المحرّك في المرة القادمة.
