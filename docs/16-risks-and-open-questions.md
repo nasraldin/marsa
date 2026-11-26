@@ -37,7 +37,6 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
-| V-07 | NAT attachment requirements; user-space attachment class | [06](06-networking.md) | M4-08, M4-10 |
 | V-11 | State of GPUI accessibility on macOS | [08](08-gui.md) | M6-08 |
 
 ### Verified findings
@@ -49,6 +48,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | V-04 | A 2.5 GiB balloon successfully inflated in the Linux guest after a 2 GiB workload on macOS 27.2.1. The VZ worker physical footprint did not fall over 25 seconds. Idle stop ended the worker and helper, leaving the idle daemon. | [M9-04 VZ measurements](spikes/M9-04-memory.md) |
 | V-05 | `fstrim` returned approximately 4 GiB of sparse RAW allocation to APFS in each VZ cache mode on macOS 27.2.1. M9-03 verifies the product cleanup path. | [Allocated byte measurements](spikes/M1-03-disk-reclaim.md#measured-allocated-bytes) |
 | V-06 | Scoped Compose Watch delivered native Linux notifications and Hugo LiveReload after regular and atomic Mac saves. Direct Apple virtiofs exposed updated contents without host-origin inotify. A container running as UID/GID 12345 created a host file owned by the Mac user. | [File sharing and hot reload](07-file-sharing-and-storage.md#correctness-requirements), [M4-19](plan/M4-docker-integration.md#m4-19-qualify-host-edits-in-a-container-development-server) |
+| V-07 | On macOS 27.2.1 the packaged daemon booted native NAT with the virtualization entitlement. The same daemon booted the user-space helper over a connected datagram socket through the file-handle attachment. Both carried real container traffic. | [Network modes](06-networking.md#network-modes), [packaged qualification](spikes/apple-silicon-reverification.md) |
 | V-09 | Libkrun 1.19.8 booted the stock Marsa kernel and image on macOS 27.2.1. Its documented virtiofs isolation is insufficient without a separate host boundary. | [M11-02](spikes/M11-02-libkrun.md) |
 | V-10 | GPUI Component 0.10.0 uses rust-i18n 4.2.4 and exposes runtime locale selection. Its upstream English catalog can coexist with Fluent. Marsa installs a namespaced Arabic component extension. The build checks keys and placeholders against English. | [Internationalisation](08-gui.md#internationalisation), [pinned component locale API](https://github.com/longbridge/gpui-kit/blob/f697c3133d55c64fa8a5b67926147fb3dadd276d/crates/component/src/lib.rs#L122-L160) |
 | V-12 | Docker CLI, Buildx, Dev Containers and current Testcontainers for Python support contexts. The verified Java, Node.js and Go Testcontainers discovery paths take an explicit Docker host. JetBrains supports a custom Unix endpoint. | [Client discovery](09-cli-and-docker-compat.md#client-discovery) |

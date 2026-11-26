@@ -171,7 +171,7 @@ a reachable Tart client and the Mac’s two peer-facing addresses. See the
 
 ### M4-10 User-space network mode and automatic selection
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M4-09, M3-15, M4-25
 - **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection), V-07
 - **Do:** Use the qualified transport from M3-14 and boot-time mode selection from M3-15. Implement `userspace` port forwarding and network-change recovery with events. Respect a pinned mode.
