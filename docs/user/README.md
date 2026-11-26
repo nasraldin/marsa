@@ -69,7 +69,7 @@ Under **Disk & cleanup**, review categories and preview cleanup candidates. The 
 | An image pull reports that it has no Linux ARM64 variant, or Docker reports `no matching manifest for linux/arm64`. | Use Marsa’s bundled `docker` command for automatic selection of an amd64-only registry index on the Marsa engine. With a separate stock Docker CLI, select `--platform linux/amd64` for that index. |
 | A bind mount is refused because the host path is outside the shared folders. | Review the request under **Settings → Sharing**. Share only the required project folder. Protected paths stay excluded. |
 | A published port is reachable from the Mac but cannot be reached from another computer. | Check the forwarding and LAN options available in your release. Use `localhost` for local access. An unavailable LAN capability is not an engine error. |
-| A local multi-platform build rejects an unsupported target or produces only ARM64 output. | Build `linux/arm64` locally. To build a different architecture, select a remote builder that supports the target. |
+| A build needs images for both Apple silicon and Intel Linux hosts. | Run `docker buildx build --platform linux/arm64,linux/amd64 --load -t my-image .` with the Marsa engine. To run the Intel variant locally, use `docker run --rm --platform linux/amd64 my-image`. |
 
 Docker commands and Marsa’s CLI output remain in English even when the desktop is in Arabic. [Known and intended differences](../09-cli-and-docker-compat.md#known-and-intended-differences)
 
