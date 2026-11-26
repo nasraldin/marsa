@@ -276,7 +276,7 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 
 ### M3-19 Qualify default-capacity cold boot
 
-- **Status:** done
+- **Status:** in progress
 - **Depends on:** M3-12
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [07 Data disk](../07-file-sharing-and-storage.md#data-disk)
 - **Do:** Diagnose and eliminate timing failures when the packaged VM starts with a new default 64 GiB data disk, including after cancellation of a first start. Record preparation, agent connection and Docker readiness separately. Preserve the complete blank-device verification for disks of unknown provenance.
@@ -284,7 +284,16 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 - **Accept when:**
   - Repeated fresh and interrupted-first-start boots of the default-capacity disk reach Ready within the daemon's documented startup budget and shut down cleanly.
   - Existing foreign and nonblank disks still fail closed without being formatted.
-  - The qualification documents the tested pinned guest and uses the same settings in the fresh and interrupted cases.
+  - The qualification documents the tested pinned guest and uses the same settings in the fresh and interrupted cases. Include the factory memory policy. Check the complete guest console across automatic retries for kernel faults.
+
+On November 26, five fresh profiles using factory settings on a Mac15,11
+(2 guest CPUs, 8 GiB guest RAM, 64 GiB sparse disk) each reached Docker
+Ready and stopped. One console recorded a Linux 7.3.5 kernel fault during
+disk preparation, followed by a second kernel boot before Ready. The other
+four consoles had no kernel fault. The earlier 1 GiB results below qualify
+that configuration. Factory startup needs a verified guest fix and another
+fresh and interrupted boot qualification. Automatic recovery can mask the
+first failed boot in the final CLI exit status.
 
 The M6-10 default-capacity fixture twice stopped after the guest's system
 mount, before formatting an entirely sparse 64 GiB new image. Prior

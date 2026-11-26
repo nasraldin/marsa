@@ -25,7 +25,6 @@ async fn default_capacity_after_interrupted_first_start() {
             let channel = connect(&mut process.0, &paths.daemon_socket(), &log).await;
             let mut settings = Settings::default();
             settings.vm.cpus = 2;
-            settings.vm.memory = Some(1024 * MIB);
             settings.vm.idle_stop = false;
             settings.network.mode = mode;
             replace_settings(&channel, &settings, 1).await;
@@ -80,6 +79,21 @@ async fn default_capacity_after_interrupted_first_start() {
                 .unwrap()
                 .unwrap();
             assert_eq!(stopped.into_inner().state(), EngineState::Stopped);
+            let console = fs::read_to_string(paths.console_log()).unwrap();
+            assert!(
+                console.contains("marsa-init stage=agent"),
+                "missing guest boot evidence"
+            );
+            for marker in [
+                "Internal error: Oops",
+                "Kernel panic",
+                "Fixing recursive fault",
+            ] {
+                assert!(
+                    !console.contains(marker),
+                    "guest kernel fault during {mode:?} interrupted={interrupted}: {marker}"
+                );
+            }
         }
     }
 }
