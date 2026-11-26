@@ -145,7 +145,7 @@ On November 26, 2026, an explicitly selected native NAT VM pulled BusyBox 1.37.0
 
 ### M4-09 Port forwarder
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-08, M2-08, M4-23
 - **Docs:** [06 Published ports](../06-networking.md#published-ports), [D-038](../15-decisions.md#d-038-bind-published-ports-to-loopback-by-default)
 - **Do:** Implement `marsa-net`'s forwarder for TCP and UDP driven by agent port events: bind on loopback by default (LAN exposure behind a setting), IPv4 and IPv6 loopback, conflict detection with a clear error, teardown on close. Report denied host binds with the affected address and port.
@@ -156,6 +156,18 @@ On November 26, 2026, an explicitly selected native NAT VM pulled BusyBox 1.37.0
   - A port already in use yields an error naming the port (and the owner when discoverable).
   - With LAN exposure off, the port is not reachable from another machine.
   - Stopping the container closes the listener.
+
+On November 26, the signed packaged tests exercised IPv4 and IPv6 TCP and UDP
+on native NAT and the user-space attachment. A separate macOS Tart client was
+denied by default, received the workload response after LAN opt-in, and lost
+access when LAN was disabled on the same publications. Explicit localhost
+bindings stayed private throughout. The tests exercised concurrent datagram
+flows, conflicting listeners, container removal and engine shutdown.
+The authenticated port list returned the conflicting address, port and
+discoverable owner. Keyboard interaction saved the setting in all four
+[desktop variants](../screenshots/m4-09/). The separate peer run requires
+a reachable Tart client and the Mac’s two peer-facing addresses. See the
+[packaged test](../../crates/marsad/tests/packaged_runtime/forwarding.rs).
 
 ### M4-10 User-space network mode and automatic selection
 

@@ -89,7 +89,7 @@ jobs:
             "$PWD/target/guest" "${alpine_archives[0]}" "$fixture"
           export MARSA_VZ_PROXY_FIXTURE_DIR="$fixture/guest-fixture"
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
-            --test packaged_runtime -- --ignored --nocapture --test-threads=1 --skip disk_schema::
+            --test packaged_runtime -- --ignored --nocapture --test-threads=1 --skip disk_schema:: --skip forwarding::tart_peer
       - name: Build the entitled VZ test runner
         run: |
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked \
