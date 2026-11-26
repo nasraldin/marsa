@@ -295,6 +295,18 @@ that configuration. Factory startup needs a verified guest fix and another
 fresh and interrupted boot qualification. Automatic recovery can mask the
 first failed boot in the final CLI exit status.
 
+A separately built Linux 7.3.6 stable candidate, checked against the
+upstream SHA-256, also faulted and exceeded the 75 s startup budget. A
+Linux 6.18.65 long-term candidate using the same root filesystem and kernel
+configuration fragment passed all six factory-size cases on this Mac.
+Fresh, graceful cancellation and abrupt interruption reached Ready in
+9.68, 2.19 and 9.08 s respectively in user-space mode and 10.59, 2.49 and
+9.50 s in auto mode. Each abrupt interruption left an unallocated disk
+and its original inode survived recovery. The graceful cancellation can
+finish formatting before power-off, so the fixture exercises abrupt loss
+during the blank scan separately. The candidate also passed the local G4
+suite in 142 s. D-025 requires owner approval to adopt the long-term series.
+
 The M6-10 default-capacity fixture twice stopped after the guest's system
 mount, before formatting an entirely sparse 64 GiB new image. Prior
 64 GiB boots succeeded. The subsequent 1 GiB fixture reached Docker 29.10.0
