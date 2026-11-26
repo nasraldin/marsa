@@ -1009,7 +1009,7 @@ Signed Settings rendered both saved switch states in every variant.
 
 ### M7-53 Authenticate Git sources over SSH
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M7-30
 - **Docs:** [11 Git sources](../11-security.md#git-sources), [11 SSH agent access](../11-security.md#ssh-agent-access)
 - **Do:** Add explicitly configured SSH sources with a verified host key and a selected private key reference. Pin the connection to the configured host, port, user and key policy for branch testing and checkout.
@@ -1017,3 +1017,33 @@ Signed Settings rendered both saved switch states in every variant.
 - **Accept when:**
   - Test and checkout authenticate only to the saved host and use only its selected key. Unknown or changed host keys fail before Git sends repository data.
   - Ambient SSH configuration or agents cannot change the destination or selected identity. The private key contents stay out of settings and Compose.
+
+Signed headless native Settings ran Choose Key, Save Repository, Test Branch
+and Check Out in every variant against a non-root loopback OpenSSH fixture.
+The harness populated the editor inputs and supplied the private-file and
+checkout-folder chooser results. Each checkout matched the fixture bytes and
+retained its real SSH origin. The saved source held the local key path and
+public fingerprints, and temporary operations left no private key file.
+The profile path included spaces and a percent sign.
+
+Apple Git 2.54.0 and OpenSSH 10.5p1 rejected the wrong host key, a replaced
+identity file, and a separately reviewed wrong key before any Git command
+reached the fixture server. The negative tests also loaded the correct key
+into a disposable ambient agent to verify isolation. The client rejected
+a symlink, a broadly readable private key, and a key that required a
+passphrase without prompting. Ref verification rejected suffix-only
+advertisements and detached checkouts. Atomic SSH publication supports
+destinations on the same filesystem as Marsa's state.
+[English light](../screenshots/m7-53/en-light.png) ·
+[English dark](../screenshots/m7-53/en-dark.png) ·
+[Arabic light](../screenshots/m7-53/ar-light.png) ·
+[Arabic dark](../screenshots/m7-53/ar-dark.png).
+
+### M7-54 Isolate HTTPS Git checkout from its destination during authentication
+
+- **Status:** todo
+- **Depends on:** M7-30, M7-53
+- **Docs:** [11 Git sources](../11-security.md#git-sources)
+- **Do:** Keep HTTPS credential access and checkout staging outside writable shares. Publish the verified checkout after closing credential access and define behavior for a destination on another filesystem.
+- **Deliver:** HTTPS checkout staging isolated from destination-local configuration and an exact no-clobber publication test.
+- **Accept when:** Git never uses configuration from the chosen destination while its HTTPS credential is available. Interruption, an invalid checkout, and an existing destination preserve owner content.

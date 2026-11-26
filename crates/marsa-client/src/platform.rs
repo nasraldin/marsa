@@ -10,6 +10,8 @@ use std::{
 #[cfg(target_os = "macos")]
 pub mod docker_socket_link;
 mod docker_transport;
+#[cfg(target_os = "macos")]
+pub(crate) mod git_checkout;
 mod lima;
 pub(crate) use lima::{check_lima_target, lima_lifecycle_command, trusted_lima_binary};
 pub(crate) mod registry_https;

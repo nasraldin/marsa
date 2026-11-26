@@ -1,17 +1,20 @@
 //! Owner-managed Git sources and a deliberate checkout action.
 
 mod credentials;
+mod ssh;
+
+use ssh::IdentityReview;
 
 use std::{future::Future, path::PathBuf};
 
 use marsa_client::git_sources::{
-    GitRepository, GitRepositoryConfig, GitRepositoryStore, GitSourceError,
+    GitRepository, GitRepositoryConfig, GitRepositoryStore, GitSourceError, GitSshAuthentication,
 };
 use marsa_ui::{
     ColorToken, TextKey,
     gpui::{
-        AppContext as _, Context, Div, ElementId, Entity, ParentElement, PathPromptOptions,
-        PromptButton, PromptLevel, Styled, Subscription, Task, Window, div, px,
+        AppContext as _, Context, Div, ElementId, Entity, EntityId, ParentElement,
+        PathPromptOptions, PromptButton, PromptLevel, Styled, Subscription, Task, Window, div, px,
     },
     gpui_component::{
         Disableable as _,
@@ -35,8 +38,9 @@ pub(in crate::screens::system) struct GitSources {
 
 struct Editor {
     id: Option<String>,
-    fields: [Entity<InputState>; 3],
-    _observers: [Subscription; 3],
+    fields: [Entity<InputState>; 4],
+    ssh_identity: Option<IdentityReview>,
+    _observers: [Subscription; 4],
 }
 
 enum Outcome {
@@ -44,6 +48,7 @@ enum Outcome {
     Changed(Vec<GitRepository>, TextKey, ColorToken),
     Tested,
     CheckedOut(PathBuf),
+    ReviewedIdentity(EntityId, IdentityReview),
 }
 
 impl Outcome {
@@ -69,8 +74,14 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<SystemView>,
     ) -> Self {
-        let values = repo.map_or(["", "", "main"], |repo| {
-            [&repo.config.name, &repo.config.url, &repo.config.branch]
+        let authentication = repo.and_then(|repo| repo.config.ssh.as_ref());
+        let values = repo.map_or(["", "", "main", ""], |repo| {
+            [
+                &repo.config.name,
+                &repo.config.url,
+                &repo.config.branch,
+                authentication.map_or("", |ssh| ssh.host_key.as_str()),
+            ]
         });
         let fields = values.map(|value| {
             let field = cx.new(|cx| InputState::new(window, cx));
@@ -81,8 +92,8 @@ impl Editor {
         });
         let _observers = fields.each_ref().map(|field| {
             cx.subscribe(field, |view, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) && view.git_sources.feedback.take().is_some()
-                {
+                if matches!(event, InputEvent::Change) {
+                    view.git_sources.feedback = None;
                     cx.notify();
                 }
             })
@@ -90,16 +101,49 @@ impl Editor {
         Self {
             id: repo.map(|repo| repo.id.clone()),
             fields,
+            ssh_identity: authentication.map(|ssh| IdentityReview {
+                file: ssh.identity_file.clone(),
+                fingerprint: ssh.identity_fingerprint.clone(),
+            }),
             _observers,
         }
     }
 
-    fn config(&self, cx: &Context<SystemView>) -> GitRepositoryConfig {
-        let [name, url, branch] = self
+    fn is_ssh(&self, cx: &Context<SystemView>) -> bool {
+        self.fields[1]
+            .read(cx)
+            .value()
+            .trim_start()
+            .starts_with("ssh://")
+    }
+
+    fn config(&self, cx: &Context<SystemView>) -> Result<GitRepositoryConfig, GitSourceError> {
+        let [name, url, branch, host_key] = self
             .fields
             .each_ref()
             .map(|field| field.read(cx).value().trim().to_owned());
-        GitRepositoryConfig { name, url, branch }
+        let ssh = if self.is_ssh(cx) {
+            if marsa_client::git_sources::git_ssh_host_key_fingerprint(&host_key).is_none() {
+                return Err(GitSourceError::SshHostKey);
+            }
+            let identity = self
+                .ssh_identity
+                .as_ref()
+                .ok_or(GitSourceError::SshIdentity)?;
+            Some(GitSshAuthentication {
+                host_key,
+                identity_file: identity.file.clone(),
+                identity_fingerprint: identity.fingerprint.clone(),
+            })
+        } else {
+            None
+        };
+        Ok(GitRepositoryConfig {
+            name,
+            url,
+            branch,
+            ssh,
+        })
     }
 }
 
@@ -150,6 +194,14 @@ impl SystemView {
                         cx.reveal_path(&path);
                         Some((gui::GUI_GIT_CHECKOUT_COMPLETE, ColorToken::TextPrimary))
                     }
+                    Some(Ok(Ok(Outcome::ReviewedIdentity(id, identity)))) => {
+                        if let Some(editor) = &mut panel.editor
+                            && editor.fields[0].entity_id() == id
+                        {
+                            editor.ssh_identity = Some(identity);
+                        }
+                        None
+                    }
                     Some(Ok(Err(error))) => Some((error_key(&error), ColorToken::StatusWarning)),
                     _ => Some((gui::GUI_GIT_STORE_FAILED, ColorToken::StatusWarning)),
                 };
@@ -163,7 +215,14 @@ impl SystemView {
         let Some(editor) = &self.git_sources.editor else {
             return;
         };
-        let config = editor.config(cx);
+        let config = match editor.config(cx) {
+            Ok(config) => config,
+            Err(error) => {
+                self.git_sources.feedback = Some((error_key(&error), ColorToken::StatusWarning));
+                cx.notify();
+                return;
+            }
+        };
         let id = editor.id.clone();
         if test {
             let saved = self
@@ -175,6 +234,7 @@ impl SystemView {
                         id.as_ref() == Some(&entry.id)
                             && config.url == entry.config.url
                             && config.branch == entry.config.branch
+                            && config.ssh == entry.config.ssh
                     })
                 })
                 .cloned();
@@ -344,6 +404,11 @@ impl SystemView {
             .border_color(color(screen.palette, ColorToken::BorderSubtle))
             .pt_3()
             .child(fields)
+            .children(
+                editor
+                    .is_ssh(cx)
+                    .then(|| self.ssh_git_editor(editor, screen, busy, cx)),
+            )
             .child(
                 row(locale)
                     .flex_wrap()
@@ -374,7 +439,7 @@ impl SystemView {
                             .child(
                                 Button::new("git-editor-save")
                                     .primary()
-                                    .label(gui::GUI_ENVIRONMENT_SAVE.text(locale))
+                                    .label(gui::GUI_GIT_SAVE.text(locale))
                                     .disabled(busy)
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.git_submit(false, cx)),
@@ -457,7 +522,7 @@ impl SystemView {
                             },
                         )),
                     )
-                    .child(
+                    .children(repo.config.ssh.is_none().then(|| {
                         button("git-credentials", gui::GUI_GIT_CREDENTIALS).on_click(cx.listener(
                             move |this, _, window, cx| {
                                 this.open_git_credentials(
@@ -468,8 +533,8 @@ impl SystemView {
                                     cx,
                                 );
                             },
-                        )),
-                    )
+                        ))
+                    }))
                     .children(repo.has_https_credential().then(|| {
                         button("git-remove-credential", gui::GUI_GIT_CREDENTIAL_REMOVE).on_click(
                             cx.listener(move |this, _, window, cx| {
@@ -538,6 +603,11 @@ fn error_key(error: &GitSourceError) -> TextKey {
         GitSourceError::CredentialUnavailable => gui::GUI_GIT_CREDENTIAL_UNAVAILABLE,
         GitSourceError::CredentialChanged => gui::GUI_GIT_CREDENTIAL_CHANGED,
         GitSourceError::CredentialCleanup => gui::GUI_GIT_CREDENTIAL_CLEANUP,
+        GitSourceError::SshHostKey => gui::GUI_GIT_SSH_HOST_KEY_INVALID,
+        GitSourceError::SshIdentity => gui::GUI_GIT_SSH_KEY_INVALID,
+        GitSourceError::SshIdentityChanged => gui::GUI_GIT_SSH_KEY_CHANGED,
+        GitSourceError::SshConnection => gui::GUI_GIT_SSH_CONNECTION_FAILED,
+        GitSourceError::SshDestinationFilesystem => gui::GUI_GIT_SSH_DESTINATION_FILESYSTEM,
         GitSourceError::NotFound | GitSourceError::Store(_) => gui::GUI_GIT_STORE_FAILED,
     }
 }

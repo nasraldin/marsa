@@ -187,12 +187,14 @@ existing name only after success and stream termination.
 
 ## Git sources
 
-Settings saves the repository name, HTTPS URL and branch in an owner-private
-file. The desktop runs the root-owned macOS `/usr/bin/git` in a fresh private
-directory with the environment cleared and system and global Git configuration
+Settings saves the repository name, HTTPS or SSH URL and branch in an
+owner-private file. The desktop runs the root-owned macOS `/usr/bin/git`
+with the environment cleared and system and global Git configuration
 disabled. A separate empty home keeps libcurl away from the login user's
-`.netrc`. Git verifies HTTPS certificates and disables redirects, other
-protocols, ambient HTTP authentication, hooks, templates and submodule checkout.
+`.netrc`. Git's temporary home and branch-test directory are under the
+protected Marsa state root, which is excluded from guest shares. HTTPS
+verifies certificates and disables redirects and ambient HTTP authentication.
+Git permits the selected transport and skips hooks, templates and submodules.
 Tested with Apple
 Git 2.54.0. [Git environment options](https://git-scm.com/docs/git/2.54.0) ·
 [Git configuration](https://git-scm.com/docs/git-config/2.54.0).
@@ -220,6 +222,35 @@ Compose receives only the file the owner selects after checkout.
 [Git helper request format](https://git-scm.com/docs/git-credential/2.54.0) ·
 [Pinned HTTP authentication setup](https://github.com/git/git/blob/v2.54.0/http.c#L566-L623) ·
 [Pinned libcurl home lookup](https://github.com/curl/curl/blob/curl-8_7_1/lib/netrc.c#L279-L316).
+
+For SSH use `ssh://user@host[:port]/repository`. Obtain the OpenSSH public
+host key through a trusted channel and compare its SHA-256 fingerprint in
+Settings. Choose an owner-only private-key file. Settings records its local
+path and public fingerprint. If its key changes, select the file again to
+review the new public fingerprint. The supported public key types are
+Ed25519, NIST ECDSA and RSA of at least 2048 bits using SHA-2 signatures.
+BatchMode requires a private key usable without a passphrase prompt.
+
+Marsa starts the system OpenSSH client with an isolated configuration that
+pins the destination, user, port, host key and selected identity. OpenSSH
+checks the host key before repository traffic. The client uses no ambient
+SSH configuration, agent, macOS Keychain identities, certificates, proxy,
+forwarding or alternate authentication. Marsa opens the selected owner-private
+key without following the final symlink and loads it through standard input
+into a private operation-owned agent with a 150-second key lifetime. The
+agent holds a single key. Marsa verifies its public fingerprint before
+connecting and closes the agent's lifetime pipe when the operation ends.
+The socket and public SSH configuration live in an owner-only directory
+under the protected state root. Only the public source URL is recorded
+as the checkout's Git origin. Private key bytes stay in memory during
+the operation and are never put in settings, Git arguments or Compose.
+Git checks out SSH sources in the protected state directory, releases the
+agent, and verifies that HEAD names the exact branch. It then moves the
+checked-out directory atomically into a fresh child of the pinned,
+owner-selected parent. The destination must be on the same filesystem as
+Marsa's state directory. Existing files and folders are preserved.
+[Pinned OpenSSH client configuration](https://github.com/openssh/openssh-portable/blob/V_10_5_P1/ssh_config.5) ·
+[Pinned Git SSH invocation](https://github.com/git/git/blob/v2.54.0/connect.c).
 
 ## SSH agent access
 
