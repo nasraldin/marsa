@@ -171,7 +171,7 @@ a reachable Tart client and the Mac’s two peer-facing addresses. See the
 
 ### M4-10 User-space network mode and automatic selection
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M4-09, M3-15, M4-25
 - **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection), V-07
 - **Do:** Use the qualified transport from M3-14 and boot-time mode selection from M3-15. Implement `userspace` port forwarding and network-change recovery with events. Respect a pinned mode.
@@ -183,6 +183,20 @@ a reachable Tart client and the Mac’s two peer-facing addresses. See the
   - Test no lease, native DNS and TCP failure, filtered and split DNS, invalid TLS, helper denial or exit, and Wi-Fi or VPN changes. Keep the local engine available and preserve host policy.
   - The authenticated helper control path is private. Guest access to host loopback and metadata services follows explicit policy.
   - V-07 is resolved in the docs.
+
+On macOS 27.2.1, a disposable guest dropped outbound native TCP/443 after DHCP.
+Pinned NAT emitted `native_tcp` and kept Docker 29.10.0 available. Automatic
+selection emitted `native_tcp_userspace_verified` and pulled digest-pinned
+BusyBox over the verified alternate. Pinned userspace ran that image offline
+from the same data disk. The three boots took 42 seconds. The fixture gives
+the guest the Mac's current registry DNS answers to isolate the TCP fault.
+An unmodified guest failed the firewall assertion as expected.
+
+The supervisor tests cover stale observations, unknown inventory, active clients,
+busy workloads, invalid TLS, DNS policy, helper loss and pinned health recovery.
+The [helper checks](../../network-helper/README.md#build-and-check) exercise its
+private socketpair, lifetime and destination policy. M3-13 covers missing DHCP,
+M3-14 the VPN path, M4-08 the physical Wi-Fi handoff, and M4-09 the port matrix.
 
 ### M4-11 Proxy settings and CA certificate import
 

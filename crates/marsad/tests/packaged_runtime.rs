@@ -45,6 +45,8 @@ mod compose_watch;
 mod disk_schema;
 #[path = "packaged_runtime/factory.rs"]
 mod factory;
+#[path = "packaged_runtime/fallback_firewall.rs"]
+mod fallback_firewall;
 #[path = "packaged_runtime/forwarding.rs"]
 mod forwarding;
 #[path = "packaged_runtime/memory_policy.rs"]
