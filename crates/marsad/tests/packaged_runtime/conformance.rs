@@ -35,7 +35,11 @@ async fn real_clients_use_the_packaged_engine() {
     replace_settings(&channel, &settings, 1).await;
     recovery::start(&channel, &paths, 2).await;
     let suite = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/conformance");
-    for (program, script) in [("python3", "engine/check.py"), ("bash", "tools/run.sh")] {
+    for (program, script) in [
+        ("python3", "engine/check.py"),
+        ("python3", "differences/check.py"),
+        ("bash", "tools/run.sh"),
+    ] {
         let mut cmd = tokio::process::Command::new(program);
         cmd.arg(suite.join(script));
         if program == "python3" {

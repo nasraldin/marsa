@@ -101,6 +101,7 @@ jobs:
           sh crates/marsad/tests/packaged_runtime/fallback_fixture/prepare.sh \
             "$MARSA_VZ_GUEST_DIR" "$fixture/formatter/initramfs.gz" "$fixture/fallback"
           export MARSA_VZ_FALLBACK_FIXTURE_DIR="$fixture/fallback/guest-fixture"
+          export MARSA_TEST_X64_EXPORT="$PWD/target/conformance/native-x64"
           mkdir -p target/conformance
           set -o pipefail
           MARSA_TEST_DOCKER_CLI="$MARSA_TEST_DOCKER" cargo test --locked -p marsad \
@@ -117,6 +118,13 @@ jobs:
             MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
               intercept_trust:: -- --ignored --nocapture --test-threads=1
           fi
+      - name: Upload the Marsa-built amd64 image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: marsa-built-amd64
+          path: target/conformance/native-x64/
+          if-no-files-found: error
+          retention-days: 1
       - name: Collect Docker conformance outcomes
         if: always()
         run: python3 tests/conformance/results.py target/conformance
@@ -152,3 +160,22 @@ jobs:
           name: app-bundle-size
           path: ${{ env.BUNDLE_REPORT }}
           if-no-files-found: warn
+
+  native-x64:
+    name: Run the Marsa-built image on native x64
+    needs: system
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: marsa-built-amd64
+          path: image
+      - name: Execute the unchanged image on the native Linux engine
+        run: |
+          test "$(uname -m)" = x86_64
+          id=$(cat image/build-id)
+          [[ "$id" =~ ^marsa-arch-[0-9a-f]{12}$ ]]
+          docker load -i image/amd64.tar
+          actual=$(docker run --rm --pull=never "$id:multi")
+          expected=$(printf 'x86_64 %s\nx86_64' "$id")
+          test "$actual" = "$expected"
