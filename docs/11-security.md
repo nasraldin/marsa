@@ -299,6 +299,8 @@ guest client. It used synthetic cgroups and a disposable host agent.
   still lacks independent authorization for the requesting workload.
   [Apple VZ connection contract](https://developer.apple.com/documentation/virtualization/vzvirtiosocketconnection)
 
+Docker Desktop on macOS offers explicit runtime access by mounting its host-agent socket into a container and setting `SSH_AUTH_SOCK`. Its documented workflow suits a developer who trusts the selected container and its Docker environment. Podman documents build-time SSH mounts and tracks an open feature request for forwarding the macOS host agent into a running Podman container. Marsa already qualifies BuildKit SSH mounts in M4-13. Neither product reference establishes the host-verifiable workload identity required by M4-17. [Docker Desktop runtime forwarding](https://docs.docker.com/desktop/features/networking/networking-how-tos/#ssh-agent-forwarding) · [Podman build SSH mounts](https://docs.podman.io/en/latest/markdown/podman-build.1.html) · [Podman macOS runtime forwarding request](https://github.com/podman-container-tools/podman/issues/23785)
+
 Reopen M4-17 when the host can verify a workload and its lifetime independently,
 or the owner approves a trust decision that explicitly scopes admin and
 compromised-guest access while a grant is active. BuildKit keeps its separate
