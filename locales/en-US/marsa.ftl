@@ -1484,3 +1484,9 @@ gui-volume-download-limit = The selected files exceed the volume download limit.
 gui-volume-download-failed = The volume download was interrupted.
 gui-volume-download-destination = The download could not be saved. Choose a new destination.
 gui-volume-download-same-filesystem = Choose a folder on the same storage volume as Marsa’s data.
+
+cli-help-apply-network-settings = Review staged network settings, or apply them with --yes
+cli-network-apply-running = Applying these settings restarts the guest and interrupts containers, builds and attached streams. Review the policy below. Run marsa network apply --yes to confirm.
+cli-network-apply-stopped = Review the policy below. Run marsa network apply --yes to start the engine with these settings.
+cli-network-settings-applied = Applied the network settings.
+cli-network-apply-result = Network activation returned { $outcome } at stage { $stage }.

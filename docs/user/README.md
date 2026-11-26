@@ -38,6 +38,8 @@ Volumes and networks support creation and confirmed removal. A network can attac
 
 The **Containers**, **Images**, **Volumes**, and **Networks** screens show resources from the connected engine. Docker Compose projects appear when Docker has containers with Compose labels. When the app asks you to choose a Compose file for an operation, select the file that belongs to the project. **Down** keeps named volumes by default. Removing the volumes requires typing the project name.
 
+After staging network settings, run `marsa network apply` to review the registry, DNS and proxy policy and whether a restart will interrupt workloads. Run `marsa network apply --yes` to approve the restart. If the candidate fails, Marsa reports the recovery outcome and keeps the desired settings for review.
+
 ## Sharing folders
 
 Add a project folder under **Settings → Sharing** and choose read-only or read and write. When a workload requests another host folder, review the exact paths. Choose **Share once**, **Always share**, or **Deny**. Some VM backends can attach a newly approved static share only at the next start. Save work before choosing to restart the engine.

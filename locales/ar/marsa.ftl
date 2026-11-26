@@ -1484,3 +1484,9 @@ gui-volume-download-limit = تتجاوز الملفات المحدّدة حد ا
 gui-volume-download-failed = انقطع التنزيل من وحدة التخزين.
 gui-volume-download-destination = تعذّر حفظ التنزيل. اختر وجهة جديدة.
 gui-volume-download-same-filesystem = اختر مجلدًا على وحدة التخزين نفسها التي تحتوي على بيانات Marsa.
+
+cli-help-apply-network-settings = راجع إعدادات الشبكة المعلّقة أو طبّقها باستخدام --yes
+cli-network-apply-running = يؤدي تطبيق الإعدادات إلى إعادة تشغيل الضيف ومقاطعة الحاويات وعمليات البناء والاتصالات النشطة. راجع السياسة أدناه ثم شغّل marsa network apply --yes للتأكيد.
+cli-network-apply-stopped = راجع السياسة أدناه ثم شغّل marsa network apply --yes لبدء المحرك بهذه الإعدادات.
+cli-network-settings-applied = تم تطبيق إعدادات الشبكة.
+cli-network-apply-result = أعاد تطبيق إعدادات الشبكة النتيجة { $outcome } في المرحلة { $stage }.

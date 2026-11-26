@@ -234,6 +234,7 @@ static ROOT: Spec = command(
             &[],
             &[
                 leaf("status", keys::CLI_HELP_SHOW_NETWORK_STATUS),
+                leaf("apply", keys::CLI_HELP_APPLY_NETWORK_SETTINGS),
                 command(
                     "mode",
                     keys::CLI_HELP_SHOW_OR_SAVE_THE_NETWORK_MODE_FOR_THE_NEXT_START,
