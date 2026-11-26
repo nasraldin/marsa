@@ -202,6 +202,11 @@ pub trait GuestProbe: Send + Sync {
 /// Protocol session retained as long as the ready guest is running.
 #[async_trait]
 pub trait GuestSession: Send {
+    /// Obtain a bounded probe tied to this session without blocking lifecycle requests.
+    fn live_egress_probe(&self) -> Option<Box<dyn LiveEgressProbe>> {
+        None
+    }
+
     /// Whether this guest supports checking egress before starting the engine.
     fn can_probe_egress(&self) -> bool {
         false
@@ -232,6 +237,13 @@ pub trait GuestSession: Send {
 }
 
 type Observer = Arc<dyn Fn(&Transition) + Send + Sync>;
+
+/// Registry egress observation scoped to one running guest session.
+#[async_trait]
+pub trait LiveEgressProbe: Send {
+    /// Check the fixed registry destination using its host-resolved public address.
+    async fn probe(&mut self, target: Ipv4Addr) -> io::Result<EgressStage>;
+}
 
 /// Shared client of one per-user VM supervisor.
 #[derive(Clone)]
@@ -448,6 +460,29 @@ impl Supervisor {
             .await
             .map_err(|_| io::ErrorKind::NotConnected)?;
         result.await.map_err(|_| io::ErrorKind::NotConnected)?
+    }
+
+    pub(crate) async fn live_network_check(
+        &self,
+    ) -> Result<Option<network::LiveCheck>, SupervisorError> {
+        let (reply, result) = oneshot::channel();
+        self.commands
+            .send(actor::Command::LiveCheck(reply))
+            .await
+            .map_err(|_| SupervisorError::Closed)?;
+        result.await.map_err(|_| SupervisorError::Closed)
+    }
+
+    pub(crate) async fn apply_network_check(
+        &self,
+        check: network::LiveCheck,
+        result: NetworkResult,
+        allow_restart: bool,
+    ) -> Result<(), SupervisorError> {
+        self.request(|reply| {
+            actor::Command::LiveResult(check.generation, result, allow_restart, reply)
+        })
+        .await
     }
 
     /// Stop the guest and cancel any retry or pending activation.

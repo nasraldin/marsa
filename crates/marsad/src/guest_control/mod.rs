@@ -240,7 +240,10 @@ impl GuestControl {
             .borrow()
             .upgrade()
             .ok_or(GuestControlError::Disconnected)?;
-        if matches!(body, HostBody::StartEngine(_) | HostBody::ProbeEgress(_)) {
+        if matches!(
+            body,
+            HostBody::StartEngine(_) | HostBody::ProbeEgress(_) | HostBody::ProbeLiveEgress(_)
+        ) {
             return Err(GuestControlError::Sequence(
                 "boot commands are owned by the supervisor",
             ));

@@ -147,23 +147,25 @@ impl Bus {
 
     pub(super) fn engine(&self, transition: &Transition) {
         let mut state = self.lock();
-        let health = match transition.current {
-            State::Stopped | State::Starting | State::Stopping | State::Failed => {
-                state.stats = None;
-                EngineHealthState::Unspecified.into()
+        if transition.previous != transition.current {
+            let health = match transition.current {
+                State::Stopped | State::Starting | State::Stopping | State::Failed => {
+                    state.stats = None;
+                    EngineHealthState::Unspecified.into()
+                }
+                _ => state.engine.guest_health,
+            };
+            if matches!(
+                transition.current,
+                State::Stopped | State::Stopping | State::Failed
+            ) {
+                state.once_active.clear();
+                state.mounted_binds = None;
             }
-            _ => state.engine.guest_health,
-        };
-        if matches!(
-            transition.current,
-            State::Stopped | State::Stopping | State::Failed
-        ) {
-            state.once_active.clear();
-            state.mounted_binds = None;
+            state.engine = engine::from_transition(&state.engine.backend, transition, health);
+            let status = state.engine.clone();
+            state.publish(Body::Engine(status));
         }
-        state.engine = engine::from_transition(&state.engine.backend, transition, health);
-        let status = state.engine.clone();
-        state.publish(Body::Engine(status));
 
         let previous = state.network.take();
         let configured = state.startup.network.mode;
@@ -584,6 +586,10 @@ pub(super) fn network_status(configured: NetworkMode, network: BootNetwork) -> N
     };
     let reason = match network.result {
         NetworkResult::Unchecked | NetworkResult::NativeHealthy => None,
+        NetworkResult::PinnedHealthy => Some(match network.active {
+            NetworkSpec::Nat => "native_healthy".into(),
+            NetworkSpec::Userspace => "userspace_healthy".into(),
+        }),
         NetworkResult::Unavailable => Some("probe_unavailable".into()),
         NetworkResult::Fallback(stage) => {
             Some(format!("native_{}_userspace_verified", stage_name(stage)))
@@ -601,11 +607,17 @@ pub(super) fn network_status(configured: NetworkMode, network: BootNetwork) -> N
                 stage_name(native)
             ))
         }
+        NetworkResult::RestartForUserspace(stage) => Some(format!(
+            "native_{}_userspace_restart_pending",
+            stage_name(stage)
+        )),
+        NetworkResult::UserspaceDegraded(stage) => Some(format!("userspace_{}", stage_name(stage))),
         NetworkResult::TransportUnavailable => Some("transport_unavailable".into()),
     };
     NetworkStatus {
         configured_mode: mode(configured).into(),
         active_mode: active.into(),
+        restart_pending: network.result.restart_pending(configured).then_some(true),
         reason,
         ..Default::default()
     }

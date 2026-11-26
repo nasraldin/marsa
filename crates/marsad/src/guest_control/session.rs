@@ -90,7 +90,7 @@ impl Client {
             .map_err(|_| GuestControlError::Sequence("request IDs exhausted"))?;
         let result = match body {
             HostBody::Trim(_) => ResultType::Trim,
-            HostBody::ProbeEgress(_) => ResultType::Egress,
+            HostBody::ProbeEgress(_) | HostBody::ProbeLiveEgress(_) => ResultType::Egress,
             _ => ResultType::Command,
         };
         let frame = wire::encode(id, body)?;
@@ -229,7 +229,30 @@ impl Session {
 }
 
 #[async_trait]
+impl crate::supervisor::LiveEgressProbe for Arc<Client> {
+    async fn probe(&mut self, target: Ipv4Addr) -> io::Result<EgressStage> {
+        let reply = self
+            .request(
+                HostBody::ProbeLiveEgress(ProbeEgress {
+                    address_v4: target.octets().to_vec(),
+                }),
+                Duration::from_secs(12),
+            )
+            .await?;
+        match reply {
+            GuestResponse::Egress(stage) => Ok(stage),
+            _ => Err(GuestControlError::Sequence("expected live egress result").into()),
+        }
+    }
+}
+
+#[async_trait]
 impl GuestSession for Session {
+    fn live_egress_probe(&self) -> Option<Box<dyn crate::supervisor::LiveEgressProbe>> {
+        (self.client.minor >= marsa_proto::guest::LIVE_EGRESS_MINOR)
+            .then(|| Box::new(self.client.clone()) as Box<dyn crate::supervisor::LiveEgressProbe>)
+    }
+
     fn can_probe_egress(&self) -> bool {
         self.deferred
     }

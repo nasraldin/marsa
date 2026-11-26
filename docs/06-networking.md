@@ -99,6 +99,14 @@ default. Confirm repeated failures before changing modes. Schedule a
 restart-required change around active workloads and avoid repeated switching
 on transient Wi-Fi, captive portals, or VPN handoffs.
 
+Guest protocol 1.3 permits a bounded registry check after Docker starts.
+A host path change or wake refreshes native DNS before comparing the guest
+and host. With automatic selection, a repeated native failure can trigger a
+fresh boot selection when the inventory confirms zero running containers,
+the Docker endpoint has no clients, and settings have no pending restart.
+A busy guest keeps its attachment and reports a pending restart. A changed
+settings revision or guest session invalidates the earlier observation.
+
 ### Apple silicon qualification
 
 On macOS 27.2.1, both Marsa and a stock Ubuntu VM experienced native NAT

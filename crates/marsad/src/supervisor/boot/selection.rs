@@ -41,7 +41,13 @@ pub(super) async fn select_and_start(
         progress,
     )
     .await?;
-    let Some(host) = selection.host.filter(|_| spec.network == NetworkSpec::Nat) else {
+    // A pinned mode reports its health after Docker is ready. Only automatic
+    // native selection may delay engine release or try an alternate attachment.
+    let automatic = selection.configured_mode == Some(marsa_core::settings::NetworkMode::Auto);
+    let Some(host) = selection
+        .host
+        .filter(|_| automatic && spec.network == NetworkSpec::Nat)
+    else {
         return start_engine(guest, deadline, cancel, progress).await;
     };
 

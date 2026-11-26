@@ -18,6 +18,7 @@ use super::{
 };
 
 mod maintenance;
+mod network;
 mod operations;
 
 pub(super) const CHANNEL_CAPACITY: usize = 64;
@@ -36,6 +37,8 @@ pub(super) enum Command {
     EnsureReady(Reply),
     ConnectService(u32, oneshot::Sender<io::Result<VsockStream>>),
     Network(NetworkMode, oneshot::Sender<NetworkObservation>),
+    LiveCheck(oneshot::Sender<Option<super::network::LiveCheck>>),
+    LiveResult(u64, super::NetworkResult, bool, Reply),
     Stop(Reply),
     Restart(Reply),
     Pause(Reply),
@@ -51,6 +54,8 @@ enum Event {
     Progress(BootStage),
     Boot(Result<Outcome, JoinError>),
     GuestExited(String),
+    TransportLost,
+    PinnedHealth(super::NetworkResult),
     DockerClients,
     ReleaseMaintenance,
     Workloads(Option<io::Result<u32>>),
@@ -87,6 +92,8 @@ pub(super) struct Actor {
     paused_for_sleep: bool,
     host_asleep: bool,
     boot_after_wake: bool,
+    last_network_restart: Option<Instant>,
+    network_generation: u64,
 }
 
 impl Actor {
@@ -121,6 +128,8 @@ impl Actor {
             paused_for_sleep: false,
             host_asleep: false,
             boot_after_wake: false,
+            last_network_restart: None,
+            network_generation: 0,
         }
     }
 
@@ -174,6 +183,18 @@ impl Actor {
                     let vm = self.guest.take().map(|guest| guest.vm);
                     self.failed(vm, boot::Issue::failed(BootStage::Running, detail))
                         .await;
+                }
+                Event::TransportLost => {
+                    if let Some(guest) = &mut self.guest {
+                        guest.pinned_check = None;
+                    }
+                    self.publish_network(super::NetworkResult::TransportUnavailable)
+                }
+                Event::PinnedHealth(result) => {
+                    if let Some(guest) = &mut self.guest {
+                        guest.pinned_check = None;
+                    }
+                    self.publish_network(result);
                 }
                 Event::DockerClients => self.docker_activity(),
                 Event::Workloads(count) => self.workload_sample(count).await,
@@ -269,6 +290,7 @@ impl Actor {
     }
 
     fn ready(&mut self) {
+        self.network_generation = self.network_generation.saturating_add(1);
         // A maintenance candidate commits only when its owner keeps it; the
         // retained callback must not fire while the candidate is pending.
         if !self.maintenance_candidate_pending()
@@ -278,6 +300,7 @@ impl Actor {
         }
 
         self.set_state(State::Ready, None);
+        self.begin_pinned_check();
         self.sample_at = Some(Instant::now());
         self.reset_idle();
         self.reply_waiters(Ok(()));
@@ -333,13 +356,19 @@ async fn watch_guest(
         Some(guest) => {
             let vm = guest.vm.as_ref();
             tokio::select! {
-                detail = boot::guest_exit(vm, &mut guest.events) => Event::GuestExited(detail),
+                event = boot::guest_event(vm, &mut guest.events) => event.map_or(Event::TransportLost, Event::GuestExited),
                 error = async {
                     match guest.session.as_mut() {
                         Some(session) => session.disconnected().await,
                         None => pending().await,
                     }
                 } => Event::GuestExited(error.to_string()),
+                result = async {
+                    match &mut guest.pinned_check {
+                        Some(check) => check.await,
+                        None => pending().await,
+                    }
+                } => Event::PinnedHealth(result),
                 count = async {
                     wait_deadline(sample).await;
                     probe.active_containers(vm).await

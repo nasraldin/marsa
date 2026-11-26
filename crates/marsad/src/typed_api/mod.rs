@@ -184,7 +184,7 @@ impl TypedApi {
         let events = self.inner.events.clone();
         let capabilities = backend.capabilities();
         let (settings, _) = events.settings();
-        let automatic = select_network(&settings, &mut spec, capabilities);
+        let selection = select_network(&settings, &mut spec, capabilities);
         events.backend(capabilities.name);
         self.capabilities = Some(capabilities);
         let supervisor = Supervisor::spawn_observed(
@@ -193,7 +193,7 @@ impl TypedApi {
             spec,
             config,
             Arc::new(move |transition| events.engine(transition)),
-            Selection::new(automatic).with_configured_mode(settings.network.mode),
+            selection,
         );
         self.supervisor = Some(supervisor.clone());
         (self, supervisor)
@@ -236,10 +236,38 @@ impl TypedApi {
         // acknowledgement. Serialize DNS changes on their own coalescing queue.
         let apply = async {
             while pending.changed().await.is_ok() {
-                if let Some(supervisor) = &self.supervisor
-                    && let Err(error) = self.refresh_native_dns(supervisor).await
-                {
+                let Some(supervisor) = &self.supervisor else {
+                    continue;
+                };
+                if let Err(error) = self.refresh_native_dns(supervisor).await {
                     tracing::warn!(%error, "native resolver refresh failed");
+                    continue;
+                }
+                let (desired, snapshot) = self.inner.events.settings();
+                if let Ok(Some(mut check)) = supervisor.live_network_check().await {
+                    if desired.network.mode != NetworkMode::Auto {
+                        check.observe_only();
+                    }
+                    let result = check.run().await;
+                    // A new path invalidates both observations. The next iteration
+                    // snapshots DNS and route policy again for that path.
+                    let _edit = self.inner.edit.lock().await;
+                    let (current, settings) = self.inner.events.settings();
+                    if pending.has_changed().unwrap_or(false)
+                        || settings.revision != snapshot.revision
+                    {
+                        continue;
+                    }
+                    if let Err(error) = supervisor
+                        .apply_network_check(
+                            check,
+                            result,
+                            current.network.mode == NetworkMode::Auto && !settings.restart_required,
+                        )
+                        .await
+                    {
+                        tracing::warn!(%error, "live network recovery could not complete");
+                    }
                 }
             }
         };
@@ -338,13 +366,13 @@ impl TypedApi {
                 )
                 .map_err(io::Error::other)?,
             );
-            let automatic = select_network(&effective, &mut spec, backend.capabilities());
+            let selection = select_network(&effective, &mut spec, backend.capabilities());
             let network_policy = native_dns::configuration(&effective.network, spec.network)?;
             let bus = settings.clone();
             Ok(Launch {
                 backend,
                 spec,
-                selection: Selection::new(automatic).with_configured_mode(configured_mode),
+                selection: selection.with_configured_mode(configured_mode),
                 network_policy,
                 applied: Some(Arc::new(move || {
                     if !reserved {
@@ -487,16 +515,18 @@ impl TypedApi {
     }
 }
 
-fn select_network(settings: &Settings, spec: &mut VmSpec, capabilities: Capabilities) -> bool {
+fn select_network(settings: &Settings, spec: &mut VmSpec, capabilities: Capabilities) -> Selection {
     spec.network = match settings.network.mode {
         NetworkMode::Auto | NetworkMode::Nat => NetworkSpec::Nat,
         NetworkMode::Userspace => NetworkSpec::Userspace,
     };
-    settings.network.mode == NetworkMode::Auto
-        && capabilities.userspace_network
-        && settings.network.dns.is_empty()
+    let direct = settings.network.dns.is_empty()
         && settings.network.proxy.http.is_none()
-        && settings.network.proxy.https.is_none()
+        && settings.network.proxy.https.is_none();
+    Selection::new(
+        direct && (settings.network.mode != NetworkMode::Auto || capabilities.userspace_network),
+    )
+    .with_configured_mode(settings.network.mode)
 }
 
 #[cfg(test)]

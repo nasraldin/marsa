@@ -169,7 +169,7 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
     assert_eq!(actual.configured_mode(), NetworkMode::Userspace);
     assert_eq!(actual.active_mode(), NetworkMode::Userspace);
     assert_eq!(actual.restart_pending, Some(false));
-    assert!(actual.reason.is_none());
+    assert_eq!(actual.reason.as_deref(), Some("probe_unavailable"));
     assert!(
         !settings
             .get(GetSettingsRequest {})

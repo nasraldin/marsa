@@ -62,25 +62,48 @@ impl Hypervisor for Backend {
 struct Probe {
     trace: Trace,
     attempts: Mutex<VecDeque<Option<Vec<EgressStage>>>>,
+    workloads: Option<u32>,
 }
 
 #[async_trait]
 impl GuestProbe for Probe {
+    async fn active_containers(&self, _: &dyn Vm) -> Option<io::Result<u32>> {
+        self.workloads.map(Ok)
+    }
+
     async fn handshake(&self, _: &dyn Vm) -> io::Result<Box<dyn GuestSession>> {
         Ok(Box::new(Session {
             trace: self.trace.clone(),
-            stages: self.attempts.lock().unwrap().pop_front().unwrap(),
+            stages: self
+                .attempts
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap()
+                .map(|stages| Arc::new(Mutex::new(stages))),
         }))
     }
 }
 
+#[derive(Clone)]
 struct Session {
     trace: Trace,
-    stages: Option<Vec<EgressStage>>,
+    stages: Option<Arc<Mutex<Vec<EgressStage>>>>,
+}
+
+#[async_trait]
+impl super::super::LiveEgressProbe for Session {
+    async fn probe(&mut self, ip: Ipv4Addr) -> io::Result<EgressStage> {
+        self.probe_egress(ip).await
+    }
 }
 
 #[async_trait]
 impl GuestSession for Session {
+    fn live_egress_probe(&self) -> Option<Box<dyn super::super::LiveEgressProbe>> {
+        self.stages.as_ref().map(|_| Box::new(self.clone()) as _)
+    }
+
     fn can_probe_egress(&self) -> bool {
         self.stages.is_some()
     }
@@ -88,7 +111,7 @@ impl GuestSession for Session {
     async fn probe_egress(&mut self, ip: Ipv4Addr) -> io::Result<EgressStage> {
         assert_eq!(ip, TARGET);
         self.trace.lock().unwrap().push("probe");
-        Ok(self.stages.as_mut().unwrap().remove(0))
+        Ok(self.stages.as_ref().unwrap().lock().unwrap().remove(0))
     }
 
     async fn engine_ready(&mut self, _: &dyn Vm) -> io::Result<()> {
@@ -141,6 +164,37 @@ fn fixture(
     userspace: Option<FakeScenario>,
     attempts: Vec<Option<Vec<EgressStage>>>,
 ) -> (Supervisor, Trace) {
+    fixture_workloads(host, first_mode, scenario, userspace, attempts, None)
+}
+
+fn fixture_workloads(
+    host: Option<Arc<dyn HostCheck>>,
+    first_mode: NetworkSpec,
+    scenario: FakeScenario,
+    userspace: Option<FakeScenario>,
+    attempts: Vec<Option<Vec<EgressStage>>>,
+    workloads: Option<u32>,
+) -> (Supervisor, Trace) {
+    fixture_mode(
+        host,
+        first_mode,
+        scenario,
+        userspace,
+        attempts,
+        workloads,
+        NetworkMode::Auto,
+    )
+}
+
+fn fixture_mode(
+    host: Option<Arc<dyn HostCheck>>,
+    first_mode: NetworkSpec,
+    scenario: FakeScenario,
+    userspace: Option<FakeScenario>,
+    attempts: Vec<Option<Vec<EgressStage>>>,
+    workloads: Option<u32>,
+    configured_mode: NetworkMode,
+) -> (Supervisor, Trace) {
     let trace = Trace::default();
     let backend = Arc::new(Backend {
         trace: trace.clone(),
@@ -150,6 +204,7 @@ fn fixture(
     let probe = Arc::new(Probe {
         trace: trace.clone(),
         attempts: Mutex::new(attempts.into()),
+        workloads,
     });
     let spec = VmSpec {
         cpus: 2,
@@ -177,7 +232,7 @@ fn fixture(
         None,
         Selection {
             host,
-            configured_mode: Some(NetworkMode::Auto),
+            configured_mode: Some(configured_mode),
         },
     );
     (supervisor, trace)
@@ -488,4 +543,293 @@ async fn the_alternate_can_verify_after_a_single_transient_tcp_failure() {
             "engine"
         ]
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn live_failures_are_confirmed_and_running_or_unknown_workloads_stay_online() {
+    use EgressStage::{Healthy, Tcp};
+    for count in [Some(2), None] {
+        let (supervisor, trace) = fixture_workloads(
+            Some(Arc::new(AvailableHost)),
+            NetworkSpec::Nat,
+            FakeScenario::default(),
+            None,
+            vec![Some(vec![Healthy, Tcp, Tcp, Healthy])],
+            count,
+        );
+        supervisor.ensure_ready().await.unwrap();
+        let mut changes = supervisor.events();
+        let mut check = supervisor.live_network_check().await.unwrap().unwrap();
+        let result = check.run().await;
+        assert_eq!(result, NetworkResult::RestartForUserspace(Tcp));
+        supervisor
+            .apply_network_check(check, result, true)
+            .await
+            .unwrap();
+        let change = changes.recv().await.unwrap();
+        assert_eq!(change.current, change.previous);
+        assert_eq!(change.network.unwrap().result, result);
+        let status = supervisor.observe_network(NetworkMode::Auto).await.unwrap();
+        assert_eq!(status.restart_pending, Some(true));
+        assert_eq!(status.attachment.unwrap().0.active, NetworkSpec::Nat);
+        let mut check = supervisor.live_network_check().await.unwrap().unwrap();
+        let recovered = check.run().await;
+        supervisor
+            .apply_network_check(check, recovered, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            supervisor
+                .observe_network(NetworkMode::Auto)
+                .await
+                .unwrap()
+                .restart_pending,
+            Some(false)
+        );
+        assert!(!trace.lock().unwrap().contains(&"retire"));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn empty_vm_requalifies_userspace_before_releasing_engine() {
+    use EgressStage::{Healthy, Tcp};
+    let (supervisor, trace) = fixture_workloads(
+        Some(Arc::new(AvailableHost)),
+        NetworkSpec::Nat,
+        FakeScenario::default(),
+        None,
+        vec![
+            Some(vec![Healthy, Tcp, Tcp]),
+            Some(vec![Tcp, Tcp]),
+            Some(vec![Healthy]),
+        ],
+        Some(0),
+    );
+    supervisor.ensure_ready().await.unwrap();
+    let mut check = supervisor.live_network_check().await.unwrap().unwrap();
+    let result = check.run().await;
+    supervisor
+        .apply_network_check(check, result, true)
+        .await
+        .unwrap();
+    supervisor.ensure_ready().await.unwrap();
+    let network = supervisor.snapshot().network.unwrap();
+    assert_eq!(network.active, NetworkSpec::Userspace);
+    assert_eq!(network.result, NetworkResult::Fallback(Tcp));
+    assert_eq!(
+        trace
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|step| **step == "engine")
+            .count(),
+        2
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn helper_exit_after_readiness_publishes_loss_and_keeps_docker_ready() {
+    let (supervisor, _) = fixture(
+        None,
+        NetworkSpec::Userspace,
+        FakeScenario::default().with_network_unavailable_after(STEP * 8),
+        None,
+        vec![None],
+    );
+    supervisor.ensure_ready().await.unwrap();
+    let mut events = supervisor.events();
+    loop {
+        let event = events.recv().await.unwrap();
+        if event
+            .network
+            .is_some_and(|n| n.result == NetworkResult::TransportUnavailable)
+        {
+            assert_eq!(event.previous, event.current);
+            break;
+        }
+    }
+    assert_eq!(supervisor.snapshot().state, State::Ready);
+}
+
+#[tokio::test(start_paused = true)]
+async fn transient_failures_and_policy_answers_never_schedule_a_live_switch() {
+    use EgressStage::{Dns, Healthy, Policy, Tcp, Tls};
+    for (samples, expected) in [
+        (vec![Tcp, Healthy], NetworkResult::NativeHealthy),
+        (vec![Tcp, Dns], NetworkResult::NativeDegraded(Dns)),
+        (vec![Policy], NetworkResult::NativeDegraded(Policy)),
+        (vec![Tls], NetworkResult::NativeDegraded(Tls)),
+    ] {
+        let stages = std::iter::once(Healthy).chain(samples).collect();
+        let (supervisor, trace) = fixture_workloads(
+            Some(Arc::new(AvailableHost)),
+            NetworkSpec::Nat,
+            FakeScenario::default(),
+            None,
+            vec![Some(stages)],
+            Some(0),
+        );
+        supervisor.ensure_ready().await.unwrap();
+        let mut check = supervisor.live_network_check().await.unwrap().unwrap();
+        let result = check.run().await;
+        assert_eq!(result, expected);
+        supervisor
+            .apply_network_check(check, result, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            supervisor
+                .observe_network(NetworkMode::Auto)
+                .await
+                .unwrap()
+                .restart_pending,
+            Some(false)
+        );
+        assert!(!trace.lock().unwrap().contains(&"retire"));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn pending_settings_and_superseded_session_cannot_authorize_a_restart() {
+    use EgressStage::{Healthy, Tcp};
+    let (supervisor, trace) = fixture_workloads(
+        Some(Arc::new(AvailableHost)),
+        NetworkSpec::Nat,
+        FakeScenario::default(),
+        None,
+        vec![Some(vec![Healthy, Tcp, Tcp]), Some(vec![Healthy])],
+        Some(0),
+    );
+    supervisor.ensure_ready().await.unwrap();
+    let stale = supervisor.live_network_check().await.unwrap().unwrap();
+    let mut check = supervisor.live_network_check().await.unwrap().unwrap();
+    let result = check.run().await;
+    supervisor
+        .apply_network_check(check, result, false)
+        .await
+        .unwrap();
+    assert!(
+        supervisor
+            .snapshot()
+            .network
+            .unwrap()
+            .result
+            .restart_pending(NetworkMode::Auto)
+    );
+    assert!(!trace.lock().unwrap().contains(&"retire"));
+    supervisor.restart().await.unwrap();
+    supervisor
+        .apply_network_check(stale, result, true)
+        .await
+        .unwrap();
+    assert_eq!(
+        supervisor.snapshot().network.unwrap().result,
+        NetworkResult::NativeHealthy
+    );
+    assert_eq!(
+        trace
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|step| **step == "retire")
+            .count(),
+        1
+    );
+}
+
+struct SlowHost;
+
+#[async_trait]
+impl HostCheck for SlowHost {
+    async fn verified_target(&self) -> Option<Target> {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        Some(Target::fixture(TARGET))
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn pinned_health_is_observed_after_readiness_and_on_handoffs_without_restart() {
+    for (pin, active, unhealthy) in [
+        (
+            NetworkMode::Nat,
+            NetworkSpec::Nat,
+            NetworkResult::NativeDegraded(EgressStage::Tcp),
+        ),
+        (
+            NetworkMode::Userspace,
+            NetworkSpec::Userspace,
+            NetworkResult::UserspaceDegraded(EgressStage::Tcp),
+        ),
+    ] {
+        let (supervisor, trace) = fixture_mode(
+            Some(Arc::new(SlowHost)),
+            active,
+            FakeScenario::default(),
+            None,
+            vec![Some(vec![EgressStage::Tcp, EgressStage::Healthy])],
+            Some(0),
+            pin,
+        );
+        let before = tokio::time::Instant::now();
+        let mut events = supervisor.events();
+        supervisor.ensure_ready().await.unwrap();
+        assert!(before.elapsed() < Duration::from_secs(3));
+        loop {
+            let event = events.recv().await.unwrap();
+            if event
+                .network
+                .is_some_and(|network| network.result == unhealthy)
+            {
+                break;
+            }
+        }
+        let mut check = supervisor.live_network_check().await.unwrap().unwrap();
+        let result = check.run().await;
+        assert_eq!(result, NetworkResult::PinnedHealthy);
+        supervisor
+            .apply_network_check(check, result, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            supervisor
+                .observe_network(pin)
+                .await
+                .unwrap()
+                .restart_pending,
+            Some(false)
+        );
+        assert_eq!(supervisor.snapshot().network.unwrap().active, active);
+        assert_eq!(
+            supervisor.snapshot().network.unwrap().result,
+            NetworkResult::PinnedHealthy
+        );
+        assert!(!trace.lock().unwrap().contains(&"retire"));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pin_with_incomparable_policy_reports_unavailable_without_a_guest_probe() {
+    for host in [None, Some(Arc::new(OfflineHost) as Arc<dyn HostCheck>)] {
+        let (supervisor, trace) = fixture_mode(
+            host,
+            NetworkSpec::Userspace,
+            FakeScenario::default(),
+            None,
+            vec![Some(vec![])],
+            Some(0),
+            NetworkMode::Userspace,
+        );
+        let mut events = supervisor.events();
+        supervisor.ensure_ready().await.unwrap();
+        loop {
+            let event = events.recv().await.unwrap();
+            if event
+                .network
+                .is_some_and(|network| network.result == NetworkResult::Unavailable)
+            {
+                break;
+            }
+        }
+        assert_eq!(trace.lock().unwrap().as_slice(), ["userspace", "engine"]);
+    }
 }
