@@ -55,10 +55,10 @@ mod memory_policy;
 mod native_dns;
 #[path = "packaged_runtime/network_mode.rs"]
 mod network_mode;
-#[path = "packaged_runtime/registries.rs"]
-mod registries;
 #[path = "packaged_runtime/recovery.rs"]
 mod recovery;
+#[path = "packaged_runtime/registries.rs"]
+mod registries;
 #[path = "packaged_runtime/support.rs"]
 mod support;
 #[path = "packaged_runtime/volume_files.rs"]

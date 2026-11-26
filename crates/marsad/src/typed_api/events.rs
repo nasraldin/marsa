@@ -567,6 +567,8 @@ fn restart_changed(applied: &Settings, desired: &Settings) -> bool {
         || applied.disk.exclude_from_backup != desired.disk.exclude_from_backup
         || applied.shares != desired.shares
         || applied.network.mode != desired.network.mode
+        || applied.network.registry_mirrors != desired.network.registry_mirrors
+        || applied.network.insecure_registries != desired.network.insecure_registries
         || applied.network.dns != desired.network.dns
         || applied.network.proxy != desired.network.proxy
 }
@@ -581,8 +583,6 @@ pub(super) fn mode(value: NetworkMode) -> WireMode {
 
 pub(super) fn network_status(configured: NetworkMode, network: BootNetwork) -> NetworkStatus {
     let active = match network.active {
-        || applied.network.registry_mirrors != desired.network.registry_mirrors
-        || applied.network.insecure_registries != desired.network.insecure_registries
         NetworkSpec::Nat => WireMode::Nat,
         NetworkSpec::Userspace => WireMode::Userspace,
     };

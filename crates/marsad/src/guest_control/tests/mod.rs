@@ -604,3 +604,31 @@ fn native_dns_negotiation_preserves_legacy_local_docker_and_explicit_policy() {
         ["192.0.2.53"]
     );
 }
+
+#[test]
+fn older_agents_cannot_silently_drop_explicit_registry_policy() {
+    use marsa_proto::guest::{
+        REGISTRY_MINOR,
+        v1::{ConfigureNetwork, RegistryConfig},
+    };
+    let policy = ConfigureNetwork {
+        registries: Some(RegistryConfig {
+            mirrors: vec!["https://mirror.test".into()],
+            insecure: vec![],
+        }),
+        ..Default::default()
+    };
+    for minor in 0..REGISTRY_MINOR {
+        assert_eq!(
+            super::boot_policy(Some(policy.clone()), minor)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::Unsupported
+        );
+        assert!(super::boot_policy(None, minor).unwrap().is_none());
+    }
+    assert_eq!(
+        super::boot_policy(Some(policy.clone()), REGISTRY_MINOR).unwrap(),
+        Some(policy)
+    );
+}

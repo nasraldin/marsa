@@ -313,6 +313,9 @@ fn boot_policy(
     let Some(mut policy) = policy else {
         return Ok(None);
     };
+    if policy.registries.is_some() && minor < marsa_proto::guest::REGISTRY_MINOR {
+        return Err(io::ErrorKind::Unsupported.into());
+    }
     if minor >= marsa_proto::guest::NATIVE_DNS_MINOR {
         return Ok(Some(policy));
     }
@@ -331,9 +334,6 @@ fn boot_policy(
     if native.is_some_and(|native| !native.routes.is_empty() || policy.dns_servers.is_empty()) {
         // 1.1 has only a flat resolv.conf. Linux routes 0.0.0.0 locally;
         // unlike 127/8, Docker retains it when deriving container resolv.conf.
-    if policy.registries.is_some() && minor < marsa_proto::guest::REGISTRY_MINOR {
-        return Err(io::ErrorKind::Unsupported.into());
-    }
         policy.dns_servers = vec!["0.0.0.0".into()];
     }
     Ok(Some(policy))
