@@ -41,6 +41,8 @@ mod bind_shares;
 mod cold_boot;
 #[path = "packaged_runtime/compose_watch.rs"]
 mod compose_watch;
+#[path = "packaged_runtime/conformance.rs"]
+mod conformance;
 #[path = "packaged_runtime/disk_schema.rs"]
 mod disk_schema;
 #[path = "packaged_runtime/factory.rs"]

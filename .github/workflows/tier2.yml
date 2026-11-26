@@ -83,6 +83,7 @@ jobs:
           test -x "$bundle/bin/cli-plugins/docker-buildx"
           test -x "$bundle/bin/cli-plugins/docker-compose"
           export PATH="$bundle/bin:$bundle/bin/cli-plugins:$PATH"
+          export MARSA_TEST_DOCKER="$bundle/bin/docker"
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked -p marsa-cli
           export MARSA_TEST_CLI="$PWD/target/debug/marsa"
           export MARSA_VZ_GUEST_DIR="$PWD/target/guest"
@@ -100,8 +101,13 @@ jobs:
           sh crates/marsad/tests/packaged_runtime/fallback_fixture/prepare.sh \
             "$MARSA_VZ_GUEST_DIR" "$fixture/formatter/initramfs.gz" "$fixture/fallback"
           export MARSA_VZ_FALLBACK_FIXTURE_DIR="$fixture/fallback/guest-fixture"
+          mkdir -p target/conformance
+          set -o pipefail
+          MARSA_TEST_DOCKER_CLI="$MARSA_TEST_DOCKER" cargo test --locked -p marsad \
+            --test lifecycle pinned_cli_sees_the_context_and_retains_user_selection \
+            -- --ignored 2>&1 | tee target/conformance/keychain.log
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
-            --test packaged_runtime -- --ignored --nocapture --test-threads=1 --skip disk_schema:: --skip forwarding::tart_peer --skip intercept_trust::
+            --test packaged_runtime -- --ignored --test-threads=1 --skip disk_schema:: --skip forwarding::tart_peer --skip intercept_trust:: 2>&1 | tee target/conformance/packaged.log
           if [[ "$CHECK_KEYCHAIN_TRUST" == true ]]; then
             test "$(id -un)" = "$MARSA_TEST_DISPOSABLE_TRUST_USER"
             sh crates/marsad/tests/packaged_runtime/proxy_fixture/prepare_intercept.sh \
@@ -111,6 +117,16 @@ jobs:
             MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
               intercept_trust:: -- --ignored --nocapture --test-threads=1
           fi
+      - name: Collect Docker conformance outcomes
+        if: always()
+        run: python3 tests/conformance/results.py target/conformance
+      - name: Upload Docker conformance results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docker-conformance
+          path: target/conformance/results.json
+          if-no-files-found: warn
       - name: Build the entitled VZ test runner
         run: |
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked \
