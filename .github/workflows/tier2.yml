@@ -81,6 +81,13 @@ jobs:
           watch_hugo="$(python3 crates/marsad/tests/packaged_runtime/compose_watch.py fetch target/dev-fixtures)"
           test -r "$watch_hugo"
           export MARSA_VZ_WATCH_HUGO_ARCHIVE="$watch_hugo"
+          fixture="$(mktemp -d "$RUNNER_TEMP/marsa-proxy.XXXXXXXX")"
+          trap 'rm -rf -- "$fixture"' EXIT
+          alpine_archives=("$PWD"/target/guest/alpine-minirootfs-*-aarch64.tar.gz)
+          test "${#alpine_archives[@]}" -eq 1
+          sh crates/marsad/tests/packaged_runtime/proxy_fixture/prepare.sh \
+            "$PWD/target/guest" "${alpine_archives[0]}" "$fixture"
+          export MARSA_VZ_PROXY_FIXTURE_DIR="$fixture/guest-fixture"
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
             --test packaged_runtime -- --ignored --nocapture --test-threads=1 --skip disk_schema::
       - name: Build the entitled VZ test runner

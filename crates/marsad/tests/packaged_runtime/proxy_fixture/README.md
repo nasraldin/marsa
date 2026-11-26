@@ -25,9 +25,8 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 ```
 
 Set `MARSA_VZ_NETWORK_HELPER` to the built helper. Put the pinned Docker CLI
-and Buildx binary on `PATH`. Ordinary packaged-runtime runs use the shipping
-guest and omit this extra fixture. The dedicated invocation above provides
-the route evidence.
+and Buildx binary on `PATH`. Tier 2 prepares this fixture alongside the shipping guest. The dedicated
+invocation above runs the same traffic check on a development Mac.
 
 The test first saves a draft and declines approval while the engine is
 running. Both operations leave the live proxy unset. After approval it reads
