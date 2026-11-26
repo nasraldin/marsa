@@ -220,6 +220,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn preserves_an_existing_file_at_the_exact_checkout_name() {
+        let owner = tempfile::tempdir().unwrap();
+        let staging = staging(owner.path());
+        let target = tempfile::tempdir().unwrap();
+        let destination = GitCheckoutDestination::prepare(target.path(), staging.path())
+            .await
+            .unwrap();
+        let existing = target.path().join(&destination.name);
+        fs::write(&existing, b"owner content").unwrap();
+        assert_eq!(
+            destination.publish(staging).await.unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(fs::read(existing).unwrap(), b"owner content");
+        assert_eq!(owner.path().read_dir().unwrap().count(), 0);
+    }
+
+    #[tokio::test]
     async fn refuses_a_moved_destination_parent() {
         let owner = tempfile::tempdir().unwrap();
         let staging = staging(owner.path());

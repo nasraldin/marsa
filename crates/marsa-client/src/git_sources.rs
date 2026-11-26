@@ -127,9 +127,9 @@ pub enum GitSourceError {
     /// SSH could not verify the pinned host or authenticate with the selected identity.
     #[error("SSH could not verify the saved host key or authenticate with the selected key")]
     SshConnection,
-    /// SSH checkout cannot be published atomically across filesystems.
+    /// A checkout cannot be published atomically across filesystems.
     #[error("choose a checkout folder on the same filesystem as Marsa's state")]
-    SshDestinationFilesystem,
+    DestinationFilesystem,
 }
 
 enum Remote {
@@ -227,33 +227,15 @@ impl GitRepositoryConfig {
         if !parent.is_absolute() {
             return Err(GitSourceError::Destination);
         }
-        let (workspace, publish) = if self.ssh.is_some() {
-            let workspace = private_git_directory().await?;
-            let destination = GitCheckoutDestination::prepare(parent, workspace.path())
-                .await
-                .map_err(|error| match error.kind() {
-                    io::ErrorKind::CrossesDevices => GitSourceError::SshDestinationFilesystem,
-                    _ => GitSourceError::Destination,
-                })?;
-            (workspace, Some(destination))
-        } else {
-            let directory = fs::canonicalize(parent)
-                .await
-                .map_err(|_| GitSourceError::Destination)?;
-            platform::check_user_docker_directory(&directory)
-                .await
-                .map_err(|_| GitSourceError::Destination)?;
-            let workspace = tokio::task::spawn_blocking(move || {
-                tempfile::Builder::new()
-                    .prefix("Marsa checkout ")
-                    .permissions(Permissions::from_mode(0o700))
-                    .tempdir_in(directory)
-            })
+        let workspace = private_git_directory().await?;
+        // Pin and validate the destination before opening any credential.
+        // Git only sees the protected staging directory.
+        let destination = GitCheckoutDestination::prepare(parent, workspace.path())
             .await
-            .map_err(|_| GitSourceError::Destination)?
-            .map_err(|_| GitSourceError::Destination)?;
-            (workspace, None)
-        };
+            .map_err(|error| match error.kind() {
+                io::ErrorKind::CrossesDevices => GitSourceError::DestinationFilesystem,
+                _ => GitSourceError::Destination,
+            })?;
         let home = private_git_directory().await?;
         let mut command = git(workspace.path(), home.path()).await?;
         let remote = self.remote(&mut command, repository).await?;
@@ -276,16 +258,17 @@ impl GitRepositoryConfig {
         {
             return Err(self.connection_failure());
         }
-        drop(remote);
-        refs::checked_out(workspace.path(), &self.branch).await?;
-        if let Some(destination) = publish {
-            destination
-                .publish(workspace)
-                .await
-                .map_err(|_| GitSourceError::Destination)
-        } else {
-            Ok(workspace.keep())
+        match remote {
+            Remote::Https {
+                _broker: Some(broker),
+            } => broker.close().await,
+            other => drop(other),
         }
+        refs::checked_out(workspace.path(), &self.branch).await?;
+        destination
+            .publish(workspace)
+            .await
+            .map_err(|_| GitSourceError::Destination)
     }
 }
 
@@ -362,7 +345,10 @@ async fn private_git_directory_in(directory: &Path) -> Result<tempfile::TempDir,
     let directory = directory.to_owned();
     tokio::task::spawn_blocking(move || {
         tempfile::Builder::new()
-            .prefix("git-operation-")
+            .prefix("git-")
+            // The HTTPS broker adds "/ask". This suffix fits anywhere the
+            // established "/run/marsad.sock" owner socket fits.
+            .rand_bytes(6)
             .permissions(Permissions::from_mode(0o700))
             .tempdir_in(directory)
     })

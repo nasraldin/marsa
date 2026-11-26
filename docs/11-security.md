@@ -199,18 +199,25 @@ Tested with Apple
 Git 2.54.0. [Git environment options](https://git-scm.com/docs/git/2.54.0) ·
 [Git configuration](https://git-scm.com/docs/git-config/2.54.0).
 
-The branch test reads advertised references. A checkout creates a fresh
-child directory of the owner-selected folder. Review files in the checkout
-before using the usual Compose picker to select its YAML and confirm the
-target engine.
+The branch test reads advertised references and checks the exact branch.
+Git stages every checkout in the protected Marsa state directory. It never
+runs in the selected destination, including a folder shared with a guest.
+Marsa closes the HTTPS credential broker or releases the SSH agent, verifies
+that HEAD names the exact branch, and atomically publishes the checkout as
+a fresh child of the pinned, owner-selected parent. This preserves existing
+files and folders and requires a destination on the same filesystem as
+Marsa's state. This replaces direct HTTPS checkout to another filesystem.
+Review files in the checkout before using the usual Compose picker to select
+its YAML and confirm the target engine.
 
 An optional HTTPS credential is saved through the signed macOS Keychain
 helper. Its Keychain item is scoped to the saved repository ID and exact URL.
 Settings contains only the current nonsecret association revision. To run
 the test or checkout, the desktop verifies that the selected reference still
-matches its saved record and starts a short-lived owner-private Unix socket.
-The system Git helper obtains the credential over that socket only when its
-requested protocol, authority and repository path match the approved URL.
+matches its saved record and starts a short-lived owner-private Unix socket
+under the protected state root. The system Git helper obtains the credential
+over that socket only when its requested protocol, authority and repository
+path match the approved URL.
 The selected credential uses HTTPS Basic authentication. Git receives no
 credential in its environment or command arguments. Changing
 the URL or removing the repository or credential revokes the association.
@@ -244,11 +251,6 @@ The socket and public SSH configuration live in an owner-only directory
 under the protected state root. Only the public source URL is recorded
 as the checkout's Git origin. Private key bytes stay in memory during
 the operation and are never put in settings, Git arguments or Compose.
-Git checks out SSH sources in the protected state directory, releases the
-agent, and verifies that HEAD names the exact branch. It then moves the
-checked-out directory atomically into a fresh child of the pinned,
-owner-selected parent. The destination must be on the same filesystem as
-Marsa's state directory. Existing files and folders are preserved.
 [Pinned OpenSSH client configuration](https://github.com/openssh/openssh-portable/blob/V_10_5_P1/ssh_config.5) ·
 [Pinned Git SSH invocation](https://github.com/git/git/blob/v2.54.0/connect.c).
 

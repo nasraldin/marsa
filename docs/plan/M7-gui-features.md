@@ -1041,9 +1041,28 @@ destinations on the same filesystem as Marsa's state.
 
 ### M7-54 Isolate HTTPS Git checkout from its destination during authentication
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M7-30, M7-53
 - **Docs:** [11 Git sources](../11-security.md#git-sources)
 - **Do:** Keep HTTPS credential access and checkout staging outside writable shares. Publish the verified checkout after closing credential access and define behavior for a destination on another filesystem.
 - **Deliver:** HTTPS checkout staging isolated from destination-local configuration and an exact no-clobber publication test.
 - **Accept when:** Git never uses configuration from the chosen destination while its HTTPS credential is available. Interruption, an invalid checkout, and an existing destination preserve owner content.
+
+Signed macOS Settings qualification used a disposable Keychain association
+and Apple Git 2.54.0 against a loopback Smart Git TLS fixture. The authenticated
+and anonymous checkouts preserved the approved origin, exact branch and
+fixture bytes. The fixture observed Git staging, the empty Git home and any
+credential socket under Marsa state during TLS requests. It also verified
+that the chosen folder's existing content and local Git configuration
+remained unchanged during authentication. A tag without a matching branch
+was rejected, and cancelling the in-flight operation closed the broker and
+left the chosen folder intact. A native collision test verifies that an
+existing file at the exact publication name is preserved.
+
+A disposable second APFS filesystem was refused before credential access
+or any request to the fixture. The signed native captures use an injected
+folder-picker result and a fixture-only CA, with normal TLS verification.
+[English light](../screenshots/m7-54/en-light.png) ·
+[English dark](../screenshots/m7-54/en-dark.png) ·
+[Arabic light](../screenshots/m7-54/ar-light.png) ·
+[Arabic dark](../screenshots/m7-54/ar-dark.png).

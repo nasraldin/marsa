@@ -1,6 +1,6 @@
 //! Offer one Keychain credential to trusted Git over an owner-private socket.
 
-use std::{fs::Permissions, io, os::unix::fs::PermissionsExt, time::Duration};
+use std::{io, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use hyper::http::uri::Authority;
@@ -115,6 +115,9 @@ pub(super) async fn attach(
     else {
         return Ok(None);
     };
+    let directory = super::private_git_directory()
+        .await
+        .map_err(|_| GitSourceError::CredentialUnavailable)?;
     let helper = provider().await?;
     let credential = keychain::get(&helper, &key(repository, revision))
         .await
@@ -122,7 +125,7 @@ pub(super) async fn attach(
         .filter(|credential| valid_values(&credential.username, &credential.secret))
         .ok_or(GitSourceError::CredentialUnavailable)?;
     let expected = Context::for_url(&repository.config.url).ok_or(GitSourceError::Invalid)?;
-    let broker = Broker::new(expected, credential).await?;
+    let broker = Broker::new(directory, expected, credential)?;
     command
         .env("MARSA_GIT_CREDENTIAL_SOCKET", broker.socket())
         .args([
@@ -142,16 +145,11 @@ pub(super) struct Broker {
 }
 
 impl Broker {
-    async fn new(expected: Context, credential: Credential) -> Result<Self, GitSourceError> {
-        let directory = tokio::task::spawn_blocking(|| {
-            tempfile::Builder::new()
-                .prefix("mgit.")
-                .permissions(Permissions::from_mode(0o700))
-                .tempdir_in("/tmp")
-        })
-        .await
-        .map_err(|_| GitSourceError::CredentialUnavailable)?
-        .map_err(|_| GitSourceError::CredentialUnavailable)?;
+    fn new(
+        directory: tempfile::TempDir,
+        expected: Context,
+        credential: Credential,
+    ) -> Result<Self, GitSourceError> {
         let listener = UnixListener::bind(directory.path().join("ask"))
             .map_err(|_| GitSourceError::CredentialUnavailable)?;
         let task = tokio::spawn(async move {
@@ -167,6 +165,11 @@ impl Broker {
             }
         });
         Ok(Self { directory, task })
+    }
+
+    pub(super) async fn close(mut self) {
+        self.task.abort();
+        let _ = (&mut self.task).await;
     }
 
     fn socket(&self) -> std::path::PathBuf {
@@ -326,7 +329,12 @@ mod tests {
             username: "fixture".to_owned(),
             secret: "mock-for-protocol-test".to_owned(),
         };
-        let broker = Broker::new(expected, dummy).await.unwrap();
+        let owner = tempfile::tempdir_in("/tmp").unwrap();
+        let state = owner.path().join(".marsa");
+        let directory = super::super::private_git_directory_in(&state)
+            .await
+            .unwrap();
+        let broker = Broker::new(directory, expected, dummy).unwrap();
         let query = |name: &'static str| {
             let socket = broker.socket();
             async move {
@@ -348,6 +356,13 @@ mod tests {
             query("source").await,
             "username=fixture\npassword=mock-for-protocol-test\n\n"
         );
+        let socket = broker.socket();
+        assert_eq!(socket.parent().unwrap().parent(), Some(state.as_path()));
+        assert!(socket.as_os_str().len() <= state.join("run/marsad.sock").as_os_str().len());
+        let client = UnixStream::connect(&socket).await.unwrap();
+        broker.close().await;
+        assert!(!socket.exists());
+        drop(client);
     }
 
     #[cfg(target_os = "macos")]
@@ -361,7 +376,12 @@ mod tests {
             username: "fixture".to_owned(),
             secret: "mock-for-apple-git".to_owned(),
         };
-        let broker = Broker::new(expected, dummy).await.unwrap();
+        let owner = tempfile::tempdir_in("/tmp").unwrap();
+        let state = owner.path().join(".marsa");
+        let directory = super::super::private_git_directory_in(&state)
+            .await
+            .unwrap();
+        let broker = Broker::new(directory, expected, dummy).unwrap();
         for (path, permitted) in [("team/source.git", true), ("team/other.git", false)] {
             let mut git = Command::new("/usr/bin/git")
                 .env_clear()
