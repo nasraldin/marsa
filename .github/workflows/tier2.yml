@@ -1,6 +1,12 @@
 name: Tier 2
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      check_keychain_trust:
+        description: Check trusted and revoked proxy certificates in the configured disposable account
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -67,6 +73,9 @@ jobs:
           bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest
           MARSA_ENTITLED_DAEMON_NETWORK=1 bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest
       - name: Exercise the packaged daemon
+        env:
+          CHECK_KEYCHAIN_TRUST: ${{ inputs.check_keychain_trust }}
+          MARSA_TEST_DISPOSABLE_TRUST_USER: ${{ vars.MARSA_TEST_DISPOSABLE_TRUST_USER }}
         run: |
           bundle="$(cargo xtask fetch-upstream | sed -n 's/^Staged verified upstream binaries in //p')"
           test -n "$bundle"
@@ -92,7 +101,16 @@ jobs:
             "$MARSA_VZ_GUEST_DIR" "$fixture/formatter/initramfs.gz" "$fixture/fallback"
           export MARSA_VZ_FALLBACK_FIXTURE_DIR="$fixture/fallback/guest-fixture"
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
-            --test packaged_runtime -- --ignored --nocapture --test-threads=1 --skip disk_schema:: --skip forwarding::tart_peer
+            --test packaged_runtime -- --ignored --nocapture --test-threads=1 --skip disk_schema:: --skip forwarding::tart_peer --skip intercept_trust::
+          if [[ "$CHECK_KEYCHAIN_TRUST" == true ]]; then
+            test "$(id -un)" = "$MARSA_TEST_DISPOSABLE_TRUST_USER"
+            sh crates/marsad/tests/packaged_runtime/proxy_fixture/prepare_intercept.sh \
+              "$MARSA_VZ_GUEST_DIR" "$fixture" "$fixture/intercept"
+            export MARSA_VZ_INTERCEPT_FIXTURE_DIR="$fixture/intercept/guest-fixture"
+            export MARSA_TEST_DISPOSABLE_TRUST_DRIVER="$PWD/crates/marsad/tests/packaged_runtime/proxy_fixture/disposable_trust.sh"
+            MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+              intercept_trust:: -- --ignored --nocapture --test-threads=1
+          fi
       - name: Build the entitled VZ test runner
         run: |
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked \

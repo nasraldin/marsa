@@ -200,7 +200,7 @@ M3-14 the VPN path, M4-08 the physical Wi-Fi handoff, and M4-09 the port matrix.
 
 ### M4-11 Proxy settings and CA certificate import
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M4-08, M4-21
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates)
 - **Do:** Read system proxy settings and manual overrides and use the approved activation from M4-21. Export the certificates the user trusts from the macOS keychain and push them before the engine starts and on change. Add settings for registry mirrors and insecure registries.
@@ -208,6 +208,19 @@ M3-14 the VPN path, M4-08 the physical Wi-Fi handoff, and M4-09 the port matrix.
 - **Accept when:**
   - Behind a test proxy with TLS interception, `docker pull` succeeds after the proxy's CA is trusted in the keychain.
   - Changing the proxy setting applies without reinstalling.
+
+On Apple silicon, the packaged registry test checked both attachments and
+confirmed that clearing the settings removed the mirror and insecure endpoint
+from the running Docker daemon after restart. The intercepted pull test
+rejected the unknown CA, applied the approved proxy change on the same disk,
+pulled the OCI image and rejected a fresh image after revocation.
+
+The user approved and removed the test CA in a disposable macOS Tart guest.
+The production trust reader exported the matching public DER there and an
+empty result after removal. A signed daemon on the physical virtualization
+host consumed those snapshots. The final 64-second run replayed the trusted
+snapshot after the interactive removal timed out on the first run. The
+dedicated-account test exercises both parts on one Mac. [Reproduction](../../crates/marsad/tests/packaged_runtime/proxy_fixture/README.md).
 
 ### M4-12 Registry credentials
 

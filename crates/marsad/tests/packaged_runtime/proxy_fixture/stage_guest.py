@@ -8,6 +8,7 @@ import tarfile
 base = pathlib.Path(sys.argv[1])
 destination = pathlib.Path(sys.argv[2])
 helper = pathlib.Path(sys.argv[3])
+intercept = sys.argv[4:] == ["--intercept"]
 original_init = "./usr/bin/marsa-init"
 guest_certificates = "./etc/ssl/certs/ca-certificates.crt"
 
@@ -25,6 +26,9 @@ def add(archive, name, mode, data):
     archive.addfile(info, io.BytesIO(data))
 
 
+if intercept:
+    launcher = launcher.replace(b"marsa-proxy-fixture &", b"marsa-proxy-fixture --intercept &")
+
 init_found = certs_found = False
 with tarfile.open(base / "image-rootfs.tar", "r") as source:
     with tarfile.open(destination / "image-rootfs.tar", "w") as image:
@@ -33,10 +37,11 @@ with tarfile.open(base / "image-rootfs.tar", "r") as source:
                 member.name = original_init + ".real"
                 init_found = True
             if member.name == guest_certificates:
+                certs_found = True
+            if member.name == guest_certificates and not intercept:
                 trusted = source.extractfile(member).read()
                 test_ca = (destination / "ca.pem").read_bytes()
                 add(image, guest_certificates, 0o644, trusted + b"\n" + test_ca)
-                certs_found = True
             else:
                 content = source.extractfile(member) if member.isreg() else None
                 image.addfile(member, content)

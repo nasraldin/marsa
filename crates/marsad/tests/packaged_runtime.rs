@@ -49,6 +49,8 @@ mod factory;
 mod fallback_firewall;
 #[path = "packaged_runtime/forwarding.rs"]
 mod forwarding;
+#[path = "packaged_runtime/intercept_trust.rs"]
+mod intercept_trust;
 #[path = "packaged_runtime/memory_policy.rs"]
 mod memory_policy;
 #[path = "packaged_runtime/native_dns.rs"]

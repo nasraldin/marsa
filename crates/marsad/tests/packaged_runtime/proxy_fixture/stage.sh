@@ -23,4 +23,6 @@ openssl x509 -req -days 1 -in "$fixture/leaf.csr" \
   -CA "$fixture/ca.pem" -CAkey "$fixture/ca.key" -CAcreateserial \
   -extfile "$fixture/leaf.ext" -out "$fixture/leaf.pem" 2>>"$fixture/openssl.log"
 openssl verify -CAfile "$fixture/ca.pem" -verify_hostname registry.marsa-proxy.invalid "$fixture/leaf.pem"
-python3 "$(dirname "$0")/stage_guest.py" "$base" "$fixture" "$3"
+helper=$3
+shift 3
+python3 "$(dirname "$0")/stage_guest.py" "$base" "$fixture" "$helper" "$@"

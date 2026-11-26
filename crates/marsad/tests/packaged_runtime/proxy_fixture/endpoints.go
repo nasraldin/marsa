@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -124,12 +126,16 @@ func registry(w http.ResponseWriter, r *http.Request) {
 }
 
 func proxy(w http.ResponseWriter, r *http.Request) {
+	relay(w, r, registryAddr, nil)
+}
+
+func relay(w http.ResponseWriter, r *http.Request, origin string, interceptor *tls.Config) {
 	// The fixture grants just one owned destination on guest loopback.
 	if r.Method != http.MethodConnect || r.Host != registryName+":443" {
 		http.Error(w, "fixture destination denied", http.StatusForbidden)
 		return
 	}
-	upstream, err := net.DialTimeout("tcp4", registryAddr, 2*time.Second)
+	upstream, err := net.DialTimeout("tcp4", origin, 2*time.Second)
 	if err != nil {
 		http.Error(w, "fixture registry unavailable", http.StatusBadGateway)
 		return
@@ -150,11 +156,23 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 	if err := buffer.Flush(); err != nil {
 		return
 	}
-	log.Print("m4-21 fixture accepted restricted CONNECT")
+	var reader io.Reader = buffer.Reader
+	if interceptor != nil {
+		// Docker must authenticate the synthetic registry name on this connection.
+		// The backend is a separate HTTP-only fixture on guest loopback.
+		secure := tls.Server(client, interceptor)
+		if err := secure.Handshake(); err != nil {
+			return
+		}
+		client, reader = secure, secure
+		log.Print("m4-11 fixture intercepted registry TLS")
+	} else {
+		log.Print("m4-21 fixture accepted restricted CONNECT")
+	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		io.Copy(upstream, buffer.Reader)
+		io.Copy(upstream, reader)
 		upstream.(*net.TCPConn).CloseWrite()
 	}()
 	io.Copy(client, upstream)
@@ -165,6 +183,10 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 var images = map[string]repository{"pull": image("marsa-pull-proof\n"), "build": image("marsa-build-proof\n")}
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--intercept" {
+		runInterceptor()
+		return
+	}
 	go func() {
 		server := http.Server{Addr: registryAddr, Handler: http.HandlerFunc(registry), ReadHeaderTimeout: 3 * time.Second}
 		if err := server.ListenAndServeTLS("/usr/local/lib/marsa-fixture/leaf.pem", "/usr/local/lib/marsa-fixture/leaf.key"); err != nil {
@@ -175,4 +197,29 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatal("fixture proxy did not start")
 	}
+}
+
+func runInterceptor() {
+	const origin = "127.0.0.1:5444"
+	cert, err := tls.LoadX509KeyPair("/usr/local/lib/marsa-fixture/leaf.pem", "/usr/local/lib/marsa-fixture/leaf.key")
+	if err != nil {
+		log.Fatal("could not load disposable fixture identity")
+	}
+	config := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	go func() {
+		backend := &http.Server{Addr: origin, Handler: http.HandlerFunc(registry), ReadHeaderTimeout: 3 * time.Second}
+		if err := backend.ListenAndServe(); err != nil {
+			log.Fatal("fixture HTTP registry stopped")
+		}
+	}()
+	for _, address := range []string{"127.0.0.1:43129", "127.0.0.1:43130"} {
+		go func() {
+			server := &http.Server{Addr: address, ReadHeaderTimeout: 3 * time.Second,
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { relay(w, r, origin, config) })}
+			if err := server.ListenAndServe(); err != nil {
+				log.Fatal("fixture interceptor stopped")
+			}
+		}()
+	}
+	select {}
 }

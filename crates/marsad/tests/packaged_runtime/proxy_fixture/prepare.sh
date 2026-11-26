@@ -2,8 +2,8 @@
 # Build only a disposable VZ guest and a networkless EROFS formatter.
 set -eu
 umask 077
-if [ "$#" -ne 3 ]; then
-    printf 'Usage: sh prepare.sh BASE_GUEST VERIFIED_ALPINE_TAR EMPTY_SCRATCH_DIR\n' >&2
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ] || { [ "$#" -eq 4 ] && [ "$4" != "--intercept" ]; }; then
+    printf 'Usage: sh prepare.sh BASE_GUEST VERIFIED_ALPINE_TAR EMPTY_SCRATCH_DIR [--intercept]\n' >&2
     exit 2
 fi
 source=$(cd "$(dirname "$0")" && pwd -P)
@@ -44,7 +44,8 @@ bsdtar --uid 0 --gid 0 --format=newc -czf formatter/initramfs.gz -C formatter/ro
 
 GOTOOLCHAIN=local GOPROXY=off GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
     go build -trimpath -o marsa-proxy-fixture "$source/endpoints.go"
-sh "$source/stage.sh" "$guest" "$PWD/guest-fixture" "$PWD/marsa-proxy-fixture"
+shift 3
+sh "$source/stage.sh" "$guest" "$PWD/guest-fixture" "$PWD/marsa-proxy-fixture" "$@"
 # The leaf key stays private in the scratch guest. The CA private key is unnecessary.
 rm "$PWD/guest-fixture/ca.key"
 python3 "$source/format.py" "$guest"

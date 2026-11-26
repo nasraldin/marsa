@@ -34,3 +34,40 @@ the running proxy, checks the same persistent disk, pulls the first image and
 builds from the second using Buildx's default Docker driver. The CONNECT
 events and distinct registry manifests establish the route. The BuildKit
 output contains the marker from the second image.
+
+## Intercepting proxy and macOS Keychain
+
+Run this case in an interactive, disposable macOS account with virtualization
+available. Its user trust domain must be dedicated to the test. Set
+`MARSA_TEST_DISPOSABLE_TRUST_USER` to that account's login name. macOS may
+ask the operator to approve adding and removing “Marsa Disposable Proxy Test
+CA” in that account. Discard the account after qualification, including if
+an assertion fails before revocation.
+
+```sh
+fixture=$(mktemp -d)
+sh crates/marsad/tests/packaged_runtime/proxy_fixture/prepare.sh \
+  "$PWD/target/guest" "$PWD/target/guest/alpine-minirootfs-3.24.4-aarch64.tar.gz" \
+  "$fixture" --intercept
+MARSA_VZ_INTERCEPT_FIXTURE_DIR="$fixture/guest-fixture" \
+MARSA_TEST_DISPOSABLE_TRUST_DRIVER="$PWD/crates/marsad/tests/packaged_runtime/proxy_fixture/disposable_trust.sh" \
+MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+  intercept_trust:: -- --ignored --nocapture --test-threads=1
+```
+
+The fixture starts with the shipping guest trust bundle. Two guest-loopback
+proxy ports accept CONNECT for the synthetic registry only, terminate TLS,
+and forward OCI requests to a separate loopback HTTP origin. The test checks
+rejection before trust, a successful pull through the second approved port on
+the same data disk, and rejection of a fresh repository after revocation and
+restart. Keep the scratch directory private and discard it after the test.
+
+With a proxy scratch directory already prepared from this checkout, reuse its
+verified formatter and guest endpoints binary. The last argument must name a
+new directory. Set `MARSA_VZ_INTERCEPT_FIXTURE_DIR` to its `guest-fixture`
+subdirectory for the same test.
+
+```sh
+sh crates/marsad/tests/packaged_runtime/proxy_fixture/prepare_intercept.sh \
+  "$PWD/target/guest" "$fixture" "$fixture/intercept"
+```
