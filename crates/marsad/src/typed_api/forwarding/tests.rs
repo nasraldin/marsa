@@ -2,6 +2,22 @@
 
 use super::*;
 
+// These tests intentionally close and reopen the same listener. Port zero can
+// assign an ephemeral port subsequently consumed by an unrelated outgoing socket.
+fn reserve_test_port() -> std::net::TcpListener {
+    use std::sync::atomic::{AtomicU16, Ordering};
+    static NEXT: AtomicU16 = AtomicU16::new(0);
+    for _ in 0..4096 {
+        let port = 24000 + NEXT.fetch_add(1, Ordering::Relaxed) % 4096;
+        match std::net::TcpListener::bind(("127.0.0.1", port)) {
+            Ok(socket) => return socket,
+            Err(error) if error.kind() == io::ErrorKind::AddrInUse => continue,
+            Err(error) => panic!("could not bind test port: {error}"),
+        }
+    }
+    panic!("no free port for the rebind test")
+}
+
 fn event(ip: &str, port: u16) -> PortEvent {
     PortEvent {
         container_id: "a".repeat(64),
@@ -31,7 +47,7 @@ fn over_budget_inventory_revokes_every_listener_until_session_resync() {
 #[tokio::test]
 async fn wildcard_policy_rebinds_without_widening_explicit_addresses() {
     let ports = Ports::new(false);
-    let occupied = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let occupied = reserve_test_port();
     let number = occupied.local_addr().unwrap().port();
     let requested = event("0.0.0.0", number);
     let connect: Connector =
@@ -97,9 +113,8 @@ async fn wildcard_policy_rebinds_without_widening_explicit_addresses() {
 #[tokio::test]
 async fn freed_listener_capacity_restores_a_previously_reported_request() {
     let ports = Ports::new(false);
-    let local = || std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-    let a = local();
-    let b = local();
+    let a = reserve_test_port();
+    let b = reserve_test_port();
     let first = event("127.0.0.1", a.local_addr().unwrap().port());
     let second = event("127.0.0.1", b.local_addr().unwrap().port());
     drop((a, b));
@@ -148,10 +163,7 @@ async fn disabling_lan_waits_for_wildcard_connections_to_close() {
         })
     });
     ports.serve(connect, bus.clone());
-    let address = std::net::TcpListener::bind(("127.0.0.1", 0))
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let address = reserve_test_port().local_addr().unwrap();
     ports.event(&event("0.0.0.0", address.port()));
     ports.policy(true).await;
     assert_eq!(bus.forwarded_ports().ports[0].host_address, "0.0.0.0");
