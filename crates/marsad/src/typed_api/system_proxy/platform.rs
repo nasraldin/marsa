@@ -31,5 +31,5 @@ impl Discovery for Platform {
 
 #[cfg(any(target_os = "macos", test))]
 mod macos;
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 use macos::resolve_snapshot;

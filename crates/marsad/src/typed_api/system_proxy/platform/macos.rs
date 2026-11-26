@@ -130,6 +130,22 @@ fn fixed(values: &BTreeMap<&str, Node<'_>>, draft: &ProxySettings) -> Result<Fix
                 | "GopherEnable",
                 Node::Scalar("0"),
             ) => (),
+            (
+                "ProxyAutoConfigEnable"
+                | "ProxyAutoDiscoveryEnable"
+                | "ProxyAutoConfigURLString"
+                | "ProxyAutoConfigJavaScript",
+                _,
+            ) => {
+                return Err(Status::failed_precondition(
+                    "Docker requires fixed proxy endpoints; automatic PAC or WPAD routing is active | يتطلب Docker عناوين وكيل ثابتة. توجيه PAC أو WPAD التلقائي نشط",
+                ));
+            }
+            ("__SERVICE__" | "__SUPPLEMENTAL__", _) => {
+                return Err(Status::failed_precondition(
+                    "service-specific macOS proxy routing requires explicit Docker proxy settings | يتطلب توجيه الوكيل الخاص بخدمات macOS إعداد وكيل Docker يدوياً",
+                ));
+            }
             // Unknown authentication, PAC, supplemental and service policies must not
             // silently become a direct connection or a different static proxy.
             _ => return Err(unsupported()),
@@ -145,7 +161,9 @@ fn fixed(values: &BTreeMap<&str, Node<'_>>, draft: &ProxySettings) -> Result<Fix
             values.get("ExcludeSimpleHostnames"),
             Some(Node::Scalar("1"))
         ) {
-            return Err(unsupported());
+            return Err(Status::failed_precondition(
+                "Docker cannot reproduce the system bypass for simple hostnames | لا يستطيع Docker مطابقة استثناء أسماء المضيفين البسيطة",
+            ));
         }
         if let Some(Node::Array(entries)) = values.get("ExceptionsList") {
             for entry in entries {
@@ -154,7 +172,7 @@ fn fixed(values: &BTreeMap<&str, Node<'_>>, draft: &ProxySettings) -> Result<Fix
                 if entry.eq_ignore_ascii_case("localhost") {
                     continue;
                 }
-                bypass.push(normalize_bypass(entry).ok_or_else(unsupported)?);
+                bypass.push(normalize_bypass(entry).ok_or_else(|| Status::failed_precondition("Docker cannot reproduce a system proxy exception | لا يستطيع Docker مطابقة أحد استثناءات وكيل النظام"))?);
             }
         }
         bypass.sort();
@@ -200,7 +218,9 @@ fn endpoint(
             || ip.is_unspecified()
             || matches!(ip, IpAddr::V6(v6) if v6.to_ipv4_mapped().is_some())
         {
-            return Err(unsupported());
+            return Err(Status::failed_precondition(
+                "the system proxy uses a host-local address; choose an endpoint reachable from the guest | يستخدم وكيل النظام عنواناً محلياً للمضيف. اختر عنواناً يمكن للضيف الوصول إليه",
+            ));
         }
         match ip {
             IpAddr::V4(ip) => ip.to_string(),

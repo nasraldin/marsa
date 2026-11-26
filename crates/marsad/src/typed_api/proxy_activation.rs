@@ -42,7 +42,12 @@ impl TypedApi {
     ) -> Result<ProxyActivationPreview, Status> {
         let _edit = self.inner.edit.lock().await;
         let (runtime, supervisor) = self.proxy_runtime()?;
-        let candidate = self.draft(runtime, expected).await?;
+        let candidate = self.draft(expected).await?;
+        if candidate == runtime.approved() {
+            return Err(Status::failed_precondition(
+                "daemon proxy settings have not changed",
+            ));
+        }
         let engine = supervisor.snapshot();
         let interrupts_engine = match engine.state {
             State::Ready | State::Idle | State::Paused => true,
@@ -98,7 +103,7 @@ impl TypedApi {
         })
     }
 
-    async fn draft(&self, runtime: &RuntimeProxy, expected: u64) -> Result<BootProxy, Status> {
+    async fn draft(&self, expected: u64) -> Result<BootProxy, Status> {
         let (settings, snapshot) = self.inner.events.settings();
         if snapshot.revision != expected {
             return Err(Status::aborted("settings revision changed"));
@@ -108,15 +113,7 @@ impl TypedApi {
                 "daemon proxy activation requires user-space networking",
             ));
         }
-        let candidate =
-            super::system_proxy::resolve(&settings.network.proxy, self.proxy_discovery.as_ref())
-                .await?;
-        if candidate == runtime.approved() {
-            return Err(Status::failed_precondition(
-                "daemon proxy settings have not changed",
-            ));
-        }
-        Ok(candidate)
+        super::system_proxy::resolve(&settings.network.proxy, self.proxy_discovery.as_ref()).await
     }
 
     fn consume_proxy_approval(&self, request: &ActivateProxyRequest) -> Result<Approval, Status> {
@@ -151,7 +148,7 @@ impl TypedApi {
         let _edit = self.inner.edit.lock().await;
         let (runtime, supervisor) = self.proxy_runtime()?;
         let approval = self.consume_proxy_approval(&request)?;
-        let candidate = self.draft(runtime, approval.settings_revision).await?;
+        let candidate = self.draft(approval.settings_revision).await?;
         if candidate != approval.candidate {
             return Err(Status::aborted(
                 "system proxy changed; prepare a new approval | تغير وكيل النظام. اطلب موافقة جديدة",
