@@ -260,6 +260,8 @@ dedicated-account test exercises both parts on one Mac. [Reproduction](../../cra
   - The Marsa Docker command builds from and runs an amd64-only registry index without a platform flag. Qualify a multi-platform index, explicit overrides and upstream CLI passthrough.
   - Results are published as a CI artifact per run.
 
+The signed VZ guest on macOS 27.2.1 executed both platforms in local and remote BuildKit builds. The default builder produced an amd64 image from a single-manifest base and the resulting container ran without a platform flag. Fresh-profile tests of the bundled command covered an amd64-only registry index, arm64 preference, explicit overrides and a multi-stage build ending in scratch. Android Studio with the official JetBrains Docker plugin stopped the selected container through the Marsa socket and the observer verified its ID and exit. Private Tier 2 execution and the native x64 portability job are outstanding.
+
 ### M4-15 Apply staged Docker engine configuration
 
 - **Status:** todo

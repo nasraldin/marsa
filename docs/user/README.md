@@ -60,7 +60,7 @@ Under **Disk & cleanup**, review categories and preview cleanup candidates. The 
 
 | What you may see | What to do |
 | --- | --- |
-| An image pull reports that it has no Linux ARM64 variant, or Docker reports `no matching manifest for linux/arm64`. | Select a tag that includes `linux/arm64`. Marsa runs ARM64 Linux workloads and does not emulate `linux/amd64`. |
+| An image pull reports that it has no Linux ARM64 variant, or Docker reports `no matching manifest for linux/arm64`. | Use Marsa’s bundled `docker` command for automatic selection of an amd64-only registry index on the Marsa engine. With a separate stock Docker CLI, select `--platform linux/amd64` for that index. |
 | A bind mount is refused because the host path is outside the shared folders. | Review the request under **Settings → Sharing**. Share only the required project folder. Protected paths stay excluded. |
 | A published port is reachable from the Mac but cannot be reached from another computer. | Check the forwarding and LAN options available in your release. Use `localhost` for local access. An unavailable LAN capability is not an engine error. |
 | A local multi-platform build rejects an unsupported target or produces only ARM64 output. | Build `linux/arm64` locally. To build a different architecture, select a remote builder that supports the target. |

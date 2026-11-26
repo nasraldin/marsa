@@ -52,7 +52,7 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: '27.0'
         run: |
           build_dir="$(mktemp -d "$PWD/target/marsa-bundle.XXXXXXXX")"
-          trap 'rm -rf -- "$build_dir"' EXIT
+          echo "MARSA_TEST_BUNDLE_DIR=$build_dir" >> "$GITHUB_ENV"
           mkdir "$build_dir/guest"
           for file in Image rootfs.img guest-manifest.json; do
             cp "target/guest/$file" "$build_dir/guest/$file"
@@ -67,6 +67,7 @@ jobs:
             --network-helper target/network-helper/marsa-net-helper \
             --resources-dir "$build_dir/staged" --guest-manifest-sha256 "$manifest_sha" \
             --output "$build_dir/Marsa.app" | tee "$BUNDLE_REPORT"
+          echo "MARSA_TEST_BUNDLED_DOCKER=$build_dir/Marsa.app/Contents/Resources/bin/docker" >> "$GITHUB_ENV"
       - name: Test the production VZ backend
         run: |
           export MARSA_VZ_NETWORK_HELPER="$PWD/target/network-helper/marsa-net-helper"
@@ -160,6 +161,9 @@ jobs:
           name: app-bundle-size
           path: ${{ env.BUNDLE_REPORT }}
           if-no-files-found: warn
+      - name: Remove the disposable conformance bundle
+        if: always() && env.MARSA_TEST_BUNDLE_DIR != ''
+        run: rm -rf -- "$MARSA_TEST_BUNDLE_DIR"
 
   native-x64:
     name: Run the Marsa-built image on native x64

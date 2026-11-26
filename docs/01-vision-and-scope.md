@@ -33,7 +33,7 @@ A container desktop that starts in seconds, idles near zero, feels native, speak
 
 ### In scope
 
-- Run, build and manage linux/arm64 containers with the standard `docker` CLI, Compose and Buildx.
+- Run and build native linux/arm64 and translated linux/amd64 containers on Apple silicon (D-039). Use Docker CLI, Compose and Buildx to manage workloads.
 - A Docker-compatible socket so IDEs, Testcontainers and Dev Containers work unchanged.
 - `marsad`, the `marsa` CLI, the Marsa GUI and the MCP server.
 - GUI features listed under "Must have" in [08 GUI](08-gui.md#feature-priorities).
@@ -45,7 +45,6 @@ A container desktop that starts in seconds, idles near zero, feels native, speak
 | Item | Status |
 |---|---|
 | Windows and Linux hosts | Planned after version 1. See [14 Future platforms](14-future-platforms.md). |
-| x86 (amd64) images on Apple silicon | **Decided:** supported through macOS 27 Intel Linux translation (D-039). |
 | Intel Macs | **Decided:** not supported. |
 | Kubernetes | **Decided:** later. |
 | AI assistant inside the GUI | Later. The MCP server is in version 1; the in-app assistant is not. |
@@ -58,7 +57,7 @@ A container desktop that starts in seconds, idles near zero, feels native, speak
 |---|---|---|
 | Hardware | Apple silicon (arm64) | Decided |
 | Minimum macOS | macOS 27 | Decided in [Q-02](16-risks-and-open-questions.md#resolved-platform-and-runner-questions). |
-| Container architecture | linux/arm64 | Decided |
+| Container architecture | linux/arm64 and linux/amd64 | Decided |
 
 ## Success measures
 

@@ -89,6 +89,8 @@ To add a record: copy the template at the bottom, take the next number, and link
 
 ## D-007 No Rosetta, no x86 images, no Intel Macs
 
+D-039 supersedes the original Linux workload restriction below. The Apple silicon host requirement remains in force.
+
 - **Decision:** Only linux/arm64 images run. No Rosetta, no QEMU emulation, no Intel Mac support.
 - **Why:** Modern platforms only. Apple is phasing Rosetta out for Mac apps after macOS 27, and the future of Rosetta for Linux VMs was not clearly stated at planning time.
 - **Consequence:** amd64-only images do not run. This is an explicit, documented error. It also removed the main reason to be tied to Virtualization.framework.

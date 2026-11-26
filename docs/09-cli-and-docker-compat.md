@@ -4,7 +4,7 @@ Two command-line surfaces exist. The upstream `docker` CLI does all container wo
 
 ## Compatibility goal
 
-Anything that works against Docker Desktop's engine works against Marsa without changes, as long as it uses linux/arm64 images. Planning named this as a make-or-break item: if IDEs, Testcontainers and Dev Containers do not work on day one, people uninstall.
+Marsa targets Docker Engine compatibility for native linux/arm64 and translated linux/amd64 workloads on Apple silicon. Planning named this as a make-or-break item: if IDEs, Testcontainers and Dev Containers do not work on day one, people uninstall.
 
 ## How clients find the engine
 
@@ -64,7 +64,8 @@ The daemon's authenticated `DockerDiscovery.GetEndpoint` call returns the exact 
 
 | Binary | Source | Location |
 |---|---|---|
-| `docker` | Docker CLI, darwin/arm64 | `Marsa.app/Contents/Resources/bin` |
+| `docker` | Marsa command with automatic local platform selection | `Marsa.app/Contents/Resources/bin` |
+| `docker-upstream` | Stock Docker CLI, darwin/arm64 | `Marsa.app/Contents/Resources/bin` |
 | `docker-compose` | Compose CLI plugin | `Marsa.app/Contents/Resources/bin/cli-plugins` |
 | `docker-buildx` | Buildx plugin | Same `cli-plugins` directory |
 | `docker-credential-osxkeychain` | docker-credential-helpers | Same `bin` directory |
@@ -83,7 +84,7 @@ record the SHA-256 published for each download.
 
 From the repository root, run `cargo xtask fetch-upstream` with `curl` and
 `tar` available. Use the printed staging directory under `target/upstream/`.
-Copy its `bin/` tree to the app’s `Contents/Resources/bin/`. Use
+Bundle assembly verifies the CLI checksum and installs it as `docker-upstream` alongside Marsa’s `docker` command. Use
 `upstream-sbom-input.json` as input for the release SBOM. The component hashes
 describe the staged binaries before app signing. The distribution hashes
 describe the original upstream downloads, including the Docker CLI archive.

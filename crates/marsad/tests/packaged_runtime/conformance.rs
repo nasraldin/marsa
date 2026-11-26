@@ -38,11 +38,14 @@ async fn real_clients_use_the_packaged_engine() {
     for (program, script) in [
         ("python3", "engine/check.py"),
         ("python3", "differences/check.py"),
+        ("python3", "platform-selection/check.py"),
         ("bash", "tools/run.sh"),
     ] {
         let mut cmd = tokio::process::Command::new(program);
         cmd.arg(suite.join(script));
-        if program == "python3" {
+        if script == "platform-selection/check.py" {
+            cmd.env("HOME", &home);
+        } else if program == "python3" {
             cmd.arg(paths.docker_socket());
         }
         let status = cmd
