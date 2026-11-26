@@ -520,10 +520,7 @@ impl ResourcesView {
                 Tone::Error,
             ),
             Outcome::UnsupportedImagePlatform => (
-                message(
-                    screen.locale,
-                    gui::GUI_DESKTOP_THIS_IMAGE_HAS_NO_LINUX_ARM64_VARIANT_CHOOSE_AN_ARM64_OR_MULTI,
-                ),
+                message(screen.locale, gui::GUI_DESKTOP_PULL_PLATFORM_HELP),
                 Tone::Error,
             ),
             Outcome::Cancelled => (

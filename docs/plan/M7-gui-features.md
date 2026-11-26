@@ -850,6 +850,18 @@ English and Arabic copy cover the history card, disk card, resources label, and 
   - Select-all checkbox sits in the Images table header, not the toolbar.
   - Verify English/Arabic and light/dark.
 
+A headless native window exercised the production pull dialog against a
+disposable packaged VM. In each variant, it pulled `busybox:1.37`, displayed
+the engine stream, and ran Remove on the same engine. A separate test checked
+the retained local image ID before removal and its absence afterwards. The
+registry digest pins the inspection even if the tag changes. The regression
+tests cover a registry with a port, a lookalike registry prefix and distinct
+manifest and image IDs.
+[English light](../screenshots/m7-45/en-light.png) ·
+[English dark](../screenshots/m7-45/en-dark.png) ·
+[Arabic light](../screenshots/m7-45/ar-light.png) ·
+[Arabic dark](../screenshots/m7-45/ar-dark.png).
+
 ### M7-46 Image details modal with layers stack
 
 - **Status:** done

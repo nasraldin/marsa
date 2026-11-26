@@ -111,7 +111,7 @@ pub(super) struct PullState {
     started: Option<Instant>,
     finished: Option<std::time::Duration>,
     outcome: Option<Outcome>,
-    image_id: Option<String>,
+    manifest_digest: Option<String>,
     output_open: bool,
     active: bool,
 }
@@ -161,7 +161,7 @@ impl ResourcesView {
             started: None,
             finished: None,
             outcome: None,
-            image_id: None,
+            manifest_digest: None,
             output_open: true,
             active: false,
         });
@@ -262,65 +262,32 @@ impl ResourcesView {
             window.close_dialog(cx);
             return;
         };
-        let endpoint = pull.endpoint.clone();
-        let image_id = pull.image_id.clone();
-        let reference = pull.reference.clone();
+        let Some(digest) = pull.manifest_digest else {
+            window.close_dialog(cx);
+            return;
+        };
+        let endpoint = pull.endpoint;
+        let reference = pull.reference;
         window.close_dialog(cx);
         self.busy = Some(ResourceKind::Images);
         self.outcome = None;
         let external = endpoint.is_some();
+        let docker = service.resource_docker(endpoint);
         self.operation = Some(cx.spawn(async move |view, cx| {
-            let mut outcome = Outcome::Rejected;
-            if let Some(id) = image_id.as_deref().or(Some(reference.as_str())) {
-                let docker = service.resource_docker(endpoint.clone());
-                let removal = ImageId::parse(id.to_owned())
-                    .ok()
-                    .map(|id| ImageRemoval::confirmed(id, RemovalMode::StoppedOnly));
-                if let Some(removal) = removal {
-                    if matches!(
-                        service
-                            .pending(async move { Ok(docker.remove_image(removal).await?) })
-                            .result()
-                            .await,
-                        Some(Ok(()))
-                    ) {
-                        outcome = Outcome::Success(super::operations::SuccessKind::ImageRemoved);
-                    }
-                } else {
-                    // Tag-based remove: list then match by repo tag.
-                    let docker = service.resource_docker(endpoint.clone());
-                    let reference = reference.clone();
-                    let found = service
-                        .pending(async move {
-                            let images = docker.images().await?;
-                            Ok(images.into_iter().find_map(|image| {
-                                image
-                                    .repo_tags
-                                    .iter()
-                                    .any(|tag| tag == &reference)
-                                    .then_some(image.id)
-                            }))
-                        })
-                        .result()
-                        .await;
-                    if let Some(Ok(Some(id))) = found
-                        && let Ok(id) = ImageId::parse(id)
-                    {
-                        let docker = service.resource_docker(endpoint.clone());
-                        let removal = ImageRemoval::confirmed(id, RemovalMode::StoppedOnly);
-                        if matches!(
-                            service
-                                .pending(async move { Ok(docker.remove_image(removal).await?) })
-                                .result()
-                                .await,
-                            Some(Ok(()))
-                        ) {
-                            outcome =
-                                Outcome::Success(super::operations::SuccessKind::ImageRemoved);
-                        }
-                    }
-                }
-            }
+            let removed = service
+                .pending(async move {
+                    let reference = ImageReference::parse(reference)?;
+                    let id = docker.pulled_image_id(&reference, &digest).await?;
+                    let removal = ImageRemoval::confirmed(id, RemovalMode::StoppedOnly);
+                    Ok(docker.remove_image(removal).await?)
+                })
+                .result()
+                .await;
+            let outcome = if matches!(removed, Some(Ok(()))) {
+                Outcome::Success(super::operations::SuccessKind::ImageRemoved)
+            } else {
+                Outcome::Rejected
+            };
             if !external && outcome.is_success() {
                 let _ = service.refresh().result().await;
             }
@@ -337,7 +304,12 @@ impl ResourcesView {
     }
 
     /// Start the engine pull for the composed reference and switch to the Pull step.
-    pub(super) fn start_pull(&mut self, service: Arc<Services>, cx: &mut Context<Self>) {
+    pub(super) fn start_pull(
+        &mut self,
+        service: Arc<Services>,
+        locale: Locale,
+        cx: &mut Context<Self>,
+    ) {
         let Some(pull) = &mut self.pull else {
             return;
         };
@@ -363,12 +335,12 @@ impl ResourcesView {
         pull.started = Some(Instant::now());
         pull.finished = None;
         pull.outcome = None;
-        pull.image_id = None;
+        pull.manifest_digest = None;
         pull.active = true;
         push_log(
             &mut pull.logs,
             LogKind::Pull,
-            format!("Starting pull for {reference}"),
+            format!("{} {}", gui::GUI_DESKTOP_PULL.text(locale), reference),
         );
         self.busy = Some(ResourceKind::Images);
         self.outcome = None;
@@ -413,27 +385,20 @@ impl ResourcesView {
                     }
                     pull.outcome = Some(outcome);
                     if outcome.is_success() {
-                        let duration = pull
-                            .finished
-                            .map(|value| format!("{:.1}s", value.as_secs_f64()))
-                            .unwrap_or_else(|| "0s".into());
                         push_log(
                             &mut pull.logs,
                             LogKind::Pull,
-                            format!("Pull completed in {duration}"),
+                            gui::GUI_DESKTOP_PULL_COMPLETED.text(locale).to_owned(),
                         );
                     } else {
-                        push_log(
-                            &mut pull.logs,
-                            LogKind::Pull,
-                            match outcome {
-                                Outcome::UnsupportedImagePlatform => {
-                                    "Pull failed: unsupported image platform".into()
-                                }
-                                Outcome::Cancelled => "Pull cancelled".into(),
-                                _ => "Pull failed".into(),
-                            },
-                        );
+                        let key = match outcome {
+                            Outcome::UnsupportedImagePlatform => {
+                                gui::GUI_DESKTOP_PULL_PLATFORM_HELP
+                            }
+                            Outcome::Cancelled => gui::GUI_DESKTOP_IMAGE_PULL_CANCELLED,
+                            _ => gui::GUI_DESKTOP_PULL_FAILED,
+                        };
+                        push_log(&mut pull.logs, LogKind::Pull, key.text(locale).to_owned());
                     }
                 }
                 view.busy = None;
@@ -450,7 +415,7 @@ impl ResourcesView {
         cx.refresh_windows();
     }
 
-    fn cancel_pull(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn cancel_pull(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
         let Some(pull) = &mut self.pull else {
             return;
         };
@@ -461,7 +426,13 @@ impl ResourcesView {
             if let Some(started) = pull.started {
                 pull.finished = Some(started.elapsed());
             }
-            push_log(&mut pull.logs, LogKind::Pull, "Pull cancelled".into());
+            push_log(
+                &mut pull.logs,
+                LogKind::Pull,
+                gui::GUI_DESKTOP_IMAGE_PULL_CANCELLED
+                    .text(locale)
+                    .to_owned(),
+            );
             self.busy = None;
             self.outcome = Some((ResourceKind::Images, Outcome::Cancelled));
             cx.refresh_windows();
@@ -504,7 +475,8 @@ pub(super) fn compose_reference(authority: &str, name: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
-    let with_tag = if trimmed.contains(':') || trimmed.contains('@') {
+    let leaf = trimmed.rsplit('/').next().unwrap_or(trimmed);
+    let with_tag = if leaf.contains(':') || trimmed.contains('@') {
         trimmed.to_owned()
     } else {
         format!("{trimmed}:latest")
@@ -512,7 +484,7 @@ pub(super) fn compose_reference(authority: &str, name: &str) -> String {
     if authority.is_empty() || authority == "docker.io" {
         return with_tag;
     }
-    if with_tag.starts_with(&format!("{authority}/")) || with_tag.starts_with(authority) {
+    if with_tag.starts_with(&format!("{authority}/")) {
         with_tag
     } else {
         format!("{authority}/{with_tag}")
@@ -526,14 +498,14 @@ fn apply_progress(pull: &mut PullState, mut record: PullProgress) {
     let status = record.status.clone().unwrap_or_default();
     if let Some(digest) = status.strip_prefix("Digest: ") {
         let digest = digest.trim();
-        if digest.starts_with("sha256:") && digest.len() == 71 {
-            pull.image_id = Some(digest.to_owned());
+        if ImageId::parse(digest).is_ok() {
+            pull.manifest_digest = Some(digest.to_owned());
         }
         push_log(&mut pull.logs, LogKind::Pull, status.clone());
         return;
     }
     let id = record.id.as_deref().unwrap_or_default();
-    if id.is_empty() {
+    if id.is_empty() || status.starts_with("Pulling from ") {
         if !status.is_empty() {
             push_log(&mut pull.logs, LogKind::Pull, status);
         }
@@ -619,7 +591,9 @@ fn render_dialog(
         );
     let footer = match pull.step {
         PullStep::Configure => configure_footer(screen, view, pull, cx),
-        PullStep::Pull if completed => complete_footer(screen, view),
+        PullStep::Pull if completed => {
+            complete_footer(screen, view, pull.manifest_digest.is_some())
+        }
         PullStep::Pull => pulling_footer(screen, view, pull.active),
     };
     (title, body, footer)
@@ -1221,8 +1195,8 @@ fn output_panel(screen: &ScreenContext<'_>, view: &Entity<ResourcesView>, pull: 
                         LogKind::Layer => ColorToken::StatusRunning,
                     };
                     let badge = match line.kind {
-                        LogKind::Pull => "pull",
-                        LogKind::Layer => "layer",
+                        LogKind::Pull => gui::GUI_DESKTOP_PULL.text(locale),
+                        LogKind::Layer => gui::GUI_DESKTOP_PULL_LAYER.text(locale),
                     };
                     row(locale)
                         .items_start()
@@ -1295,7 +1269,7 @@ fn configure_footer(
                         return;
                     };
                     let _ = submit.update(cx, |view, cx| {
-                        view.start_pull(Arc::clone(service), cx);
+                        view.start_pull(Arc::clone(service), locale, cx);
                     });
                 }),
         )
@@ -1312,12 +1286,16 @@ fn pulling_footer(screen: &ScreenContext<'_>, view: &Entity<ResourcesView>, acti
             .label(message(locale, gui::GUI_DESKTOP_CANCEL))
             .disabled(!active)
             .on_click(move |_, window, cx| {
-                let _ = cancel.update(cx, |view, cx| view.cancel_pull(window, cx));
+                let _ = cancel.update(cx, |view, cx| view.cancel_pull(locale, window, cx));
             }),
     )
 }
 
-fn complete_footer(screen: &ScreenContext<'_>, view: &Entity<ResourcesView>) -> Div {
+fn complete_footer(
+    screen: &ScreenContext<'_>,
+    view: &Entity<ResourcesView>,
+    has_digest: bool,
+) -> Div {
     let locale = screen.locale;
     let remove = view.downgrade();
     let keep = view.downgrade();
@@ -1330,7 +1308,7 @@ fn complete_footer(screen: &ScreenContext<'_>, view: &Entity<ResourcesView>) -> 
                 .rounded(px(Radius::R8.pixels()))
                 .icon(Icon::default().path("icons/trash.svg"))
                 .label(message(locale, gui::GUI_DESKTOP_REMOVE_IMAGE))
-                .disabled(service.is_none())
+                .disabled(service.is_none() || !has_digest)
                 .on_click(move |_, window, cx| {
                     let Some(service) = &service else {
                         return;
@@ -1397,6 +1375,18 @@ mod tests {
             "ghcr.io/owner/app:v1"
         );
         assert_eq!(compose_reference("docker.io", "  "), "");
+    }
+
+    #[test]
+    fn pull_reference_respects_the_registry_boundary_and_port() {
+        assert_eq!(
+            compose_reference("ghcr.io", "ghcr.io-mirror/team/image"),
+            "ghcr.io/ghcr.io-mirror/team/image:latest"
+        );
+        assert_eq!(
+            compose_reference("localhost:5000", "localhost:5000/team/image"),
+            "localhost:5000/team/image:latest"
+        );
     }
 
     #[test]
