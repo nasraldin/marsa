@@ -531,3 +531,6 @@ mod daemon_proxy;
 mod fallback_dns;
 #[path = "packaged_runtime/ssh_build.rs"]
 mod ssh_build;
+
+#[path = "packaged_runtime/network_activation.rs"]
+mod network_activation;

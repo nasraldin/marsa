@@ -264,7 +264,7 @@ The signed VZ guest on macOS 27.2.1 executed both platforms in local and remote 
 
 ### M4-15 Apply staged Docker engine configuration
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M2-07, M3-06, M4-08, M4-11, M4-21
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
 - **Do:** Extend controlled engine restart from M4-21 to the full proxy, trust and gateway policy, including M4-08 native networking and automatic Docker aliases. Validate the requested config, coordinate admission of new engine requests and preserve active workloads where Docker supports it. Require explicit user approval when the action can stop running workloads.
@@ -274,6 +274,8 @@ The signed VZ guest on macOS 27.2.1 executed both platforms in local and remote 
   - The host keeps desired settings when an update requires a later guest boot.
   - Active workloads are preserved, or the action reports the impact and requires explicit approval before stopping them.
   - A failed engine restart reports the failure and restores the last working configuration.
+
+On macOS 27.2.1 the packaged VZ test staged a registry mirror and DNS change on native NAT with a running BusyBox workload. The old engine kept the workload running after a declined activation. An approved restart applied the mirror as verified with Docker Info. A signed fixture helper then exited during a requested switch to userspace. The daemon reported the failed start, restored the working native engine and mirror, and retained the candidate settings as pending. The guest-local proxy fixture also observed a real registry pull and a BuildKit request after full-policy approval. CLI preview and confirmed activation passed against the signed daemon. Trust is read from the current Keychain on recovery.
 
 ### M4-16 Docker context and endpoint discovery
 

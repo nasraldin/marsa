@@ -177,6 +177,16 @@ async fn approved_activation_carries_registry_and_buildkit_requests_through_gues
         .into_inner();
     assert!(preview.interrupts_running_engine);
     assert_eq!(preview.potential_interruptions.len(), 4);
+    let preview = network
+        .prepare_network_activation(PrepareProxyActivationRequest {
+            expected_settings_revision: snapshot.revision,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .approval
+        .unwrap();
+    assert!(preview.interrupts_running_engine);
     let mut activation = ActivateProxyRequest {
         request_id: action(3).request_id,
         expected_settings_revision: snapshot.revision,
