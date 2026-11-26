@@ -119,6 +119,10 @@ Docker CLI 29.10.0 discovers plugins through its Docker config directory or
 - Marsa offers to link them into a directory on `PATH` (**Proposed:** `~/.marsa/bin`, added to the shell profile on request, or `/usr/local/bin` with an administrator prompt).
 - If the user already has a `docker` CLI, Marsa does not replace it; it only adds the context.
 
+### Local build platform inference
+
+For a local directory build on the Marsa engine, the bundled command checks the selected Dockerfile stage and its dependencies through `FROM`, `COPY --from`, and `RUN --mount=from`. It resolves ordinary global `ARG` defaults and overrides and skips the contents of standard heredocs. Explicit per-stage platforms keep their Dockerfile meaning. For custom Dockerfile frontends, alternate escape directives, complex shell substitutions, named build contexts, or a non-local builder, pass `--platform linux/amd64` when the build requires an amd64 target. Docker receives the original build instructions and input streams in every case.
+
 ## Coexistence with Docker Desktop and others
 
 - Marsa never edits another tool's files or socket.
