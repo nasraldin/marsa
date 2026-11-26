@@ -20,6 +20,8 @@ message HostEnvelope {
     Shutdown shutdown = 9;
     StartEngine start_engine = 10;
     ProbeEgress probe_egress = 11;
+    // Same bounded registry probe after Docker becomes ready (minor 3).
+    ProbeEgress probe_live_egress = 12;
   }
 }
 

@@ -8,6 +8,14 @@ pub(super) fn stage_bundle(scratch: &Path) -> (PathBuf, PathBuf) {
 }
 
 pub(super) fn stage_bundle_from(scratch: &Path, source: &Path) -> (PathBuf, PathBuf) {
+    stage_bundle_with_daemon(scratch, source, Path::new(env!("CARGO_BIN_EXE_marsad")))
+}
+
+pub(super) fn stage_bundle_with_daemon(
+    scratch: &Path,
+    source: &Path,
+    binary: &Path,
+) -> (PathBuf, PathBuf) {
     let helper =
         PathBuf::from(env::var_os("MARSA_VZ_NETWORK_HELPER").expect("set MARSA_VZ_NETWORK_HELPER"));
     let app = scratch.join("Marsa.app");
@@ -30,7 +38,7 @@ pub(super) fn stage_bundle_from(scratch: &Path, source: &Path) -> (PathBuf, Path
 <key>CFBundleVersion</key><string>1</string>
 </dict></plist>"#).unwrap();
     let daemon = executables.join("marsad");
-    fs::copy(env!("CARGO_BIN_EXE_marsad"), &daemon).unwrap();
+    fs::copy(binary, &daemon).unwrap();
     let packaged_helper = helpers.join("marsa-net-helper");
     fs::copy(helper, &packaged_helper).unwrap();
     // Keep a valid build signature so the test launches the same helper identity.

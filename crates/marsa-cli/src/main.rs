@@ -239,6 +239,7 @@ async fn execute(args: Vec<OsString>, interactive: bool, json: bool) -> Outcome 
     if name == "network" {
         let result = match args.subcommand() {
             Some(("status", _)) => network::status().await,
+            Some(("apply", _)) => network::apply(yes).await,
             Some(("mode", mode)) => {
                 let requested = mode.get_one::<String>("mode").map(String::as_str);
                 network::mode(requested).await

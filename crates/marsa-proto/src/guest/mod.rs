@@ -32,6 +32,9 @@ pub mod v1 {
 /// Guest control listener port in the VM's vsock namespace.
 pub const CONTROL_PORT: u32 = 5_000;
 
+/// Host-only relay to guest loopback ports published by Docker.
+pub const PUBLISHED_PORT_VSOCK: u32 = 5_005;
+
 /// Host-only guest Docker API byte stream port.
 pub const DOCKER_API_PORT: u32 = 5_001;
 
@@ -41,10 +44,19 @@ pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// First protocol minor supporting deferred engine startup and egress probes.
 pub const DEFER_ENGINE_START_MINOR: u32 = 1;
 
+/// First protocol minor supporting native DNS routing and live refresh.
+pub const NATIVE_DNS_MINOR: u32 = 2;
+
+/// First minor supporting the registry probe on a running engine.
+pub const LIVE_EGRESS_MINOR: u32 = 3;
+
+/// First minor accepting registry configuration before engine startup.
+pub const REGISTRY_MINOR: u32 = 4;
+
 /// Current guest control version advertised by this build.
 pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion {
     major: 1,
-    minor: DEFER_ENGINE_START_MINOR,
+    minor: REGISTRY_MINOR,
 };
 
 /// A rejected guest control frame or incompatible protocol version.

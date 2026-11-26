@@ -24,6 +24,7 @@ use std::os::fd::AsFd as _;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Service {
     Agent,
+    Resolver,
     Containerd,
     Engine,
 }
@@ -122,7 +123,12 @@ impl Supervisor {
 
     pub(super) fn stop_all(&mut self) -> io::Result<()> {
         let mut first_error = None;
-        for service in [Service::Engine, Service::Containerd, Service::Agent] {
+        for service in [
+            Service::Engine,
+            Service::Containerd,
+            Service::Resolver,
+            Service::Agent,
+        ] {
             if let Err(error) = self.stop(service) {
                 first_error.get_or_insert(error);
             }

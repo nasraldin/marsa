@@ -89,6 +89,16 @@ and format preference in `prepare`, then sends `start` after choosing the
 destination. The client requires successful completion and stream termination
 before publishing its staged destination.
 
+Host API minor 20 adds credential-free effective HTTP and HTTPS proxy endpoints
+and the bypass list to the owner-only `PrepareProxyActivation` preview. Approval
+is bound to the resolved policy as well as the settings and lifecycle revisions.
+
+Host API minor 19 implements `Network.ListForwardedPorts`. Its `ports` list
+contains active host listeners. Each entry in `failures` describes a requested
+binding by address, port, transport and container ID, with a diagnostic and an
+optional local process name and PID. The events snapshot and stream expose the
+same inventory. Changing `network.allow_lan` applies to current publications.
+
 `Disk.Reclaim` requests discard of unused blocks from the current ready
 guest's data disk. It returns the guest's submitted discard bytes and the
 observed decrease in allocated bytes on the same host image. A stopped
@@ -225,6 +235,47 @@ returns `CommandResult`. It requires a successful `SetTime` and is idempotent.
 Once Docker has been released, reconnecting cannot make that guest eligible for
 another deferred probe.
 
+### Published port relay
+
+AF_VSOCK port 5005 accepts connections from the host CID. Each stream carries
+one TCP connection or one UDP peer flow. The host sends five bytes: version
+1, IP protocol number (6 or 17), family (4 or 6), and the guest's published
+port as a nonzero big-endian u16. The guest connects to its own loopback
+address in that family. A zero reply accepts the stream. A nonzero reply
+or a closed connection fails the request. TCP then carries bytes in both
+directions. Each UDP datagram has a big-endian u16 length followed by its
+payload, including a zero-length payload. The Mac obtains the publication
+from the active guest control session and applies the owner's binding policy.
+
+### Native NAT resolver policy (guest protocol 1.2)
+
+A negotiated minor of 2 supports the optional `ConfigureNetwork.native_dns`
+field. The host sends the default servers, search suffixes and supplemental
+domain routes before engine release and again after host network changes.
+An empty route server list keeps the suffix local-only. An explicit DNS
+override uses only the configured servers. This update preserves the native
+Docker gateway and does not restart the engine. Minor 1 accepts only a flat
+resolver list. When a host policy requires split DNS or has no usable servers,
+the host provisions a local DNS sink so the local engine can still run.
+Minor 0 retains DHCP when following the host and refuses explicit overrides
+that it cannot apply before Docker starts. Live native refresh requires 1.2.
+
+### Live egress checks (guest protocol 1.3)
+
+After clock synchronization and engine release, a host that negotiated minor 3
+can send `ProbeLiveEgress` to recheck the active attachment. It uses the same
+registry, address validation, deadline and correlated result as the boot probe.
+Older guests keep serving local workloads when the host network changes.
+The live command does not release or restart Docker.
+
+### Registry configuration (guest protocol 1.4)
+
+The host sends `ConfigureNetwork.registries` before engine startup when the
+owner configured registry mirrors or insecure registries. A peer below minor
+4 cannot apply those overrides. The host refuses that boot. A DNS-only refresh
+omits the field and preserves the engine configuration. The guest validates
+both lists before writing Docker's configuration.
+
 ### Guest message limits
 
 Limits apply to the serialized envelope including the request ID, excluding
@@ -236,14 +287,14 @@ fields are additionally bounded as shown. String limits count UTF-8 bytes.
 | Guest → host | `Hello` | 12 KiB | Required protocol version. Image version ≤128 bytes. Up to 32 component versions (name ≤64, version ≤128 bytes) and 32 boot timings (stage ≤64 bytes). |
 | Host → guest | `HelloAck` | 64 B | Required selected protocol version. |
 | Host → guest | `SetTime` | 64 B | Nanoseconds <1,000,000,000. |
-| Host → guest | `ConfigureNetwork` | 32 KiB | Up to 16 IP resolver addresses, 16 ASCII DNS search domains and 32 host aliases. IP literals ≤45 bytes. Domains ≤253 bytes excluding a trailing dot. Proxy URLs ≤2,048 bytes and up to 32 bypass entries of ≤255 bytes. |
+| Host → guest | `ConfigureNetwork` | 32 KiB | Up to 16 IP resolver addresses, 16 ASCII DNS search domains, 32 host aliases and 64 native DNS suffix routes of up to 16 IP servers each. IP literals ≤45 bytes. Domains ≤253 bytes excluding a trailing dot. Proxy URLs ≤2,048 bytes and up to 32 bypass entries of ≤255 bytes. Up to 16 registry mirror URLs of ≤1,024 bytes and 32 insecure registry entries of ≤260 bytes. |
 | Host → guest | `InstallCertificates` | 1 MiB | Up to 128 nonempty DER blobs, each ≤16 KiB. |
 | Host → guest | `Trim` | 32 B | No payload fields. |
 | Host → guest | `MountShare` | 5 KiB | Tag ≤36 bytes. Absolute guest path ≤4,096 bytes, without empty, dot or parent segments. |
 | Host → guest | `UnmountShare` | 128 B | Tag ≤36 bytes. |
 | Host → guest | `Shutdown` | 32 B | No payload fields. |
 | Host → guest | `StartEngine` | 32 B | No payload fields. |
-| Host → guest | `ProbeEgress` | 32 B | Exactly four address bytes. |
+| Host → guest | `ProbeEgress`, `ProbeLiveEgress` | 32 B | Exactly four address bytes. |
 | Guest → host | `PortEvent` | 256 B | Known action and TCP or UDP transport, 64-digit hex container ID, IP literal ≤45 bytes, ports 1–65,535. |
 | Guest → host | `EngineHealth` | 3 KiB | Known health value and detail ≤2,048 bytes. |
 | Guest → host | `VmStats` | 128 B | Memory and disk usage cannot exceed their corresponding totals. |

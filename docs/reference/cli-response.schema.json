@@ -12,6 +12,8 @@
     { "$ref": "#/$defs/disk_cleanup_preview" },
     { "$ref": "#/$defs/network_status" },
     { "$ref": "#/$defs/network_mode" },
+    { "$ref": "#/$defs/network_activation_preview" },
+    { "$ref": "#/$defs/network_activation" },
     { "$ref": "#/$defs/settings" },
     { "$ref": "#/$defs/setting" },
     { "$ref": "#/$defs/shares" },
@@ -147,6 +149,42 @@
             }
           }
         }
+      }
+    },
+    "network_activation_preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "revision", "policy"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "network_activation_preview" },
+        "revision": { "$ref": "#/$defs/settings_revision" },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["network_mode", "dns", "registry_mirrors", "insecure_registries", "http_proxy", "https_proxy", "no_proxy", "trust_restart_pending", "interrupts_running_engine"],
+          "properties": {
+            "network_mode": { "enum": ["auto", "nat", "userspace"] },
+            "dns": { "type": "array", "items": { "type": "string" } },
+            "registry_mirrors": { "type": "array", "items": { "type": "string" } },
+            "insecure_registries": { "type": "array", "items": { "type": "string" } },
+            "http_proxy": { "type": ["string", "null"] },
+            "https_proxy": { "type": ["string", "null"] },
+            "no_proxy": { "type": "array", "items": { "type": "string" } },
+            "trust_restart_pending": { "type": "boolean" },
+            "interrupts_running_engine": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "network_activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "outcome"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "network_activation" },
+        "outcome": { "const": "applied" }
       }
     },
     "network_mode": {

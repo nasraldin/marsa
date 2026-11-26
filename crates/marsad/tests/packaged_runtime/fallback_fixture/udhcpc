@@ -1,0 +1,16 @@
+#!/bin/sh
+# Only the disposable native guest has a firewall rule. Leave DHCP, DNS and vsock usable.
+set -eu
+/bin/busybox udhcpc "$@"
+# The host and its upstream DNS servers can return different rotating registry
+# addresses. Test transport against the same current macOS answers on both boots.
+answers=$(awk '$3 == "virtiofs" && $2 ~ /\/fallback-dns$/ { print $2 "/registry.hosts" }' /proc/mounts)
+test -f "$answers"
+cat "$answers" >> /etc/hosts
+case " $(cat /proc/cmdline) " in
+    *" marsa_vz.native_nat=1 "*)
+        /usr/sbin/iptables -I OUTPUT -o eth0 -p tcp --dport 443 -j DROP
+        /usr/sbin/iptables -C OUTPUT -o eth0 -p tcp --dport 443 -j DROP
+        echo 'marsa-fallback-fixture: native guest TCP/443 blocked' > /dev/console
+        ;;
+esac

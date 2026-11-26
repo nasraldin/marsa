@@ -97,14 +97,13 @@ fn protected_share_is_rejected_without_touching_the_data_disk() {
 }
 
 #[test]
-fn packaged_runtime_rejects_custom_dns_and_proxy_outside_approved_scope() {
+fn packaged_runtime_rejects_proxy_outside_approved_scope() {
     let (home, paths, uid) = private_state();
     let package = Packaged {
         bundle: home.path().join("Marsa.app"),
     };
     let policy = SharePolicy::new(home.path(), &paths).unwrap();
     for configuration in [
-        "[network]\ndns = ['192.0.2.53']",
         "[network.proxy]\nhttp = 'http://proxy.invalid'",
         "[network.proxy]\nhttps = 'https://proxy.invalid'",
         "[network]\nmode = 'nat'\n[network.proxy]\nhttp = 'http://proxy.invalid'",

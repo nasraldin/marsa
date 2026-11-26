@@ -28,6 +28,7 @@ fn test_epoch() -> i64 {
 
 fn network(dns: &str) -> ConfigureNetwork {
     ConfigureNetwork {
+        native_dns: None,
         dns_servers: vec![dns.into()],
         search_domains: vec!["marsa.test".into()],
         proxy: Some(Proxy {

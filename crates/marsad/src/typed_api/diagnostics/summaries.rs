@@ -195,6 +195,8 @@ fn without_color(line: &str) -> Option<&str> {
 
 pub(super) fn network_reason(reason: Option<&str>) -> Option<&'static str> {
     match reason? {
+        "native_healthy" => Some("native_healthy"),
+        "userspace_healthy" => Some("userspace_healthy"),
         "probe_unavailable" => Some("probe_unavailable"),
         "transport_unavailable" => Some("transport_unavailable"),
         result if result.starts_with("native_") && result.ends_with("_userspace_verified") => {
@@ -203,7 +205,30 @@ pub(super) fn network_reason(reason: Option<&str>) -> Option<&'static str> {
         result if result.starts_with("native_") && result.contains("_alternate_") => {
             Some("alternate_failed")
         }
+        result
+            if result.starts_with("native_") && result.ends_with("_userspace_restart_pending") =>
+        {
+            Some("restart_pending")
+        }
         result if result.starts_with("native_") => Some("native_degraded"),
+        result if result.starts_with("userspace_") => Some("userspace_degraded"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::network_reason;
+
+    #[test]
+    fn live_network_reasons_keep_their_meaning_in_diagnostics() {
+        for (reason, summary) in [
+            ("native_healthy", "native_healthy"),
+            ("userspace_healthy", "userspace_healthy"),
+            ("native_tcp_userspace_restart_pending", "restart_pending"),
+            ("userspace_tcp", "userspace_degraded"),
+        ] {
+            assert_eq!(network_reason(Some(reason)), Some(summary));
+        }
     }
 }

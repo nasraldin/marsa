@@ -160,7 +160,12 @@ impl Staged {
                 .find(|component| component["name"] == name)
                 .ok_or_else(|| invalid(format!("missing staged upstream component {name}")))?;
             let installed_hash = verify_component(component, pin, repository, name)?;
-            let destination = destination.join(name);
+            let installed_name = if key == "docker" {
+                "docker-upstream"
+            } else {
+                name
+            };
+            let destination = destination.join(installed_name);
             copy_executable(platform::input_file(source, name)?, &destination)?;
             require_hash(&destination, installed_hash)?;
         }

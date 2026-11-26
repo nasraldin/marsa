@@ -10,14 +10,16 @@ This plan turns the design in [`docs/`](../README.md) into ordered, checkable ta
 | M1 | [Risk spikes](M1-risk-spikes.md) | The four biggest unknowns answered with evidence | 6 |
 | M2 | [Guest image](M2-guest-image.md) | A reproducible minimal Linux image that boots to a healthy engine | 10 |
 | M3 | [VM and daemon](M3-vm-and-daemon.md) | `marsad` boots, supervises and stops the VM through the `vz` backend | 19 |
-| M4 | [Docker integration](M4-docker-integration.md) | The standard `docker` CLI and tools work against Marsa | 25 |
+| M4 | [Docker integration](M4-docker-integration.md) | The standard `docker` CLI and tools work against Marsa | 27 |
 | M5 | [CLI](M5-cli.md) | The `marsa` command-line tool | 12 |
 | M6 | [GUI foundation](M6-gui-foundation.md) | Design system, direction, i18n, themes and the app shell | 14 |
-| M7 | [GUI features](M7-gui-features.md) | Every "must have" screen, in four variants | 19 |
-| M8 | [MCP server](M8-mcp.md) | Agents can operate containers under permission tiers | 9 |
+| M7 | [GUI features](M7-gui-features.md) | Every "must have" screen, in four variants | 53 |
+| M8 | [MCP server](M8-mcp.md) | Agents can operate containers under permission tiers | 11 |
 | M9 | [Hardening](M9-hardening.md) | Security, reliability and recovery proven by tests | 19 |
 | M10 | [Release](M10-release.md) | Signed, notarized, auto-updating distribution | 15 |
 | M11 | [Performance](M11-performance.md) | Benchmarks, the `krun` backend and the default-backend decision | 6 |
+
+The [Apple silicon acceptance report](../spikes/apple-silicon-reverification.md#local-acceptance-audit-after-the-packaged-conformance-run) records local verification and outstanding gates across all milestones.
 
 ## Milestone dependencies
 
@@ -121,7 +123,9 @@ These open questions block specific tasks. See [16 Risks and open questions](../
 
 | Question | Blocks |
 |---|---|
+| Q-03 Name clearance | M10-10 |
 | Q-04 Apple developer account and keys | M3-10, M10 |
+| Q-09 Governance and contribution terms | First public release |
 
 ## After version 1
 

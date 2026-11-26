@@ -12,7 +12,7 @@ Marsa runs one shared Linux VM on Apple silicon. Two backends implement the same
 - **Virtualization.framework** is the official, supported, lowest-risk path. It gives near-native CPU, virtiofs file sharing, vsock and NAT networking with little code.
 - Its known weak point, found during planning research, is returning freed guest memory to macOS. The fastest products on the Mac (OrbStack, Docker's own VMM) moved to custom virtual machine monitors on Hypervisor.framework to control memory and file sharing.
 - **libkrun** is an open-source Rust VMM (Apache-2.0) that runs on Hypervisor.framework and links directly into a Rust process. It is the base for that faster design, but research also found a report of stock libkrun being slower than Virtualization.framework on a database workload. So it must earn its place by measurement.
-- Rosetta was the main reason to be tied to Virtualization.framework. With x86 images out of scope, both backends are on equal footing.
+- The VZ backend exposes the macOS Intel Linux translator to the guest. A replacement default backend must qualify native arm64 and translated amd64 workloads (D-039).
 
 ## Architecture
 
@@ -208,4 +208,3 @@ therefore uses stopping. [M9-04 VZ measurements](spikes/M9-04-memory.md).
 | Apple's Containerization framework and `container` tool | One VM per container and not the Docker API; version 0.1.0 at planning time |
 | Lima | A separate Go tool driven by SSH; useful as a bootstrap for early GUI work only, never shipped |
 | QEMU | Emulation and a heavy stack; against the native-only principle |
-| Rosetta | x86 images are out of scope |

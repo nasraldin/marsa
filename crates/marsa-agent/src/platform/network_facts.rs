@@ -27,7 +27,7 @@ pub(super) async fn serve(listener: Listener, interface: Option<String>) {
     }
 }
 
-fn facts(interface: &str) -> io::Result<Option<NetworkFacts>> {
+pub(super) fn facts(interface: &str) -> io::Result<Option<NetworkFacts>> {
     let address = getifaddrs()?
         .filter(|item| item.interface_name == interface)
         .find_map(|item| Some(item.address?.as_sockaddr_in()?.ip()))

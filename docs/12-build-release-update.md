@@ -142,10 +142,7 @@ Copy the verified [Harbor icon](../assets/icons/README.md) into `Contents/Resour
 Verify the checksums in the [font asset inventory](../assets/fonts/README.md) before copying the native fonts and their original notice into the bundle.
 
 
-Copy the verified `bin/` tree from the directory printed by
-[`cargo xtask fetch-upstream`](09-cli-and-docker-compat.md#bundled-upstream-binaries)
-into `Contents/Resources/bin/`. Feed the staging directory’s
-`upstream-sbom-input.json` into the release SBOM.
+Bundle assembly installs the verified upstream CLI as `Contents/Resources/bin/docker-upstream` and the Marsa architecture-selection command as its sibling `docker`. Both executables are included in the signing inventory. The upstream SBOM identifies the verified Docker CLI input.
 
 ## Release notices and source publication
 
@@ -401,7 +398,7 @@ flowchart TB
 
 Run Tier 2 from a private validation repository containing reviewed Marsa commits. GitHub advises against connecting a persistent self-hosted runner to a public repository. [GitHub runner setup](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners).
 
-1. Use a dedicated standard macOS account on the selected Apple silicon Mac with macOS 27 or later. Install Xcode command-line tools, Rustup, Python 3.11 or later, a Docker CLI connected to an arm64 Linux daemon, and `docker-buildx`. Put the tools on the runner account’s PATH. The workflow installs the pinned protobuf compiler and Linux musl Rust target.
+1. Use a dedicated standard macOS account on the selected Apple silicon Mac with macOS 27 or later. Install Xcode command-line tools, Rustup, Python 3.11 or later, a Docker CLI connected to an arm64 Linux daemon, `docker-buildx`, and `qemu-system-aarch64` for the offline proxy fixture formatter. Put the tools on the runner account’s PATH. The workflow installs the pinned protobuf compiler and Linux musl Rust target.
 2. In the private validation repository, restrict writes to trusted maintainers and protect the default branch. In **Settings → Actions → Runners**, select **New self-hosted runner**, macOS, and ARM64. Follow GitHub's registration instructions and add the `marsa-virtualization` label.
 3. Mirror reviewed code to the private default branch. Set the private repository variable `MARSA_TIER2_ENABLED` to `true` and dispatch **Tier 2** on that branch. The job builds the guest from the checked-out revision, runs the [physical boot test](../spikes/vz-boot/README.md#verify-the-packaged-guest), and uploads the guest boot timings.
 

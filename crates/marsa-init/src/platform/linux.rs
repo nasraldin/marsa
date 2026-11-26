@@ -65,7 +65,19 @@ fn boot(mounts: &mut Mounts, supervisor: &mut Supervisor) -> io::Result<()> {
         .open(BOOT_TIMINGS)?;
     record(&mut timings, "mount_system", start.elapsed())?;
 
-    let settings = Settings::parse(&fs::read_to_string("/proc/cmdline")?)?;
+    let cmdline = fs::read_to_string("/proc/cmdline")?;
+    let settings = Settings::parse(&cmdline)?;
+    if cmdline
+        .split_ascii_whitespace()
+        .take_while(|arg| *arg != "--")
+        .any(|arg| arg == marsa_core::guest_boot::TRANSLATION_ARG)
+    {
+        stage(
+            &mut timings,
+            "amd64_translation",
+            mounts::enable_translation,
+        )?;
+    }
     stage(&mut timings, "data_disk", disk::prepare)?;
     stage(&mut timings, "shared_folders", || {
         mounts.share_all(&settings.shares)
@@ -73,6 +85,22 @@ fn boot(mounts: &mut Mounts, supervisor: &mut Supervisor) -> io::Result<()> {
     stage(&mut timings, "network", || configure_network(&settings))?;
     stage(&mut timings, "agent", || {
         supervisor.start(Service::Agent, "/usr/bin/marsa-agent", &[])?;
+        // Native DNS must be serving before the host asks the agent to probe egress.
+        // Offline and user-space guests have no resolver configuration.
+        let resolver = Path::new("/run/marsa/native-dns.conf");
+        supervisor.wait_until(Duration::from_secs(60), || {
+            resolver.is_file() || Path::new(AGENT_READY).is_file()
+        })?;
+        if resolver.try_exists()? {
+            supervisor.start(
+                Service::Resolver,
+                "/usr/sbin/dnsmasq",
+                &[
+                    "--keep-in-foreground",
+                    "--conf-file=/run/marsa/native-dns.conf",
+                ],
+            )?;
+        }
         supervisor.wait_until(Duration::from_secs(60), || Path::new(AGENT_READY).is_file())
     })?;
     stage(&mut timings, "containerd", || {

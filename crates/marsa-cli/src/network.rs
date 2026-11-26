@@ -36,6 +36,78 @@ pub(super) async fn mode(requested: Option<&str>) -> Result<Outcome, Failure> {
     Ok(report_mode(&status))
 }
 
+pub(super) async fn apply(confirmed: bool) -> Result<Outcome, Failure> {
+    use marsa_client::api::{
+        ActivateProxyRequest, GetSettingsRequest, PrepareProxyActivationRequest,
+        ProxyActivationOutcome,
+    };
+    let client = connect().await?;
+    let revision = client
+        .settings()
+        .get(GetSettingsRequest {})
+        .await
+        .map_err(|_| Failure::Operation)?
+        .into_inner()
+        .revision;
+    let preview = client
+        .network()
+        .prepare_network_activation(PrepareProxyActivationRequest {
+            expected_settings_revision: revision,
+        })
+        .await
+        .map_err(|_| Failure::Operation)?
+        .into_inner();
+    let mode = mode_id(preview.mode());
+    let approval = preview.approval.ok_or(Failure::Operation)?;
+    if !confirmed {
+        let policy = json!({
+            "network_mode": mode, "dns": preview.dns_servers,
+            "registry_mirrors": preview.registry_mirrors, "insecure_registries": preview.insecure_registries,
+            "http_proxy": approval.http_proxy, "https_proxy": approval.https_proxy,
+            "no_proxy": approval.no_proxy, "trust_restart_pending": preview.trust_restart_pending,
+            "interrupts_running_engine": approval.interrupts_running_engine,
+        });
+        let impact = if approval.interrupts_running_engine {
+            keys::CLI_NETWORK_APPLY_RUNNING
+        } else {
+            keys::CLI_NETWORK_APPLY_STOPPED
+        };
+        return Ok(Outcome::Data {
+            text: format!("{}\n{}\n", command::label(impact), policy),
+            document: json!({"schema_version": 1, "kind": "network_activation_preview", "revision": revision.to_string(), "policy": policy}),
+        });
+    }
+    let result = client
+        .network()
+        .activate_proxy(ActivateProxyRequest {
+            request_id: request_id()?,
+            expected_settings_revision: revision,
+            approval_token: approval.approval_token,
+            approved: true,
+        })
+        .await
+        .map_err(|_| Failure::Operation)?
+        .into_inner();
+    let outcome = result.outcome();
+    if outcome != ProxyActivationOutcome::Applied {
+        let detail = command::message(
+            keys::CLI_NETWORK_APPLY_RESULT,
+            &[
+                ("outcome", outcome.as_str_name()),
+                ("stage", result.failure_stage().as_str_name()),
+            ],
+        );
+        return Ok(Outcome::Rejected {
+            text: detail.clone(),
+            message: detail,
+        });
+    }
+    Ok(Outcome::Data {
+        text: format!("{}\n", command::label(keys::CLI_NETWORK_SETTINGS_APPLIED)),
+        document: json!({"schema_version": 1, "kind": "network_activation", "outcome": "applied"}),
+    })
+}
+
 async fn connect() -> Result<MarsaClient, Failure> {
     DaemonEndpoint::discover()
         .map_err(connection_failure)?

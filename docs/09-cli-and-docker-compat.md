@@ -4,7 +4,7 @@ Two command-line surfaces exist. The upstream `docker` CLI does all container wo
 
 ## Compatibility goal
 
-Anything that works against Docker Desktop's engine works against Marsa without changes, as long as it uses linux/arm64 images. Planning named this as a make-or-break item: if IDEs, Testcontainers and Dev Containers do not work on day one, people uninstall.
+Marsa targets Docker Engine compatibility for native linux/arm64 and translated linux/amd64 workloads on Apple silicon. Planning named this as a make-or-break item: if IDEs, Testcontainers and Dev Containers do not work on day one, people uninstall.
 
 ## How clients find the engine
 
@@ -64,7 +64,8 @@ The daemon's authenticated `DockerDiscovery.GetEndpoint` call returns the exact 
 
 | Binary | Source | Location |
 |---|---|---|
-| `docker` | Docker CLI, darwin/arm64 | `Marsa.app/Contents/Resources/bin` |
+| `docker` | Marsa command with automatic local platform selection | `Marsa.app/Contents/Resources/bin` |
+| `docker-upstream` | Stock Docker CLI, darwin/arm64 | `Marsa.app/Contents/Resources/bin` |
 | `docker-compose` | Compose CLI plugin | `Marsa.app/Contents/Resources/bin/cli-plugins` |
 | `docker-buildx` | Buildx plugin | Same `cli-plugins` directory |
 | `docker-credential-osxkeychain` | docker-credential-helpers | Same `bin` directory |
@@ -83,7 +84,7 @@ record the SHA-256 published for each download.
 
 From the repository root, run `cargo xtask fetch-upstream` with `curl` and
 `tar` available. Use the printed staging directory under `target/upstream/`.
-Copy its `bin/` tree to the app’s `Contents/Resources/bin/`. Use
+Bundle assembly verifies the CLI checksum and installs it as `docker-upstream` alongside Marsa’s `docker` command. Use
 `upstream-sbom-input.json` as input for the release SBOM. The component hashes
 describe the staged binaries before app signing. The distribution hashes
 describe the original upstream downloads, including the Docker CLI archive.
@@ -118,6 +119,10 @@ Docker CLI 29.10.0 discovers plugins through its Docker config directory or
 - Marsa offers to link them into a directory on `PATH` (**Proposed:** `~/.marsa/bin`, added to the shell profile on request, or `/usr/local/bin` with an administrator prompt).
 - If the user already has a `docker` CLI, Marsa does not replace it; it only adds the context.
 
+### Local build platform inference
+
+For a local directory build on the Marsa engine, the bundled command checks the selected Dockerfile stage and its dependencies through `FROM`, `COPY --from`, and `RUN --mount=from`. It resolves ordinary global `ARG` defaults and overrides and skips the contents of standard heredocs. Explicit per-stage platforms keep their Dockerfile meaning. For custom Dockerfile frontends, alternate escape directives, complex shell substitutions, named build contexts, or a non-local builder, pass `--platform linux/amd64` when the build requires an amd64 target. Docker receives the original build instructions and input streams in every case.
+
 ## Coexistence with Docker Desktop and others
 
 - Marsa never edits another tool's files or socket.
@@ -130,6 +135,7 @@ Each line is an automated test in the conformance suite ([13](13-testing-and-ben
 
 | Area | Must work |
 |---|---|
+| Architecture | Native arm64 and translated amd64 builds and containers. Multi-platform images prefer arm64. |
 | Core | `run`, `exec`, `attach`, `logs -f`, `cp`, `stats`, `events`, `inspect` |
 | Build | `docker build`, `docker buildx build`, cache mounts, secrets, SSH forwarding |
 | Compose | `up`, `down`, `logs`, `watch`, profiles, healthchecks, depends_on |
@@ -143,10 +149,8 @@ Each line is an automated test in the conformance suite ([13](13-testing-and-ben
 
 | Difference | Reason |
 |---|---|
-| `--platform linux/amd64` fails with a clear message | x86 images are out of scope |
 | Bind mounts outside the shared-folder allowlist are refused with instructions | Security decision |
-| Ports published on `0.0.0.0` bind to loopback unless LAN access is enabled | Security decision (proposed default) |
-| Multi-arch builds produce arm64 only unless a remote builder is used | No emulation |
+| Ports published on `0.0.0.0` bind to loopback unless LAN access is enabled | [D-038](15-decisions.md#d-038-bind-published-ports-to-loopback-by-default) |
 
 Each difference is documented for users and returned as an explicit error, never a silent failure.
 
@@ -154,7 +158,7 @@ Each difference is documented for users and returned as an explicit error, never
 
 For Docker builds, pass `docker build --ssh default` with `SSH_AUTH_SOCK` pointing to the intended host agent. A Dockerfile step requests access using `RUN --mount=type=ssh,required=true`. Buildx forwards agent requests through that build's session and BuildKit supplies the step's socket. The private key stays with the host agent. [Build secrets documentation](https://docs.docker.com/build/building/secrets/#ssh-mounts) · [Pinned BuildKit provider](https://github.com/moby/buildkit/blob/v0.35.0/session/sshforward/sshprovider/agentprovider.go).
 
-M4-17 tracks opt-in forwarding for bind-mounted agent sockets in regular containers. It requires a separate authorization and transport design. See [SSH agent access](11-security.md#ssh-agent-access).
+Runtime forwarding is planned for developers who need Git or SSH inside a running container. Today those containers have no host-agent access. The planned Docker CLI and Compose workflow uses an explicit socket mount and `SSH_AUTH_SOCK`, with a separate Marsa grant the user can revoke. Build permission applies only to its build session. [D-040](15-decisions.md#d-040-ship-build-time-ssh-and-plan-user-controlled-runtime-forwarding) · [SSH agent access](11-security.md#ssh-agent-access)
 
 Qualify build SSH forwarding on Apple silicon with the [signed VM test fixture](03-host-daemon.md#docker-socket-proxy). The test downloads checksum-pinned Alpine packages on the Mac, installs them without guest egress, and serves a disposable Git repository on the VM's loopback. Only the test public key is sent to that server. A separate macOS agent holds the fixture private key.
 
@@ -181,6 +185,7 @@ marsa disk cleanup [--dry-run]  Preview and run cleanup, then reclaim space
 marsa disk reclaim              Return freed space to macOS
 marsa network status            Show active networking and observed addresses
 marsa network mode [MODE]       Show or save the mode for the next start
+marsa network apply [--yes]     Preview staged networking or approve activation
 marsa logs [--follow]           Daemon and guest logs
 marsa diagnose                  Collect a diagnostics bundle
 marsa update check|apply        Updates

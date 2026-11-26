@@ -168,6 +168,34 @@ impl DockerClient {
         })
     }
 
+    /// Resolve the manifest reported by a pull to the local image ID used for removal.
+    pub async fn pulled_image_id(
+        &self,
+        image: &ImageReference,
+        digest: &str,
+    ) -> Result<ImageId, DockerError> {
+        ImageId::parse(digest)?;
+        let name = match image.as_str().split_once('@') {
+            Some((name, expected)) if expected == digest => name,
+            Some(_) => return Err(DockerError::ResourceIdentity),
+            None => image.as_str(),
+        };
+        let repository = match name.rsplit_once(':') {
+            Some((repository, suffix)) if !suffix.contains('/') => repository,
+            _ => name,
+        };
+        let pinned = ImageReference::parse(format!("{repository}@{digest}"))?;
+        #[derive(Deserialize)]
+        struct Inspection {
+            #[serde(rename = "Id")]
+            id: String,
+        }
+        let inspection: Inspection = self
+            .snapshot(&format!("/images/{}/json", pinned.query()))
+            .await?;
+        ImageId::parse(inspection.id)
+    }
+
     /// Add the requested repository and tag to an existing image on this engine.
     pub async fn tag_image(&self, image: &ImageId, destination: &str) -> Result<(), DockerError> {
         let (repository, tag) = destination

@@ -37,6 +37,7 @@ impl Actor {
             let _ = reply.send(Err(SupervisorError::Closed));
             return;
         };
+        self.network_generation = self.network_generation.saturating_add(1);
         self.maintenance = Some(Reservation {
             id,
             release,

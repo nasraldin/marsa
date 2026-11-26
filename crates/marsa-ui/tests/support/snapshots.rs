@@ -8,7 +8,8 @@ use marsa_ui::{
     Locale, Palette,
     gpui::{
         AnyWindowHandle, App, AppContext as _, Application, Bounds, Entity, KeyUpEvent, Keystroke,
-        Pixels, PlatformInput, Render, Size, Window, WindowBounds, WindowOptions, WindowingRequest,
+        MouseMoveEvent, Pixels, PlatformInput, Render, Size, Window, WindowBounds, WindowOptions,
+        WindowingRequest, point, px,
     },
 };
 
@@ -73,6 +74,16 @@ pub(super) fn open<V: Render + 'static>(
         .into();
     cx.update_window(handle, |_, window, cx| {
         assert_eq!(window.viewport_size(), viewport, "fixed snapshot viewport");
+        // GPUI seeds new windows with the system pointer, even when hidden.
+        // Start outside the viewport until the fixture supplies its own input.
+        window.dispatch_event(
+            PlatformInput::MouseMove(MouseMoveEvent {
+                position: point(px(-1.), px(-1.)),
+                pressed_button: None,
+                modifiers: Default::default(),
+            }),
+            cx,
+        );
         draw(window, cx);
     })
     .expect("lay out offscreen window");

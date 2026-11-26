@@ -138,6 +138,10 @@ fn assemble(inputs: &Inputs<'_>, workspace: &Path) -> io::Result<u64> {
             copy_executable(platform::input_file(&host, role)?, &binaries.join(role))?;
         }
         copy_executable(helper, &helpers.join("marsa-net-helper"))?;
+        copy_executable(
+            platform::input_file(&host, "marsa-docker")?,
+            &resources_dir.join("bin/docker"),
+        )?;
         stage.install(&resources_dir, inputs.guest_sha256)?;
         resources::install_workspace_assets(workspace, &resources_dir, licenses.as_deref())?;
 

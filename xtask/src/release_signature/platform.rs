@@ -26,6 +26,7 @@ const ROLES: &[&str] = &[
     "Contents/MacOS/marsa-mcp",
     "Contents/Helpers/marsa-net-helper",
     "Contents/Resources/bin/docker",
+    "Contents/Resources/bin/docker-upstream",
     "Contents/Resources/bin/docker-credential-osxkeychain",
     "Contents/Resources/bin/cli-plugins/docker-buildx",
     "Contents/Resources/bin/cli-plugins/docker-compose",

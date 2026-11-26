@@ -8,7 +8,6 @@ These need a decision from a person. Agents must not decide them.
 |---|---|---|---|
 | Q-03 | Is the name "Marsa" clear to use? Trademark search in the software class, domain, GitHub organisation, crates.io, Homebrew names | Check before any public release | M10 |
 | Q-04 | Who holds the Apple Developer Program account and the update signing key? | A project-owned account; the update key offline or hardware-backed | M10 |
-| Q-07 | Default for LAN exposure of published ports: loopback only (proposed) or Docker Desktop's behaviour? | Loopback only | M4 |
 | Q-09 | Business model and governance (contributions, CLA or DCO, security contact)? | DCO, a `SECURITY.md` contact | First public release |
 
 ## Resolved owner questions
@@ -17,6 +16,7 @@ These need a decision from a person. Agents must not decide them.
 |---|---|---|
 | Q-01 | MIT licence | [D-022](15-decisions.md#d-022-licence-marsa-under-mit) |
 | Q-06 | The project owner will review the Arabic desktop and glossary. The review remains part of M7-14. | [D-035](15-decisions.md#d-035-the-project-owner-reviews-arabic-terminology) |
+| Q-07 | Bind published ports to loopback by default. LAN access requires explicit opt-in. | [D-038](15-decisions.md#d-038-bind-published-ports-to-loopback-by-default) |
 | Q-08 | Offer the optional Docker socket link in Settings only. | [D-036](15-decisions.md#d-036-offer-the-optional-docker-socket-link-in-settings) |
 | Q-10 | Add opt-in crash reporting, off by default. | [D-037](15-decisions.md#d-037-offer-opt-in-crash-reporting) |
 
@@ -37,8 +37,6 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 
 | # | Unknown | Where | Resolved by |
 |---|---|---|---|
-| V-07 | NAT attachment requirements; user-space attachment class | [06](06-networking.md) | M4-08, M4-10 |
-| V-09 | libkrun: current release, API, kernel requirements (own kernel or libkrunfw) | [04](04-virtualization-macos.md) | M11-02 |
 | V-11 | State of GPUI accessibility on macOS | [08](08-gui.md) | M6-08 |
 
 ### Verified findings
@@ -50,6 +48,7 @@ Each is labelled **Verify** where it appears in the design docs. The owning task
 | V-04 | A 2.5 GiB balloon successfully inflated in the Linux guest after a 2 GiB workload on macOS 27.2.1. The VZ worker physical footprint did not fall over 25 seconds. Idle stop ended the worker and helper, leaving the idle daemon. | [M9-04 VZ measurements](spikes/M9-04-memory.md) |
 | V-05 | `fstrim` returned approximately 4 GiB of sparse RAW allocation to APFS in each VZ cache mode on macOS 27.2.1. M9-03 verifies the product cleanup path. | [Allocated byte measurements](spikes/M1-03-disk-reclaim.md#measured-allocated-bytes) |
 | V-06 | Scoped Compose Watch delivered native Linux notifications and Hugo LiveReload after regular and atomic Mac saves. Direct Apple virtiofs exposed updated contents without host-origin inotify. A container running as UID/GID 12345 created a host file owned by the Mac user. | [File sharing and hot reload](07-file-sharing-and-storage.md#correctness-requirements), [M4-19](plan/M4-docker-integration.md#m4-19-qualify-host-edits-in-a-container-development-server) |
+| V-07 | On macOS 27.2.1 the packaged daemon booted native NAT with the virtualization entitlement. The same daemon booted the user-space helper over a connected datagram socket through the file-handle attachment. Both carried real container traffic. | [Network modes](06-networking.md#network-modes), [packaged qualification](spikes/apple-silicon-reverification.md) |
 | V-09 | Libkrun 1.19.8 booted the stock Marsa kernel and image on macOS 27.2.1. Its documented virtiofs isolation is insufficient without a separate host boundary. | [M11-02](spikes/M11-02-libkrun.md) |
 | V-10 | GPUI Component 0.10.0 uses rust-i18n 4.2.4 and exposes runtime locale selection. Its upstream English catalog can coexist with Fluent. Marsa installs a namespaced Arabic component extension. The build checks keys and placeholders against English. | [Internationalisation](08-gui.md#internationalisation), [pinned component locale API](https://github.com/longbridge/gpui-kit/blob/f697c3133d55c64fa8a5b67926147fb3dadd276d/crates/component/src/lib.rs#L122-L160) |
 | V-12 | Docker CLI, Buildx, Dev Containers and current Testcontainers for Python support contexts. The verified Java, Node.js and Go Testcontainers discovery paths take an explicit Docker host. JetBrains supports a custom Unix endpoint. | [Client discovery](09-cli-and-docker-compat.md#client-discovery) |

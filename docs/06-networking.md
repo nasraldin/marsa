@@ -99,6 +99,14 @@ default. Confirm repeated failures before changing modes. Schedule a
 restart-required change around active workloads and avoid repeated switching
 on transient Wi-Fi, captive portals, or VPN handoffs.
 
+Guest protocol 1.3 permits a bounded registry check after Docker starts.
+A host path change or wake refreshes native DNS before comparing the guest
+and host. With automatic selection, a repeated native failure can trigger a
+fresh boot selection when the inventory confirms zero running containers,
+the Docker endpoint has no clients, and settings have no pending restart.
+A busy guest keeps its attachment and reports a pending restart. A changed
+settings revision or guest session invalidates the earlier observation.
+
 ### Apple silicon qualification
 
 On macOS 27.2.1, both Marsa and a stock Ubuntu VM experienced native NAT
@@ -168,7 +176,7 @@ sequenceDiagram
     A->>D: PortOpened(8080, tcp, bind 0.0.0.0)
     D->>D: Bind 127.0.0.1:8080 (or 0.0.0.0 if allowed by settings)
     B->>D: Connect to localhost:8080
-    D->>C: Forward to guest (direct TCP in nat mode, through the stack in userspace mode)
+    D->>C: Open a host-only vsock flow to the guest published port
     C-->>B: Response
     E->>A: Event: container stopped
     A->>D: PortClosed(8080, tcp)
@@ -179,10 +187,20 @@ Forwarder requirements:
 
 - TCP and UDP.
 - IPv4 and IPv6 loopback.
-- **Bind address policy (Proposed):** ports published on `0.0.0.0` are bound to `127.0.0.1` on the Mac by default, so containers are not exposed to the local network unless the user enables "allow LAN access". This is safer than Docker Desktop's default and must be stated clearly in the UI.
+- **Bind address policy (Decided).** By default, Marsa exposes published ports on the Mac through IPv4 and IPv6 loopback. The user must explicitly enable LAN access. [D-038](15-decisions.md#d-038-bind-published-ports-to-loopback-by-default)
 - When macOS denies a host bind, report its address and port. For a privileged host port, suggest a host port of 1024 or higher. For example, `-p 8080:80` keeps the container service on port 80.
 - Port conflicts produce a clear error naming the process that holds the port when it can be determined.
 - The forwarder is zero-copy where the platform allows and must not be the bottleneck in the network benchmark.
+
+The host opens each flow through the active VM’s vsock transport for either
+attachment. A guest address announcement cannot direct host connections to a
+third machine. The guest sends each flow to its own Docker-published port.
+This also works when guest NAT egress is unavailable. LAN opt-in applies to
+wildcard publications. Explicit localhost publications stay on localhost.
+An unsupported specific binding or an occupied port appears in
+`Network.ListForwardedPorts` with the affected address and port. Changing
+`network.allow_lan` reconciles existing publications and closes connections
+on a retired listener. [Relay protocol](../crates/marsa-proto/PROTOCOL.md#published-port-relay)
 
 ### macOS loopback port privilege
 
@@ -208,7 +226,7 @@ The forwarder handles the actual OS bind result for each address and transport.
 | `gateway.docker.internal` | The guest's default gateway | Compatibility |
 | `host.marsa.internal` | Same as `host.docker.internal` | Marsa's own name |
 
-The agent updates the guest hosts file and supplies Docker’s configured host gateway IPs. M4-08 applies the standard aliases to containers created through the Marsa Docker socket.
+On native NAT the guest agent reads the upstream default gateway, updates the guest hosts file and configures Docker’s host gateway. The guest DNS service answers all three aliases for containers on the default bridge and user-defined bridge networks. The service on the Mac must listen on an address reachable through the native attachment.
 
 ## DNS
 
@@ -216,14 +234,14 @@ The agent updates the guest hosts file and supplies Docker’s configured host g
 flowchart LR
     c["Container"] --> ed["Default bridge resolver or Docker embedded DNS"]
     ed --> gr["Guest resolver address"]
-    gr -->|native NAT, planned| hd["Host DNS via NAT gateway"]
+    gr -->|native NAT| hd["Guest dnsmasq with host DNS policy"]
     gr -->|userspace, via DHCP| ud["User-space DNS forwarder"]
     hd --> up["Upstream resolvers,<br/>including VPN split DNS"]
     ud --> up
 ```
 
 - In `userspace` mode, DHCP gives the guest a stable DNS gateway at `192.168.127.1`. The helper asks the macOS system resolver for each forwarded query. Changes to a scoped answer take effect without replacing the guest's DNS server address. Docker's default bridge uses the guest resolver address and custom networks forward external DNS through Docker's embedded resolver. [Apple DNS guidance](https://developer.apple.com/documentation/technotes/tn3151-choosing-the-right-networking-api#DNS) · [Docker DNS behavior](https://docs.docker.com/engine/network/#dns-services)
-- In native NAT mode, [M4-08](plan/M4-docker-integration.md#m4-08-nat-networking-dns-and-host-names) owns host resolver configuration at boot and on network changes. Test that VPN split DNS and Wi-Fi recovery work with existing containers.
+- On native NAT, PID 1 supervises the guest dnsmasq process. Docker keeps the same guest DNS address across host network changes. The daemon sends updated resolver and suffix settings through guest control. Guest firewall rules block DNS requests arriving on the upstream interface. [Native NAT qualification](plan/M4-docker-integration.md#m4-08-nat-networking-dns-and-host-names)
 
 ## Proxies and certificates
 
@@ -231,10 +249,47 @@ Corporate networks were identified in planning as a top reason Docker alternativ
 
 | Need | Design |
 |---|---|
-| HTTP and HTTPS proxy | The guest agent can configure dockerd before startup. M4-20 provisions the last approved credential-free manual proxy on the user-space attachment. M4-21 owns approval, restart and rollback for this policy. M4-15 extends the transaction to the full network policy. |
+| HTTP and HTTPS proxy | The guest agent can configure dockerd before startup. M4-20 provisions the last approved credential-free manual proxy on the user-space attachment. M4-21 owns approval, restart and rollback for this policy. The full network review includes the attachment mode, explicit DNS servers, registry mirrors, insecure registries and pending trust restart. The approved restart snapshots the last running configuration for rollback. Trust provisioning always reads current Keychain decisions, including revocations. |
 | Custom CA certificates | `marsad` exports the certificates the user trusts in the macOS keychain and the agent installs them into the guest trust store before dockerd starts |
 | Registry mirrors and insecure registries | Exposed in settings and written to the engine configuration |
 | Proxy for containers | Optional injection of proxy variables into containers, off by default |
+
+On macOS, Marsa reads explicit trust settings from the user and administrator
+domains. It imports public DER certificates for self-issued CAs with unrestricted
+`TrustRoot` settings and certificate-signing permission. A scoped rule, denial
+or `TrustAsRoot` entry in either domain excludes that certificate. Apple-managed
+roots stay in the host trust store. The guest appends eligible roots to its
+Alpine CA bundle before engine release and reconciles additions and removals
+every five seconds while connected. When Docker may still cache earlier roots,
+the settings API reports a pending restart. [Apple trust settings](https://developer.apple.com/documentation/security/sectrustsettingscopytrustsettings(_:_:_:))
+
+Set `network.registry_mirrors` to an ordered list of HTTP or HTTPS URLs.
+Set `network.insecure_registries` to the registry authorities or CIDRs for
+which the owner permits insecure transport. Both default to empty. A cold
+start passes these options to the upstream daemon on either attachment.
+Docker exposes the effective configuration in `docker info`.
+[Docker Engine 29.10.0 registry configuration](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/pkg/registry/config.go).
+
+By default, `network.proxy.follow_system` fills omitted HTTP and HTTPS endpoints
+from macOS when the owner previews proxy activation. Set it to `false` for an
+entirely manual policy, including explicitly disabling both proxies. The daemon
+reads the global and interface dictionaries from `scutil -d --proxy`.
+Docker can use a fixed proxy when each scope yields the same endpoints and
+bypass rules. A wildcard domain exception retains its subdomain-only meaning,
+and IPv4 network exceptions retain their prefix length. The preview reports
+unsupported PAC, WPAD, differing scopes and bypass patterns that Docker cannot
+represent. A discovered loopback proxy lives on the Mac and cannot be reused
+as a guest loopback destination. Credentials never enter the approved record.
+[Apple proxy selection and exception matching](https://github.com/apple-oss-distributions/CFNetwork/blob/main/Proxies/ProxySupport.c#L227-L432)
+· [Go HTTP proxy matching](https://go.dev/src/vendor/golang.org/x/net/http/httpproxy/proxy.go).
+
+The owner previews the effective proxy endpoints and bypass list before approving
+a restart. A changed system policy invalidates the preview. An ordinary cold boot
+uses the privately stored, previously approved endpoints. A host network change
+that produces a different policy marks the settings as pending until approval.
+The daemon also subscribes to configd network configuration notifications so a
+proxy edit can trigger this check while the default route stays up.
+[Apple configd proxy change notification](https://github.com/apple-oss-distributions/configd/blob/main/Plugins/IPMonitor/ip_plugin.c#L7692-L7725).
 
 Saving a manual proxy setting records a draft. Ordinary VM boots use the last approved
 proxy. While that proxy is active, a draft change to the attachment also remains pending.

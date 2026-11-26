@@ -8,6 +8,30 @@ message ConfigureNetwork {
   repeated string search_domains = 2;
   Proxy proxy = 3;
   repeated HostAlias host_aliases = 4;
+  // Present only for the native NAT attachment. Empty rules use the default servers.
+  NativeDns native_dns = 5;
+  // Absent during resolver-only refreshes. Present on cold boot with overrides.
+  RegistryConfig registries = 6;
+}
+
+// Docker daemon registry options from the owner configuration.
+message RegistryConfig {
+  repeated string mirrors = 1;
+  repeated string insecure = 2;
+}
+
+// Supplemental host resolver routes, independent of search suffix expansion.
+message NativeDns {
+  repeated DnsRoute routes = 1;
+  // An explicit override must be provisioned before starting Docker.
+  bool explicit_servers = 2;
+}
+
+// Queries below this suffix use only these servers. An empty set is local-only.
+message DnsRoute {
+  string domain = 1;
+  repeated string servers = 2;
+  uint32 port = 3; // Zero selects the standard DNS port.
 }
 
 // Proxy URLs for the engine. Treat them as sensitive and omit them from logs.

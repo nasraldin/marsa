@@ -368,6 +368,52 @@ async fn packaged_agent_handshake_read_only_root_and_full_console() {
     assert_eq!(Sha256::digest(fs::read(test_root).unwrap()), root_digest);
 }
 
+#[tokio::test]
+#[ignore = "requires virtualization entitlement and MARSA_VZ_GUEST_DIR on Apple silicon"]
+async fn guest_refuses_partition_table_and_last_sector_without_writing() {
+    use std::io::Write;
+    use std::os::unix::fs::FileExt;
+
+    let guest = env::var_os("MARSA_VZ_GUEST_DIR").expect("set MARSA_VZ_GUEST_DIR");
+    let guest = Path::new(&guest).canonicalize().unwrap();
+    for partitioned in [false, true] {
+        let scratch = tempfile::tempdir().unwrap();
+        let config = spec(&guest, scratch.path(), BOOT);
+        let path = config.data_disk.path.clone();
+        let console = config.console_log.clone();
+        let mut disk = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        // Include a partial final scan chunk and a complete final logical sector.
+        let length = 16 * 1024 * 1024 + 512;
+        disk.set_len(length).unwrap();
+        if partitioned {
+            let mut mbr = [0u8; 512];
+            mbr[450] = 0x83;
+            mbr[454..458].copy_from_slice(&2048u32.to_le_bytes());
+            mbr[458..462].copy_from_slice(&4096u32.to_le_bytes());
+            mbr[510..512].copy_from_slice(&[0x55, 0xaa]);
+            disk.write_all(&mbr).unwrap();
+        } else {
+            disk.write_all_at(b"X", length - 1).unwrap();
+        }
+        disk.sync_all().unwrap();
+        drop(disk);
+        let before = Sha256::digest(fs::read(&path).unwrap());
+        let mut vm = VzHypervisor.create(config).await.unwrap();
+        timeout(LIMIT, vm.start()).await.unwrap().unwrap();
+        let log = console_with(
+            &console,
+            "neither blank nor an unpartitioned ext4 filesystem",
+        )
+        .await;
+        assert!(!log.contains("data disk format started"));
+        if !partitioned {
+            assert!(log.contains("blank=false"), "{log}");
+        }
+        drop(vm);
+        assert_eq!(Sha256::digest(fs::read(path).unwrap()), before);
+    }
+}
+
 async fn console_with(console: &Path, marker: &str) -> String {
     timeout(LIMIT, async {
         loop {

@@ -13,7 +13,7 @@ use marsa_core::{
     guest_boot::PACKAGED_BOOT_ARGS,
     guest_manifest::GuestManifest,
     paths::MarsaPaths,
-    settings::{NetworkMode, ProxySettings, Settings, VmBackend},
+    settings::{NetworkMode, Settings, VmBackend},
 };
 use marsa_proto::host::v1::ComponentVersion;
 use marsa_share::SharePolicy;
@@ -165,18 +165,9 @@ impl Packaged {
             ));
         }
 
-        if !settings.network.dns.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                localized(
-                    "custom DNS settings require the guest network policy",
-                    "تتطلب إعدادات DNS المخصصة سياسة شبكة الضيف",
-                ),
-            ));
-        }
         let proxy = &settings.network.proxy;
         if proxy.inject_into_containers
-            || (*proxy != ProxySettings::default()
+            || ((proxy.http.is_some() || proxy.https.is_some())
                 && settings.network.mode != NetworkMode::Userspace)
         {
             return Err(io::Error::new(

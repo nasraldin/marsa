@@ -53,6 +53,7 @@ enum ResultType {
 }
 
 pub(super) struct Client {
+    pub(super) minor: u32,
     queue: mpsc::Sender<Request>,
     next_id: AtomicU64,
 }
@@ -89,7 +90,7 @@ impl Client {
             .map_err(|_| GuestControlError::Sequence("request IDs exhausted"))?;
         let result = match body {
             HostBody::Trim(_) => ResultType::Trim,
-            HostBody::ProbeEgress(_) => ResultType::Egress,
+            HostBody::ProbeEgress(_) | HostBody::ProbeLiveEgress(_) => ResultType::Egress,
             _ => ResultType::Command,
         };
         let frame = wire::encode(id, body)?;
@@ -120,12 +121,12 @@ async fn response_before(
 
 pub(super) struct Session {
     pub(super) client: Arc<Client>,
-    active: watch::Sender<Weak<Client>>,
     shutdown: Option<oneshot::Sender<Request>>,
     health: watch::Receiver<Option<EngineHealthState>>,
     failure: watch::Receiver<Option<Arc<GuestControlError>>>,
     worker: JoinHandle<()>,
     bind_worker: Option<JoinHandle<()>>,
+    trust_worker: Option<JoinHandle<()>>,
     events: SessionEvents,
     deferred: bool,
     clock: fn() -> SystemTime,
@@ -136,7 +137,7 @@ impl Session {
         stream: VsockStream,
         active: watch::Sender<Weak<Client>>,
         events: EventBus,
-        deferred: bool,
+        minor: u32,
         clock: fn() -> SystemTime,
     ) -> Self {
         let (queue, requests) = mpsc::channel(REQUEST_CAPACITY);
@@ -145,6 +146,7 @@ impl Session {
         let (publish_failure, failure) = watch::channel(None);
         let client = Arc::new(Client {
             queue,
+            minor,
             next_id: AtomicU64::new(1),
         });
         let events = events.session(active.clone(), Arc::downgrade(&client));
@@ -156,14 +158,14 @@ impl Session {
         });
         Self {
             client,
-            active,
             shutdown: Some(shutdown),
             health,
             failure,
             worker,
             bind_worker: None,
+            trust_worker: None,
             events,
-            deferred,
+            deferred: minor >= marsa_proto::guest::DEFER_ENGINE_START_MINOR,
             clock,
         }
     }
@@ -194,19 +196,20 @@ impl Session {
         }
     }
 
+    pub(super) async fn provision_trust(
+        &mut self,
+        trust: &super::trust::Trust,
+    ) -> Result<(), GuestControlError> {
+        self.trust_worker = Some(trust.provision(&self.client, self.events.clone()).await?);
+        Ok(())
+    }
+
     pub(super) fn retain_bind_worker(&mut self, worker: JoinHandle<()>) {
         self.bind_worker = Some(worker);
     }
 
     fn revoke(&self) {
-        let client = Arc::downgrade(&self.client);
-        self.active.send_if_modified(|active| {
-            if !active.ptr_eq(&client) {
-                return false;
-            }
-            *active = Weak::new();
-            true
-        });
+        self.events.revoke();
     }
 
     async fn verify_engine(
@@ -236,7 +239,30 @@ impl Session {
 }
 
 #[async_trait]
+impl crate::supervisor::LiveEgressProbe for Arc<Client> {
+    async fn probe(&mut self, target: Ipv4Addr) -> io::Result<EgressStage> {
+        let reply = self
+            .request(
+                HostBody::ProbeLiveEgress(ProbeEgress {
+                    address_v4: target.octets().to_vec(),
+                }),
+                Duration::from_secs(12),
+            )
+            .await?;
+        match reply {
+            GuestResponse::Egress(stage) => Ok(stage),
+            _ => Err(GuestControlError::Sequence("expected live egress result").into()),
+        }
+    }
+}
+
+#[async_trait]
 impl GuestSession for Session {
+    fn live_egress_probe(&self) -> Option<Box<dyn crate::supervisor::LiveEgressProbe>> {
+        (self.client.minor >= marsa_proto::guest::LIVE_EGRESS_MINOR)
+            .then(|| Box::new(self.client.clone()) as Box<dyn crate::supervisor::LiveEgressProbe>)
+    }
+
     fn can_probe_egress(&self) -> bool {
         self.deferred
     }
@@ -279,7 +305,7 @@ impl GuestSession for Session {
                 result.map_err(|_| GuestControlError::TimedOut("waiting for Docker readiness"))??;
             }
         }
-        self.active.send_replace(Arc::downgrade(&self.client));
+        self.events.activate();
         if let Some(state) = *self.health.borrow() {
             self.events
                 .publish_active(&GuestEvent::Health(EngineHealth {
@@ -327,6 +353,9 @@ impl Drop for Session {
     fn drop(&mut self) {
         self.revoke();
         self.worker.abort();
+        if let Some(worker) = &self.trust_worker {
+            worker.abort();
+        }
         if let Some(worker) = &self.bind_worker {
             worker.abort();
         }
@@ -449,7 +478,7 @@ fn accept(
         Some(GuestBody::Hello(_)) => return Err(GuestControlError::Sequence("unexpected Hello")),
         None => return Err(ProtocolError::InvalidField("body").into()),
     };
-    events.publish(event);
+    events.publish(event)?;
     Ok(())
 }
 
@@ -473,10 +502,49 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     #[test]
+    fn restores_only_current_bindings_and_revokes_on_disconnect() {
+        use marsa_proto::guest::v1::{PortAction, PortEvent, Transport};
+        let client = Arc::new(Client {
+            queue: mpsc::channel(1).0,
+            minor: 0,
+            next_id: AtomicU64::new(1),
+        });
+        let (active, _) = watch::channel(Weak::new());
+        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let output = received.clone();
+        let mut bus = EventBus::default();
+        bus.observer = Some(Arc::new(move |event| {
+            output.lock().unwrap().push(event.clone())
+        }));
+        let session = bus.session(active, Arc::downgrade(&client));
+        let port = |n, action| {
+            GuestEvent::Port(PortEvent {
+                published_port: n,
+                action: action as i32,
+                transport: Transport::Tcp.into(),
+                container_port: 80,
+                bind_address: "0.0.0.0".to_owned(),
+                container_id: "a".repeat(64),
+            })
+        };
+        session.publish(port(8080, PortAction::Opened)).unwrap();
+        session.publish(port(8081, PortAction::Opened)).unwrap();
+        session.publish(port(8080, PortAction::Closed)).unwrap();
+        assert!(received.lock().unwrap().is_empty());
+        session.activate();
+        session.revoke();
+        session.publish(port(8082, PortAction::Opened)).unwrap();
+        assert!(
+            matches!(&received.lock().unwrap()[..], [GuestEvent::PortsCleared, GuestEvent::Port(port), GuestEvent::PortsCleared] if port.published_port == 8081)
+        );
+    }
+
+    #[test]
     fn only_the_current_ready_session_can_publish_to_the_daemon() {
         let client = || {
             Arc::new(Client {
                 queue: mpsc::channel(1).0,
+                minor: 0,
                 next_id: AtomicU64::new(1),
             })
         };
@@ -493,15 +561,15 @@ mod tests {
         let new = bus.session(active.clone(), Arc::downgrade(&second));
         let sample = || GuestEvent::Stats(Default::default());
 
-        old.publish(sample());
+        old.publish(sample()).unwrap();
         assert_eq!(delivered.load(Ordering::Relaxed), 0);
         active.send_replace(Arc::downgrade(&first));
-        old.publish(sample());
-        new.publish(sample());
+        old.publish(sample()).unwrap();
+        new.publish(sample()).unwrap();
         assert_eq!(delivered.load(Ordering::Relaxed), 1);
         active.send_replace(Arc::downgrade(&second));
-        old.publish(sample());
-        new.publish(sample());
+        old.publish(sample()).unwrap();
+        new.publish(sample()).unwrap();
         assert_eq!(delivered.load(Ordering::Relaxed), 2);
     }
 }

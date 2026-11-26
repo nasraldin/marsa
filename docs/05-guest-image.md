@@ -81,7 +81,7 @@ Must include:
 | Filesystems | ext4, EROFS, tmpfs, FUSE, overlayfs |
 | Security | seccomp, AppArmor off or on by decision at implementation, user namespaces |
 | Memory | free page reporting and balloon support |
-| Misc | binfmt_misc (for optional later use), eBPF basics needed by the engine |
+| Misc | binfmt_misc (registers the VZ Intel Linux translator before Docker starts), eBPF basics needed by the engine |
 
 Must exclude: physical hardware drivers, sound, graphics, wireless, loadable modules where a built-in suffices.
 

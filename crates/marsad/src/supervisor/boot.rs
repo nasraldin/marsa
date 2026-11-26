@@ -26,6 +26,8 @@ pub(super) struct LiveGuest {
     pub events: VmEventStream,
     pub network: BootNetwork,
     pub configured_mode: Option<NetworkMode>,
+    pub pinned_check: Option<std::pin::Pin<Box<dyn Future<Output = NetworkResult> + Send>>>,
+    pub live_host: Option<Arc<dyn super::network::HostCheck>>,
     pub applied: Option<Applied>,
     network_lost: bool,
 }
@@ -101,6 +103,7 @@ pub(super) async fn run(
     };
     let console = launch.spec.console_log.clone();
     let configured_mode = launch.selection.configured_mode;
+    let live_host = launch.selection.host.clone();
     let console_position = platform::console_position(&console).await;
     let result = selection::select_and_start(
         launch.backend.as_ref(),
@@ -122,6 +125,7 @@ pub(super) async fn run(
                 Outcome::Ready(guest) | Outcome::Interrupted(guest) => {
                     guest.applied = launch.applied;
                     guest.configured_mode = configured_mode;
+                    guest.live_host = live_host;
                 }
                 Outcome::Failed { .. } => {}
             }
@@ -207,6 +211,8 @@ async fn attach(
             network_lost,
             applied: None,
             configured_mode: None,
+            live_host: None,
+            pinned_check: None,
             network: BootNetwork {
                 active,
                 result: NetworkResult::Unchecked,
@@ -384,29 +390,35 @@ async fn wait_for_power_off(vm: &dyn Vm, events: &mut VmEventStream) -> Result<(
     }
 }
 
-pub(super) async fn guest_exit(vm: &dyn Vm, events: &mut VmEventStream) -> String {
-    guest_exit_observing(vm, events, || {}).await
-}
-
 async fn guest_exit_observing(
     vm: &dyn Vm,
     events: &mut VmEventStream,
     mut transport_lost: impl FnMut(),
 ) -> String {
     loop {
+        match guest_event(vm, events).await {
+            Some(detail) => return detail,
+            None => transport_lost(),
+        }
+    }
+}
+
+/// Return the exit cause or None for a transport loss that leaves the VM running.
+pub(super) async fn guest_event(vm: &dyn Vm, events: &mut VmEventStream) -> Option<String> {
+    loop {
         match events.next().await {
-            Some(VmEvent::UnexpectedExit { detail, .. }) => return detail,
-            Some(VmEvent::NetworkUnavailable { .. }) => transport_lost(),
+            Some(VmEvent::UnexpectedExit { detail, .. }) => return Some(detail),
+            Some(VmEvent::NetworkUnavailable { .. }) => return None,
             Some(VmEvent::StateChanged {
                 current: VmState::Stopped,
                 ..
-            }) => return "guest stopped".into(),
+            }) => return Some("guest stopped".into()),
             Some(VmEvent::EventsDropped { .. })
                 if matches!(vm.state(), VmState::Failed | VmState::Stopped) =>
             {
-                return "guest stopped while events were unavailable".into();
+                return Some("guest stopped while events were unavailable".into());
             }
-            None => return "VM lifecycle event stream closed".into(),
+            None => return Some("VM lifecycle event stream closed".into()),
             _ => {}
         }
     }

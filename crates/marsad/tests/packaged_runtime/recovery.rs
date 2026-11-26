@@ -187,7 +187,7 @@ pub(super) async fn signal_running_daemon(process: &mut Daemon) {
     assert!(status.success(), "{status}");
 }
 
-fn assert_clean_filesystem(path: &Path) {
+pub(super) fn assert_clean_filesystem(path: &Path) {
     // Verify the primary ext4 superblock after the daemon has released the disk.
     // https://www.kernel.org/doc/html/v7.0/filesystems/ext4/super.html
     const EXT4_SUPERBLOCK: u64 = 1024;

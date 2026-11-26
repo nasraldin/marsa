@@ -10,6 +10,8 @@ mod egress;
 mod health;
 #[cfg(target_os = "linux")]
 mod metadata;
+#[cfg(any(target_os = "linux", test))]
+mod native_dns;
 #[cfg(target_os = "linux")]
 mod platform;
 

@@ -15,6 +15,36 @@ use marsa_core::guest_boot::Share;
 const UNPRIVILEGED: MsFlags = MsFlags::MS_NOSUID.union(MsFlags::MS_NODEV);
 const NOEXEC: MsFlags = UNPRIVILEGED.union(MsFlags::MS_NOEXEC);
 
+/// Pin the translator in binfmt_misc before Docker creates isolated mount namespaces.
+pub(super) fn enable_translation() -> io::Result<()> {
+    let directory = "/run/marsa-rosetta";
+    fs::create_dir(directory)?;
+    filesystem(
+        marsa_core::guest_boot::TRANSLATION_TAG,
+        directory,
+        "virtiofs",
+        UNPRIVILEGED | MsFlags::MS_RDONLY,
+        None,
+    )?;
+    filesystem(
+        "binfmt_misc",
+        "/proc/sys/fs/binfmt_misc",
+        "binfmt_misc",
+        NOEXEC,
+        None,
+    )?;
+    // Match x86-64 ELF executables and PIE. P preserves argv[0], F pins the
+    // interpreter for chroot and containers; O passes the opened executable.
+    fs::write(
+        "/proc/sys/fs/binfmt_misc/register",
+        concat!(
+            r":rosetta:M::\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00:",
+            r"\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:",
+            "/run/marsa-rosetta/rosetta:POF"
+        ),
+    )
+}
+
 #[derive(Default)]
 pub(super) struct Mounts {
     shares: Vec<PathBuf>,

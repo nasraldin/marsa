@@ -33,6 +33,9 @@ gpui-component = { version = "=0.10.0", default-features = false }
 gpui = { package = "gpui-pre", version = "=0.3.13", default-features = false }
 gpui-macos = { package = "gpui-pre-macos", version = "=0.3.13", default-features = false, features = ["font-kit", "runtime_shaders"] }
 
+[workspace.lints.cargo]
+default = { level = "deny", priority = -1 }
+
 [workspace.lints.rust]
 missing_docs = "deny"
 unsafe_code = "deny"

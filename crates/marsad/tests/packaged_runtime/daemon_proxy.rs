@@ -127,10 +127,8 @@ async fn approved_activation_carries_registry_and_buildkit_requests_through_gues
         network_client::NetworkClient,
     };
 
-    let Some(source) = env::var_os("MARSA_VZ_PROXY_FIXTURE_DIR") else {
-        eprintln!("M4-21 traffic fixture requires MARSA_VZ_PROXY_FIXTURE_DIR");
-        return;
-    };
+    let source = env::var_os("MARSA_VZ_PROXY_FIXTURE_DIR")
+        .expect("prepare the guest-local proxy fixture before running the traffic test");
     let scratch = tempfile::tempdir_in("/tmp").unwrap();
     let home = scratch.path().join("home");
     let paths = MarsaPaths::from_home(&home).unwrap();
@@ -179,6 +177,16 @@ async fn approved_activation_carries_registry_and_buildkit_requests_through_gues
         .into_inner();
     assert!(preview.interrupts_running_engine);
     assert_eq!(preview.potential_interruptions.len(), 4);
+    let preview = network
+        .prepare_network_activation(PrepareProxyActivationRequest {
+            expected_settings_revision: snapshot.revision,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .approval
+        .unwrap();
+    assert!(preview.interrupts_running_engine);
     let mut activation = ActivateProxyRequest {
         request_id: action(3).request_id,
         expected_settings_revision: snapshot.revision,
@@ -300,7 +308,7 @@ async fn approved_activation_carries_registry_and_buildkit_requests_through_gues
     );
 }
 
-async fn daemon_info(socket: &Path) -> serde_json::Value {
+pub(super) async fn daemon_info(socket: &Path) -> serde_json::Value {
     let output = tokio::process::Command::new("/usr/bin/curl")
         .args([
             "--silent",

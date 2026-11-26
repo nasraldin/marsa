@@ -1,6 +1,6 @@
 //! Qualify network fallback while the guest engine is still gated.
 
-use std::{sync::Arc, time::Duration};
+use std::{io, net::Ipv4Addr, sync::Arc, time::Duration};
 
 use marsa_core::settings::NetworkMode;
 use marsa_proto::guest::v1::EgressStage;
@@ -63,10 +63,16 @@ pub enum NetworkResult {
     Unavailable,
     /// Native NAT reached the verified IPv4 HTTPS destination.
     NativeHealthy,
+    /// A pinned attachment completed a live DNS, TCP, TLS and HTTP registry check.
+    PinnedHealthy,
     /// Native NAT failed at this stage and user-space egress was verified.
     Fallback(EgressStage),
     /// Native NAT reported this stage and no working alternate path was confirmed.
     NativeDegraded(EgressStage),
+    /// Repeated native failure confirmed on a running VM. Cold selection is pending.
+    RestartForUserspace(EgressStage),
+    /// The running user-space guest reported this failure without switching attachments.
+    UserspaceDegraded(EgressStage),
     /// The original native failure and the independent alternate-path failure.
     AlternateFailed {
         /// Stage reported by the native guest.
@@ -76,6 +82,13 @@ pub enum NetworkResult {
     },
     /// The configured attachment lost its transport during guest startup.
     TransportUnavailable,
+}
+
+impl NetworkResult {
+    pub(crate) fn restart_pending(self, desired: NetworkMode) -> bool {
+        self == Self::TransportUnavailable
+            || (desired == NetworkMode::Auto && matches!(self, Self::RestartForUserspace(_)))
+    }
 }
 
 /// Where the alternate attachment failed during automatic boot.
@@ -107,7 +120,7 @@ pub(super) async fn decide(
     if !session.can_probe_egress() {
         return Decision::Keep(NetworkResult::Unavailable);
     }
-    let Some((stage, retry)) = timeout_at(deadline, compare(host, session))
+    let Some((stage, retry)) = timeout_at(deadline, compare(host, Probe::Boot(session)))
         .await
         .ok()
         .flatten()
@@ -124,19 +137,33 @@ pub(super) async fn decide(
     }
 }
 
+enum Probe<'a> {
+    Boot(&'a mut dyn GuestSession),
+    Live(&'a mut dyn super::LiveEgressProbe),
+}
+
+impl Probe<'_> {
+    async fn run(&mut self, ip: Ipv4Addr) -> io::Result<EgressStage> {
+        match self {
+            Self::Boot(session) => session.probe_egress(ip).await,
+            Self::Live(session) => session.probe(ip).await,
+        }
+    }
+}
+
 async fn compare(
     host: &dyn HostCheck,
-    session: &mut dyn GuestSession,
+    mut probe: Probe<'_>,
 ) -> Option<(EgressStage, Option<Target>)> {
     let target = host.verified_target().await?;
-    let first = session
-        .probe_egress(target.ip)
+    let first = probe
+        .run(target.ip)
         .await
         .inspect_err(|error| {
-            tracing::debug!(kind = ?error.kind(), "automatic boot guest comparison unavailable");
+            tracing::debug!(kind = ?error.kind(), "registry egress comparison unavailable");
         })
         .ok()?;
-    tracing::debug!(stage = ?first, "automatic boot native egress check");
+    tracing::debug!(stage = ?first, "registry egress check");
     if !matches!(
         first,
         EgressStage::Dns | EgressStage::Route | EgressStage::Tcp
@@ -148,8 +175,60 @@ async fn compare(
     if host.verified_target().await.as_ref() != Some(&target) {
         return Some((first, None));
     }
-    let second = session.probe_egress(target.ip).await.ok()?;
+    let second = probe.run(target.ip).await.ok()?;
     Some((second, (first == second).then_some(target)))
+}
+
+pub(crate) struct LiveCheck {
+    pub(super) host: Arc<dyn HostCheck>,
+    pub(super) probe: Box<dyn super::LiveEgressProbe>,
+    pub(super) network: BootNetwork,
+    pub(super) automatic: bool,
+    pub(super) generation: u64,
+}
+
+impl LiveCheck {
+    pub(crate) fn observe_only(&mut self) {
+        self.automatic = false;
+    }
+
+    pub(crate) async fn run(&mut self) -> NetworkResult {
+        if !self.automatic {
+            let stage = tokio::time::timeout(Duration::from_secs(18), async {
+                let target = self.host.verified_target().await?;
+                self.probe.probe(target.ip).await.ok()
+            })
+            .await
+            .ok()
+            .flatten();
+            return match (self.network.active, stage) {
+                (_, None) => NetworkResult::Unavailable,
+                (_, Some(EgressStage::Healthy)) => NetworkResult::PinnedHealthy,
+                (NetworkSpec::Nat, Some(stage)) => NetworkResult::NativeDegraded(stage),
+                (NetworkSpec::Userspace, Some(stage)) => NetworkResult::UserspaceDegraded(stage),
+            };
+        }
+        let observed = tokio::time::timeout(
+            Duration::from_secs(28),
+            compare(self.host.as_ref(), Probe::Live(self.probe.as_mut())),
+        )
+        .await
+        .ok()
+        .flatten();
+        match (self.network.active, observed) {
+            (_, None) => NetworkResult::Unavailable,
+            (NetworkSpec::Nat, Some((EgressStage::Healthy, _))) => NetworkResult::NativeHealthy,
+            (NetworkSpec::Nat, Some((stage, Some(_)))) => NetworkResult::RestartForUserspace(stage),
+            (NetworkSpec::Nat, Some((stage, None))) => NetworkResult::NativeDegraded(stage),
+            (NetworkSpec::Userspace, Some((EgressStage::Healthy, _))) => {
+                match self.network.result {
+                    previous @ NetworkResult::Fallback(_) => previous,
+                    _ => NetworkResult::Unchecked,
+                }
+            }
+            (NetworkSpec::Userspace, Some((stage, _))) => NetworkResult::UserspaceDegraded(stage),
+        }
+    }
 }
 
 pub(super) async fn verify_alternate(

@@ -225,7 +225,7 @@ notifications when all windows are closed, as required by M7-12 and M7-13.
 
 ### M6-08 Keyboard and accessibility foundation
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M6-05
 - **Docs:** [08 Accessibility](../08-gui.md#accessibility), V-11
 - **Do:** Verify the state of GPUI's accessibility support on macOS (V-11). Implement focus management, visible focus, direction-aware arrow navigation, a central shortcut registry, and accessibility labels on every component as far as the framework supports. Honour reduce-motion.
@@ -236,6 +236,13 @@ notifications when all windows are closed, as required by M7-12 and M7-13.
   - Live IME candidate positioning, selection and commit work in the native editor.
   - VoiceOver can navigate to the editor from a GPUI control and speak its label, value and editing feedback.
   - The accessibility finding and any gaps are documented, with follow-up tasks created.
+
+The production desktop uses GPUI Kit inputs in the command palette and
+container screens. The AppKit editor and shared AppKit parent from M1-06
+still live in the spike. Integrate and verify focus handoff in the product
+window before asking the operator to check physical Arabic caret movement,
+the IME candidate panel, and spoken VoiceOver feedback. The product already
+applies the system Reduce Motion preference.
 
 ### M6-09 App shell
 

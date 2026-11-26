@@ -213,17 +213,27 @@ fn deferred_engine_extensions_validate_versions_shapes_and_correlation() {
     assert!(encode_host(&ack(PROTOCOL_VERSION, true)).is_ok());
 
     for address_v4 in [vec![], vec![1; 3], vec![1; 5], vec![1; 16]] {
-        let probe = HostEnvelope {
-            request_id: 1,
-            body: Some(host_envelope::Body::ProbeEgress(ProbeEgress { address_v4 })),
-        };
-        assert!(matches!(
-            encode_host(&probe),
-            Err(ProtocolError::InvalidField("address_v4"))
-        ));
+        for variant in [
+            host_envelope::Body::ProbeEgress,
+            host_envelope::Body::ProbeLiveEgress,
+        ] {
+            let probe = HostEnvelope {
+                request_id: 1,
+                body: Some(variant(ProbeEgress {
+                    address_v4: address_v4.clone(),
+                })),
+            };
+            assert!(matches!(
+                encode_host(&probe),
+                Err(ProtocolError::InvalidField("address_v4"))
+            ));
+        }
     }
     for body in [
         host_envelope::Body::StartEngine(StartEngine {}),
+        host_envelope::Body::ProbeLiveEgress(ProbeEgress {
+            address_v4: vec![1, 2, 3, 4],
+        }),
         host_envelope::Body::ProbeEgress(ProbeEgress {
             address_v4: vec![1, 2, 3, 4],
         }),
@@ -260,4 +270,49 @@ fn deferred_engine_extensions_validate_versions_shapes_and_correlation() {
             Err(ProtocolError::InvalidField("egress_stage"))
         ));
     }
+}
+
+#[test]
+fn validates_native_resolver_routes_before_dispatch() {
+    use marsa_proto::guest::v1::{ConfigureNetwork, DnsRoute, NativeDns};
+    let envelope = |route| HostEnvelope {
+        request_id: 1,
+        body: Some(host_envelope::Body::ConfigureNetwork(ConfigureNetwork {
+            native_dns: Some(NativeDns {
+                routes: vec![route],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })),
+    };
+    let mut route = DnsRoute {
+        domain: "private.test".into(),
+        servers: vec!["192.0.2.53".into()],
+        port: 5353,
+    };
+    assert!(encode_host(&envelope(route.clone())).is_ok());
+    route.port = 65536;
+    assert!(decode_host(&envelope(route.clone()).encode_to_vec()).is_err());
+    route.port = 0;
+    route.domain = "test/\nserver=other".into();
+    assert!(decode_host(&envelope(route).encode_to_vec()).is_err());
+}
+
+#[test]
+fn registry_policy_is_checked_on_receipt() {
+    use marsa_proto::guest::v1::{ConfigureNetwork, RegistryConfig};
+    let message = HostEnvelope {
+        request_id: 1,
+        body: Some(host_envelope::Body::ConfigureNetwork(ConfigureNetwork {
+            registries: Some(RegistryConfig {
+                mirrors: vec!["https://user:secret@mirror.invalid".into()],
+                insecure: vec![],
+            }),
+            ..Default::default()
+        })),
+    };
+    assert!(matches!(
+        decode_host(&message.encode_to_vec()),
+        Err(ProtocolError::InvalidField("registries"))
+    ));
 }

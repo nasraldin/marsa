@@ -284,7 +284,37 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 - **Accept when:**
   - Repeated fresh and interrupted-first-start boots of the default-capacity disk reach Ready within the daemon's documented startup budget and shut down cleanly.
   - Existing foreign and nonblank disks still fail closed without being formatted.
-  - The qualification documents the tested pinned guest and uses the same settings in the fresh and interrupted cases.
+  - The qualification documents the tested pinned guest and uses the same settings in the fresh and interrupted cases. Include the factory memory policy. Check the complete guest console across automatic retries for kernel faults.
+
+The pinned Linux 7.3.6 guest uses aligned direct I/O on the validated disk
+descriptor for the full blank scan. A buffered scan faulted in kernel
+readahead on the same kernel image. Three signed six-case runs with direct
+I/O passed on Mac15,11 with the factory memory policy. In the third run,
+all six reached Ready in 11.2–14.7 s with clean ext4 shutdown. The consoles
+showed one boot for fresh starts and two for intentional interruptions.
+The guest also refused a partitioned disk and a disk with data only in its
+final sector, preserving both images byte for byte. The underlying kernel
+defect remains unidentified.
+
+On November 26, five fresh profiles using factory settings on a Mac15,11
+(2 guest CPUs, 8 GiB guest RAM, 64 GiB sparse disk) each reached Docker
+Ready and stopped. One console recorded a Linux 7.3.5 kernel fault during
+disk preparation, followed by a second kernel boot before Ready. The other
+four consoles had no kernel fault. The earlier 1 GiB results below qualify
+that configuration. This observation prompted the factory-size qualification above. Automatic recovery can mask the
+first failed boot in the final CLI exit status.
+
+A separately built Linux 7.3.6 stable candidate, checked against the
+upstream SHA-256, also faulted and exceeded the 75 s startup budget. A
+Linux 6.18.65 long-term candidate using the same root filesystem and kernel
+configuration fragment passed all six factory-size cases on this Mac.
+Fresh, graceful cancellation and abrupt interruption reached Ready in
+9.68, 2.19 and 9.08 s respectively in user-space mode and 10.59, 2.49 and
+9.50 s in auto mode. Each abrupt interruption left an unallocated disk
+and its original inode survived recovery. The graceful cancellation can
+finish formatting before power-off, so the fixture exercises abrupt loss
+during the blank scan separately. The candidate also passed the local G4
+suite in 142 s. D-025 requires owner approval to adopt the long-term series.
 
 The M6-10 default-capacity fixture twice stopped after the guest's system
 mount, before formatting an entirely sparse 64 GiB new image. Prior

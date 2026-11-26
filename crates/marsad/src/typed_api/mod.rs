@@ -12,12 +12,14 @@ pub use docker_discovery::{ContextRemoval, ContextRemovalError, prepare_context_
 mod engine;
 mod events;
 mod factory_reset;
+mod forwarding;
 mod inventory_cache;
 mod inventory_events;
 /// Daemon state and actions exposed to its macOS menu bar item.
 #[cfg(target_os = "macos")]
 pub mod menu_bar;
 mod meta;
+mod native_dns;
 mod network;
 mod proxy_activation;
 mod proxy_policy;
@@ -27,6 +29,7 @@ mod settings;
 mod settings_feedback;
 mod shares;
 mod stats;
+mod system_proxy;
 mod volume_files;
 
 use std::{future::Future, io, sync::Arc, time::Duration};
@@ -79,6 +82,7 @@ pub struct TypedApi {
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
     verify_keychain: Option<docker_discovery::VerifyKeychain>,
     proxy: Option<Arc<proxy_policy::RuntimeProxy>>,
+    proxy_discovery: Arc<dyn system_proxy::Discovery>,
     guest_control: Option<Arc<GuestControl>>,
 }
 
@@ -86,6 +90,7 @@ struct Shared {
     paths: MarsaPaths,
     uid: u32,
     events: events::Bus,
+    ports: forwarding::Ports,
     agents: agents::State,
     engine_requests: requests::Cache<engine::Action, marsa_proto::host::v1::EngineStatus>,
     proxy_requests: requests::Cache<
@@ -134,6 +139,7 @@ impl TypedApi {
                 inventory,
                 paths,
                 uid,
+                ports: forwarding::Ports::new(settings.network.allow_lan),
                 events: events::Bus::new(settings)?,
                 engine_requests: requests::Cache::new(),
                 proxy_requests: requests::Cache::new(),
@@ -162,6 +168,7 @@ impl TypedApi {
             docker_contexts: None,
             verify_keychain: None,
             proxy: None,
+            proxy_discovery: Arc::new(system_proxy::Platform),
             guest_control: None,
         })
     }
@@ -180,7 +187,7 @@ impl TypedApi {
         let events = self.inner.events.clone();
         let capabilities = backend.capabilities();
         let (settings, _) = events.settings();
-        let automatic = select_network(&settings, &mut spec, capabilities);
+        let selection = select_network(&settings, &mut spec, capabilities);
         events.backend(capabilities.name);
         self.capabilities = Some(capabilities);
         let supervisor = Supervisor::spawn_observed(
@@ -189,7 +196,7 @@ impl TypedApi {
             spec,
             config,
             Arc::new(move |transition| events.engine(transition)),
-            Selection::new(automatic).with_configured_mode(settings.network.mode),
+            selection,
         );
         self.supervisor = Some(supervisor.clone());
         (self, supervisor)
@@ -200,21 +207,75 @@ impl TypedApi {
     /// The source closes when its watcher is dropped. Each sleep notification is
     /// acknowledged to the watcher once the supervisor finishes handling it.
     pub async fn watch_host_events(&self, mut source: mpsc::UnboundedReceiver<HostNotification>) {
-        while let Some(notification) = source.recv().await {
-            let event = notification.event;
-            self.inner.events.host(event.into());
-            if let Some(supervisor) = &self.supervisor {
-                let result = match event {
-                    HostEvent::WillSleep => supervisor.host_will_sleep().await,
-                    HostEvent::Woke => supervisor.host_woke().await,
-                    HostEvent::NetworkChanged => Ok(()),
+        let (refresh, mut pending) = watch::channel(());
+        let receive = async move {
+            while let Some(mut notification) = source.recv().await {
+                notification.begin();
+                let event = notification.event;
+                self.inner.events.host(event.into());
+                if let Some(supervisor) = &self.supervisor {
+                    let result = match event {
+                        HostEvent::WillSleep => supervisor.host_will_sleep().await,
+                        HostEvent::Woke => {
+                            let result = supervisor.host_woke().await;
+                            if result.is_ok() {
+                                refresh.send_replace(());
+                            }
+                            result
+                        }
+                        HostEvent::NetworkChanged => {
+                            refresh.send_replace(());
+                            Ok(())
+                        }
+                    };
+                    if let Err(error) = result {
+                        tracing::warn!(?event, %error, "host power change failed");
+                    }
+                }
+                notification.finish();
+            }
+        };
+        // Resolver snapshots and guest replies can outlast an IOKit sleep
+        // acknowledgement. Serialize DNS changes on their own coalescing queue.
+        let apply = async {
+            while pending.changed().await.is_ok() {
+                let Some(supervisor) = &self.supervisor else {
+                    continue;
                 };
-                if let Err(error) = result {
-                    tracing::warn!(?event, %error, "host power change failed");
+                self.observe_system_proxy().await;
+                if let Err(error) = self.refresh_native_dns(supervisor).await {
+                    tracing::warn!(%error, "native resolver refresh failed");
+                    continue;
+                }
+                let (desired, snapshot) = self.inner.events.settings();
+                if let Ok(Some(mut check)) = supervisor.live_network_check().await {
+                    if desired.network.mode != NetworkMode::Auto {
+                        check.observe_only();
+                    }
+                    let result = check.run().await;
+                    // A new path invalidates both observations. The next iteration
+                    // snapshots DNS and route policy again for that path.
+                    let _edit = self.inner.edit.lock().await;
+                    let (current, settings) = self.inner.events.settings();
+                    if pending.has_changed().unwrap_or(false)
+                        || settings.revision != snapshot.revision
+                    {
+                        continue;
+                    }
+                    if let Err(error) = supervisor
+                        .apply_network_check(
+                            check,
+                            result,
+                            current.network.mode == NetworkMode::Auto && !settings.restart_required,
+                        )
+                        .await
+                    {
+                        tracing::warn!(%error, "live network recovery could not complete");
+                    }
                 }
             }
-            notification.finish();
-        }
+        };
+        tokio::join!(receive, apply);
     }
 
     /// Install the runtime used by the bundled daemon.
@@ -232,12 +293,23 @@ impl TypedApi {
         + 'static,
     ) -> io::Result<Self> {
         let observations = self.inner.events.clone();
+        let owner = Arc::downgrade(&self.inner);
         let control = Arc::new(
             control
                 .observe_active(move |event| match event {
+                    GuestEvent::TrustRestartRequired => observations.trust_staged(),
                     GuestEvent::Health(health) => engine::publish_health(&observations, health),
                     GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
-                    GuestEvent::Port(_) => (),
+                    GuestEvent::Port(port) => {
+                        if let Some(owner) = owner.upgrade() {
+                            owner.ports.event(port);
+                        }
+                    }
+                    GuestEvent::PortsCleared => {
+                        if let Some(owner) = owner.upgrade() {
+                            owner.ports.clear();
+                        }
+                    }
                 })
                 .authorize_binds(bind_policy::Policy::new(
                     self.inner.events.clone(),
@@ -247,7 +319,18 @@ impl TypedApi {
         let mut api = self
             .with_packaged_probe(capabilities, control.clone(), config, prepare)
             .await?;
+        if let Some(supervisor) = api.supervisor.clone() {
+            let connect: marsa_net::Connector = Arc::new(move || {
+                let supervisor = supervisor.clone();
+                Box::pin(async move {
+                    let stream = supervisor.connect_running_published_port().await?;
+                    Ok(Box::new(stream) as Box<dyn marsa_net::RelayStream>)
+                })
+            });
+            api.inner.ports.serve(connect, api.inner.events.clone());
+        }
         api.guest_control = Some(control);
+        api.observe_system_proxy().await;
         Ok(api)
     }
 
@@ -278,7 +361,7 @@ impl TypedApi {
         let preparation = Arc::new(move || {
             let (desired, once) = settings.boot_configuration();
             let configured_mode = desired.network.mode;
-            let (effective, reserved) = proxy.launch_settings(desired)?;
+            let (effective, reserved, fixed_proxy) = proxy.launch_settings(desired)?;
             let mut startup = effective.clone();
             startup.shares.extend(once.iter().cloned());
             let (backend, mut spec) = prepare(&startup, &share_policy)?;
@@ -289,14 +372,27 @@ impl TypedApi {
                 )
                 .map_err(io::Error::other)?,
             );
-            let automatic = select_network(&effective, &mut spec, backend.capabilities());
-            let network_policy = proxy_policy::BootProxy::from_draft(&effective.network.proxy)?
-                .guest_configuration();
+            let selection = select_network(&effective, &mut spec, backend.capabilities());
+            let mut network_policy = native_dns::configuration(
+                &effective.network,
+                spec.network,
+                fixed_proxy.guest_configuration(),
+            )?;
+            if !effective.network.registry_mirrors.is_empty()
+                || !effective.network.insecure_registries.is_empty()
+            {
+                network_policy
+                    .get_or_insert_with(Default::default)
+                    .registries = Some(marsa_proto::guest::v1::RegistryConfig {
+                    mirrors: effective.network.registry_mirrors.clone(),
+                    insecure: effective.network.insecure_registries.clone(),
+                });
+            }
             let bus = settings.clone();
             Ok(Launch {
                 backend,
                 spec,
-                selection: Selection::new(automatic).with_configured_mode(configured_mode),
+                selection: selection.with_configured_mode(configured_mode),
                 network_policy,
                 applied: Some(Arc::new(move || {
                     if !reserved {
@@ -439,16 +535,18 @@ impl TypedApi {
     }
 }
 
-fn select_network(settings: &Settings, spec: &mut VmSpec, capabilities: Capabilities) -> bool {
+fn select_network(settings: &Settings, spec: &mut VmSpec, capabilities: Capabilities) -> Selection {
     spec.network = match settings.network.mode {
         NetworkMode::Auto | NetworkMode::Nat => NetworkSpec::Nat,
         NetworkMode::Userspace => NetworkSpec::Userspace,
     };
-    settings.network.mode == NetworkMode::Auto
-        && capabilities.userspace_network
-        && settings.network.dns.is_empty()
+    let direct = settings.network.dns.is_empty()
         && settings.network.proxy.http.is_none()
-        && settings.network.proxy.https.is_none()
+        && settings.network.proxy.https.is_none();
+    Selection::new(
+        direct && (settings.network.mode != NetworkMode::Auto || capabilities.userspace_network),
+    )
+    .with_configured_mode(settings.network.mode)
 }
 
 #[cfg(test)]

@@ -39,7 +39,7 @@ with (
 
     for tool in (
         "sbin/ip", "sbin/mkfs.ext4", "sbin/e2fsck", "usr/sbin/resize2fs",
-        "sbin/fstrim", "usr/sbin/iptables", "usr/sbin/ip6tables",
+        "sbin/fstrim", "usr/sbin/dnsmasq", "usr/sbin/iptables", "usr/sbin/ip6tables",
     ):
         assert tool in entries, tool
 

@@ -15,7 +15,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-004 | GPUI for the GUI, gated by a right-to-left spike | Superseded by D-023 |
 | D-005 | Tauri 2 as the GUI fallback | Superseded by D-023 |
 | D-006 | macOS on Apple silicon first | Accepted |
-| D-007 | No Rosetta, no x86 images, no Intel Macs | Accepted |
+| D-007 | Original Apple silicon scope | Superseded for Linux workloads by D-039 |
 | D-008 | Virtualization.framework default; libkrun benchmarked | Accepted |
 | D-009 | One shared VM, not one VM per container | Accepted |
 | D-010 | Alpine-based minimal guest with read-only root | Accepted |
@@ -43,6 +43,9 @@ To add a record: copy the template at the bottom, take the next number, and link
 | D-035 | The project owner reviews Arabic terminology | Accepted |
 | D-036 | Offer the optional Docker socket link in Settings | Accepted |
 | D-037 | Offer opt-in crash reporting | Accepted |
+| D-038 | Bind published ports to loopback by default | Accepted |
+| D-039 | Automatically translate amd64 Linux workloads | Accepted |
+| D-040 | Ship build-time SSH and plan user-controlled runtime forwarding | Accepted |
 
 ---
 
@@ -86,6 +89,8 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** The full three-platform scope is years of work for a small team. Docker Desktop's pain is worst on the Mac. Comparable products shipped one platform first.
 
 ## D-007 No Rosetta, no x86 images, no Intel Macs
+
+D-039 supersedes the original Linux workload restriction below. The Apple silicon host requirement remains in force.
 
 - **Decision:** Only linux/arm64 images run. No Rosetta, no QEMU emulation, no Intel Mac support.
 - **Why:** Modern platforms only. Apple is phasing Rosetta out for Mac apps after macOS 27, and the future of Rosetta for Linux VMs was not clearly stated at planning time.
@@ -196,6 +201,7 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** The owner requires current stable dependencies. Kernel.org identified 7.3.5 as its latest stable release on 2026-11-21. The build uses kernel.org’s published SHA-256, and M2-02 validates the minimal configuration and boots the result. [Upstream releases](https://www.kernel.org/releases.json).
 - **Consequence:** Update the exact release and checksum together. Verify the Docker configuration requirements and boot the pinned kernel before shipping an update.
 - **Date and task:** 2026-11-21, M2-01.
+- **2026-11-26 update (M3-19):** Advance the pin to Linux 7.3.6 with the upstream source checksum and direct I/O during blank-disk verification. [Boot qualification](plan/M3-vm-and-daemon.md#m3-19-qualify-default-capacity-cold-boot)
 
 ## D-026 Use EROFS for the guest root filesystem
 
@@ -301,3 +307,19 @@ To add a record: copy the template at the bottom, take the next number, and link
 - **Why:** The owner chose opt-in crash reporting for Q-10.
 - **Consequence:** The implementation documents report fields, the destination and retention before consent. Reports follow the [privacy rules](11-security.md#privacy) and the outbound-connection test covers the reporting path.
 - **Date and task:** 2026-11-25, M0-10.
+
+## D-038 Bind published ports to loopback by default
+
+On 2026-11-26 the owner resolved Q-07. Marsa binds published ports on macOS to IPv4 and IPv6 loopback by default. LAN access requires explicit opt-in. This keeps development services private when the Mac changes networks. M4-09 implements and qualifies the host listeners.
+
+## D-039 Automatically translate amd64 Linux workloads
+
+On 2026-11-26 the owner approved local amd64 builds and container execution on Apple silicon, superseding the Linux workload restriction in D-007. The host and guest kernel remain arm64. Multi-platform images prefer native arm64. Marsa configures macOS 27’s included Intel Linux translator at guest boot so amd64 programs can execute during Dockerfile builds and inside containers without host administrator access or separate installation. A replacement default backend must pass the same workload tests. [Apple’s Linux VM integration](https://developer.apple.com/documentation/virtualization/running-intel-binaries-in-linux-vms)
+
+The owner also approved automatic platform selection in Marsa’s bundled Docker command. Docker and Buildx resolve an OCI index before invoking the translator. When an index offers only linux/amd64, the Marsa command selects that platform for the local engine. Explicit platform choices take precedence. The bundled upstream Docker client remains independently usable.
+
+## D-040 Ship build-time SSH and plan user-controlled runtime forwarding
+
+On 2026-11-26 the owner selected build-time SSH on request for the current release. M4-13 qualifies this workflow for private build dependencies. Ordinary containers start without access to the Mac’s agent.
+
+The future compatibility target is an independent runtime option for trusted development containers. A user should be able to choose an agent, review who can use it, grant access for a session and revoke it. Docker Desktop’s explicit socket mount in Docker CLI and Compose is the compatibility target. Podman compatibility will be reported for the specific client, engine and platform tested. M4-27 owns the trust-model decision before implementation, M4-17 owns implementation and M4-28 owns release qualification. This decision authorizes planning the option. Accepting a shared-VM administrator as trusted requires a separate owner decision. [Security design](11-security.md#container-agent-grant-boundary)

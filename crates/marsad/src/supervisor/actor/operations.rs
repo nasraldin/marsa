@@ -58,6 +58,14 @@ impl Actor {
                 self.connect_service(port, reply).await;
                 return;
             }
+            Command::LiveCheck(reply) => {
+                let _ = reply.send(self.live_check());
+                return;
+            }
+            Command::LiveResult(generation, result, allow_restart, reply) => (
+                reply,
+                self.live_result(generation, result, allow_restart).await,
+            ),
             Command::Network(desired, reply) => {
                 let attachment = self
                     .guest
@@ -69,7 +77,12 @@ impl Actor {
                         .guest
                         .as_ref()
                         .and_then(|guest| guest.configured_mode)
-                        .map(|mode| mode != desired),
+                        .map(|mode| {
+                            mode != desired
+                                || self.guest.as_ref().is_some_and(|guest| {
+                                    guest.network.result.restart_pending(desired)
+                                })
+                        }),
                     _ => None,
                 };
                 let _ = reply.send(NetworkObservation {
@@ -313,6 +326,9 @@ impl Actor {
     }
 
     async fn pause_guest(&mut self) -> Result<(), SupervisorError> {
+        if let Some(guest) = &mut self.guest {
+            guest.pinned_check = None;
+        }
         let guest = self.guest.as_mut().ok_or(SupervisorError::Closed)?;
         guest.vm.pause().await.map_err(Arc::new)?;
         guest.session.take();

@@ -1,6 +1,12 @@
 name: Tier 2
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      check_keychain_trust:
+        description: Check trusted and revoked proxy certificates in the configured disposable account
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,7 +52,7 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: '27.0'
         run: |
           build_dir="$(mktemp -d "$PWD/target/marsa-bundle.XXXXXXXX")"
-          trap 'rm -rf -- "$build_dir"' EXIT
+          echo "MARSA_TEST_BUNDLE_DIR=$build_dir" >> "$GITHUB_ENV"
           mkdir "$build_dir/guest"
           for file in Image rootfs.img guest-manifest.json; do
             cp "target/guest/$file" "$build_dir/guest/$file"
@@ -61,12 +67,16 @@ jobs:
             --network-helper target/network-helper/marsa-net-helper \
             --resources-dir "$build_dir/staged" --guest-manifest-sha256 "$manifest_sha" \
             --output "$build_dir/Marsa.app" | tee "$BUNDLE_REPORT"
+          echo "MARSA_TEST_BUNDLED_DOCKER=$build_dir/Marsa.app/Contents/Resources/bin/docker" >> "$GITHUB_ENV"
       - name: Test the production VZ backend
         run: |
           export MARSA_VZ_NETWORK_HELPER="$PWD/target/network-helper/marsa-net-helper"
           bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest
           MARSA_ENTITLED_DAEMON_NETWORK=1 bash crates/marsa-vm-vz/tests/run-entitled.sh target/guest
       - name: Exercise the packaged daemon
+        env:
+          CHECK_KEYCHAIN_TRUST: ${{ inputs.check_keychain_trust }}
+          MARSA_TEST_DISPOSABLE_TRUST_USER: ${{ vars.MARSA_TEST_DISPOSABLE_TRUST_USER }}
         run: |
           bundle="$(cargo xtask fetch-upstream | sed -n 's/^Staged verified upstream binaries in //p')"
           test -n "$bundle"
@@ -74,6 +84,7 @@ jobs:
           test -x "$bundle/bin/cli-plugins/docker-buildx"
           test -x "$bundle/bin/cli-plugins/docker-compose"
           export PATH="$bundle/bin:$bundle/bin/cli-plugins:$PATH"
+          export MARSA_TEST_DOCKER="$bundle/bin/docker"
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked -p marsa-cli
           export MARSA_TEST_CLI="$PWD/target/debug/marsa"
           export MARSA_VZ_GUEST_DIR="$PWD/target/guest"
@@ -81,8 +92,50 @@ jobs:
           watch_hugo="$(python3 crates/marsad/tests/packaged_runtime/compose_watch.py fetch target/dev-fixtures)"
           test -r "$watch_hugo"
           export MARSA_VZ_WATCH_HUGO_ARCHIVE="$watch_hugo"
+          fixture="$(mktemp -d "$RUNNER_TEMP/marsa-proxy.XXXXXXXX")"
+          trap 'rm -rf -- "$fixture"' EXIT
+          alpine_archives=("$PWD"/target/guest/alpine-minirootfs-*-aarch64.tar.gz)
+          test "${#alpine_archives[@]}" -eq 1
+          sh crates/marsad/tests/packaged_runtime/proxy_fixture/prepare.sh \
+            "$PWD/target/guest" "${alpine_archives[0]}" "$fixture"
+          export MARSA_VZ_PROXY_FIXTURE_DIR="$fixture/guest-fixture"
+          sh crates/marsad/tests/packaged_runtime/fallback_fixture/prepare.sh \
+            "$MARSA_VZ_GUEST_DIR" "$fixture/formatter/initramfs.gz" "$fixture/fallback"
+          export MARSA_VZ_FALLBACK_FIXTURE_DIR="$fixture/fallback/guest-fixture"
+          export MARSA_TEST_X64_EXPORT="$PWD/target/conformance/native-x64"
+          mkdir -p target/conformance
+          set -o pipefail
+          MARSA_TEST_DOCKER_CLI="$MARSA_TEST_DOCKER" cargo test --locked -p marsad \
+            --test lifecycle pinned_cli_sees_the_context_and_retains_user_selection \
+            -- --ignored 2>&1 | tee target/conformance/keychain.log
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad \
-            --test packaged_runtime -- --ignored --nocapture --test-threads=1 --skip disk_schema::
+            --test packaged_runtime -- --ignored --test-threads=1 --skip disk_schema:: --skip forwarding::tart_peer --skip intercept_trust:: 2>&1 | tee target/conformance/packaged.log
+          if [[ "$CHECK_KEYCHAIN_TRUST" == true ]]; then
+            test "$(id -un)" = "$MARSA_TEST_DISPOSABLE_TRUST_USER"
+            sh crates/marsad/tests/packaged_runtime/proxy_fixture/prepare_intercept.sh \
+              "$MARSA_VZ_GUEST_DIR" "$fixture" "$fixture/intercept"
+            export MARSA_VZ_INTERCEPT_FIXTURE_DIR="$fixture/intercept/guest-fixture"
+            export MARSA_TEST_DISPOSABLE_TRUST_DRIVER="$PWD/crates/marsad/tests/packaged_runtime/proxy_fixture/disposable_trust.sh"
+            MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runtime \
+              intercept_trust:: -- --ignored --nocapture --test-threads=1
+          fi
+      - name: Upload the Marsa-built amd64 image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: marsa-built-amd64
+          path: target/conformance/native-x64/
+          if-no-files-found: error
+          retention-days: 1
+      - name: Collect Docker conformance outcomes
+        if: always()
+        run: python3 tests/conformance/results.py target/conformance
+      - name: Upload Docker conformance results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docker-conformance
+          path: target/conformance/results.json
+          if-no-files-found: warn
       - name: Build the entitled VZ test runner
         run: |
           MACOSX_DEPLOYMENT_TARGET=27.0 cargo build --locked \
@@ -108,3 +161,25 @@ jobs:
           name: app-bundle-size
           path: ${{ env.BUNDLE_REPORT }}
           if-no-files-found: warn
+      - name: Remove the disposable conformance bundle
+        if: always() && env.MARSA_TEST_BUNDLE_DIR != ''
+        run: rm -rf -- "$MARSA_TEST_BUNDLE_DIR"
+
+  native-x64:
+    name: Run the Marsa-built image on native x64
+    needs: system
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: marsa-built-amd64
+          path: image
+      - name: Execute the unchanged image on the native Linux engine
+        run: |
+          test "$(uname -m)" = x86_64
+          id=$(cat image/build-id)
+          [[ "$id" =~ ^marsa-arch-[0-9a-f]{12}$ ]]
+          docker load -i image/amd64.tar
+          actual=$(docker run --rm --pull=never "$id:multi")
+          expected=$(printf 'x86_64 %s\nx86_64' "$id")
+          test "$actual" = "$expected"

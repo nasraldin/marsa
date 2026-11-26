@@ -14,9 +14,9 @@ use marsa_core::settings::{NetworkMode, Settings, VmBackend};
 use marsa_proto::guest::v1::EgressStage;
 use marsa_proto::host::v1::{
     DaemonEvent, DaemonSnapshot, EngineHealthState, EngineStatus, HostEvent, HostEventKind,
-    ListPendingApprovalsResponse, NetworkMode as WireMode, NetworkStatus, PendingApproval,
-    SettingsChanged, SettingsSnapshot, SubscribeRequest, VmStatsSample, daemon_event::Body,
-    events_server::Events,
+    ListForwardedPortsResponse, ListPendingApprovalsResponse, NetworkMode as WireMode,
+    NetworkStatus, PendingApproval, SettingsChanged, SettingsSnapshot, SubscribeRequest,
+    VmStatsSample, daemon_event::Body, events_server::Events,
 };
 use marsa_vm::NetworkSpec;
 use tokio::{
@@ -44,7 +44,11 @@ struct StateAtCursor {
     sequence: u64,
     engine: EngineStatus,
     network: Option<NetworkStatus>,
+    ports: ListForwardedPortsResponse,
     startup: Settings,
+    trust_restart_pending: bool,
+    system_proxy_pending: bool,
+    idle_restart_pending: bool,
     bind_prompts: bind_prompts::Pending,
     once_staged: Vec<PathBuf>,
     once_active: Vec<PathBuf>,
@@ -90,7 +94,11 @@ impl Bus {
                 ..Default::default()
             },
             network: None,
+            ports: ListForwardedPortsResponse::default(),
             startup: settings.clone(),
+            trust_restart_pending: false,
+            system_proxy_pending: false,
+            idle_restart_pending: false,
             bind_prompts: bind_prompts::Pending::default(),
             once_staged: Vec::new(),
             once_active: Vec::new(),
@@ -127,29 +135,48 @@ impl Bus {
         self.lock().settings.network.mode
     }
 
+    pub(super) fn forwarded_ports(&self) -> ListForwardedPortsResponse {
+        self.lock().ports.clone()
+    }
+
+    pub(super) fn ports(&self, ports: ListForwardedPortsResponse) {
+        let mut state = self.lock();
+        if state.ports != ports {
+            state.ports = ports.clone();
+            state.publish(Body::ForwardedPorts(ports));
+        }
+    }
+
     pub(super) fn engine_status(&self) -> EngineStatus {
         self.lock().engine.clone()
     }
 
     pub(super) fn engine(&self, transition: &Transition) {
         let mut state = self.lock();
-        let health = match transition.current {
-            State::Stopped | State::Starting | State::Stopping | State::Failed => {
-                state.stats = None;
-                EngineHealthState::Unspecified.into()
+        if transition.previous != transition.current {
+            // A cold activation retires any engine that cached the previous roots.
+            // A CA change staged during this new boot must survive runtime_applied.
+            if transition.current == State::Starting {
+                state.trust_restart_pending = false;
             }
-            _ => state.engine.guest_health,
-        };
-        if matches!(
-            transition.current,
-            State::Stopped | State::Stopping | State::Failed
-        ) {
-            state.once_active.clear();
-            state.mounted_binds = None;
+            let health = match transition.current {
+                State::Stopped | State::Starting | State::Stopping | State::Failed => {
+                    state.stats = None;
+                    EngineHealthState::Unspecified.into()
+                }
+                _ => state.engine.guest_health,
+            };
+            if matches!(
+                transition.current,
+                State::Stopped | State::Stopping | State::Failed
+            ) {
+                state.once_active.clear();
+                state.mounted_binds = None;
+            }
+            state.engine = engine::from_transition(&state.engine.backend, transition, health);
+            let status = state.engine.clone();
+            state.publish(Body::Engine(status));
         }
-        state.engine = engine::from_transition(&state.engine.backend, transition, health);
-        let status = state.engine.clone();
-        state.publish(Body::Engine(status));
 
         let previous = state.network.take();
         let configured = state.startup.network.mode;
@@ -297,6 +324,10 @@ impl Bus {
         state.publish(Body::BindApprovals(remaining));
     }
 
+    pub(super) fn trust_restart_pending(&self) -> bool {
+        self.lock().trust_restart_pending
+    }
+
     pub(super) fn settings_snapshot(&self) -> SettingsSnapshot {
         self.lock().settings_snapshot.clone()
     }
@@ -309,7 +340,14 @@ impl Bus {
         idle_applied: bool,
     ) -> SettingsSnapshot {
         let mut state = self.lock();
-        let restart_required = !idle_applied || restart_changed(&state.startup, &settings);
+        state.idle_restart_pending = !idle_applied;
+        if settings.network.proxy != state.settings.network.proxy {
+            state.system_proxy_pending = false;
+        }
+        let restart_required = state.system_proxy_pending
+            || state.trust_restart_pending
+            || !idle_applied
+            || restart_changed(&state.startup, &settings);
         state.settings = settings;
         let snapshot = SettingsSnapshot {
             settings_toml: text,
@@ -326,10 +364,46 @@ impl Bus {
         self.lock().startup.clone()
     }
 
+    pub(super) fn system_proxy_pending(&self, pending: bool) {
+        let mut state = self.lock();
+        if state.system_proxy_pending == pending {
+            return;
+        }
+        state.system_proxy_pending = pending;
+        let required = pending
+            || state.trust_restart_pending
+            || state.idle_restart_pending
+            || restart_changed(&state.startup, &state.settings);
+        if required != state.settings_snapshot.restart_required {
+            state.settings_snapshot.restart_required = required;
+            let snapshot = state.settings_snapshot.clone();
+            state.publish(Body::Settings(SettingsChanged {
+                revision: snapshot.revision,
+            }));
+            let _ = state.settings_events.send(snapshot);
+        }
+    }
+
+    pub(super) fn trust_staged(&self) {
+        let mut state = self.lock();
+        state.trust_restart_pending = true;
+        if !state.settings_snapshot.restart_required {
+            state.settings_snapshot.restart_required = true;
+            let snapshot = state.settings_snapshot.clone();
+            state.publish(Body::Settings(SettingsChanged {
+                revision: snapshot.revision,
+            }));
+            let _ = state.settings_events.send(snapshot);
+        }
+    }
+
     pub(super) fn runtime_applied(&self, applied: &Settings) {
         let mut state = self.lock();
         state.startup = applied.clone();
-        let required = restart_changed(applied, &state.settings);
+        state.idle_restart_pending = false;
+        let required = state.system_proxy_pending
+            || state.trust_restart_pending
+            || restart_changed(applied, &state.settings);
         if state.settings_snapshot.restart_required != required {
             state.settings_snapshot.restart_required = required;
             let snapshot = state.settings_snapshot.clone();
@@ -413,6 +487,7 @@ impl Bus {
             approvals: Some(state.approvals.list(Instant::now())),
             bind_approvals: Some(state.bind_prompts.list(BindInstant::now())),
             network: state.network.clone(),
+            forwarded_ports: Some(state.ports.clone()),
             ..Default::default()
         }));
         stream_from(Some(first), state.events.subscribe(), stop)
@@ -549,7 +624,11 @@ fn restart_changed(applied: &Settings, desired: &Settings) -> bool {
         || applied.disk.data_size_limit != desired.disk.data_size_limit
         || applied.disk.exclude_from_backup != desired.disk.exclude_from_backup
         || applied.shares != desired.shares
-        || applied.network != desired.network
+        || applied.network.mode != desired.network.mode
+        || applied.network.registry_mirrors != desired.network.registry_mirrors
+        || applied.network.insecure_registries != desired.network.insecure_registries
+        || applied.network.dns != desired.network.dns
+        || applied.network.proxy != desired.network.proxy
 }
 
 pub(super) fn mode(value: NetworkMode) -> WireMode {
@@ -567,6 +646,10 @@ pub(super) fn network_status(configured: NetworkMode, network: BootNetwork) -> N
     };
     let reason = match network.result {
         NetworkResult::Unchecked | NetworkResult::NativeHealthy => None,
+        NetworkResult::PinnedHealthy => Some(match network.active {
+            NetworkSpec::Nat => "native_healthy".into(),
+            NetworkSpec::Userspace => "userspace_healthy".into(),
+        }),
         NetworkResult::Unavailable => Some("probe_unavailable".into()),
         NetworkResult::Fallback(stage) => {
             Some(format!("native_{}_userspace_verified", stage_name(stage)))
@@ -584,11 +667,17 @@ pub(super) fn network_status(configured: NetworkMode, network: BootNetwork) -> N
                 stage_name(native)
             ))
         }
+        NetworkResult::RestartForUserspace(stage) => Some(format!(
+            "native_{}_userspace_restart_pending",
+            stage_name(stage)
+        )),
+        NetworkResult::UserspaceDegraded(stage) => Some(format!("userspace_{}", stage_name(stage))),
         NetworkResult::TransportUnavailable => Some("transport_unavailable".into()),
     };
     NetworkStatus {
         configured_mode: mode(configured).into(),
         active_mode: active.into(),
+        restart_pending: network.result.restart_pending(configured).then_some(true),
         reason,
         ..Default::default()
     }
@@ -632,6 +721,25 @@ mod tests {
         let applied = bus.settings_snapshot();
         assert_eq!(applied.revision, revision);
         assert!(!applied.restart_required);
+    }
+
+    #[test]
+    fn trust_staged_during_a_new_activation_survives_settings_reconciliation() {
+        let settings = Settings::default();
+        let bus = Bus::new(settings.clone()).unwrap();
+        let start = Transition {
+            previous: State::Stopped,
+            current: State::Starting,
+            failure: None,
+            network: None,
+        };
+        bus.engine(&start);
+        bus.trust_staged();
+        bus.runtime_applied(&settings);
+        assert!(bus.settings_snapshot().restart_required);
+        bus.engine(&start);
+        bus.runtime_applied(&settings);
+        assert!(!bus.settings_snapshot().restart_required);
     }
 
     #[tokio::test]

@@ -41,7 +41,13 @@ pub(super) async fn select_and_start(
         progress,
     )
     .await?;
-    let Some(host) = selection.host.filter(|_| spec.network == NetworkSpec::Nat) else {
+    // A pinned mode reports its health after Docker is ready. Only automatic
+    // native selection may delay engine release or try an alternate attachment.
+    let automatic = selection.configured_mode == Some(marsa_core::settings::NetworkMode::Auto);
+    let Some(host) = selection
+        .host
+        .filter(|_| automatic && spec.network == NetworkSpec::Nat)
+    else {
         return start_engine(guest, deadline, cancel, progress).await;
     };
 
@@ -91,11 +97,20 @@ pub(super) async fn select_and_start(
     };
     let now = Instant::now();
     let candidate_deadline = now + deadline.saturating_duration_since(now) / 2;
+    // Resolver routes belong to the native interface. Registry preferences
+    // belong to the engine and must survive selection of the fallback interface.
+    let alternate_policy = network_policy
+        .as_ref()
+        .and_then(|policy| policy.registries.as_ref())
+        .map(|registries| marsa_proto::guest::v1::ConfigureNetwork {
+            registries: Some(registries.clone()),
+            ..Default::default()
+        });
     let alternate = match attach(
         backend,
         probe,
         candidate,
-        None,
+        alternate_policy.as_ref(),
         candidate_deadline,
         cancel,
         progress,
@@ -159,7 +174,16 @@ pub(super) async fn select_and_start(
 
     // No Docker workload was started on either attempt. Return to the native
     // attachment for local work and retain the original failure stage.
-    let mut guest = attach(backend, probe, spec, None, deadline, cancel, progress).await?;
+    let mut guest = attach(
+        backend,
+        probe,
+        spec,
+        network_policy.as_ref(),
+        deadline,
+        cancel,
+        progress,
+    )
+    .await?;
     guest.network.result = NetworkResult::AlternateFailed {
         native: failure,
         alternate,

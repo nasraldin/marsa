@@ -23,3 +23,6 @@ pub mod supervisor;
 #[cfg(unix)]
 /// Local gRPC services and native runtime composition.
 pub mod typed_api;
+
+#[cfg(target_os = "macos")]
+mod platform_command;

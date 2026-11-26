@@ -25,7 +25,54 @@ use tower::service_fn;
 
 use crate::{supervisor::SupervisorConfig, typed_api::TypedApi};
 
-use super::fixtures::{client, docker_ping, normal_session, spec};
+use super::fixtures::{client, command_result, docker_ping, expect, health, send, spec};
+use super::{GuestResponse, WAIT, boot_proxy_script};
+use marsa_proto::guest::{
+    CONTROL_PORT,
+    v1::{
+        CommandResult, CommandStatus, ConfigureNetwork, EngineHealthState, NativeDns, StartEngine,
+        Trim, TrimResult, guest_envelope::Body as GuestBody, host_envelope::Body as HostBody,
+    },
+};
+use marsa_vm::fake::{AgentStep, FakeScenario};
+
+fn backend(mode: ConfigMode) -> Arc<FakeHypervisor> {
+    let policy = ConfigureNetwork {
+        dns_servers: vec!["192.0.2.53".into()],
+        native_dns: (mode == ConfigMode::Nat).then(|| NativeDns {
+            explicit_servers: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut script = boot_proxy_script(
+        &policy,
+        GuestBody::CommandResult(CommandResult {
+            status: CommandStatus::Ok.into(),
+            ..Default::default()
+        }),
+    );
+    script.extend([
+        expect(3, HostBody::StartEngine(StartEngine {})),
+        command_result(3, CommandStatus::Ok),
+        send(0, health(EngineHealthState::Ready)),
+    ]);
+    if mode == ConfigMode::Nat {
+        script.extend([
+            expect(4, HostBody::ConfigureNetwork(policy)),
+            command_result(4, CommandStatus::Ok),
+            expect(5, HostBody::Trim(Trim {})),
+            send(5, GuestBody::TrimResult(TrimResult::default())),
+        ]);
+    }
+    script.push(AgentStep::Wait(WAIT));
+    Arc::new(FakeHypervisor::new(
+        FakeScenario::default()
+            .with_agent(CONTROL_PORT, script)
+            .with_agent(DOCKER_API_PORT, docker_ping(200))
+            .with_agent(BIND_AUTHORIZATION_PORT, vec![]),
+    ))
+}
 
 #[tokio::test]
 async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
@@ -36,17 +83,28 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
     let socket = paths.root().join("control.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let mut settings = Settings::default();
+    // Exercise network-mode changes independently of the runner’s system proxy.
+    settings.network.proxy.follow_system = false;
+    let proxy_record = paths
+        .state_dir()
+        .join(crate::factory::PROXY_POLICY_FILENAME);
+    fs::write(
+        &proxy_record,
+        serde_json::to_vec(&serde_json::json!({
+            "version": 2, "http": null, "https": null, "draft": settings.network.proxy
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::set_permissions(proxy_record, fs::Permissions::from_mode(0o600)).unwrap();
     settings.network.mode = ConfigMode::Nat;
-    let backend = Arc::new(FakeHypervisor::new(
-        normal_session()
-            .with_agent(DOCKER_API_PORT, docker_ping(200))
-            .with_agent(BIND_AUTHORIZATION_PORT, vec![]),
-    ));
+    settings.network.dns = vec!["192.0.2.53".parse().unwrap()];
+    let control = client();
     let api = TypedApi::new(paths, nix::unistd::geteuid().as_raw(), settings)
         .unwrap()
         .with_packaged_runtime(
-            backend.capabilities(),
-            client(),
+            backend(ConfigMode::Nat).capabilities(),
+            control.clone(),
             SupervisorConfig {
                 boot_timeout: Duration::from_secs(2),
                 stop_timeout: Duration::from_millis(100),
@@ -56,10 +114,11 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
                 initial_backoff: Duration::ZERO,
                 maximum_backoff: Duration::ZERO,
             },
-            move |_, _| Ok((backend.clone(), spec())),
+            move |settings, _| Ok((backend(settings.network.mode), spec())),
         )
         .await
         .unwrap();
+    let events_api = api.clone();
     let (shutdown, stop) = oneshot::channel();
     let server = tokio::spawn(async move {
         api.serve(listener, async {
@@ -82,6 +141,16 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
     };
     let ready = engine.start(action(1)).await.unwrap().into_inner();
     assert_eq!(ready.state(), EngineState::Ready);
+    let (events, receiver) = tokio::sync::mpsc::unbounded_channel();
+    events
+        .send(crate::host_events::HostEvent::NetworkChanged.into())
+        .unwrap();
+    drop(events);
+    events_api.watch_host_events(receiver).await;
+    assert!(matches!(
+        control.request(HostBody::Trim(Trim {})).await.unwrap(),
+        GuestResponse::Trim(_)
+    ));
     let mut net = NetworkClient::new(channel.clone());
     let changed = net
         .set_mode(SetNetworkModeRequest {
@@ -114,7 +183,7 @@ async fn packaged_restart_uses_the_new_pin_without_switching_the_running_vm() {
     assert_eq!(actual.configured_mode(), NetworkMode::Userspace);
     assert_eq!(actual.active_mode(), NetworkMode::Userspace);
     assert_eq!(actual.restart_pending, Some(false));
-    assert!(actual.reason.is_none());
+    assert_eq!(actual.reason.as_deref(), Some("probe_unavailable"));
     assert!(
         !settings
             .get(GetSettingsRequest {})

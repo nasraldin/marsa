@@ -345,6 +345,17 @@ impl SystemView {
                             .child(technical(address))
                     }),
             )
+            .child(
+                row(locale).child(
+                    Checkbox::new("allow-lan-published-ports")
+                        .label(message(locale, gui::GUI_DESKTOP_ALLOW_LAN_PUBLISHED_PORTS))
+                        .checked(settings.network.allow_lan)
+                        .disabled(self.busy())
+                        .on_click(cx.listener(|this, enabled: &bool, _, cx| {
+                            this.save_settings(|settings| settings.network.allow_lan = *enabled, cx)
+                        })),
+                ),
+            )
             .child(self.proxy_controls(screen, settings.network.proxy.inject_into_containers, cx))
             .children(self.resource_inputs.open.then(|| {
                 div()

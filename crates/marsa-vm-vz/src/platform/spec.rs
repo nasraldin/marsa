@@ -109,15 +109,27 @@ fn prepare_shares(spec: &mut VmSpec) -> Result<Settings, VmError> {
             "guest mounts are constructed from the VM shares",
         ));
     }
-    let mut arguments = String::new();
+    if spec
+        .cmdline
+        .split_ascii_whitespace()
+        .any(|arg| arg.starts_with("marsa_vz."))
+    {
+        return Err(invalid_spec(
+            "cmdline",
+            "VZ device arguments are supplied by the backend",
+        ));
+    }
+    let mut arguments = format!(" {}", marsa_core::guest_boot::TRANSLATION_ARG);
+    if spec.network == marsa_vm::NetworkSpec::Nat {
+        arguments.push(' ');
+        arguments.push_str(marsa_core::guest_boot::NATIVE_NAT_ARG);
+    }
     for share in &spec.shares {
         append_share_argument(&mut arguments, share)?;
     }
-    if !arguments.is_empty() {
-        let tail = spec.cmdline.split_once(" -- ").map(|(boot, _)| boot.len());
-        spec.cmdline
-            .insert_str(tail.unwrap_or(spec.cmdline.len()), &arguments);
-    }
+    let tail = spec.cmdline.split_once(" -- ").map(|(boot, _)| boot.len());
+    spec.cmdline
+        .insert_str(tail.unwrap_or(spec.cmdline.len()), &arguments);
     // The pinned arm64 kernel copies at most COMMAND_LINE_SIZE bytes, including NUL.
     if spec.cmdline.len() >= ARM64_CMDLINE_BYTES {
         return Err(invalid_spec(

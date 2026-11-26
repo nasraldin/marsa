@@ -22,9 +22,13 @@ If you have no Docker command on your PATH, use the bundled client.
 /Applications/Marsa.app/Contents/Resources/bin/docker --context marsa run --rm hello-world
 ```
 
+On a fresh Docker profile, the bundled command uses Marsa’s socket when the default Docker socket is absent. Run your usual `docker build` and `docker run` with this command. It prefers arm64 when available and selects amd64 for an amd64-only registry index. Automatic build selection examines local Dockerfiles. For a Dockerfile passed on standard input, an archive or a remote build context that needs amd64, use `docker build --platform linux/amd64`. A saved Docker context or an explicit host selects the engine you configured.
+
 The corresponding Marsa command is at `/Applications/Marsa.app/Contents/MacOS/marsa`. Run it as `marsa` in the examples below if you have already put it on your PATH. Run `marsa env` to see the shell export for Marsa’s private Docker socket. If your shell sets `DOCKER_CONTEXT`, it takes precedence over `DOCKER_HOST`.
 
 The desktop shows resources from Marsa, detected local providers, and configured Docker contexts. Use **Filter by context** to show one engine, or choose **All contexts** for a combined inventory. The source badge identifies each row’s engine. Click the context card in the sidebar to open **Settings → Docker** and scan or choose an engine.
+
+For a build that needs a private Git dependency, select your Mac’s SSH agent with `docker build --ssh default .` and request it in the relevant Dockerfile step with `RUN --mount=type=ssh,required=true`. The private key stays with the agent. Forwarding the agent into a running development container is planned as a separate opt-in feature.
 
 External connections support user-owned Unix sockets, SSH with a known host, and mutually authenticated TLS. Configure remote credentials and host trust using Docker and OpenSSH. Contexts using plain TCP or skipping certificate verification appear unavailable. Marsa does not change the Docker CLI’s active context.
 
@@ -35,6 +39,8 @@ Select an image for inspect, run, tag, push, export, or removal. Use **Pull imag
 Volumes and networks support creation and confirmed removal. A network can attach or detach a container identified by name or full ID on the same engine. **Stacks** deploys from a local Compose file you select and supports logs and lifecycle controls for deployed projects.
 
 The **Containers**, **Images**, **Volumes**, and **Networks** screens show resources from the connected engine. Docker Compose projects appear when Docker has containers with Compose labels. When the app asks you to choose a Compose file for an operation, select the file that belongs to the project. **Down** keeps named volumes by default. Removing the volumes requires typing the project name.
+
+After staging network settings, run `marsa network apply` to review the registry, DNS and proxy policy and whether a restart will interrupt workloads. Run `marsa network apply --yes` to approve the restart. If the candidate fails, Marsa reports the recovery outcome and keeps the desired settings for review.
 
 ## Sharing folders
 
@@ -60,10 +66,10 @@ Under **Disk & cleanup**, review categories and preview cleanup candidates. The 
 
 | What you may see | What to do |
 | --- | --- |
-| An image pull reports that it has no Linux ARM64 variant, or Docker reports `no matching manifest for linux/arm64`. | Select a tag that includes `linux/arm64`. Marsa runs ARM64 Linux workloads and does not emulate `linux/amd64`. |
+| An image pull reports that it has no Linux ARM64 variant, or Docker reports `no matching manifest for linux/arm64`. | Use Marsa’s bundled `docker` command for automatic selection of an amd64-only registry index on the Marsa engine. With a separate stock Docker CLI, select `--platform linux/amd64` for that index. |
 | A bind mount is refused because the host path is outside the shared folders. | Review the request under **Settings → Sharing**. Share only the required project folder. Protected paths stay excluded. |
 | A published port is reachable from the Mac but cannot be reached from another computer. | Check the forwarding and LAN options available in your release. Use `localhost` for local access. An unavailable LAN capability is not an engine error. |
-| A local multi-platform build rejects an unsupported target or produces only ARM64 output. | Build `linux/arm64` locally. To build a different architecture, select a remote builder that supports the target. |
+| A build needs images for both Apple silicon and Intel Linux hosts. | Run `docker buildx build --platform linux/arm64,linux/amd64 --load -t my-image .` with the Marsa engine. To run the Intel variant locally, use `docker run --rm --platform linux/amd64 my-image`. |
 
 Docker commands and Marsa’s CLI output remain in English even when the desktop is in Arabic. [Known and intended differences](../09-cli-and-docker-compat.md#known-and-intended-differences)
 

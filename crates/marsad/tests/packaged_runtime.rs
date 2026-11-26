@@ -37,18 +37,34 @@ use tower::service_fn;
 
 #[path = "packaged_runtime/bind_shares.rs"]
 mod bind_shares;
+#[path = "packaged_runtime/cold_boot.rs"]
+mod cold_boot;
 #[path = "packaged_runtime/compose_watch.rs"]
 mod compose_watch;
+#[path = "packaged_runtime/conformance.rs"]
+mod conformance;
 #[path = "packaged_runtime/disk_schema.rs"]
 mod disk_schema;
 #[path = "packaged_runtime/factory.rs"]
 mod factory;
+#[path = "packaged_runtime/fallback_firewall.rs"]
+mod fallback_firewall;
+#[path = "packaged_runtime/forwarding.rs"]
+mod forwarding;
+#[path = "packaged_runtime/image_pull.rs"]
+mod image_pull;
+#[path = "packaged_runtime/intercept_trust.rs"]
+mod intercept_trust;
 #[path = "packaged_runtime/memory_policy.rs"]
 mod memory_policy;
+#[path = "packaged_runtime/native_dns.rs"]
+mod native_dns;
 #[path = "packaged_runtime/network_mode.rs"]
 mod network_mode;
 #[path = "packaged_runtime/recovery.rs"]
 mod recovery;
+#[path = "packaged_runtime/registries.rs"]
+mod registries;
 #[path = "packaged_runtime/support.rs"]
 mod support;
 #[path = "packaged_runtime/volume_files.rs"]
@@ -517,3 +533,6 @@ mod daemon_proxy;
 mod fallback_dns;
 #[path = "packaged_runtime/ssh_build.rs"]
 mod ssh_build;
+
+#[path = "packaged_runtime/network_activation.rs"]
+mod network_activation;

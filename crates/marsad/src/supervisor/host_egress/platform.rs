@@ -4,11 +4,10 @@ use std::{
     env,
     ffi::OsStr,
     net::{Ipv4Addr, SocketAddr},
-    process::Stdio,
     time::Duration,
 };
 
-use tokio::{io::AsyncReadExt, net::lookup_host, process::Command, time::timeout};
+use tokio::{net::lookup_host, time::timeout};
 
 use super::{
     PolicySnapshot, Target,
@@ -155,26 +154,7 @@ async fn probe_registry(target: Ipv4Addr) -> Option<()> {
 }
 
 async fn command_output(path: &str, arguments: &[&str], limit: Duration) -> Option<Vec<u8>> {
-    timeout(limit, async {
-        let mut child = Command::new(path)
-            .args(arguments)
-            .env_clear()
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .stdout(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .ok()?;
-        let mut stdout = child.stdout.take()?.take(MAX_COMMAND_OUTPUT + 1);
-        let mut output = Vec::new();
-        stdout.read_to_end(&mut output).await.ok()?;
-        if output.len() as u64 > MAX_COMMAND_OUTPUT {
-            return None;
-        }
-        child.wait().await.ok()?.success().then_some(output)
-    })
-    .await
-    .ok()?
+    crate::platform_command::output(path, arguments, limit, MAX_COMMAND_OUTPUT).await
 }
 
 #[cfg(test)]

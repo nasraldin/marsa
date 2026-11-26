@@ -202,7 +202,7 @@ Port, health and stats messages are published to bounded subscribers. If a subsc
 | `AgentOps` | Engine operations performed on behalf of MCP clients. Every call names the client, passes through the policy engine and is written to the audit log. `marsad` executes the operation against dockerd itself; the MCP server never touches the Docker socket |
 | `Meta` | `Version`, `Capabilities` |
 
-`Network.Status` returns the current configured mode and, for an active guest, the actual attachment and any boot-time connectivity reason. Guest and gateway addresses come from the backend's latest observation. Callers can use `MarsaClient::network()` to query this status. The status call does not start the engine.
+`Network.Status` returns the current configured mode and, for an active guest, the actual attachment and the latest connectivity reason observed at boot or during a live check. Guest and gateway addresses come from the backend's latest observation. Callers can use `MarsaClient::network()` to query this status. The status call does not start the engine.
 
 `Network.SetMode` saves only the configured mode in the same transaction as
 other settings edits. It requires the socket owner and a request UUID. Its

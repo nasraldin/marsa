@@ -268,6 +268,73 @@
       }
     ]
   },
+  "dnsmasq": {
+    "notices": [
+      {
+        "file": "COPYING-v3",
+        "kind": "upstream-notice",
+        "member": "dnsmasq-2.92rel2/COPYING-v3",
+        "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+        "source": "https://www.thekelleys.org.uk/dnsmasq/dnsmasq-2.92rel2.tar.xz"
+      },
+      {
+        "file": "COPYING",
+        "kind": "upstream-notice",
+        "member": "dnsmasq-2.92rel2/COPYING",
+        "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+        "source": "https://www.thekelleys.org.uk/dnsmasq/dnsmasq-2.92rel2.tar.xz"
+      }
+    ],
+    "packages": [
+      {
+        "architecture": "aarch64",
+        "commit": "e07ee66304113d2d316dd9946b6e68d90a87b972",
+        "license": "GPL-2.0-or-later",
+        "name": "dnsmasq",
+        "version": "2.92_p2-r0"
+      },
+      {
+        "architecture": "noarch",
+        "commit": "e07ee66304113d2d316dd9946b6e68d90a87b972",
+        "license": "GPL-2.0-or-later",
+        "name": "dnsmasq-common",
+        "version": "2.92_p2-r0"
+      }
+    ],
+    "recipe_sha256": "52a55136087aea9b5c40fceb22c3e407a476a812a6729cc635f86dd0ac74ad8a",
+    "sources": [
+      {
+        "name": "dnsmasq-2.92rel2.tar.xz",
+        "sha512": "607abf33d6eac24eafdff9cd291d84b065354303d5e1d9514d79085b247fb3861ac57851ca1dfc4a5cddd314f8b970d17e93b987b1576e9f6ba1d6bffd42fff1",
+        "url": "https://www.thekelleys.org.uk/dnsmasq/dnsmasq-2.92rel2.tar.xz"
+      },
+      {
+        "name": "0000-underflow.patch",
+        "sha512": "3d2d7bc1199bc15348838ab86a842229c2ae70b46a05d907d0d64d893d5f8a2584e2ba4f80aeb24a7df5e0155bafaa1e99e144ae7965e2f1d5835b50d2e98140",
+        "url": "https://raw.githubusercontent.com/alpinelinux/aports/e07ee66304113d2d316dd9946b6e68d90a87b972/main/dnsmasq/0000-underflow.patch"
+      },
+      {
+        "name": "config.h.patch",
+        "sha512": "d0274417019af84911f3f4a850e785797bdc77732fd93504fe21db7317a874d2ab54bf7a211d000a751cdc43e225a30be4c1a315ab2383fc3fcc619e436aed97",
+        "url": "https://raw.githubusercontent.com/alpinelinux/aports/e07ee66304113d2d316dd9946b6e68d90a87b972/main/dnsmasq/config.h.patch"
+      },
+      {
+        "name": "dnsmasq.conf.patch",
+        "sha512": "41679e0e889607896dcf7fdeb179b9b7a79095c9f86aebda131ac09c12e3ef2a94cece0018ab33ea08d3e6f6bbae44379e9d6fb8987fae29e68ecad952ccdd45",
+        "url": "https://raw.githubusercontent.com/alpinelinux/aports/e07ee66304113d2d316dd9946b6e68d90a87b972/main/dnsmasq/dnsmasq.conf.patch"
+      },
+      {
+        "name": "dnsmasq.initd",
+        "sha512": "0c609a55ca0140d8f31f8f6eb4cb96eca7bc76385d48739998bea926b409f3d72cbfdffc30ad3f9e3a62db4ea3280f7fe6a60a12fc091164814a7cdf6a14b307",
+        "url": "https://raw.githubusercontent.com/alpinelinux/aports/e07ee66304113d2d316dd9946b6e68d90a87b972/main/dnsmasq/dnsmasq.initd"
+      },
+      {
+        "name": "dnsmasq.confd",
+        "sha512": "c6ecec498f07916cd3c5ff183ff2a2ec478cf95ee43c0082d164b548d72b13fc9ba7cfbca9fb50e919e146708b5ce7f3b3a6565b36223c4efe1481172214ad93",
+        "url": "https://raw.githubusercontent.com/alpinelinux/aports/e07ee66304113d2d316dd9946b6e68d90a87b972/main/dnsmasq/dnsmasq.confd"
+      }
+    ]
+  },
   "e2fsprogs": {
     "notices": [
       {
@@ -874,34 +941,39 @@
       {
         "file": "COPYING",
         "kind": "upstream-notice",
-        "member": "zstd-1.5.7/COPYING",
+        "member": "zstd-1.6.0/COPYING",
         "sha256": "f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505",
-        "source": "https://github.com/facebook/zstd/archive/v1.5.7.tar.gz"
+        "source": "https://github.com/facebook/zstd/archive/v1.6.0.tar.gz"
       },
       {
         "file": "LICENSE",
         "kind": "upstream-notice",
-        "member": "zstd-1.5.7/LICENSE",
+        "member": "zstd-1.6.0/LICENSE",
         "sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8",
-        "source": "https://github.com/facebook/zstd/archive/v1.5.7.tar.gz"
+        "source": "https://github.com/facebook/zstd/archive/v1.6.0.tar.gz"
       }
     ],
     "packages": [
       {
         "architecture": "aarch64",
-        "commit": "3c6e2ee2b16f403d53eab39c4426eb61f003c322",
+        "commit": "8875de0237da8c118a74218f07ab60adf722e419",
         "license": "BSD-3-Clause OR GPL-2.0-or-later",
         "name": "zstd-libs",
-        "version": "1.5.7-r2"
+        "version": "1.6.0-r1"
       }
     ],
-    "recipe_sha256": "635134417b866a71fc0684bfbc1f8b5ff660c3edcd68f1b0b1335f04963ef5c1",
+    "recipe_sha256": "418873670324cb2f912852991888a3b834d2cd3717050d9a861b1ce3ec9e28b4",
     "sources": [
       {
-        "mirror": "https://distfiles.alpinelinux.org/distfiles/v3.24/zstd-1.5.7.tar.gz",
-        "name": "zstd-1.5.7.tar.gz",
-        "sha512": "26e441267305f6e58080460f96ab98645219a90d290a533410b1b0b1d2f870721c95f8384e342ee647c5e968385a5b7e30c2d04340c37f59b3e6d86762c3260c",
-        "url": "https://github.com/facebook/zstd/archive/v1.5.7.tar.gz"
+        "mirror": "https://distfiles.alpinelinux.org/distfiles/v3.24/zstd-1.6.0.tar.gz",
+        "name": "zstd-1.6.0.tar.gz",
+        "sha512": "da2c039eae103c6c4d1be89601af5a097b46d1598d4b749fe10903b78c5eb797c820869eaa2ef4f4694e70d5f01a44621cd2a0a12050ef69b3e0e4b7e3fcc309",
+        "url": "https://github.com/facebook/zstd/archive/v1.6.0.tar.gz"
+      },
+      {
+        "name": "fix-32bit-multithread-tests_patch",
+        "sha512": "0dd23197fb6a4b4b64473e5a550e99dd4524117816cb084576c0e799d3dc947697e1966064c49c37e570c74b04691ac8c425610f087370ec0fca4db997dea97b",
+        "url": "https://gitlab.alpinelinux.org/alpine/aports/-/raw/8875de0237da8c118a74218f07ab60adf722e419/main/zstd/fix-32bit-multithread-tests_patch"
       }
     ]
   }

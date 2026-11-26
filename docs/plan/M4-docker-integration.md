@@ -131,7 +131,7 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 
 ### M4-08 NAT networking, DNS and host names
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M3-04, M2-07
 - **Docs:** [06 Network modes](../06-networking.md#network-modes), [06 DNS](../06-networking.md#dns), [06 Container to host](../06-networking.md#container-to-host), V-07
 - **Do:** Verify the NAT attachment requirements (V-07). Implement reading the host resolver configuration and pushing DNS to the guest at boot and on network change, and the `host.docker.internal`, `gateway.docker.internal` and `host.marsa.internal` names.
@@ -141,11 +141,13 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - A container reaches a service listening on the Mac through `host.docker.internal`.
   - Switching Wi-Fi networks restores resolution without a restart.
 
+On November 26, 2026, an explicitly selected native NAT VM pulled BusyBox 1.37.0. The running container resolved the public registry before and after the operator switched the Mac to a second Wi-Fi network. The host changed IPv4 subnets. The container kept its ID and start time and reported zero restarts. The default bridge container had no compatibility host entry, and its DNS gateway returned NXDOMAIN for `host.docker.internal`. An HTTP request to the alias failed at name resolution. An independent request to a temporary HTTP service bound to the Mac’s native NAT gateway address also timed out. A repeat with the system TCP listener served the expected HTTP body by gateway IP. The subsequent fix supplies the native gateway aliases to both Docker bridge resolvers. The signed packaged regression pulled the pinned BusyBox image, verified the alias A record over TCP, resolved the public registry and fetched an HTTP response through each alias from both bridge types. A running container retained its ID and resolved all three aliases and the registry after a physical Wi-Fi handoff. Its host HTTP request succeeded after the handoff.
+
 ### M4-09 Port forwarder
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-08, M2-08, M4-23
-- **Docs:** [06 Published ports](../06-networking.md#published-ports), Q-07
+- **Docs:** [06 Published ports](../06-networking.md#published-ports), [D-038](../15-decisions.md#d-038-bind-published-ports-to-loopback-by-default)
 - **Do:** Implement `marsa-net`'s forwarder for TCP and UDP driven by agent port events: bind on loopback by default (LAN exposure behind a setting), IPv4 and IPv6 loopback, conflict detection with a clear error, teardown on close. Report denied host binds with the affected address and port.
 - **Deliver:** `crates/marsa-net` forwarder, `Network.ListForwardedPorts`.
 - **Accept when:**
@@ -155,9 +157,21 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - With LAN exposure off, the port is not reachable from another machine.
   - Stopping the container closes the listener.
 
+On November 26, the signed packaged tests exercised IPv4 and IPv6 TCP and UDP
+on native NAT and the user-space attachment. A separate macOS Tart client was
+denied by default, received the workload response after LAN opt-in, and lost
+access when LAN was disabled on the same publications. Explicit localhost
+bindings stayed private throughout. The tests exercised concurrent datagram
+flows, conflicting listeners, container removal and engine shutdown.
+The authenticated port list returned the conflicting address, port and
+discoverable owner. Keyboard interaction saved the setting in all four
+[desktop variants](../screenshots/m4-09/). The separate peer run requires
+a reachable Tart client and the Mac’s two peer-facing addresses. See the
+[packaged test](../../crates/marsad/tests/packaged_runtime/forwarding.rs).
+
 ### M4-10 User-space network mode and automatic selection
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-09, M3-15, M4-25
 - **Docs:** [06 The user-space stack](../06-networking.md#the-user-space-stack), [06 Automatic mode selection](../06-networking.md#automatic-mode-selection), V-07
 - **Do:** Use the qualified transport from M3-14 and boot-time mode selection from M3-15. Implement `userspace` port forwarding and network-change recovery with events. Respect a pinned mode.
@@ -170,9 +184,23 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - The authenticated helper control path is private. Guest access to host loopback and metadata services follows explicit policy.
   - V-07 is resolved in the docs.
 
+On macOS 27.2.1, a disposable guest dropped outbound native TCP/443 after DHCP.
+Pinned NAT emitted `native_tcp` and kept Docker 29.10.0 available. Automatic
+selection emitted `native_tcp_userspace_verified` and pulled digest-pinned
+BusyBox over the verified alternate. Pinned userspace ran that image offline
+from the same data disk. The three boots took 42 seconds. The fixture gives
+the guest the Mac's current registry DNS answers to isolate the TCP fault.
+An unmodified guest failed the firewall assertion as expected.
+
+The supervisor tests cover stale observations, unknown inventory, active clients,
+busy workloads, invalid TLS, DNS policy, helper loss and pinned health recovery.
+The [helper checks](../../network-helper/README.md#build-and-check) exercise its
+private socketpair, lifetime and destination policy. M3-13 covers missing DHCP,
+M3-14 the VPN path, M4-08 the physical Wi-Fi handoff, and M4-09 the port matrix.
+
 ### M4-11 Proxy settings and CA certificate import
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M4-08, M4-21
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates)
 - **Do:** Read system proxy settings and manual overrides and use the approved activation from M4-21. Export the certificates the user trusts from the macOS keychain and push them before the engine starts and on change. Add settings for registry mirrors and insecure registries.
@@ -180,6 +208,19 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 - **Accept when:**
   - Behind a test proxy with TLS interception, `docker pull` succeeds after the proxy's CA is trusted in the keychain.
   - Changing the proxy setting applies without reinstalling.
+
+On Apple silicon, the packaged registry test checked both attachments and
+confirmed that clearing the settings removed the mirror and insecure endpoint
+from the running Docker daemon after restart. The intercepted pull test
+rejected the unknown CA, applied the approved proxy change on the same disk,
+pulled the OCI image and rejected a fresh image after revocation.
+
+The user approved and removed the test CA in a disposable macOS Tart guest.
+The production trust reader exported the matching public DER there and an
+empty result after removal. A signed daemon on the physical virtualization
+host consumed those snapshots. The final 64-second run replayed the trusted
+snapshot after the interactive removal timed out on the first run. The
+dedicated-account test exercises both parts on one Mac. [Reproduction](../../crates/marsad/tests/packaged_runtime/proxy_fixture/README.md).
 
 ### M4-12 Registry credentials
 
@@ -208,19 +249,22 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 
 ### M4-14 Conformance suite (gate G4)
 
-- **Status:** todo
+- **Status:** blocked (protected private Tier 2 runner has not been provisioned)
 - **Depends on:** M4-02, M4-06, M4-07, M4-09, M4-10, M4-11, M4-12, M4-13, M4-19
 - **Docs:** [09 Compatibility checklist](../09-cli-and-docker-compat.md#compatibility-checklist), [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
 - **Do:** Build the automated conformance suite covering every line of the compatibility checklist with the real `docker` CLI and Compose, at least one Testcontainers suite per listed language, and a Dev Containers open-and-build check. Assert the documented intended differences return their explicit errors.
 - **Deliver:** `tests/conformance/`, wired into Tier 2.
 - **Accept when:**
   - The suite passes on the virtualization runner.
-  - `--platform linux/amd64` fails with the documented message.
+  - An amd64 Dockerfile executes a build step and the resulting container runs on the packaged engine without manual translator setup. An amd64-only image runs by ordinary tag, multi-platform builds execute both variants, and arm64 remains the default for multi-platform images (D-039).
+  - The Marsa Docker command builds from and runs an amd64-only registry index without a platform flag. Qualify a multi-platform index, explicit overrides and upstream CLI passthrough.
   - Results are published as a CI artifact per run.
+
+The signed VZ guest on macOS 27.2.1 executed both platforms in local and remote BuildKit builds. The default builder produced an amd64 image from a single-manifest base and the resulting container ran without a platform flag. Fresh-profile tests of the bundled command covered an amd64-only registry index, arm64 preference, explicit overrides and a multi-stage build ending in scratch. Android Studio with the official JetBrains Docker plugin stopped the selected container through the Marsa socket and the observer verified its ID and exit. Private Tier 2 execution and the native x64 portability job are outstanding.
 
 ### M4-15 Apply staged Docker engine configuration
 
-- **Status:** todo
+- **Status:** done
 - **Depends on:** M2-07, M3-06, M4-08, M4-11, M4-21
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
 - **Do:** Extend controlled engine restart from M4-21 to the full proxy, trust and gateway policy, including M4-08 native networking and automatic Docker aliases. Validate the requested config, coordinate admission of new engine requests and preserve active workloads where Docker supports it. Require explicit user approval when the action can stop running workloads.
@@ -230,6 +274,8 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - The host keeps desired settings when an update requires a later guest boot.
   - Active workloads are preserved, or the action reports the impact and requires explicit approval before stopping them.
   - A failed engine restart reports the failure and restores the last working configuration.
+
+On macOS 27.2.1 the packaged VZ test staged a registry mirror and DNS change on native NAT with a running BusyBox workload. The old engine kept the workload running after a declined activation. An approved restart applied the mirror as verified with Docker Info. A signed fixture helper then exited during a requested switch to userspace. The daemon reported the failed start, restored the working native engine and mirror, and retained the candidate settings as pending. The guest-local proxy fixture also observed a real registry pull and a BuildKit request after full-policy approval. CLI preview and confirmed activation passed against the signed daemon. Trust is read from the current Keychain on recovery.
 
 ### M4-16 Docker context and endpoint discovery
 
@@ -246,9 +292,9 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 ### M4-17 Explicit SSH agent access for containers
 
 - **Status:** blocked (stock Docker and VZ do not provide host-verifiable container identity)
-- **Depends on:** M4-06, M4-13, M4-24
+- **Depends on:** M4-06, M4-13, M4-24, M4-27
 - **Docs:** [09 SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding), [11 SSH agent access](../11-security.md#ssh-agent-access)
-- **Do:** Design explicit authorization for a named container to mount an SSH agent socket at a documented guest path. Enforce the grant on the host, restrict the approved agent operations, authenticate the guest transport, and revoke access on container exit, VM stop or user request. Qualify the VSock transport needed by that design.
+- **Do:** Implement the owner-approved design for explicit authorization for a named container to mount an SSH agent socket at a documented guest path. Enforce the grant on the host, restrict the approved agent operations, authenticate the guest transport, and revoke access on container exit, VM stop or user request. Qualify the VSock transport needed by that design.
 - **Deliver:** Container-scoped SSH forwarding in the host daemon and guest agent, with a documented opt-in and revocation flow.
 - **Accept when:**
   - An authorized container can use an explicitly chosen host agent with a disposable test key.
@@ -368,3 +414,27 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - Background refresh runs only while the engine is ready or idle and stops with the daemon.
 
 - **Evidence:** Unit tests round-trip the cache file across reopen. The typed-api overview fixture fills the cache with a live read, stops the guest Docker script, and still returns the same JSON and timestamp with `prefer_cache`.
+
+
+### M4-27 Design the optional runtime SSH grant
+
+- **Status:** todo
+- **Depends on:** M4-13, M4-24
+- **Docs:** [D-040](../15-decisions.md#d-040-ship-build-time-ssh-and-plan-user-controlled-runtime-forwarding), [Container agent grant boundary](../11-security.md#container-agent-grant-boundary)
+- **Do:** Compare an explicit grant in a trusted shared Docker VM with a separately isolated workload. Specify agent selection, allowed operations, lifetime, revocation, and the CLI and GUI controls to review and withdraw a grant. Specify how Docker CLI and Compose requests for `/run/host-services/ssh-auth.sock` map to that grant. Describe which Podman workflows can use the same interface.
+- **Deliver:** A compatibility matrix, proposed user workflow and owner-reviewed decision record.
+- **Accept when:**
+  - The design states exactly what the user grants, which administrators must be trusted, what the host can verify, and what happens on container replacement or daemon restart.
+  - The owner approves the trust boundary and the matching M4-17 acceptance criteria before production implementation. The default for regular containers stays off.
+
+### M4-28 Qualify runtime SSH compatibility and revocation
+
+- **Status:** todo
+- **Depends on:** M4-17, M4-27
+- **Docs:** [SSH agent forwarding](../09-cli-and-docker-compat.md#ssh-agent-forwarding), [Container agent grant boundary](../11-security.md#container-agent-grant-boundary)
+- **Do:** Exercise the approved workflow on a packaged Mac with a disposable agent and a private test repository. Test build-only, runtime-only and neither permission. Qualify the Docker CLI and Compose mount syntax and record Podman client, engine, OS and results for each claimed workflow.
+- **Deliver:** Repeatable packaged conformance tests and English and Arabic instructions for granting, inspecting and revoking access.
+- **Accept when:**
+  - A clean installation exposes no runtime agent. A build grant ends with its session. A runtime grant lets the chosen development container authenticate without storing key material in the container or image.
+  - Revoking the grant closes existing connections. Container removal, replacement, VM stop and daemon restart leave new requests denied until reauthorized. Other workloads receive only the access permitted by the approved threat model.
+  - The release compatibility matrix links each supported workflow to a passing test and identifies provider limitations.

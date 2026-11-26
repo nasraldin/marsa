@@ -175,6 +175,7 @@ impl TypedApi {
         let Some((settings, text, idle_changed)) = updated else {
             return Ok((snapshot, result));
         };
+        self.inner.ports.policy(settings.network.allow_lan).await;
         let idle_applied = if idle_changed && let Some(supervisor) = &self.supervisor {
             supervisor
                 .set_idle_policy(

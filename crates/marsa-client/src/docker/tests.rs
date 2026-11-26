@@ -70,3 +70,53 @@ async fn docker_logs_preserve_source_and_trailing_fragments() {
     assert!(logs.next().await.unwrap().is_none());
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn pull_removal_resolves_the_registry_digest_to_the_local_image_id() {
+    let directory = tempfile::Builder::new()
+        .permissions(std::fs::Permissions::from_mode(0o700))
+        .tempdir_in("/tmp")
+        .unwrap();
+    let path = directory.path().join("docker.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let digest = format!("sha256:{ID}");
+    let local_id = format!("sha256:{}", "a".repeat(64));
+    let response = serde_json::json!({"Id": &local_id}).to_string();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            request.push(socket.read_u8().await.unwrap());
+        }
+        assert!(String::from_utf8(request).unwrap().starts_with(&format!(
+            "GET /v1.57/images/localhost%3A5000%2Fteam%2Fapp%40sha256%3A{ID}/json "
+        )));
+        socket
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{response}",
+                    response.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+    });
+    let client = DockerClient::at(path);
+    let image = super::ImageReference::parse("localhost:5000/team/app:latest").unwrap();
+    assert_eq!(
+        client
+            .pulled_image_id(&image, &digest)
+            .await
+            .unwrap()
+            .as_str(),
+        local_id
+    );
+    server.await.unwrap();
+    let pinned = super::ImageReference::parse(format!("app@{digest}")).unwrap();
+    assert!(matches!(
+        client.pulled_image_id(&pinned, &local_id).await,
+        Err(DockerError::ResourceIdentity)
+    ));
+}

@@ -1,0 +1,9 @@
+{
+  "name": "marsa-conformance",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@devcontainers/cli": "0.91.0",
+    "testcontainers": "12.2.2"
+  }
+}

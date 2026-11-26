@@ -48,6 +48,12 @@ impl From<HostEvent> for HostNotification {
 }
 
 impl HostNotification {
+    pub(crate) fn begin(&mut self) {
+        // Once dequeued, allow a subsequent path change to queue a fresh snapshot
+        // while this notification's guest update is in flight.
+        self._pending_path.take();
+    }
+
     pub(crate) fn finish(self) {
         if let Some(completed) = self.completed {
             let _ = completed.send(());

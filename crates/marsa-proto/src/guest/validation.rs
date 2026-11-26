@@ -53,7 +53,7 @@ pub(super) fn host(envelope: &HostEnvelope) -> Result<usize, ProtocolError> {
             MAX_FRAME_BYTES
         }
         Body::Trim(_) | Body::Shutdown(_) | Body::StartEngine(_) => 32,
-        Body::ProbeEgress(message) => {
+        Body::ProbeEgress(message) | Body::ProbeLiveEgress(message) => {
             check(message.address_v4.len() == 4, "address_v4")?;
             32
         }
@@ -156,6 +156,24 @@ fn network(message: &ConfigureNetwork) -> Result<(), ProtocolError> {
     check(message.search_domains.len() <= 16, "search_domains")?;
     for value in &message.search_domains {
         domain(value, "search_domain")?;
+    }
+    if let Some(registries) = &message.registries {
+        marsa_core::settings::NetworkSettings::validate_registries(
+            &registries.mirrors,
+            &registries.insecure,
+        )
+        .map_err(|_| ProtocolError::InvalidField("registries"))?;
+    }
+    if let Some(native) = &message.native_dns {
+        check(native.routes.len() <= 64, "dns_routes")?;
+        for route in &native.routes {
+            domain(&route.domain, "dns_route_domain")?;
+            check(route.servers.len() <= 16, "dns_route_servers")?;
+            check(route.port <= u32::from(u16::MAX), "dns_route_port")?;
+            for server in &route.servers {
+                ip_address(server, "dns_route_server")?;
+            }
+        }
     }
     check(message.host_aliases.len() <= 32, "host_aliases")?;
     for alias in &message.host_aliases {

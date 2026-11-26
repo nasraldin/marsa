@@ -9,5 +9,8 @@ license.workspace = true
 [dependencies]
 marsa-core = { path = "../marsa-core" }
 
+socket2 = "=0.6.5"
+tokio = { version = "=1.54.1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+
 [lints]
 workspace = true

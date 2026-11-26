@@ -66,6 +66,18 @@ pub(super) fn daemon_config(
     let current: Map<String, Value> = serde_json::from_slice(original)
         .map_err(|_| invalid("invalid guest Docker configuration"))?;
     let mut updated = current.clone();
+    if let Some(registries) = &request.registries {
+        for (key, values) in [
+            ("registry-mirrors", &registries.mirrors),
+            ("insecure-registries", &registries.insecure),
+        ] {
+            if values.is_empty() {
+                updated.remove(key);
+            } else {
+                updated.insert(key.into(), json!(values));
+            }
+        }
+    }
     if let Some(proxy) = request.proxy.as_ref().map(docker_proxy).transpose()?
         && !proxy.is_empty()
     {
@@ -85,7 +97,9 @@ pub(super) fn daemon_config(
         })
         .collect::<io::Result<BTreeSet<_>>>()?;
     if gateway.is_empty() {
-        updated.remove("host-gateway-ips");
+        if request.native_dns.is_none() {
+            updated.remove("host-gateway-ips");
+        }
     } else {
         let ipv4 = gateway.iter().filter(|address| address.is_ipv4()).count();
         let ipv6 = gateway.len() - ipv4;
@@ -158,6 +172,11 @@ mod tests {
     #[test]
     fn applies_aliases_and_keeps_security_options() {
         let request = ConfigureNetwork {
+            registries: Some(marsa_proto::guest::v1::RegistryConfig {
+                mirrors: vec!["https://mirror.test".into()],
+                insecure: vec!["registry.test:5000".into()],
+            }),
+            native_dns: None,
             dns_servers: vec!["1.1.1.1".into()],
             search_domains: vec!["corp.example".into()],
             host_aliases: vec![HostAlias {
@@ -184,6 +203,8 @@ mod tests {
         .unwrap();
         let daemon: Value = serde_json::from_slice(&daemon).unwrap();
         assert_eq!(daemon["live-restore"], false);
+        assert_eq!(daemon["registry-mirrors"], json!(["https://mirror.test"]));
+        assert_eq!(daemon["insecure-registries"], json!(["registry.test:5000"]));
         assert_eq!(daemon["seccomp-profile"], "builtin");
         assert_eq!(daemon["host-gateway-ips"], json!(["192.0.2.1"]));
         assert_eq!(daemon["proxies"]["http-proxy"], "http://proxy.example:3128");
