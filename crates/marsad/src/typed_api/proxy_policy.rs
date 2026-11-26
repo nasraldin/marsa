@@ -22,10 +22,27 @@ use nix::{
 use serde::{Deserialize, Serialize};
 
 use crate::factory::PROXY_POLICY_FILENAME as FILENAME;
-const MAX_BYTES: u64 = 4096;
+const MAX_BYTES: u64 = 24 * 1024;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub(super) struct BootProxy(ProxySettings);
+#[derive(Default, Clone, PartialEq, Eq)]
+pub(super) struct BootProxy {
+    draft: ProxySettings,
+    http: Option<String>,
+    https: Option<String>,
+    bypass: Vec<String>,
+}
+
+impl std::fmt::Debug for BootProxy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BootProxy")
+            .field("draft", &self.draft)
+            .field("has_http_endpoint", &self.http.is_some())
+            .field("has_https_endpoint", &self.https.is_some())
+            .field("bypass_entries", &self.bypass.len())
+            .finish()
+    }
+}
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -33,6 +50,10 @@ struct Record {
     version: u32,
     http: Option<String>,
     https: Option<String>,
+    #[serde(default)]
+    draft: Option<ProxySettings>,
+    #[serde(default)]
+    bypass: Vec<String>,
 }
 
 impl BootProxy {
@@ -50,26 +71,51 @@ impl BootProxy {
         }
         let record: Record =
             serde_json::from_slice(&bytes).map_err(|_| io::ErrorKind::InvalidData)?;
-        if record.version != 1 {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
-        Self::from_draft(&ProxySettings {
+        let endpoints = ProxySettings {
             http: record.http,
             https: record.https,
-            inject_into_containers: false,
-        })
+            ..Default::default()
+        };
+        let draft = match (record.version, record.draft) {
+            (1, None) if record.bypass.is_empty() => endpoints.clone(),
+            (2, Some(draft)) => draft,
+            _ => return Err(io::ErrorKind::InvalidData.into()),
+        };
+        Self::resolved(&draft, endpoints, record.bypass)
     }
 
-    pub(super) fn from_draft(proxy: &ProxySettings) -> io::Result<Self> {
-        if proxy.inject_into_containers {
+    pub(super) fn from_draft(draft: &ProxySettings) -> io::Result<Self> {
+        Self::resolved(draft, draft.clone(), Vec::new())
+    }
+
+    pub(super) fn resolved(
+        draft: &ProxySettings,
+        endpoints: ProxySettings,
+        bypass: Vec<String>,
+    ) -> io::Result<Self> {
+        if draft.inject_into_containers || endpoints.inject_into_containers {
             return Err(io::ErrorKind::Unsupported.into());
         }
-        let policy = Self(proxy.clone());
-        policy
-            .effective(Settings::default())
-            .validate()
-            .map_err(|_| io::ErrorKind::InvalidData)?;
-        Ok(policy)
+        for settings in [draft, &endpoints] {
+            let mut document = Settings::default();
+            document.network.proxy.clone_from(settings);
+            document
+                .validate()
+                .map_err(|_| io::ErrorKind::InvalidData)?;
+        }
+        if bypass.len() > 32
+            || bypass
+                .iter()
+                .any(|entry| !super::system_proxy::valid_bypass(entry))
+        {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        Ok(Self {
+            draft: draft.clone(),
+            http: endpoints.http,
+            https: endpoints.https,
+            bypass,
+        })
     }
 
     pub(super) fn stage(&self, paths: &MarsaPaths, uid: u32) -> io::Result<StagedProxy> {
@@ -85,9 +131,11 @@ impl BootProxy {
         serde_json::to_writer(
             &mut record,
             &Record {
-                version: 1,
-                http: self.0.http.clone(),
-                https: self.0.https.clone(),
+                version: 2,
+                http: self.http.clone(),
+                https: self.https.clone(),
+                draft: Some(self.draft.clone()),
+                bypass: self.bypass.clone(),
             },
         )
         .map_err(io::Error::other)?;
@@ -107,7 +155,7 @@ impl BootProxy {
             // A draft attachment change must not move or silently drop that proxy.
             desired.network.mode = NetworkMode::Userspace;
         }
-        desired.network.proxy.clone_from(&self.0);
+        desired.network.proxy.clone_from(&self.draft);
         desired
     }
 
@@ -119,16 +167,16 @@ impl BootProxy {
     pub(super) fn guest_configuration(&self) -> Option<ConfigureNetwork> {
         self.has_proxy().then(|| ConfigureNetwork {
             proxy: Some(Proxy {
-                http_url: self.0.http.clone(),
-                https_url: self.0.https.clone(),
-                no_proxy: Vec::new(),
+                http_url: self.http.clone(),
+                https_url: self.https.clone(),
+                no_proxy: self.bypass.clone(),
             }),
             ..Default::default()
         })
     }
 
     fn has_proxy(&self) -> bool {
-        self.0.http.is_some() || self.0.https.is_some()
+        self.http.is_some() || self.https.is_some()
     }
 }
 
@@ -201,7 +249,7 @@ pub(super) struct RuntimeProxy(Mutex<RuntimeState>);
 
 struct RuntimeState {
     approved: BootProxy,
-    candidate: Option<Settings>,
+    candidate: Option<(Settings, BootProxy)>,
 }
 
 impl RuntimeProxy {
@@ -224,10 +272,13 @@ impl RuntimeProxy {
         self.state().approved.has_proxy()
     }
 
-    pub(super) fn launch_settings(&self, desired: Settings) -> io::Result<(Settings, bool)> {
+    pub(super) fn launch_settings(
+        &self,
+        desired: Settings,
+    ) -> io::Result<(Settings, bool, BootProxy)> {
         let state = self.state();
         match &state.candidate {
-            Some(candidate) => Ok((candidate.clone(), true)),
+            Some((candidate, policy)) => Ok((candidate.clone(), true, policy.clone())),
             None if state.approved.has_proxy()
                 && desired.network.mode != NetworkMode::Userspace =>
             {
@@ -236,12 +287,20 @@ impl RuntimeProxy {
                     "approved proxy requires user-space networking",
                 ))
             }
-            None => Ok((state.approved.effective(desired), false)),
+            None => Ok((
+                state.approved.effective(desired),
+                false,
+                state.approved.clone(),
+            )),
         }
     }
 
-    pub(super) fn override_for_permit(&self, settings: Settings) -> LaunchOverride<'_> {
-        self.state().candidate = Some(settings);
+    pub(super) fn override_for_permit(
+        &self,
+        settings: Settings,
+        policy: BootProxy,
+    ) -> LaunchOverride<'_> {
+        self.state().candidate = Some((settings, policy));
         LaunchOverride(self)
     }
 

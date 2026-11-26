@@ -29,6 +29,7 @@ mod settings;
 mod settings_feedback;
 mod shares;
 mod stats;
+mod system_proxy;
 mod volume_files;
 
 use std::{future::Future, io, sync::Arc, time::Duration};
@@ -81,6 +82,7 @@ pub struct TypedApi {
     docker_contexts: Option<Arc<docker_discovery::Registration>>,
     verify_keychain: Option<docker_discovery::VerifyKeychain>,
     proxy: Option<Arc<proxy_policy::RuntimeProxy>>,
+    proxy_discovery: Arc<dyn system_proxy::Discovery>,
     guest_control: Option<Arc<GuestControl>>,
 }
 
@@ -166,6 +168,7 @@ impl TypedApi {
             docker_contexts: None,
             verify_keychain: None,
             proxy: None,
+            proxy_discovery: Arc::new(system_proxy::Platform),
             guest_control: None,
         })
     }
@@ -239,6 +242,7 @@ impl TypedApi {
                 let Some(supervisor) = &self.supervisor else {
                     continue;
                 };
+                self.observe_system_proxy().await;
                 if let Err(error) = self.refresh_native_dns(supervisor).await {
                     tracing::warn!(%error, "native resolver refresh failed");
                     continue;
@@ -293,6 +297,7 @@ impl TypedApi {
         let control = Arc::new(
             control
                 .observe_active(move |event| match event {
+                    GuestEvent::TrustRestartRequired => observations.trust_staged(),
                     GuestEvent::Health(health) => engine::publish_health(&observations, health),
                     GuestEvent::Stats(stats) => stats::publish(&observations, *stats),
                     GuestEvent::Port(port) => {
@@ -325,6 +330,7 @@ impl TypedApi {
             api.inner.ports.serve(connect, api.inner.events.clone());
         }
         api.guest_control = Some(control);
+        api.observe_system_proxy().await;
         Ok(api)
     }
 
@@ -355,7 +361,7 @@ impl TypedApi {
         let preparation = Arc::new(move || {
             let (desired, once) = settings.boot_configuration();
             let configured_mode = desired.network.mode;
-            let (effective, reserved) = proxy.launch_settings(desired)?;
+            let (effective, reserved, fixed_proxy) = proxy.launch_settings(desired)?;
             let mut startup = effective.clone();
             startup.shares.extend(once.iter().cloned());
             let (backend, mut spec) = prepare(&startup, &share_policy)?;
@@ -367,7 +373,11 @@ impl TypedApi {
                 .map_err(io::Error::other)?,
             );
             let selection = select_network(&effective, &mut spec, backend.capabilities());
-            let mut network_policy = native_dns::configuration(&effective.network, spec.network)?;
+            let mut network_policy = native_dns::configuration(
+                &effective.network,
+                spec.network,
+                fixed_proxy.guest_configuration(),
+            )?;
             if !effective.network.registry_mirrors.is_empty()
                 || !effective.network.insecure_registries.is_empty()
             {

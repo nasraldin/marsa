@@ -50,13 +50,14 @@ nix = { version = "=0.32.0", features = ["signal"] }
 tower = { version = "=0.5.3", features = ["util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+x509-cert = "=0.3.1"
 marsa-l10n = { path = "../marsa-l10n" }
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "block2", "objc2-core-foundation", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSEvent", "NSGraphicsContext", "NSImage", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSStatusBar", "NSStatusBarButton", "NSStatusItem", "NSUserInterfaceLayout", "NSView", "NSWindow", "NSWorkspace"] }
 block2 = "=0.6.2"
 dispatch2 = "=0.3.1"
 objc2 = "=0.6.5"
-objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "block2", "CFRunLoop", "CFString"] }
-objc2-security = { version = "=0.3.2", default-features = false, features = ["std", "AuthSession"] }
+objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "block2", "CFRunLoop", "CFString", "CFNumber", "CFDictionary", "CFArray", "CFData"] }
+objc2-security = { version = "=0.3.2", default-features = false, features = ["std", "AuthSession", "SecBase", "SecCertificate", "SecTrust", "SecTrustSettings"] }
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSEnumerator", "NSBundle", "NSError", "NSLocale", "NSString", "NSURL", "NSValue"] }
 objc2-service-management = { version = "=0.3.2", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService"] }
 

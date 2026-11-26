@@ -236,6 +236,7 @@ impl TypedApi {
                 return Err(recovery_required());
             }
         }
+        self.inner.events.system_proxy_pending(false);
         if let Some(proxy) = &self.proxy {
             proxy.replace_approved(super::proxy_policy::BootProxy::default());
         }

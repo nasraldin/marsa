@@ -126,6 +126,7 @@ pub(super) struct Session {
     failure: watch::Receiver<Option<Arc<GuestControlError>>>,
     worker: JoinHandle<()>,
     bind_worker: Option<JoinHandle<()>>,
+    trust_worker: Option<JoinHandle<()>>,
     events: SessionEvents,
     deferred: bool,
     clock: fn() -> SystemTime,
@@ -162,6 +163,7 @@ impl Session {
             failure,
             worker,
             bind_worker: None,
+            trust_worker: None,
             events,
             deferred: minor >= marsa_proto::guest::DEFER_ENGINE_START_MINOR,
             clock,
@@ -192,6 +194,14 @@ impl Session {
                 Err(GuestControlError::Sequence("expected clock setup result"))
             }
         }
+    }
+
+    pub(super) async fn provision_trust(
+        &mut self,
+        trust: &super::trust::Trust,
+    ) -> Result<(), GuestControlError> {
+        self.trust_worker = Some(trust.provision(&self.client, self.events.clone()).await?);
+        Ok(())
     }
 
     pub(super) fn retain_bind_worker(&mut self, worker: JoinHandle<()>) {
@@ -343,6 +353,9 @@ impl Drop for Session {
     fn drop(&mut self) {
         self.revoke();
         self.worker.abort();
+        if let Some(worker) = &self.trust_worker {
+            worker.abort();
+        }
         if let Some(worker) = &self.bind_worker {
             worker.abort();
         }

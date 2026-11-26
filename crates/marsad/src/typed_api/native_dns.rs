@@ -9,10 +9,9 @@ use marsa_vm::NetworkSpec;
 pub(super) fn configuration(
     network: &NetworkSettings,
     attachment: NetworkSpec,
+    proxy: Option<ConfigureNetwork>,
 ) -> io::Result<Option<ConfigureNetwork>> {
-    let mut policy = super::proxy_policy::BootProxy::from_draft(&network.proxy)?
-        .guest_configuration()
-        .unwrap_or_default();
+    let mut policy = proxy.unwrap_or_default();
     policy.dns_servers = network.dns.iter().map(ToString::to_string).collect();
     if attachment == NetworkSpec::Nat {
         policy.native_dns = Some(NativeDns {
@@ -69,7 +68,7 @@ impl super::TypedApi {
         }
         let network = self.inner.events.startup_settings().network;
         let Some(policy) =
-            tokio::task::spawn_blocking(move || configuration(&network, NetworkSpec::Nat))
+            tokio::task::spawn_blocking(move || configuration(&network, NetworkSpec::Nat, None))
                 .await??
         else {
             return Ok(());

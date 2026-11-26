@@ -167,6 +167,7 @@ unsafe extern "C" fn power_changed(
 struct NetworkWatcher {
     monitor: NonNull<c_void>,
     _queue: DispatchRetained<DispatchQueue>,
+    _configuration: ConfigurationNotifications,
 }
 
 impl NetworkWatcher {
@@ -174,13 +175,19 @@ impl NetworkWatcher {
         let queue = DispatchQueue::new("org.marsa.host-network", None);
         let initial_update = AtomicBool::new(true);
         let pending_path = Arc::new(Semaphore::new(1));
-        let handler = RcBlock::new(move |_: *mut c_void| {
-            if !initial_update.swap(false, Ordering::Relaxed)
-                && let Ok(pending) = pending_path.clone().try_acquire_owned()
-            {
+        let changed = move || {
+            if let Ok(pending) = pending_path.clone().try_acquire_owned() {
                 let mut notification = HostNotification::from(HostEvent::NetworkChanged);
                 notification._pending_path = Some(pending);
                 let _ = sender.send(notification);
+            }
+        };
+        // A proxy edit can change configd's effective policy while the default
+        // route stays up and NWPathMonitor has no new path to deliver.
+        let configuration = ConfigurationNotifications::new(&queue, changed.clone())?;
+        let handler = RcBlock::new(move |_: *mut c_void| {
+            if !initial_update.swap(false, Ordering::Relaxed) {
+                changed();
             }
         });
         // SAFETY: Create returns an owned monitor. The monitor copies the
@@ -196,6 +203,7 @@ impl NetworkWatcher {
         Ok(Self {
             monitor,
             _queue: queue,
+            _configuration: configuration,
         })
     }
 }
@@ -209,6 +217,51 @@ impl Drop for NetworkWatcher {
             nw_release(self.monitor.as_ptr());
         }
     }
+}
+
+struct ConfigurationNotifications(i32);
+
+impl ConfigurationNotifications {
+    fn new(queue: &DispatchQueue, changed: impl Fn() + Send + Sync + 'static) -> io::Result<Self> {
+        let handler = RcBlock::new(move |_: i32| changed());
+        let mut token = 0;
+        // SAFETY: notify.h retains the queue and copies the block through cancellation.
+        // The notification name is kNotifySCNetworkChange from notify_keys.h.
+        let status = unsafe {
+            notify_register_dispatch(
+                c"com.apple.system.config.network_change".as_ptr(),
+                &mut token,
+                queue,
+                RcBlock::as_ptr(&handler).cast(),
+            )
+        };
+        if status == 0 {
+            Ok(Self(token))
+        } else {
+            Err(io::Error::other(
+                "could not subscribe to macOS network configuration changes",
+            ))
+        }
+    }
+}
+
+impl Drop for ConfigurationNotifications {
+    fn drop(&mut self) {
+        // SAFETY: registration succeeded and this owner cancels the token once.
+        unsafe {
+            notify_cancel(self.0);
+        }
+    }
+}
+
+unsafe extern "C" {
+    fn notify_register_dispatch(
+        name: *const std::ffi::c_char,
+        token: *mut i32,
+        queue: *const DispatchQueue,
+        handler: *const c_void,
+    ) -> u32;
+    fn notify_cancel(token: i32) -> u32;
 }
 
 type PowerCallback = unsafe extern "C" fn(*mut c_void, u32, u32, *mut c_void);

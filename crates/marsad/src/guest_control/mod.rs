@@ -27,6 +27,10 @@ mod bind_authorization;
 pub(crate) mod docker_http;
 mod observations;
 mod session;
+mod trust;
+#[cfg(target_os = "macos")]
+pub use trust::MacKeychainTrust;
+pub use trust::TrustSource;
 mod wire;
 mod workloads;
 
@@ -49,6 +53,8 @@ pub enum GuestEvent {
     Port(PortEvent),
     /// The active guest no longer owns any host listeners.
     PortsCleared,
+    /// Guest trust changed while Docker was running and cached roots may require a restart.
+    TrustRestartRequired,
     /// The guest's Docker health changed.
     Health(EngineHealth),
     /// Periodic resource usage since the current guest boot.
@@ -130,6 +136,7 @@ pub struct GuestControl {
     clock: fn() -> SystemTime,
     agent_connect_timeout: Duration,
     bind_policy: Option<Arc<dyn BindPolicy>>,
+    trust: Option<trust::Trust>,
 }
 
 #[async_trait]
@@ -145,6 +152,7 @@ impl Default for GuestControl {
             clock: SystemTime::now,
             agent_connect_timeout: AGENT_CONNECT_TIMEOUT,
             bind_policy: None,
+            trust: None,
         }
     }
 }
@@ -188,6 +196,13 @@ impl TrimSession {
 }
 
 impl GuestControl {
+    /// Provision an authoritative host trust snapshot before engine release and
+    /// keep that guest session synchronized while it is connected.
+    pub fn with_trust_source(mut self, source: impl TrustSource + 'static) -> Self {
+        self.trust = Some(trust::Trust::new(source));
+        self
+    }
+
     pub(crate) fn authorize_binds(mut self, policy: impl BindPolicy + 'static) -> Self {
         self.bind_policy = Some(Arc::new(policy));
         self
@@ -281,13 +296,18 @@ impl GuestControl {
         )
         .await?;
 
-        let session = session::Session::start(
+        let mut session = session::Session::start(
             stream,
             self.active.clone(),
             self.events.clone(),
             version.minor,
             self.clock,
         );
+        // Minor 0 releases Docker at SetTime. Install trust first for every
+        // negotiated minor, including the first guest on an alternate attachment.
+        if let Some(trust) = &self.trust {
+            session.provision_trust(trust).await?;
+        }
         session.set_clock(HANDSHAKE_TIMEOUT).await?;
         if let Some(policy) = policy {
             let response = session

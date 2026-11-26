@@ -74,9 +74,11 @@ impl NetworkSettings {
 }
 
 /// Overrides for HTTP and HTTPS proxy discovery.
-#[derive(Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ProxySettings {
+    /// Fill omitted endpoints from representable macOS system proxy settings at approval.
+    pub follow_system: bool,
     /// HTTP traffic proxy URL. Omitting it follows the corresponding system setting.
     pub http: Option<String>,
     /// HTTPS traffic proxy URL. Omitting it follows the corresponding system setting.
@@ -85,10 +87,22 @@ pub struct ProxySettings {
     pub inject_into_containers: bool,
 }
 
+impl Default for ProxySettings {
+    fn default() -> Self {
+        Self {
+            follow_system: true,
+            http: None,
+            https: None,
+            inject_into_containers: false,
+        }
+    }
+}
+
 impl std::fmt::Debug for ProxySettings {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("ProxySettings")
+            .field("follow_system", &self.follow_system)
             .field("has_http_override", &self.http.is_some())
             .field("has_https_override", &self.https.is_some())
             .field("inject_into_containers", &self.inject_into_containers)
@@ -107,6 +121,9 @@ fn validate_proxy(field: &'static str, endpoint: Option<&str>) -> Result<(), Set
         )
     };
 
+    if endpoint.len() > 2048 {
+        return Err(invalid());
+    }
     let uri: Uri = endpoint.parse().map_err(|_| invalid())?;
     let authority = uri.authority().ok_or_else(invalid)?;
     let host = authority.host();

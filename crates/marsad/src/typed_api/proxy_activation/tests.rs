@@ -84,6 +84,8 @@ impl Fixture {
         }
         let mut initial = Settings::default();
         initial.network.mode = NetworkMode::Userspace;
+        // These tests cover explicit manual policies on a paused Tokio clock.
+        initial.network.proxy.follow_system = false;
         let api = TypedApi::new(paths.clone(), nix::unistd::geteuid().as_raw(), initial).unwrap();
         let backend = Arc::new(FakeHypervisor::new(Default::default()));
         let probe = Arc::new(Probe::default());
@@ -431,4 +433,129 @@ async fn a_proxy_candidate_applies_session_shares_only_after_commit() {
     assert_eq!(active.approved.as_slice(), std::slice::from_ref(&path));
     assert_eq!(active.allowlist.roots(), &[path]);
     drop(permit);
+}
+
+#[tokio::test(start_paused = true)]
+async fn system_policy_is_reviewed_rechecked_and_frozen_across_cold_boots() {
+    struct System(Mutex<&'static str>);
+    #[tonic::async_trait]
+    impl super::super::system_proxy::Discovery for System {
+        async fn discover(
+            &self,
+            draft: &marsa_core::settings::ProxySettings,
+        ) -> Result<BootProxy, Status> {
+            let host = *self.0.lock().unwrap();
+            let mut resolved = draft.clone();
+            resolved.https = Some(format!("http://{host}:8181"));
+            BootProxy::resolved(draft, resolved, Vec::new())
+                .map_err(|_| Status::internal("invalid fixture"))
+        }
+    }
+    let mut fixture = Fixture::new().await;
+    let system = Arc::new(System(Mutex::new("one.example")));
+    fixture.api.proxy_discovery = system.clone();
+    let (snapshot, ()) = fixture
+        .api
+        .edit_settings(None, |settings, _| {
+            settings.network.proxy.follow_system = true;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let rev = snapshot.revision;
+    fixture.api.observe_system_proxy().await;
+    assert!(
+        fixture
+            .api
+            .inner
+            .events
+            .settings_snapshot()
+            .restart_required
+    );
+    let preview = fixture.api.preview_proxy(rev).await.unwrap();
+    assert_eq!(
+        preview.https_proxy.as_deref(),
+        Some("http://one.example:8181")
+    );
+    let approve = |preview: ProxyActivationPreview| ActivateProxyRequest {
+        expected_settings_revision: rev,
+        approval_token: preview.approval_token,
+        approved: true,
+        ..Default::default()
+    };
+    *system.0.lock().unwrap() = "two.example";
+    assert_eq!(
+        fixture
+            .api
+            .apply_proxy(approve(preview))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::Aborted
+    );
+    assert!(fixture.probe.attempts.lock().unwrap().is_empty());
+    let preview = fixture.api.preview_proxy(rev).await.unwrap();
+    assert_eq!(
+        preview.https_proxy.as_deref(),
+        Some("http://two.example:8181")
+    );
+    assert_eq!(
+        fixture
+            .api
+            .apply_proxy(approve(preview))
+            .await
+            .unwrap()
+            .outcome(),
+        Outcome::Applied
+    );
+    assert!(
+        !fixture
+            .api
+            .inner
+            .events
+            .settings_snapshot()
+            .restart_required
+    );
+    *system.0.lock().unwrap() = "three.example";
+    fixture.api.observe_system_proxy().await;
+    assert!(
+        fixture
+            .api
+            .inner
+            .events
+            .settings_snapshot()
+            .restart_required
+    );
+    fixture.supervisor().stop().await.unwrap();
+    fixture.supervisor().ensure_ready().await.unwrap();
+    assert!(
+        fixture
+            .api
+            .inner
+            .events
+            .settings_snapshot()
+            .restart_required
+    );
+    assert_eq!(
+        fixture
+            .probe
+            .attempts
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .as_deref(),
+        Some("http://two.example:8181")
+    );
+    let stored = BootProxy::read(&fixture.api.inner.paths, fixture.api.inner.uid).unwrap();
+    assert_eq!(
+        stored
+            .guest_configuration()
+            .unwrap()
+            .proxy
+            .unwrap()
+            .https_url
+            .as_deref(),
+        Some("http://two.example:8181")
+    );
 }

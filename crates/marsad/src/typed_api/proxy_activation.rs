@@ -24,6 +24,7 @@ pub(super) struct Approval {
     settings_revision: u64,
     lifecycle_revision: u64,
     interrupts_engine: bool,
+    candidate: BootProxy,
     expires: Instant,
 }
 
@@ -41,7 +42,7 @@ impl TypedApi {
     ) -> Result<ProxyActivationPreview, Status> {
         let _edit = self.inner.edit.lock().await;
         let (runtime, supervisor) = self.proxy_runtime()?;
-        self.draft(runtime, expected)?;
+        let candidate = self.draft(runtime, expected).await?;
         let engine = supervisor.snapshot();
         let interrupts_engine = match engine.state {
             State::Ready | State::Idle | State::Paused => true,
@@ -55,8 +56,13 @@ impl TypedApi {
         let mut token = [0; 32];
         getrandom::fill(&mut token)
             .map_err(|_| Status::internal("could not create proxy approval"))?;
+        let fixed = candidate
+            .guest_configuration()
+            .and_then(|config| config.proxy)
+            .unwrap_or_default();
         let approval = Approval {
             token,
+            candidate,
             settings_revision: expected,
             lifecycle_revision: engine.lifecycle_revision,
             interrupts_engine,
@@ -69,6 +75,9 @@ impl TypedApi {
             .unwrap_or_else(|error| error.into_inner());
         *pending = Some(approval);
         Ok(ProxyActivationPreview {
+            http_proxy: fixed.http_url,
+            https_proxy: fixed.https_url,
+            no_proxy: fixed.no_proxy,
             approval_token: token.to_vec(),
             settings_revision: expected,
             interrupts_running_engine: interrupts_engine,
@@ -89,18 +98,19 @@ impl TypedApi {
         })
     }
 
-    fn draft(&self, runtime: &RuntimeProxy, expected: u64) -> Result<BootProxy, Status> {
+    async fn draft(&self, runtime: &RuntimeProxy, expected: u64) -> Result<BootProxy, Status> {
         let (settings, snapshot) = self.inner.events.settings();
         if snapshot.revision != expected {
             return Err(Status::aborted("settings revision changed"));
         }
         if settings.network.mode != NetworkMode::Userspace {
             return Err(Status::failed_precondition(
-                "manual daemon proxy requires user-space networking",
+                "daemon proxy activation requires user-space networking",
             ));
         }
-        let candidate = BootProxy::from_draft(&settings.network.proxy)
-            .map_err(|_| Status::invalid_argument("unsupported daemon proxy settings"))?;
+        let candidate =
+            super::system_proxy::resolve(&settings.network.proxy, self.proxy_discovery.as_ref())
+                .await?;
         if candidate == runtime.approved() {
             return Err(Status::failed_precondition(
                 "daemon proxy settings have not changed",
@@ -141,7 +151,12 @@ impl TypedApi {
         let _edit = self.inner.edit.lock().await;
         let (runtime, supervisor) = self.proxy_runtime()?;
         let approval = self.consume_proxy_approval(&request)?;
-        let candidate = self.draft(runtime, approval.settings_revision)?;
+        let candidate = self.draft(runtime, approval.settings_revision).await?;
+        if candidate != approval.candidate {
+            return Err(Status::aborted(
+                "system proxy changed; prepare a new approval | تغير وكيل النظام. اطلب موافقة جديدة",
+            ));
+        }
         let previous = self.inner.events.startup_settings();
         let effective = candidate.effective_on_userspace(previous.clone());
 
@@ -169,7 +184,7 @@ impl TypedApi {
             return Ok(result(Outcome::EngineRecoveryRequired, Stage::Stop));
         }
         let attempt = {
-            let _policy = runtime.override_for_permit(effective.clone());
+            let _policy = runtime.override_for_permit(effective.clone(), candidate.clone());
             tokio::select! {
                 biased;
                 _ = closing.wait_for(|closing| *closing) => Err(Stage::Shutdown),
@@ -182,6 +197,7 @@ impl TypedApi {
                 match tokio::task::spawn_blocking(move || staged.commit()).await {
                     Ok(Ok(durable)) => {
                         runtime.replace_approved(candidate);
+                        self.inner.events.system_proxy_pending(false);
                         self.inner.events.runtime_applied(&effective);
                         // If the actor has already shut down, the freshly committed
                         // policy still owns the next boot. Closing drops the guest.
@@ -208,7 +224,7 @@ impl TypedApi {
         if !approval.interrupts_engine || *closing.borrow() {
             return Ok(result(Outcome::PriorPolicyKept, failure));
         }
-        let _policy = runtime.override_for_permit(previous);
+        let _policy = runtime.override_for_permit(previous, runtime.approved());
         let restored = tokio::select! {
             biased;
             _ = closing.wait_for(|closing| *closing) => false,

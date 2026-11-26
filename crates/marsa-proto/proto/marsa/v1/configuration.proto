@@ -246,6 +246,10 @@ message ProxyActivationPreview {
   bool interrupts_running_engine = 3;
   uint32 approval_valid_seconds = 4;
   repeated ProxyActivationImpact potential_interruptions = 5;
+  // Frozen, credential-free effective policy for the owner to review.
+  optional string http_proxy = 6;
+  optional string https_proxy = 7;
+  repeated string no_proxy = 8;
 }
 
 enum ProxyActivationImpact {

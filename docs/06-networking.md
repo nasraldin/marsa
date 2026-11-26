@@ -254,12 +254,42 @@ Corporate networks were identified in planning as a top reason Docker alternativ
 | Registry mirrors and insecure registries | Exposed in settings and written to the engine configuration |
 | Proxy for containers | Optional injection of proxy variables into containers, off by default |
 
+On macOS, Marsa reads explicit trust settings from the user and administrator
+domains. It imports public DER certificates for self-issued CAs with unrestricted
+`TrustRoot` settings and certificate-signing permission. A scoped rule, denial
+or `TrustAsRoot` entry in either domain excludes that certificate. Apple-managed
+roots stay in the host trust store. The guest appends eligible roots to its
+Alpine CA bundle before engine release and reconciles additions and removals
+every five seconds while connected. When Docker may still cache earlier roots,
+the settings API reports a pending restart. [Apple trust settings](https://developer.apple.com/documentation/security/sectrustsettingscopytrustsettings(_:_:_:))
+
 Set `network.registry_mirrors` to an ordered list of HTTP or HTTPS URLs.
 Set `network.insecure_registries` to the registry authorities or CIDRs for
 which the owner permits insecure transport. Both default to empty. A cold
 start passes these options to the upstream daemon on either attachment.
 Docker exposes the effective configuration in `docker info`.
 [Docker Engine 29.10.0 registry configuration](https://github.com/moby/moby/blob/docker-v29.10.0/daemon/pkg/registry/config.go).
+
+By default, `network.proxy.follow_system` fills omitted HTTP and HTTPS endpoints
+from macOS when the owner previews proxy activation. Set it to `false` for an
+entirely manual policy, including explicitly disabling both proxies. The daemon
+reads the global and interface dictionaries from `scutil -d --proxy`.
+Docker can use a fixed proxy when each scope yields the same endpoints and
+bypass rules. A wildcard domain exception retains its subdomain-only meaning,
+and IPv4 network exceptions retain their prefix length. The preview reports
+unsupported PAC, WPAD, differing scopes and bypass patterns that Docker cannot
+represent. A discovered loopback proxy lives on the Mac and cannot be reused
+as a guest loopback destination. Credentials never enter the approved record.
+[Apple proxy selection and exception matching](https://github.com/apple-oss-distributions/CFNetwork/blob/main/Proxies/ProxySupport.c#L227-L432)
+· [Go HTTP proxy matching](https://go.dev/src/vendor/golang.org/x/net/http/httpproxy/proxy.go).
+
+The owner previews the effective proxy endpoints and bypass list before approving
+a restart. A changed system policy invalidates the preview. An ordinary cold boot
+uses the privately stored, previously approved endpoints. A host network change
+that produces a different policy marks the settings as pending until approval.
+The daemon also subscribes to configd network configuration notifications so a
+proxy edit can trigger this check while the default route stays up.
+[Apple configd proxy change notification](https://github.com/apple-oss-distributions/configd/blob/main/Plugins/IPMonitor/ip_plugin.c#L7692-L7725).
 
 Saving a manual proxy setting records a draft. Ordinary VM boots use the last approved
 proxy. While that proxy is active, a draft change to the attachment also remains pending.

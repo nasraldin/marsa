@@ -2,7 +2,10 @@
 
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex, Weak},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use marsa_proto::guest::v1::{PortAction, PortEvent};
@@ -45,6 +48,7 @@ impl EventBus {
             active,
             source,
             ports: Arc::default(),
+            trust_staged: Arc::default(),
         }
     }
 }
@@ -55,9 +59,15 @@ pub(super) struct SessionEvents {
     active: watch::Sender<Weak<Client>>,
     source: Weak<Client>,
     ports: Arc<Mutex<BTreeMap<PortKey, PortEvent>>>,
+    trust_staged: Arc<AtomicBool>,
 }
 
 impl SessionEvents {
+    pub(super) fn trust_staged(&self) {
+        self.trust_staged.store(true, Ordering::Release);
+        self.publish_active(&GuestEvent::TrustRestartRequired);
+    }
+
     pub(super) fn publish(&self, event: GuestEvent) -> Result<(), GuestControlError> {
         if let GuestEvent::Port(port) = &event {
             // The guest starts its inventory scan before the supervisor verifies readiness.
@@ -94,6 +104,9 @@ impl SessionEvents {
             *active = self.source.clone();
             if let Some(observer) = &self.bus.observer {
                 observer(&GuestEvent::PortsCleared);
+                if self.trust_staged.load(Ordering::Acquire) {
+                    observer(&GuestEvent::TrustRestartRequired);
+                }
                 for port in ports.values() {
                     observer(&GuestEvent::Port(port.clone()));
                 }

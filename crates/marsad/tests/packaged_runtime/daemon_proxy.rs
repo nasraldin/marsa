@@ -298,7 +298,7 @@ async fn approved_activation_carries_registry_and_buildkit_requests_through_gues
     );
 }
 
-async fn daemon_info(socket: &Path) -> serde_json::Value {
+pub(super) async fn daemon_info(socket: &Path) -> serde_json::Value {
     let output = tokio::process::Command::new("/usr/bin/curl")
         .args([
             "--silent",

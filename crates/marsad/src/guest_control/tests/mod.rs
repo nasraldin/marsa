@@ -445,6 +445,7 @@ async fn sample_workloads(json: &[u8]) -> io::Result<u32> {
 }
 
 mod network_mode;
+mod trust;
 fn boot_proxy_script(
     policy: &marsa_proto::guest::v1::ConfigureNetwork,
     outcome: GuestBody,

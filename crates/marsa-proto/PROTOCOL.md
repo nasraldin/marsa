@@ -89,6 +89,10 @@ and format preference in `prepare`, then sends `start` after choosing the
 destination. The client requires successful completion and stream termination
 before publishing its staged destination.
 
+Host API minor 20 adds credential-free effective HTTP and HTTPS proxy endpoints
+and the bypass list to the owner-only `PrepareProxyActivation` preview. Approval
+is bound to the resolved policy as well as the settings and lifecycle revisions.
+
 Host API minor 19 implements `Network.ListForwardedPorts`. Its `ports` list
 contains active host listeners. Each entry in `failures` describes a requested
 binding by address, port, transport and container ID, with a diagnostic and an

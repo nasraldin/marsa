@@ -177,7 +177,9 @@ async fn configure_packaged_runtime(
     api.with_components(versions)
         .with_packaged_runtime(
             package.capabilities(),
-            GuestControl::default().with_agent_connect_timeout(Duration::from_secs(50)),
+            GuestControl::default()
+                .with_trust_source(marsad::guest_control::MacKeychainTrust)
+                .with_agent_connect_timeout(Duration::from_secs(50)),
             config,
             move |desired, policy| package.prepare(&paths, uid, desired, policy),
         )
