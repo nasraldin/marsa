@@ -249,7 +249,7 @@ Corporate networks were identified in planning as a top reason Docker alternativ
 
 | Need | Design |
 |---|---|
-| HTTP and HTTPS proxy | The guest agent can configure dockerd before startup. M4-20 provisions the last approved credential-free manual proxy on the user-space attachment. M4-21 owns approval, restart and rollback for this policy. M4-15 extends the transaction to the full network policy. |
+| HTTP and HTTPS proxy | The guest agent can configure dockerd before startup. M4-20 provisions the last approved credential-free manual proxy on the user-space attachment. M4-21 owns approval, restart and rollback for this policy. The full network review includes the attachment mode, explicit DNS servers, registry mirrors, insecure registries and pending trust restart. The approved restart snapshots the last running configuration for rollback. Trust provisioning always reads current Keychain decisions, including revocations. |
 | Custom CA certificates | `marsad` exports the certificates the user trusts in the macOS keychain and the agent installs them into the guest trust store before dockerd starts |
 | Registry mirrors and insecure registries | Exposed in settings and written to the engine configuration |
 | Proxy for containers | Optional injection of proxy variables into containers, off by default |

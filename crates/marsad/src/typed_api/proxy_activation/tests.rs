@@ -559,3 +559,41 @@ async fn system_policy_is_reviewed_rechecked_and_frozen_across_cold_boots() {
         Some("http://two.example:8181")
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn full_network_activation_reviews_and_applies_registry_only_changes() {
+    let f = Fixture::new().await;
+    let (snapshot, ()) = f
+        .api
+        .edit_settings(None, |settings, _| {
+            settings.network.registry_mirrors = vec!["https://mirror.example".into()];
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let preview = f
+        .api
+        .preview_network_settings(snapshot.revision)
+        .await
+        .unwrap();
+    assert_eq!(preview.registry_mirrors, ["https://mirror.example"]);
+    let request = ActivateProxyRequest {
+        request_id: "22000000-0000-4000-8000-000000000009".into(),
+        expected_settings_revision: snapshot.revision,
+        approval_token: preview.approval.unwrap().approval_token,
+        approved: true,
+    };
+    assert_eq!(
+        f.api.apply_proxy(request).await.unwrap().outcome(),
+        Outcome::Applied
+    );
+    assert_eq!(
+        f.api
+            .inner
+            .events
+            .startup_settings()
+            .network
+            .registry_mirrors,
+        ["https://mirror.example"]
+    );
+}

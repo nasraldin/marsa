@@ -324,6 +324,10 @@ impl Bus {
         state.publish(Body::BindApprovals(remaining));
     }
 
+    pub(super) fn trust_restart_pending(&self) -> bool {
+        self.lock().trust_restart_pending
+    }
+
     pub(super) fn settings_snapshot(&self) -> SettingsSnapshot {
         self.lock().settings_snapshot.clone()
     }

@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use marsa_core::settings::NetworkMode;
 use marsa_proto::host::v1::{
-    ActivateProxyRequest, ProxyActivationFailureStage as Stage, ProxyActivationImpact,
-    ProxyActivationOutcome as Outcome, ProxyActivationPreview, ProxyActivationResult,
+    ActivateProxyRequest, NetworkActivationPreview, ProxyActivationFailureStage as Stage,
+    ProxyActivationImpact, ProxyActivationOutcome as Outcome, ProxyActivationPreview,
+    ProxyActivationResult,
 };
 use tokio::time::Instant;
 use tonic::Status;
@@ -25,6 +26,7 @@ pub(super) struct Approval {
     lifecycle_revision: u64,
     interrupts_engine: bool,
     candidate: BootProxy,
+    full_network: bool,
     expires: Instant,
 }
 
@@ -41,9 +43,43 @@ impl TypedApi {
         expected: u64,
     ) -> Result<ProxyActivationPreview, Status> {
         let _edit = self.inner.edit.lock().await;
+        self.prepare_network_policy(expected, false).await
+    }
+
+    pub(super) async fn preview_network_settings(
+        &self,
+        expected: u64,
+    ) -> Result<NetworkActivationPreview, Status> {
+        let _edit = self.inner.edit.lock().await;
+        let approval = self.prepare_network_policy(expected, true).await?;
+        let (settings, _) = self.inner.events.settings();
+        Ok(NetworkActivationPreview {
+            approval: Some(approval),
+            mode: super::events::mode(settings.network.mode).into(),
+            registry_mirrors: settings.network.registry_mirrors,
+            insecure_registries: settings.network.insecure_registries,
+            dns_servers: settings
+                .network
+                .dns
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            trust_restart_pending: self.inner.events.trust_restart_pending(),
+        })
+    }
+
+    async fn prepare_network_policy(
+        &self,
+        expected: u64,
+        full_network: bool,
+    ) -> Result<ProxyActivationPreview, Status> {
         let (runtime, supervisor) = self.proxy_runtime()?;
-        let candidate = self.draft(expected).await?;
-        if candidate == runtime.approved() {
+        let candidate = self.draft(expected, full_network).await?;
+        let network_changed = full_network
+            && (self.inner.events.startup_settings().network
+                != self.inner.events.settings().0.network
+                || self.inner.events.trust_restart_pending());
+        if candidate == runtime.approved() && !network_changed {
             return Err(Status::failed_precondition(
                 "daemon proxy settings have not changed",
             ));
@@ -68,6 +104,7 @@ impl TypedApi {
         let approval = Approval {
             token,
             candidate,
+            full_network,
             settings_revision: expected,
             lifecycle_revision: engine.lifecycle_revision,
             interrupts_engine,
@@ -103,17 +140,22 @@ impl TypedApi {
         })
     }
 
-    async fn draft(&self, expected: u64) -> Result<BootProxy, Status> {
+    async fn draft(&self, expected: u64, full_network: bool) -> Result<BootProxy, Status> {
         let (settings, snapshot) = self.inner.events.settings();
         if snapshot.revision != expected {
             return Err(Status::aborted("settings revision changed"));
         }
-        if settings.network.mode != NetworkMode::Userspace {
+        let policy =
+            super::system_proxy::resolve(&settings.network.proxy, self.proxy_discovery.as_ref())
+                .await?;
+        if settings.network.mode != NetworkMode::Userspace
+            && (!full_network || policy.guest_configuration().is_some())
+        {
             return Err(Status::failed_precondition(
                 "daemon proxy activation requires user-space networking",
             ));
         }
-        super::system_proxy::resolve(&settings.network.proxy, self.proxy_discovery.as_ref()).await
+        Ok(policy)
     }
 
     fn consume_proxy_approval(&self, request: &ActivateProxyRequest) -> Result<Approval, Status> {
@@ -148,14 +190,23 @@ impl TypedApi {
         let _edit = self.inner.edit.lock().await;
         let (runtime, supervisor) = self.proxy_runtime()?;
         let approval = self.consume_proxy_approval(&request)?;
-        let candidate = self.draft(approval.settings_revision).await?;
+        let candidate = self
+            .draft(approval.settings_revision, approval.full_network)
+            .await?;
         if candidate != approval.candidate {
             return Err(Status::aborted(
                 "system proxy changed; prepare a new approval | تغير وكيل النظام. اطلب موافقة جديدة",
             ));
         }
         let previous = self.inner.events.startup_settings();
-        let effective = candidate.effective_on_userspace(previous.clone());
+        let effective = if approval.full_network {
+            let (desired, _) = self.inner.events.settings();
+            let mut settings = previous.clone();
+            settings.network = desired.network;
+            candidate.effective(settings)
+        } else {
+            candidate.effective_on_userspace(previous.clone())
+        };
 
         let paths = self.inner.paths.clone();
         let uid = self.inner.uid;

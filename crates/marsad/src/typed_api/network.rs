@@ -34,6 +34,16 @@ impl Network for TypedApi {
             .map(Response::new)
     }
 
+    async fn prepare_network_activation(
+        &self,
+        request: Request<PrepareProxyActivationRequest>,
+    ) -> Result<Response<marsa_proto::host::v1::NetworkActivationPreview>, Status> {
+        let request = self.authorize(request)?;
+        self.preview_network_settings(request.expected_settings_revision)
+            .await
+            .map(Response::new)
+    }
+
     async fn activate_proxy(
         &self,
         request: Request<ActivateProxyRequest>,

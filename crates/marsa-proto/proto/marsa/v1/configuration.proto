@@ -58,6 +58,8 @@ service Network {
   rpc SetMode(SetNetworkModeRequest) returns (NetworkStatus);
   rpc ListForwardedPorts(ListForwardedPortsRequest) returns (ListForwardedPortsResponse);
   rpc PrepareProxyActivation(PrepareProxyActivationRequest) returns (ProxyActivationPreview);
+  // Review all staged network settings before approving the reserved restart.
+  rpc PrepareNetworkActivation(PrepareProxyActivationRequest) returns (NetworkActivationPreview);
   rpc ActivateProxy(ActivateProxyRequest) returns (ProxyActivationResult);
 }
 
@@ -250,6 +252,15 @@ message ProxyActivationPreview {
   optional string http_proxy = 6;
   optional string https_proxy = 7;
   repeated string no_proxy = 8;
+}
+
+message NetworkActivationPreview {
+  ProxyActivationPreview approval = 1;
+  NetworkMode mode = 2;
+  repeated string registry_mirrors = 3;
+  repeated string insecure_registries = 4;
+  repeated string dns_servers = 5;
+  bool trust_restart_pending = 6;
 }
 
 enum ProxyActivationImpact {

@@ -264,7 +264,7 @@ The signed VZ guest on macOS 27.2.1 executed both platforms in local and remote 
 
 ### M4-15 Apply staged Docker engine configuration
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M2-07, M3-06, M4-08, M4-11, M4-21
 - **Docs:** [06 Proxies and certificates](../06-networking.md#proxies-and-certificates), [D-027](../15-decisions.md#d-027-apply-proxy-settings-at-a-controlled-engine-restart)
 - **Do:** Extend controlled engine restart from M4-21 to the full proxy, trust and gateway policy, including M4-08 native networking and automatic Docker aliases. Validate the requested config, coordinate admission of new engine requests and preserve active workloads where Docker supports it. Require explicit user approval when the action can stop running workloads.
