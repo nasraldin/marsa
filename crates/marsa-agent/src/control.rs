@@ -98,6 +98,7 @@ where
         }
     });
     let activation = Activation {
+        live_egress: version.minor >= marsa_proto::guest::LIVE_EGRESS_MINOR,
         supports_deferral: version.minor >= DEFER_ENGINE_START_MINOR,
         deferred: ack.defer_engine_start,
         ..Activation::default()
@@ -152,6 +153,9 @@ async fn exchange(
                         return Err(invalid("command requires a newer negotiated protocol"));
                     }
                     Body::StartEngine(_) => activation.start(state).await,
+                    Body::ProbeLiveEgress(_) if !activation.live_egress || !activation.ready || !activation.time_set => {
+                        egress_stage(EgressStage::Policy)
+                    }
                     Body::ProbeEgress(_) if !activation.can_probe(state).await => {
                         egress_stage(EgressStage::Policy)
                     }
@@ -247,7 +251,8 @@ async fn dispatch(
             "Guest CA bundle installed",
             "CA bundle installed. Docker may need a controlled restart to reload trust.",
         ),
-        host_envelope::Body::ProbeEgress(request) => {
+        host_envelope::Body::ProbeEgress(request)
+        | host_envelope::Body::ProbeLiveEgress(request) => {
             match timeout(EGRESS_TIMEOUT, state.probe_egress(request)).await {
                 Ok(result) => guest_envelope::Body::EgressResult(result),
                 Err(_) => egress_stage(EgressStage::Policy),
@@ -279,6 +284,7 @@ fn configuration_result(
 
 #[derive(Default)]
 struct Activation {
+    live_egress: bool,
     supports_deferral: bool,
     deferred: bool,
     time_set: bool,

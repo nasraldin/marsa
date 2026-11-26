@@ -53,7 +53,7 @@ pub(super) fn host(envelope: &HostEnvelope) -> Result<usize, ProtocolError> {
             MAX_FRAME_BYTES
         }
         Body::Trim(_) | Body::Shutdown(_) | Body::StartEngine(_) => 32,
-        Body::ProbeEgress(message) => {
+        Body::ProbeEgress(message) | Body::ProbeLiveEgress(message) => {
             check(message.address_v4.len() == 4, "address_v4")?;
             32
         }

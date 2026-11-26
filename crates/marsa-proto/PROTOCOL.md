@@ -256,6 +256,14 @@ the host provisions a local DNS sink so the local engine can still run.
 Minor 0 retains DHCP when following the host and refuses explicit overrides
 that it cannot apply before Docker starts. Live native refresh requires 1.2.
 
+### Live egress checks (guest protocol 1.3)
+
+After clock synchronization and engine release, a host that negotiated minor 3
+can send `ProbeLiveEgress` to recheck the active attachment. It uses the same
+registry, address validation, deadline and correlated result as the boot probe.
+Older guests keep serving local workloads when the host network changes.
+The live command does not release or restart Docker.
+
 ### Guest message limits
 
 Limits apply to the serialized envelope including the request ID, excluding
@@ -274,7 +282,7 @@ fields are additionally bounded as shown. String limits count UTF-8 bytes.
 | Host → guest | `UnmountShare` | 128 B | Tag ≤36 bytes. |
 | Host → guest | `Shutdown` | 32 B | No payload fields. |
 | Host → guest | `StartEngine` | 32 B | No payload fields. |
-| Host → guest | `ProbeEgress` | 32 B | Exactly four address bytes. |
+| Host → guest | `ProbeEgress`, `ProbeLiveEgress` | 32 B | Exactly four address bytes. |
 | Guest → host | `PortEvent` | 256 B | Known action and TCP or UDP transport, 64-digit hex container ID, IP literal ≤45 bytes, ports 1–65,535. |
 | Guest → host | `EngineHealth` | 3 KiB | Known health value and detail ≤2,048 bytes. |
 | Guest → host | `VmStats` | 128 B | Memory and disk usage cannot exceed their corresponding totals. |

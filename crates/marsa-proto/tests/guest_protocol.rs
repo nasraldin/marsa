@@ -213,17 +213,27 @@ fn deferred_engine_extensions_validate_versions_shapes_and_correlation() {
     assert!(encode_host(&ack(PROTOCOL_VERSION, true)).is_ok());
 
     for address_v4 in [vec![], vec![1; 3], vec![1; 5], vec![1; 16]] {
-        let probe = HostEnvelope {
-            request_id: 1,
-            body: Some(host_envelope::Body::ProbeEgress(ProbeEgress { address_v4 })),
-        };
-        assert!(matches!(
-            encode_host(&probe),
-            Err(ProtocolError::InvalidField("address_v4"))
-        ));
+        for variant in [
+            host_envelope::Body::ProbeEgress,
+            host_envelope::Body::ProbeLiveEgress,
+        ] {
+            let probe = HostEnvelope {
+                request_id: 1,
+                body: Some(variant(ProbeEgress {
+                    address_v4: address_v4.clone(),
+                })),
+            };
+            assert!(matches!(
+                encode_host(&probe),
+                Err(ProtocolError::InvalidField("address_v4"))
+            ));
+        }
     }
     for body in [
         host_envelope::Body::StartEngine(StartEngine {}),
+        host_envelope::Body::ProbeLiveEgress(ProbeEgress {
+            address_v4: vec![1, 2, 3, 4],
+        }),
         host_envelope::Body::ProbeEgress(ProbeEgress {
             address_v4: vec![1, 2, 3, 4],
         }),

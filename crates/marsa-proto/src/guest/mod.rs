@@ -47,10 +47,13 @@ pub const DEFER_ENGINE_START_MINOR: u32 = 1;
 /// First protocol minor supporting native DNS routing and live refresh.
 pub const NATIVE_DNS_MINOR: u32 = 2;
 
+/// First minor supporting the registry probe on a running engine.
+pub const LIVE_EGRESS_MINOR: u32 = 3;
+
 /// Current guest control version advertised by this build.
 pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion {
     major: 1,
-    minor: NATIVE_DNS_MINOR,
+    minor: LIVE_EGRESS_MINOR,
 };
 
 /// A rejected guest control frame or incompatible protocol version.

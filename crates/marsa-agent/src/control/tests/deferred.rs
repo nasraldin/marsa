@@ -173,3 +173,53 @@ async fn sync_clock(client: &mut DuplexStream) {
     .await;
     expect_status(client, 1, CommandStatus::Ok).await;
 }
+
+#[tokio::test]
+async fn live_egress_requires_a_negotiated_capability_clock_and_engine_release() {
+    for (minor, expected) in [(2, EgressStage::Policy), (3, EgressStage::Healthy)] {
+        let (server, mut client) = tokio::io::duplex(1024);
+        let state = FakeState::default();
+        let live = || {
+            let host_envelope::Body::ProbeEgress(target) = probe() else {
+                unreachable!()
+            };
+            host_envelope::Body::ProbeLiveEgress(target)
+        };
+        let peer = async {
+            begin_with(&mut client, ProtocolVersion { major: 1, minor }, true).await;
+            send(&mut client, 1, live()).await;
+            expect_stage(&mut client, 1, EgressStage::Policy).await;
+            send(
+                &mut client,
+                2,
+                host_envelope::Body::SetTime(SetTime {
+                    unix_seconds: 1_700_000_000,
+                    nanoseconds: 0,
+                }),
+            )
+            .await;
+            expect_status(&mut client, 2, CommandStatus::Ok).await;
+            send(&mut client, 3, live()).await;
+            expect_stage(&mut client, 3, EgressStage::Policy).await;
+            send(
+                &mut client,
+                4,
+                host_envelope::Body::StartEngine(StartEngine {}),
+            )
+            .await;
+            expect_status(&mut client, 4, CommandStatus::Ok).await;
+            send(&mut client, 5, live()).await;
+            expect_stage(&mut client, 5, expected).await;
+            drop(client);
+        };
+        let (result, ()) = timeout(Duration::from_secs(2), async {
+            tokio::join!(
+                session(server, greeting(), &state, "/nonexistent-marsa-test-engine"),
+                peer
+            )
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
+    }
+}
