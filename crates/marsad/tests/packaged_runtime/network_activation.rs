@@ -80,17 +80,25 @@ async fn network_activation_commits_registry_policy_and_recovers_from_a_failed_a
     let channel = connect(&mut process.0, &paths.daemon_socket(), &log).await;
     recovery::start(&channel, &paths, 1).await;
     let socket = paths.docker_socket();
-    let workload = docker(
+    const BUSYBOX: &str =
+        "busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec";
+    let workload = docker(&socket, &["run", "-d", BUSYBOX, "sleep", "600"]).await;
+    // Keep the authoritative test answer inside this disposable guest across restarts.
+    docker(
         &socket,
         &[
-            "run",
-            "-d",
-            "busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec",
-            "sleep",
-            "600",
+            "network",
+            "create",
+            "--subnet",
+            "172.30.4.0/24",
+            "resolver-test",
         ],
     )
     .await;
+    docker(&socket, &["run", "-d", "--restart=always", "--network", "resolver-test",
+        "--ip", "172.30.4.53", BUSYBOX, "sh", "-ec",
+        "echo 'activation.test 192.0.2.42' >/tmp/dns.conf; exec dnsd -c /tmp/dns.conf -i 0.0.0.0",
+    ]).await;
     let mut config = SettingsClient::new(channel.clone());
     let mut network = NetworkClient::new(channel.clone());
     for (step, expected) in [
@@ -99,7 +107,7 @@ async fn network_activation_commits_registry_policy_and_recovers_from_a_failed_a
     ] {
         settings.network.registry_mirrors = vec!["https://mirror.example".into()];
         if step == 2 {
-            settings.network.dns = vec!["192.0.2.53".parse().unwrap()];
+            settings.network.dns = vec!["172.30.4.53".parse().unwrap()];
         } else {
             settings.network.mode = ConfigMode::Userspace;
             settings.network.registry_mirrors = vec!["https://candidate.example".into()];
@@ -118,6 +126,7 @@ async fn network_activation_commits_registry_policy_and_recovers_from_a_failed_a
             .unwrap()
             .into_inner();
         assert_eq!(preview.registry_mirrors, settings.network.registry_mirrors);
+        assert_eq!(preview.dns_servers, ["172.30.4.53"]);
         let approval = preview.approval.unwrap();
         assert!(approval.interrupts_running_engine);
         let request = ActivateProxyRequest {
@@ -157,6 +166,13 @@ async fn network_activation_commits_registry_policy_and_recovers_from_a_failed_a
         assert_eq!(
             info["RegistryConfig"]["Mirrors"][0],
             "https://mirror.example/"
+        );
+        let lookup = docker(&socket, &["run", "--rm", "--pull=never", BUSYBOX, "sh", "-ec",
+            "for i in 1 2 3 4 5; do nslookup -type=A activation.test && exit 0; sleep 1; done; exit 1",
+        ]).await;
+        assert!(
+            lookup.split_whitespace().any(|word| word == "192.0.2.42"),
+            "{lookup}"
         );
         let after = config
             .get(GetSettingsRequest {})
