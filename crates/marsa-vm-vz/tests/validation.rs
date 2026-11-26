@@ -164,14 +164,17 @@ async fn rejects_share_redirects_and_unapproved_mount_arguments() {
 #[tokio::test]
 async fn attachment_hint_is_owned_by_the_backend() {
     let scratch = tempfile::tempdir().unwrap();
-    let mut spec = write_spec(scratch.path());
-    spec.cmdline.push_str(" marsa_vz.native_nat=1");
-    spec.network = marsa_vm::NetworkSpec::Userspace;
-    assert!(matches!(
-        VzHypervisor.create(spec).await,
-        Err(VmError::InvalidSpec {
-            field: "cmdline",
-            ..
-        })
-    ));
+    for hint in ["marsa_vz.native_nat=1", "marsa_vz.amd64=0"] {
+        let mut spec = write_spec(scratch.path());
+        spec.cmdline.push(' ');
+        spec.cmdline.push_str(hint);
+        spec.network = marsa_vm::NetworkSpec::Userspace;
+        assert!(matches!(
+            VzHypervisor.create(spec).await,
+            Err(VmError::InvalidSpec {
+                field: "cmdline",
+                ..
+            })
+        ));
+    }
 }

@@ -65,7 +65,19 @@ fn boot(mounts: &mut Mounts, supervisor: &mut Supervisor) -> io::Result<()> {
         .open(BOOT_TIMINGS)?;
     record(&mut timings, "mount_system", start.elapsed())?;
 
-    let settings = Settings::parse(&fs::read_to_string("/proc/cmdline")?)?;
+    let cmdline = fs::read_to_string("/proc/cmdline")?;
+    let settings = Settings::parse(&cmdline)?;
+    if cmdline
+        .split_ascii_whitespace()
+        .take_while(|arg| *arg != "--")
+        .any(|arg| arg == marsa_core::guest_boot::TRANSLATION_ARG)
+    {
+        stage(
+            &mut timings,
+            "amd64_translation",
+            mounts::enable_translation,
+        )?;
+    }
     stage(&mut timings, "data_disk", disk::prepare)?;
     stage(&mut timings, "shared_folders", || {
         mounts.share_all(&settings.shares)

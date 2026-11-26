@@ -12,6 +12,10 @@ const MAX_CMDLINE: usize = 4096;
 pub const MAX_SHARES: usize = 16;
 /// Optional VZ attachment hint. Older guest parsers ignore this separate kernel namespace.
 pub const NATIVE_NAT_ARG: &str = "marsa_vz.native_nat=1";
+/// VZ provides the Intel Linux translator under this private device tag.
+pub const TRANSLATION_TAG: &str = "marsa-rosetta";
+/// Boot hint indicating the translator device is attached.
+pub const TRANSLATION_ARG: &str = "marsa_vz.amd64=1";
 /// Default arguments for the packaged ARM64 Linux image.
 pub const PACKAGED_BOOT_ARGS: &str =
     "console=hvc0 root=/dev/vda rootfstype=erofs ro init=/usr/bin/marsa-init panic=-1";
@@ -160,7 +164,7 @@ fn decode_path(encoded: &str) -> io::Result<String> {
 
 /// Return whether a virtiofs tag follows Marsa's guest boot identifier format.
 pub fn is_share_tag(tag: &str) -> bool {
-    identifier(tag, 36)
+    tag != TRANSLATION_TAG && identifier(tag, 36)
 }
 
 fn identifier(value: &str, maximum: usize) -> bool {
@@ -213,6 +217,7 @@ mod tests {
     #[test]
     fn rejects_unsafe_destinations_and_overlaps() {
         for input in [
+            "marsa.share=marsa-rosetta:/Users/dev",
             "marsa.share=proj:/etc/ssh",
             "marsa.share=proj:/Users/dev/%2e%2e",
             "marsa.share=proj:/Users/dev/%00",

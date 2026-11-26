@@ -25,7 +25,7 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = [
 objc2-virtualization = { version = "=0.3.2", default-features = false, features = [
     "std", "block2", "dispatch2", "VZBootLoader", "VZDiskImageStorageDeviceAttachment",
     "VZDirectoryShare", "VZDirectorySharingDeviceConfiguration",
-    "VZEntropyDeviceConfiguration", "VZFileHandleNetworkDeviceAttachment", "VZFileHandleSerialPortAttachment", "VZLinuxBootLoader",
+    "VZEntropyDeviceConfiguration", "VZFileHandleNetworkDeviceAttachment", "VZFileHandleSerialPortAttachment", "VZLinuxBootLoader", "VZLinuxRosettaDirectoryShare",
     "VZMemoryBalloonDevice", "VZMemoryBalloonDeviceConfiguration",
     "VZMACAddress", "VZNATNetworkDeviceAttachment", "VZNetworkDeviceAttachment", "VZNetworkDeviceConfiguration",
     "VZSerialPortAttachment", "VZSerialPortConfiguration", "VZSocketDevice", "VZSocketDeviceConfiguration",

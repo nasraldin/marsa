@@ -9,12 +9,12 @@ use objc2_virtualization::{
     VZDirectorySharingDeviceConfiguration, VZDiskImageCachingMode,
     VZDiskImageStorageDeviceAttachment, VZDiskImageSynchronizationMode,
     VZFileHandleNetworkDeviceAttachment, VZFileHandleSerialPortAttachment, VZLinuxBootLoader,
-    VZMACAddress, VZNATNetworkDeviceAttachment, VZSharedDirectory, VZSingleDirectoryShare,
-    VZVirtioBlockDeviceConfiguration, VZVirtioConsoleDeviceSerialPortConfiguration,
-    VZVirtioEntropyDeviceConfiguration, VZVirtioFileSystemDeviceConfiguration,
-    VZVirtioNetworkDeviceConfiguration, VZVirtioSocketDeviceConfiguration,
-    VZVirtioTraditionalMemoryBalloonDeviceConfiguration, VZVirtualMachine,
-    VZVirtualMachineConfiguration,
+    VZLinuxRosettaDirectoryShare, VZMACAddress, VZNATNetworkDeviceAttachment, VZSharedDirectory,
+    VZSingleDirectoryShare, VZVirtioBlockDeviceConfiguration,
+    VZVirtioConsoleDeviceSerialPortConfiguration, VZVirtioEntropyDeviceConfiguration,
+    VZVirtioFileSystemDeviceConfiguration, VZVirtioNetworkDeviceConfiguration,
+    VZVirtioSocketDeviceConfiguration, VZVirtioTraditionalMemoryBalloonDeviceConfiguration,
+    VZVirtualMachine, VZVirtualMachineConfiguration,
 };
 
 use super::{
@@ -34,7 +34,7 @@ pub(super) fn build(
         .map(|path| file_url("initramfs", path))
         .transpose()?;
 
-    let shares = spec
+    let mut shares = spec
         .shares
         .iter()
         .map(share)
@@ -105,6 +105,20 @@ pub(super) fn build(
             disk_root.into_super(),
             disk_data.into_super(),
         ]));
+        let translator =
+            VZLinuxRosettaDirectoryShare::initWithError(VZLinuxRosettaDirectoryShare::alloc())
+                .map_err(|error| {
+                    backend(
+                        "create Intel Linux translator",
+                        error.localizedDescription().to_string(),
+                    )
+                })?;
+        let device = VZVirtioFileSystemDeviceConfiguration::initWithTag(
+            VZVirtioFileSystemDeviceConfiguration::alloc(),
+            &NSString::from_str(marsa_core::guest_boot::TRANSLATION_TAG),
+        );
+        device.setShare(Some(&translator));
+        shares.push(device.into_super());
         config.setDirectorySharingDevices(&NSArray::from_retained_slice(&shares));
         config.setMemoryBalloonDevices(&NSArray::from_retained_slice(&[
             VZVirtioTraditionalMemoryBalloonDeviceConfiguration::new().into_super(),
