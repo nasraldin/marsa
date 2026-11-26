@@ -311,3 +311,5 @@ On 2026-11-26 the owner resolved Q-07. Marsa binds published ports on macOS to I
 ## D-039 Automatically translate amd64 Linux workloads
 
 On 2026-11-26 the owner approved local amd64 builds and container execution on Apple silicon, superseding the Linux workload restriction in D-007. The host and guest kernel remain arm64. Multi-platform images prefer native arm64. Marsa configures macOS 27’s included Intel Linux translator at guest boot so amd64 programs can execute during Dockerfile builds and inside containers without host administrator access or separate installation. A replacement default backend must pass the same workload tests. [Apple’s Linux VM integration](https://developer.apple.com/documentation/virtualization/running-intel-binaries-in-linux-vms)
+
+The owner also approved automatic platform selection in Marsa’s bundled Docker command. Docker and Buildx resolve an OCI index before invoking the translator. When an index offers only linux/amd64, the Marsa command selects that platform for the local engine. Explicit platform choices take precedence. The bundled upstream Docker client remains independently usable.

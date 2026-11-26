@@ -257,6 +257,7 @@ dedicated-account test exercises both parts on one Mac. [Reproduction](../../cra
 - **Accept when:**
   - The suite passes on the virtualization runner.
   - An amd64 Dockerfile executes a build step and the resulting container runs on the packaged engine without manual translator setup. An amd64-only image runs by ordinary tag, multi-platform builds execute both variants, and arm64 remains the default for multi-platform images (D-039).
+  - The Marsa Docker command builds from and runs an amd64-only registry index without a platform flag. Qualify a multi-platform index, explicit overrides and upstream CLI passthrough.
   - Results are published as a CI artifact per run.
 
 ### M4-15 Apply staged Docker engine configuration
