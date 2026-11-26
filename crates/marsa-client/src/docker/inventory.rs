@@ -522,7 +522,9 @@ pub async fn discover_external_inventories() -> Vec<ExternalInventory> {
         .and_then(|host| contexts::environment_context(host, &config));
     let registered = contexts::registered_contexts(&config).await;
     let mut seen = HashSet::new();
-    let default_marsa = owner.dir.join(".marsa/run/docker.sock");
+    let Ok(default_marsa) = marsa_proto::host::docker_socket_path(&owner.dir) else {
+        return Vec::new();
+    };
     for path in docker_socket_path().ok().into_iter().chain([default_marsa]) {
         seen.insert(tokio::fs::canonicalize(&path).await.unwrap_or(path));
     }
