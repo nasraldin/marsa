@@ -1,5 +1,6 @@
 //! Apply host resolver, proxy and trust configuration inside the guest only.
 
+pub(super) mod native;
 mod resolver;
 mod trust;
 
@@ -40,21 +41,37 @@ impl Config {
     pub(super) async fn configure(&self, request: ConfigureNetwork) -> io::Result<bool> {
         let defaults = Arc::clone(&self.0);
         tokio::task::spawn_blocking(move || {
-            let resolver = resolver::resolv_conf(&defaults.resolver, &request)?;
+            let native = request.native_dns.is_some() && Path::new(native::SERVERS).try_exists()?;
+            let mut writes = Vec::new();
+            let resolver = if native {
+                let servers = crate::native_dns::servers(&defaults.resolver, &request)?;
+                writes.push((native::SERVERS, servers.into_bytes(), 0o644));
+                let local = ConfigureNetwork {
+                    dns_servers: vec!["127.0.0.1".into()],
+                    search_domains: request.search_domains.clone(),
+                    ..Default::default()
+                };
+                resolver::resolv_conf("", &local)?
+            } else {
+                resolver::resolv_conf(&defaults.resolver, &request)?
+            };
             let hosts = resolver::hosts_file(&defaults.hosts, &request)?;
             let original = read_bounded(DAEMON, MAX_CONFIG_BYTES)?;
             let config = resolver::daemon_config(&original, &request)?;
             let running = Path::new(super::READY_FILE).exists();
             let daemon_changed = config.is_some();
 
-            let mut writes = vec![
+            writes.extend([
                 (RESOLVER, resolver.into_bytes(), 0o644),
                 (HOSTS, hosts.into_bytes(), 0o644),
-            ];
+            ]);
             if let Some(config) = config {
                 writes.push((DAEMON, config, 0o600));
             }
             replace_all(&writes)?;
+            if native {
+                native::reload()?;
+            }
             Ok(running && daemon_changed)
         })
         .await?

@@ -106,6 +106,7 @@ impl GuestState for Linux {
 
 pub(crate) fn run() -> io::Result<()> {
     let hello = metadata::hello()?;
+    network::native::configure()?;
     let state = Linux {
         network: network::Config::load()?,
     };

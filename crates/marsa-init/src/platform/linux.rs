@@ -73,6 +73,22 @@ fn boot(mounts: &mut Mounts, supervisor: &mut Supervisor) -> io::Result<()> {
     stage(&mut timings, "network", || configure_network(&settings))?;
     stage(&mut timings, "agent", || {
         supervisor.start(Service::Agent, "/usr/bin/marsa-agent", &[])?;
+        // Native DNS must be serving before the host asks the agent to probe egress.
+        // Offline and user-space guests have no resolver configuration.
+        let resolver = Path::new("/run/marsa/native-dns.conf");
+        supervisor.wait_until(Duration::from_secs(60), || {
+            resolver.is_file() || Path::new(AGENT_READY).is_file()
+        })?;
+        if resolver.try_exists()? {
+            supervisor.start(
+                Service::Resolver,
+                "/usr/sbin/dnsmasq",
+                &[
+                    "--keep-in-foreground",
+                    "--conf-file=/run/marsa/native-dns.conf",
+                ],
+            )?;
+        }
         supervisor.wait_until(Duration::from_secs(60), || Path::new(AGENT_READY).is_file())
     })?;
     stage(&mut timings, "containerd", || {

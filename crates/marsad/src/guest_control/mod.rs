@@ -39,6 +39,8 @@ const ENGINE_TIMEOUT: Duration = Duration::from_secs(45);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(35);
 const CONNECT_RETRY: Duration = Duration::from_millis(100);
 const EVENT_CAPACITY: usize = 64;
+/// Limit simultaneous guest publications, including binds rejected by the OS.
+pub(crate) const MAX_PORT_BINDINGS: usize = 256;
 
 /// Validated messages sent independently of host requests.
 #[derive(Debug, Clone)]
@@ -145,6 +147,24 @@ impl Default for GuestControl {
     }
 }
 
+/// Capture the current session so a concurrent restart cannot redirect a DNS refresh.
+pub(crate) struct ResolverSession(Arc<session::Client>);
+
+impl ResolverSession {
+    pub(crate) async fn configure(self, policy: ConfigureNetwork) -> Result<(), GuestControlError> {
+        match self
+            .0
+            .request(HostBody::ConfigureNetwork(policy), HANDSHAKE_TIMEOUT)
+            .await?
+        {
+            GuestResponse::Command(reply) if reply.status() == CommandStatus::Ok => Ok(()),
+            _ => Err(GuestControlError::Sequence(
+                "guest rejected native resolver refresh",
+            )),
+        }
+    }
+}
+
 pub(crate) struct TrimSession(Arc<session::Client>);
 
 impl TrimSession {
@@ -202,6 +222,14 @@ impl GuestControl {
             .ok_or(GuestControlError::Disconnected)
     }
 
+    pub(crate) fn resolver_session(&self) -> Option<ResolverSession> {
+        self.active
+            .borrow()
+            .upgrade()
+            .filter(|client| client.minor >= marsa_proto::guest::NATIVE_DNS_MINOR)
+            .map(ResolverSession)
+    }
+
     /// Submit a command after the supervisor establishes engine readiness.
     /// The queue and response wait are bounded. The host manages negotiation.
     pub async fn request(&self, body: HostBody) -> Result<GuestResponse, GuestControlError> {
@@ -235,10 +263,7 @@ impl GuestControl {
         )
         .map_err(GuestControlError::from)?;
         let deferred = version.minor >= DEFER_ENGINE_START_MINOR;
-        if policy.is_some() && !deferred {
-            // A legacy guest releases the engine when it accepts the clock.
-            return Err(io::ErrorKind::Unsupported.into());
-        }
+        let policy = boot_policy(policy.cloned(), version.minor)?;
         wire::write(
             &mut stream,
             &wire::encode(
@@ -255,17 +280,14 @@ impl GuestControl {
             stream,
             self.active.clone(),
             self.events.clone(),
-            deferred,
+            version.minor,
             self.clock,
         );
         session.set_clock(HANDSHAKE_TIMEOUT).await?;
         if let Some(policy) = policy {
             let response = session
                 .client
-                .request(
-                    HostBody::ConfigureNetwork(policy.clone()),
-                    HANDSHAKE_TIMEOUT,
-                )
+                .request(HostBody::ConfigureNetwork(policy), HANDSHAKE_TIMEOUT)
                 .await?;
             if !matches!(response, GuestResponse::Command(result) if result.status() == CommandStatus::Ok)
             {
@@ -277,6 +299,36 @@ impl GuestControl {
         }
         Ok(session)
     }
+}
+
+fn boot_policy(
+    policy: Option<ConfigureNetwork>,
+    minor: u32,
+) -> io::Result<Option<ConfigureNetwork>> {
+    let Some(mut policy) = policy else {
+        return Ok(None);
+    };
+    if minor >= marsa_proto::guest::NATIVE_DNS_MINOR {
+        return Ok(Some(policy));
+    }
+    let native = policy.native_dns.take();
+    if minor < DEFER_ENGINE_START_MINOR {
+        // 1.0 releases Docker with SetTime. Preserve its DHCP boot only for
+        // automatic host configuration. Explicit overrides require a newer guest.
+        if native.is_some_and(|native| !native.explicit_servers)
+            && policy.proxy.is_none()
+            && policy.host_aliases.is_empty()
+        {
+            return Ok(None);
+        }
+        return Err(io::ErrorKind::Unsupported.into());
+    }
+    if native.is_some_and(|native| !native.routes.is_empty() || policy.dns_servers.is_empty()) {
+        // 1.1 has only a flat resolv.conf. Linux routes 0.0.0.0 locally;
+        // unlike 127/8, Docker retains it when deriving container resolv.conf.
+        policy.dns_servers = vec!["0.0.0.0".into()];
+    }
+    Ok(Some(policy))
 }
 
 #[async_trait]

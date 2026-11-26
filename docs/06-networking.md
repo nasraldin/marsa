@@ -208,7 +208,7 @@ The forwarder handles the actual OS bind result for each address and transport.
 | `gateway.docker.internal` | The guest's default gateway | Compatibility |
 | `host.marsa.internal` | Same as `host.docker.internal` | Marsa's own name |
 
-The agent updates the guest hosts file and supplies Docker’s configured host gateway IPs. M4-08 applies the standard aliases to containers created through the Marsa Docker socket.
+On native NAT the guest agent reads the upstream default gateway, updates the guest hosts file and configures Docker’s host gateway. The guest DNS service answers all three aliases for containers on the default bridge and user-defined bridge networks. The service on the Mac must listen on an address reachable through the native attachment.
 
 ## DNS
 
@@ -216,14 +216,14 @@ The agent updates the guest hosts file and supplies Docker’s configured host g
 flowchart LR
     c["Container"] --> ed["Default bridge resolver or Docker embedded DNS"]
     ed --> gr["Guest resolver address"]
-    gr -->|native NAT, planned| hd["Host DNS via NAT gateway"]
+    gr -->|native NAT| hd["Guest dnsmasq with host DNS policy"]
     gr -->|userspace, via DHCP| ud["User-space DNS forwarder"]
     hd --> up["Upstream resolvers,<br/>including VPN split DNS"]
     ud --> up
 ```
 
 - In `userspace` mode, DHCP gives the guest a stable DNS gateway at `192.168.127.1`. The helper asks the macOS system resolver for each forwarded query. Changes to a scoped answer take effect without replacing the guest's DNS server address. Docker's default bridge uses the guest resolver address and custom networks forward external DNS through Docker's embedded resolver. [Apple DNS guidance](https://developer.apple.com/documentation/technotes/tn3151-choosing-the-right-networking-api#DNS) · [Docker DNS behavior](https://docs.docker.com/engine/network/#dns-services)
-- In native NAT mode, [M4-08](plan/M4-docker-integration.md#m4-08-nat-networking-dns-and-host-names) owns host resolver configuration at boot and on network changes. Test that VPN split DNS and Wi-Fi recovery work with existing containers.
+- On native NAT, PID 1 supervises the guest dnsmasq process. Docker keeps the same guest DNS address across host network changes. The daemon sends updated resolver and suffix settings through guest control. Guest firewall rules block DNS requests arriving on the upstream interface. [Native NAT qualification](plan/M4-docker-integration.md#m4-08-nat-networking-dns-and-host-names)
 
 ## Proxies and certificates
 

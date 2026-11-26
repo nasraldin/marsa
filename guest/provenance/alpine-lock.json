@@ -268,6 +268,73 @@
       }
     ]
   },
+  "dnsmasq": {
+    "notices": [
+      {
+        "file": "COPYING-v3",
+        "kind": "upstream-notice",
+        "member": "dnsmasq-2.92rel2/COPYING-v3",
+        "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+        "source": "https://www.thekelleys.org.uk/dnsmasq/dnsmasq-2.92rel2.tar.xz"
+      },
+      {
+        "file": "COPYING",
+        "kind": "upstream-notice",
+        "member": "dnsmasq-2.92rel2/COPYING",
+        "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+        "source": "https://www.thekelleys.org.uk/dnsmasq/dnsmasq-2.92rel2.tar.xz"
+      }
+    ],
+    "packages": [
+      {
+        "architecture": "aarch64",
+        "commit": "e07ee66304113d2d316dd9946b6e68d90a87b972",
+        "license": "GPL-2.0-or-later",
+        "name": "dnsmasq",
+        "version": "2.92_p2-r0"
+      },
+      {
+        "architecture": "noarch",
+        "commit": "e07ee66304113d2d316dd9946b6e68d90a87b972",
+        "license": "GPL-2.0-or-later",
+        "name": "dnsmasq-common",
+        "version": "2.92_p2-r0"
+      }
+    ],
+    "recipe_sha256": "52a55136087aea9b5c40fceb22c3e407a476a812a6729cc635f86dd0ac74ad8a",
+    "sources": [
+      {
+        "name": "dnsmasq-2.92rel2.tar.xz",
+        "sha512": "607abf33d6eac24eafdff9cd291d84b065354303d5e1d9514d79085b247fb3861ac57851ca1dfc4a5cddd314f8b970d17e93b987b1576e9f6ba1d6bffd42fff1",
+        "url": "https://www.thekelleys.org.uk/dnsmasq/dnsmasq-2.92rel2.tar.xz"
+      },
+      {
+        "name": "0000-underflow.patch",
+        "sha512": "3d2d7bc1199bc15348838ab86a842229c2ae70b46a05d907d0d64d893d5f8a2584e2ba4f80aeb24a7df5e0155bafaa1e99e144ae7965e2f1d5835b50d2e98140",
+        "url": "https://raw.githubusercontent.com/alpinelinux/aports/e07ee66304113d2d316dd9946b6e68d90a87b972/main/dnsmasq/0000-underflow.patch"
+      },
+      {
+        "name": "config.h.patch",
+        "sha512": "d0274417019af84911f3f4a850e785797bdc77732fd93504fe21db7317a874d2ab54bf7a211d000a751cdc43e225a30be4c1a315ab2383fc3fcc619e436aed97",
+        "url": "https://raw.githubusercontent.com/alpinelinux/aports/e07ee66304113d2d316dd9946b6e68d90a87b972/main/dnsmasq/config.h.patch"
+      },
+      {
+        "name": "dnsmasq.conf.patch",
+        "sha512": "41679e0e889607896dcf7fdeb179b9b7a79095c9f86aebda131ac09c12e3ef2a94cece0018ab33ea08d3e6f6bbae44379e9d6fb8987fae29e68ecad952ccdd45",
+        "url": "https://raw.githubusercontent.com/alpinelinux/aports/e07ee66304113d2d316dd9946b6e68d90a87b972/main/dnsmasq/dnsmasq.conf.patch"
+      },
+      {
+        "name": "dnsmasq.initd",
+        "sha512": "0c609a55ca0140d8f31f8f6eb4cb96eca7bc76385d48739998bea926b409f3d72cbfdffc30ad3f9e3a62db4ea3280f7fe6a60a12fc091164814a7cdf6a14b307",
+        "url": "https://raw.githubusercontent.com/alpinelinux/aports/e07ee66304113d2d316dd9946b6e68d90a87b972/main/dnsmasq/dnsmasq.initd"
+      },
+      {
+        "name": "dnsmasq.confd",
+        "sha512": "c6ecec498f07916cd3c5ff183ff2a2ec478cf95ee43c0082d164b548d72b13fc9ba7cfbca9fb50e919e146708b5ce7f3b3a6565b36223c4efe1481172214ad93",
+        "url": "https://raw.githubusercontent.com/alpinelinux/aports/e07ee66304113d2d316dd9946b6e68d90a87b972/main/dnsmasq/dnsmasq.confd"
+      }
+    ]
+  },
   "e2fsprogs": {
     "notices": [
       {

@@ -261,3 +261,29 @@ fn deferred_engine_extensions_validate_versions_shapes_and_correlation() {
         ));
     }
 }
+
+#[test]
+fn validates_native_resolver_routes_before_dispatch() {
+    use marsa_proto::guest::v1::{ConfigureNetwork, DnsRoute, NativeDns};
+    let envelope = |route| HostEnvelope {
+        request_id: 1,
+        body: Some(host_envelope::Body::ConfigureNetwork(ConfigureNetwork {
+            native_dns: Some(NativeDns {
+                routes: vec![route],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })),
+    };
+    let mut route = DnsRoute {
+        domain: "private.test".into(),
+        servers: vec!["192.0.2.53".into()],
+        port: 5353,
+    };
+    assert!(encode_host(&envelope(route.clone())).is_ok());
+    route.port = 65536;
+    assert!(decode_host(&envelope(route.clone()).encode_to_vec()).is_err());
+    route.port = 0;
+    route.domain = "test/\nserver=other".into();
+    assert!(decode_host(&envelope(route).encode_to_vec()).is_err());
+}

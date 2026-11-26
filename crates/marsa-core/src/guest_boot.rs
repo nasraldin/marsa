@@ -10,6 +10,8 @@ use std::{
 const MAX_CMDLINE: usize = 4096;
 /// Maximum number of filesystem shares supported in one VM boot.
 pub const MAX_SHARES: usize = 16;
+/// Optional VZ attachment hint. Older guest parsers ignore this separate kernel namespace.
+pub const NATIVE_NAT_ARG: &str = "marsa_vz.native_nat=1";
 /// Default arguments for the packaged ARM64 Linux image.
 pub const PACKAGED_BOOT_ARGS: &str =
     "console=hvc0 root=/dev/vda rootfstype=erofs ro init=/usr/bin/marsa-init panic=-1";

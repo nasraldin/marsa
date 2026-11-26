@@ -131,7 +131,7 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
 
 ### M4-08 NAT networking, DNS and host names
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-04, M2-07
 - **Docs:** [06 Network modes](../06-networking.md#network-modes), [06 DNS](../06-networking.md#dns), [06 Container to host](../06-networking.md#container-to-host), V-07
 - **Do:** Verify the NAT attachment requirements (V-07). Implement reading the host resolver configuration and pushing DNS to the guest at boot and on network change, and the `host.docker.internal`, `gateway.docker.internal` and `host.marsa.internal` names.
@@ -141,7 +141,7 @@ MACOSX_DEPLOYMENT_TARGET=27.0 cargo test --locked -p marsad --test packaged_runt
   - A container reaches a service listening on the Mac through `host.docker.internal`.
   - Switching Wi-Fi networks restores resolution without a restart.
 
-On November 26, 2026, an explicitly selected native NAT VM pulled BusyBox 1.37.0. The running container resolved the public registry before and after the operator switched the Mac to a second Wi-Fi network. The host changed IPv4 subnets. The container kept its ID and start time and reported zero restarts. The default bridge container had no compatibility host entry, and its DNS gateway returned NXDOMAIN for `host.docker.internal`. An HTTP request to the alias failed at name resolution. An independent request to a temporary HTTP service bound to the Mac’s native NAT gateway address also timed out. A repeat with the system TCP listener served the expected HTTP body by gateway IP. The hostname still requires implementation.
+On November 26, 2026, an explicitly selected native NAT VM pulled BusyBox 1.37.0. The running container resolved the public registry before and after the operator switched the Mac to a second Wi-Fi network. The host changed IPv4 subnets. The container kept its ID and start time and reported zero restarts. The default bridge container had no compatibility host entry, and its DNS gateway returned NXDOMAIN for `host.docker.internal`. An HTTP request to the alias failed at name resolution. An independent request to a temporary HTTP service bound to the Mac’s native NAT gateway address also timed out. A repeat with the system TCP listener served the expected HTTP body by gateway IP. The subsequent fix supplies the native gateway aliases to both Docker bridge resolvers. The signed packaged regression pulled the pinned BusyBox image, verified the alias A record over TCP, resolved the public registry and fetched an HTTP response through each alias from both bridge types. A running container retained its ID and resolved all three aliases and the registry after a physical Wi-Fi handoff. Its host HTTP request succeeded after the handoff.
 
 ### M4-09 Port forwarder
 

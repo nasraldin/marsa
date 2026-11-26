@@ -47,6 +47,8 @@ mod disk_schema;
 mod factory;
 #[path = "packaged_runtime/memory_policy.rs"]
 mod memory_policy;
+#[path = "packaged_runtime/native_dns.rs"]
+mod native_dns;
 #[path = "packaged_runtime/network_mode.rs"]
 mod network_mode;
 #[path = "packaged_runtime/recovery.rs"]

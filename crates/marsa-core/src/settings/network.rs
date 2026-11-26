@@ -34,6 +34,12 @@ pub struct NetworkSettings {
 
 impl NetworkSettings {
     pub(super) fn validate(&self) -> Result<(), SettingsError> {
+        if self.dns.len() > 16 {
+            return Err(SettingsError::invalid(
+                "network.dns",
+                "allows up to 16 resolver addresses",
+            ));
+        }
         validate_proxy("network.proxy.http", self.proxy.http.as_deref())?;
         validate_proxy("network.proxy.https", self.proxy.https.as_deref())?;
         Ok(())

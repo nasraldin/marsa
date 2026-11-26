@@ -160,3 +160,18 @@ async fn rejects_share_redirects_and_unapproved_mount_arguments() {
         })
     ));
 }
+
+#[tokio::test]
+async fn attachment_hint_is_owned_by_the_backend() {
+    let scratch = tempfile::tempdir().unwrap();
+    let mut spec = write_spec(scratch.path());
+    spec.cmdline.push_str(" marsa_vz.native_nat=1");
+    spec.network = marsa_vm::NetworkSpec::Userspace;
+    assert!(matches!(
+        VzHypervisor.create(spec).await,
+        Err(VmError::InvalidSpec {
+            field: "cmdline",
+            ..
+        })
+    ));
+}

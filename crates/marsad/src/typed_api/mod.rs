@@ -18,6 +18,7 @@ mod inventory_events;
 #[cfg(target_os = "macos")]
 pub mod menu_bar;
 mod meta;
+mod native_dns;
 mod network;
 mod proxy_activation;
 mod proxy_policy;
@@ -200,21 +201,46 @@ impl TypedApi {
     /// The source closes when its watcher is dropped. Each sleep notification is
     /// acknowledged to the watcher once the supervisor finishes handling it.
     pub async fn watch_host_events(&self, mut source: mpsc::UnboundedReceiver<HostNotification>) {
-        while let Some(notification) = source.recv().await {
-            let event = notification.event;
-            self.inner.events.host(event.into());
-            if let Some(supervisor) = &self.supervisor {
-                let result = match event {
-                    HostEvent::WillSleep => supervisor.host_will_sleep().await,
-                    HostEvent::Woke => supervisor.host_woke().await,
-                    HostEvent::NetworkChanged => Ok(()),
-                };
-                if let Err(error) = result {
-                    tracing::warn!(?event, %error, "host power change failed");
+        let (refresh, mut pending) = watch::channel(());
+        let receive = async move {
+            while let Some(mut notification) = source.recv().await {
+                notification.begin();
+                let event = notification.event;
+                self.inner.events.host(event.into());
+                if let Some(supervisor) = &self.supervisor {
+                    let result = match event {
+                        HostEvent::WillSleep => supervisor.host_will_sleep().await,
+                        HostEvent::Woke => {
+                            let result = supervisor.host_woke().await;
+                            if result.is_ok() {
+                                refresh.send_replace(());
+                            }
+                            result
+                        }
+                        HostEvent::NetworkChanged => {
+                            refresh.send_replace(());
+                            Ok(())
+                        }
+                    };
+                    if let Err(error) = result {
+                        tracing::warn!(?event, %error, "host power change failed");
+                    }
+                }
+                notification.finish();
+            }
+        };
+        // Resolver snapshots and guest replies can outlast an IOKit sleep
+        // acknowledgement. Serialize DNS changes on their own coalescing queue.
+        let apply = async {
+            while pending.changed().await.is_ok() {
+                if let Some(supervisor) = &self.supervisor
+                    && let Err(error) = self.refresh_native_dns(supervisor).await
+                {
+                    tracing::warn!(%error, "native resolver refresh failed");
                 }
             }
-            notification.finish();
-        }
+        };
+        tokio::join!(receive, apply);
     }
 
     /// Install the runtime used by the bundled daemon.
@@ -290,8 +316,7 @@ impl TypedApi {
                 .map_err(io::Error::other)?,
             );
             let automatic = select_network(&effective, &mut spec, backend.capabilities());
-            let network_policy = proxy_policy::BootProxy::from_draft(&effective.network.proxy)?
-                .guest_configuration();
+            let network_policy = native_dns::configuration(&effective.network, spec.network)?;
             let bus = settings.clone();
             Ok(Launch {
                 backend,

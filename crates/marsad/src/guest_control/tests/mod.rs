@@ -560,3 +560,47 @@ async fn approved_proxy_rejects_legacy_guest_before_acknowledging_startup() {
         .await;
     assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::Unsupported));
 }
+
+#[test]
+fn native_dns_negotiation_preserves_legacy_local_docker_and_explicit_policy() {
+    use marsa_proto::guest::v1::{ConfigureNetwork, DnsRoute, NativeDns};
+    let mut policy = ConfigureNetwork {
+        dns_servers: vec!["192.0.2.53".into()],
+        native_dns: Some(NativeDns {
+            routes: vec![DnsRoute {
+                domain: "corp.test".into(),
+                servers: vec!["10.0.0.53".into()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert!(
+        super::boot_policy(Some(policy.clone()), 0)
+            .unwrap()
+            .is_none()
+    );
+    let legacy = super::boot_policy(Some(policy.clone()), 1)
+        .unwrap()
+        .unwrap();
+    assert!(legacy.native_dns.is_none());
+    assert_eq!(legacy.dns_servers, ["0.0.0.0"]);
+    policy.native_dns = Some(NativeDns {
+        explicit_servers: true,
+        ..Default::default()
+    });
+    assert_eq!(
+        super::boot_policy(Some(policy.clone()), 0)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::Unsupported
+    );
+    assert_eq!(
+        super::boot_policy(Some(policy), 1)
+            .unwrap()
+            .unwrap()
+            .dns_servers,
+        ["192.0.2.53"]
+    );
+}

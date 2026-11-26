@@ -157,6 +157,17 @@ fn network(message: &ConfigureNetwork) -> Result<(), ProtocolError> {
     for value in &message.search_domains {
         domain(value, "search_domain")?;
     }
+    if let Some(native) = &message.native_dns {
+        check(native.routes.len() <= 64, "dns_routes")?;
+        for route in &native.routes {
+            domain(&route.domain, "dns_route_domain")?;
+            check(route.servers.len() <= 16, "dns_route_servers")?;
+            check(route.port <= u32::from(u16::MAX), "dns_route_port")?;
+            for server in &route.servers {
+                ip_address(server, "dns_route_server")?;
+            }
+        }
+    }
     check(message.host_aliases.len() <= 32, "host_aliases")?;
     for alias in &message.host_aliases {
         domain(&alias.name, "host_alias_name")?;

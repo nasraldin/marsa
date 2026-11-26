@@ -85,7 +85,9 @@ pub(super) fn daemon_config(
         })
         .collect::<io::Result<BTreeSet<_>>>()?;
     if gateway.is_empty() {
-        updated.remove("host-gateway-ips");
+        if request.native_dns.is_none() {
+            updated.remove("host-gateway-ips");
+        }
     } else {
         let ipv4 = gateway.iter().filter(|address| address.is_ipv4()).count();
         let ipv6 = gateway.len() - ipv4;
@@ -158,6 +160,7 @@ mod tests {
     #[test]
     fn applies_aliases_and_keeps_security_options() {
         let request = ConfigureNetwork {
+            native_dns: None,
             dns_servers: vec!["1.1.1.1".into()],
             search_domains: vec!["corp.example".into()],
             host_aliases: vec![HostAlias {

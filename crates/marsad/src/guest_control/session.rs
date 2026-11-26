@@ -53,6 +53,7 @@ enum ResultType {
 }
 
 pub(super) struct Client {
+    pub(super) minor: u32,
     queue: mpsc::Sender<Request>,
     next_id: AtomicU64,
 }
@@ -136,7 +137,7 @@ impl Session {
         stream: VsockStream,
         active: watch::Sender<Weak<Client>>,
         events: EventBus,
-        deferred: bool,
+        minor: u32,
         clock: fn() -> SystemTime,
     ) -> Self {
         let (queue, requests) = mpsc::channel(REQUEST_CAPACITY);
@@ -145,6 +146,7 @@ impl Session {
         let (publish_failure, failure) = watch::channel(None);
         let client = Arc::new(Client {
             queue,
+            minor,
             next_id: AtomicU64::new(1),
         });
         let events = events.session(active.clone(), Arc::downgrade(&client));
@@ -163,7 +165,7 @@ impl Session {
             worker,
             bind_worker: None,
             events,
-            deferred,
+            deferred: minor >= marsa_proto::guest::DEFER_ENGINE_START_MINOR,
             clock,
         }
     }
@@ -477,6 +479,7 @@ mod tests {
         let client = || {
             Arc::new(Client {
                 queue: mpsc::channel(1).0,
+                minor: 0,
                 next_id: AtomicU64::new(1),
             })
         };

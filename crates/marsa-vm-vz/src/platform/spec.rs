@@ -109,7 +109,21 @@ fn prepare_shares(spec: &mut VmSpec) -> Result<Settings, VmError> {
             "guest mounts are constructed from the VM shares",
         ));
     }
+    if spec
+        .cmdline
+        .split_ascii_whitespace()
+        .any(|arg| arg.starts_with("marsa_vz.native_nat="))
+    {
+        return Err(invalid_spec(
+            "cmdline",
+            "the VM attachment determines the native DNS configuration",
+        ));
+    }
     let mut arguments = String::new();
+    if spec.network == marsa_vm::NetworkSpec::Nat {
+        arguments.push(' ');
+        arguments.push_str(marsa_core::guest_boot::NATIVE_NAT_ARG);
+    }
     for share in &spec.shares {
         append_share_argument(&mut arguments, share)?;
     }
