@@ -56,3 +56,17 @@ G3 requires a second physical Apple silicon Mac with no developer tools or previ
 | M3-17 | All ten supervisor maintenance tests passed. They covered exclusive admission, stale revision, ordinary lifecycle and Docker gates, cancellation, candidate cleanup, suppression of retries and restoration of ordinary admission. |
 | M3-18 | The Guest Agent responded on disposable clones of each of the three local Tart baselines. All reported macOS 26.6.2 with Gatekeeper enabled. The public release offers a beta DMG and checksums. The M3-10 signed qualification ZIP was absent from the searched project, download and desktop locations. This run did not repeat the macOS 27+ first-launch qualification. |
 | M3-19 | A signed packaged regression fixture ran identical 2-CPU, 1 GiB RAM, 64 GiB disk settings for fresh and interrupted first starts. Userspace reached Ready in 10.809 s and 10.592 s respectively. Auto reached Ready in 12.351 s and 14.163 s. Cancellation followed the guest mount stage, retained the sparse inode, and each completed run shut down. The Linux disk tests also rejected ambiguous filesystems and nonzero data beyond the first MiB and at the end of a partial scan chunk. Guest manifest source was 9dfb4c63, Linux 7.3.5, Alpine 3.24.4 and Docker 29.10.0. |
+
+## Docker integration acceptance replay
+
+| Task | Result on this Mac |
+|---|---|
+| M4-01 | The packaged proxy served Docker version, build, interactive run and exec, log follow and attach. A 2,215,736,832-byte save increased measured daemon RSS by 16 KiB. After 140 canceled follow requests the upstream bridge still served clients. |
+| M4-02 | Ten concurrent Docker CLI calls joined one cold activation. Running, paused and restarting containers deferred idle stop. The VM stopped once the workload stopped, then a new Docker request started it again. |
+| M4-03 | The staged binaries reported Docker 29.10.0, Compose 5.8.0, Buildx 0.39.1 and credential helper 0.9.13. The workspace checksum-mismatch test verified failure without publishing a bundle. |
+| M4-04 | The production Settings client created the system link under native macOS authorization, checked its destination and root ownership, and removed it. The test started and finished with no system link. The private fixture socket retained its inode. |
+| M4-05 | Nine share-policy tests passed, including path traversal, aliases, protected ancestors and descendants, APFS alternate paths and the absence of a settings override. |
+| M4-06 | Signed packaged bind-approval tests passed alongside the interactive Docker tests. They covered ownership, denial, session expiry and persistent approval. |
+| M4-07 | The packaged daemon initialized the private sparse disk, reported guest and host usage, and toggled Time Machine exclusion. In a separate run a named volume survived SIGKILL and the recovered guest filesystem grew from 1,020,702,720 to 2,077,073,408 bytes. |
+| M4-08 | A public image pull and live DNS resolution across a physical Wi-Fi change passed on native NAT. The same container failed to resolve the host alias. The milestone task records the separate host-service probe. |
+| M4-19 | The Compose Watch fixture served updated content and delivered a Hugo LiveReload frame for an ordinary save and an atomic replacement. The original process survived and ignored and out-of-scope files remained absent. |
