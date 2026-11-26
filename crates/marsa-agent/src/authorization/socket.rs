@@ -50,8 +50,11 @@ mod tests {
         let fixture = tempfile::tempdir().unwrap();
         let root = fixture.path();
         let owner = root.metadata().unwrap().uid();
-        fs::create_dir(root.join("run")).unwrap();
-        fs::create_dir(root.join("var")).unwrap();
+        for name in ["run", "var"] {
+            let directory = root.join(name);
+            fs::create_dir(&directory).unwrap();
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o755)).unwrap();
+        }
         symlink("../run", root.join("var/run")).unwrap();
         let path = root.join("run/docker.sock");
 
