@@ -1,0 +1,6 @@
+{
+  "name": "Marsa conformance",
+  "build": { "dockerfile": "Dockerfile" },
+  "workspaceFolder": "/workspaces/sample",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/sample,type=bind"
+}

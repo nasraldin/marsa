@@ -1,0 +1,19 @@
+services:
+  upstream:
+    image: ${MARSA_CONFORMANCE_IMAGE:?build the offline conformance image}
+    command: ["sh", "-ec", "sleep 2; echo upstream-ready > /tmp/ready; exec sleep 300"]
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/ready"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+  client:
+    image: ${MARSA_CONFORMANCE_IMAGE}
+    depends_on:
+      upstream:
+        condition: service_healthy
+    command: ["sh", "-ec", "ping -c 1 -W 2 upstream >/dev/null; echo client-reached-upstream; exec sleep 300"]
+  optional:
+    profiles: ["extra"]
+    image: ${MARSA_CONFORMANCE_IMAGE}
+    command: ["sleep", "300"]

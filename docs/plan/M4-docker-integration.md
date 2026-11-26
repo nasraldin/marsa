@@ -249,7 +249,7 @@ dedicated-account test exercises both parts on one Mac. [Reproduction](../../cra
 
 ### M4-14 Conformance suite (gate G4)
 
-- **Status:** todo
+- **Status:** in progress
 - **Depends on:** M4-02, M4-06, M4-07, M4-09, M4-10, M4-11, M4-12, M4-13, M4-19
 - **Docs:** [09 Compatibility checklist](../09-cli-and-docker-compat.md#compatibility-checklist), [13 System tests](../13-testing-and-benchmarks.md#system-tests-real-vm)
 - **Do:** Build the automated conformance suite covering every line of the compatibility checklist with the real `docker` CLI and Compose, at least one Testcontainers suite per listed language, and a Dev Containers open-and-build check. Assert the documented intended differences return their explicit errors.
