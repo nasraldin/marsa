@@ -201,6 +201,7 @@ D-039 supersedes the original Linux workload restriction below. The Apple silico
 - **Why:** The owner requires current stable dependencies. Kernel.org identified 7.3.5 as its latest stable release on 2026-11-21. The build uses kernel.org’s published SHA-256, and M2-02 validates the minimal configuration and boots the result. [Upstream releases](https://www.kernel.org/releases.json).
 - **Consequence:** Update the exact release and checksum together. Verify the Docker configuration requirements and boot the pinned kernel before shipping an update.
 - **Date and task:** 2026-11-21, M2-01.
+- **2026-11-26 update (M3-19):** Advance the pin to Linux 7.3.6 with the upstream source checksum and direct I/O during blank-disk verification. [Boot qualification](plan/M3-vm-and-daemon.md#m3-19-qualify-default-capacity-cold-boot)
 
 ## D-026 Use EROFS for the guest root filesystem
 

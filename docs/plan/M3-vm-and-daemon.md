@@ -276,7 +276,7 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
 
 ### M3-19 Qualify default-capacity cold boot
 
-- **Status:** in progress
+- **Status:** done
 - **Depends on:** M3-12
 - **Docs:** [03 VM lifecycle](../03-host-daemon.md#vm-lifecycle), [07 Data disk](../07-file-sharing-and-storage.md#data-disk)
 - **Do:** Diagnose and eliminate timing failures when the packaged VM starts with a new default 64 GiB data disk, including after cancellation of a first start. Record preparation, agent connection and Docker readiness separately. Preserve the complete blank-device verification for disks of unknown provenance.
@@ -286,13 +286,22 @@ Project custody and update-key ownership remain tracked by Q-04. [Tart nested vi
   - Existing foreign and nonblank disks still fail closed without being formatted.
   - The qualification documents the tested pinned guest and uses the same settings in the fresh and interrupted cases. Include the factory memory policy. Check the complete guest console across automatic retries for kernel faults.
 
+The pinned Linux 7.3.6 guest uses aligned direct I/O on the validated disk
+descriptor for the full blank scan. A buffered scan faulted in kernel
+readahead on the same kernel image. Three signed six-case runs with direct
+I/O passed on Mac15,11 with the factory memory policy. In the third run,
+all six reached Ready in 11.2–14.7 s with clean ext4 shutdown. The consoles
+showed one boot for fresh starts and two for intentional interruptions.
+The guest also refused a partitioned disk and a disk with data only in its
+final sector, preserving both images byte for byte. The underlying kernel
+defect remains unidentified.
+
 On November 26, five fresh profiles using factory settings on a Mac15,11
 (2 guest CPUs, 8 GiB guest RAM, 64 GiB sparse disk) each reached Docker
 Ready and stopped. One console recorded a Linux 7.3.5 kernel fault during
 disk preparation, followed by a second kernel boot before Ready. The other
 four consoles had no kernel fault. The earlier 1 GiB results below qualify
-that configuration. Factory startup needs a verified guest fix and another
-fresh and interrupted boot qualification. Automatic recovery can mask the
+that configuration. This observation prompted the factory-size qualification above. Automatic recovery can mask the
 first failed boot in the final CLI exit status.
 
 A separately built Linux 7.3.6 stable candidate, checked against the

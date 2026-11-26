@@ -78,7 +78,7 @@ G3 requires a second physical Apple silicon Mac with no developer tools or previ
 | Milestone | Evidence and remaining acceptance work |
 |---|---|
 | M0–M2 | All 26 task records are complete. The foundation, spike and guest checks above describe the local runs. The current CI result is separate. |
-| M3 | Factory-setting boots exposed a guest kernel fault even when the CLI ultimately reached Ready. M3-19 is reopened. G3 still requires the signing custody decision and a clean second Mac. |
+| M3 | Factory-setting boots exposed a guest kernel fault even when the CLI ultimately reached Ready. M3-19 subsequently passed factory-size fresh and interrupted boots with the direct-I/O fix on Linux 7.3.6. G3 still requires the signing custody decision and a clean second Mac. |
 | M4 | The packaged workflow verified the chosen DNS server from a new container after both activation and rollback. G4 awaits the deferred private runner. D-040 defers runtime SSH until its trust model is approved. |
 | M5 | In a fresh macOS profile, the CLI started the signed daemon’s VM, exported a working Docker endpoint and stopped the VM. JSON responses for stopped and running status, network, disk, settings, shares, logs, cleanup preview and diagnostics validated against the published schema. The daemon rejected an invalid CPU count and a protected share. Adding and removing an ordinary folder preserved the CPU setting. M5-12 still requires conditional deletion in the engine. |
 | M6 | The local desktop and UI suites exercised the image-details keyboard trigger and verified 100 committed component references. Production keyboard, IME and spoken VoiceOver qualification remains M6-08. |

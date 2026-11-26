@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Instant;
 
-use nix::fcntl::OFlag;
+use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::sys::stat::{major, minor};
 
 use super::MOUNT_TARGETS;
@@ -19,6 +19,8 @@ pub(super) const DEVICE_PATH: &str = "/dev/vdb";
 const BLANK_SCAN_CHUNK: usize = 1024 * 1024;
 const BLANK_SCAN_WORKERS: usize = 4;
 const SECTOR_BYTES: u64 = 512;
+// The guest uses 4 KiB pages. This also aligns transfers for 512-byte virtio sectors.
+const DIRECT_ALIGNMENT: usize = 4096;
 const SYSFS_DEVICE: &str = "/sys/block/vdb";
 
 /// Ensure ext4 is ready to mount and report whether its capacity can grow.
@@ -44,7 +46,12 @@ pub(super) fn prepare(verify_existing: impl FnOnce() -> io::Result<()>) -> io::R
         Some(2) => {
             let scan_started = Instant::now();
             eprintln!("marsa-init: data disk blank scan started bytes={bytes}");
+            // A one-pass check of a raw disk has no reusable page-cache contents.
+            // Switch the validated descriptor itself so the scan cannot race a reopen.
+            let flags = OFlag::from_bits_retain(fcntl(&device, FcntlArg::F_GETFL)?);
+            fcntl(&device, FcntlArg::F_SETFL(flags | OFlag::O_DIRECT))?;
             let blank = is_blank(bytes, |buffer, offset| device.read_exact_at(buffer, offset))?;
+            fcntl(&device, FcntlArg::F_SETFL(flags))?;
             eprintln!(
                 "marsa-init: data disk blank scan completed duration_ms={} blank={blank}",
                 scan_started.elapsed().as_millis()
@@ -177,7 +184,8 @@ fn is_blank(
 ) -> io::Result<bool> {
     // Keep only a fixed number of outstanding reads. Each worker owns a
     // contiguous range and the last one includes the final sector.
-    let stride = bytes / BLANK_SCAN_WORKERS as u64 / SECTOR_BYTES * SECTOR_BYTES;
+    let stride =
+        bytes / BLANK_SCAN_WORKERS as u64 / BLANK_SCAN_CHUNK as u64 * BLANK_SCAN_CHUNK as u64;
     let nonblank = AtomicBool::new(false);
     thread::scope(|scope| {
         let mut scans = Vec::with_capacity(BLANK_SCAN_WORKERS);
@@ -210,7 +218,9 @@ fn scan_range(
     read: impl Fn(&mut [u8], u64) -> io::Result<()>,
 ) -> io::Result<()> {
     // A probe without a recognized signature can still contain user data.
-    let mut buffer = vec![0; BLANK_SCAN_CHUNK];
+    let mut storage = vec![0; BLANK_SCAN_CHUNK + DIRECT_ALIGNMENT - 1];
+    let start = storage.as_ptr().align_offset(DIRECT_ALIGNMENT);
+    let buffer = &mut storage[start..start + BLANK_SCAN_CHUNK];
     while offset < end && !nonblank.load(Ordering::Relaxed) {
         let chunk = (end - offset).min(buffer.len() as u64) as usize;
         read(&mut buffer[..chunk], offset)?;
@@ -291,6 +301,30 @@ mod tests {
         assert!(scan_bytes(&disk, disk.len() as u64).unwrap());
         disk[last_byte] = 1;
         assert!(!scan_bytes(&disk, disk.len() as u64).unwrap());
+    }
+
+    #[test]
+    fn direct_scan_aligns_all_reads_and_covers_the_final_sector() {
+        let capacity = (BLANK_SCAN_CHUNK * 7 + 512) as u64;
+        let ranges = std::sync::Mutex::new(Vec::new());
+        assert!(
+            is_blank(capacity, |buffer, offset| {
+                assert!(buffer.as_ptr().addr().is_multiple_of(DIRECT_ALIGNMENT));
+                assert!(offset.is_multiple_of(DIRECT_ALIGNMENT as u64));
+                assert!(buffer.len().is_multiple_of(SECTOR_BYTES as usize));
+                ranges
+                    .lock()
+                    .unwrap()
+                    .push((offset, offset + buffer.len() as u64));
+                Ok(())
+            })
+            .unwrap()
+        );
+        let mut ranges = ranges.into_inner().unwrap();
+        ranges.sort_unstable();
+        assert_eq!(ranges.first().unwrap().0, 0);
+        assert_eq!(ranges.last().unwrap().1, capacity);
+        assert!(ranges.windows(2).all(|pair| pair[0].1 == pair[1].0));
     }
 
     #[test]

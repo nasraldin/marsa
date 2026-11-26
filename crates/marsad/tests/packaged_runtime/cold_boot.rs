@@ -86,8 +86,15 @@ async fn default_capacity_after_interrupted_first_start() {
             let started_at = Instant::now();
             let ready = timeout(Duration::from_secs(75), engine.start(action(4)))
                 .await
-                .unwrap_or_else(|_| panic!("boot exceeded 75 s: {}", boot_stages(&paths)))
-                .unwrap();
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "{mode:?} {first:?} boot exceeded 75 s: {}",
+                        boot_stages(&paths)
+                    )
+                })
+                .unwrap_or_else(|error| {
+                    panic!("{mode:?} {first:?} start: {error}: {}", boot_stages(&paths))
+                });
             assert_eq!(ready.into_inner().state(), EngineState::Ready);
             eprintln!("{mode:?} first={first:?} ready={:?}", started_at.elapsed());
             assert_eq!(fs::metadata(&disk).unwrap().len(), 64 * GIB);
@@ -105,31 +112,57 @@ async fn default_capacity_after_interrupted_first_start() {
                 console.contains("marsa-init stage=agent"),
                 "missing guest boot evidence"
             );
-            for marker in [
-                "Internal error: Oops",
-                "Kernel panic",
-                "Fixing recursive fault",
-            ] {
-                assert!(
-                    !console.contains(marker),
-                    "guest kernel fault during {mode:?} first={first:?}: {marker}"
-                );
+            if let Some(fault) = first_kernel_fault(&console) {
+                panic!("guest kernel fault during {mode:?} first={first:?}: {fault}");
             }
+            let boots = console
+                .lines()
+                .filter(|line| line.starts_with("Linux version "))
+                .count();
+            assert_eq!(
+                boots,
+                if interrupted { 2 } else { 1 },
+                "unexpected reboot during {mode:?} {first:?}"
+            );
         }
     }
 }
 
 fn boot_stages(paths: &MarsaPaths) -> String {
-    fs::read_to_string(paths.console_log())
-        .unwrap_or_default()
+    let console = fs::read_to_string(paths.console_log()).unwrap_or_default();
+    let stages = console
         .lines()
-        .filter(|line| {
-            line.starts_with("marsa-init")
-                || line.starts_with("Linux version ")
-                || line.starts_with("Internal error:")
-                || line.starts_with("Kernel panic")
-        })
+        .filter(|line| line.starts_with("marsa-init") || line.starts_with("Linux version "))
         .take(80)
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+    match first_kernel_fault(&console) {
+        Some(fault) => format!("{stages}\n{fault}"),
+        None => stages,
+    }
+}
+
+fn first_kernel_fault(console: &str) -> Option<&str> {
+    console.lines().find(|line| {
+        [
+            "refcount_t:",
+            "Internal error: Oops",
+            "Kernel panic",
+            "Fixing recursive fault",
+            "BUG:",
+            "Unable to handle kernel",
+        ]
+        .iter()
+        .any(|marker| line.starts_with(marker))
+    })
+}
+
+#[test]
+fn recovered_boot_retains_the_first_fault() {
+    let console = "marsa-init: data disk blank scan started\nrefcount_t: underflow\nInternal error: Oops\nLinux version 7.3.6\nmarsa-init stage=agent";
+    assert_eq!(first_kernel_fault(console), Some("refcount_t: underflow"));
+    assert_eq!(
+        first_kernel_fault("DEBUG: engine started\nmarsa-init stage=agent"),
+        None
+    );
 }
